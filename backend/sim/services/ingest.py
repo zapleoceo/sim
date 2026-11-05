@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +30,18 @@ log = logging.getLogger(__name__)
 REF_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 ECHO_WINDOW = timedelta(minutes=10)
 EDIT_PREFIX = "[изменено] "
+# Channel handoff: the persona sends the client a link that carries the ref code (`#code` in a
+# WhatsApp / Telegram-user text, `/start code` for the Telegram bot).
+REF_IN_TEXT = re.compile(
+    rf"(?:/start\s+|#)([{REF_ALPHABET}]{{8}})(?![{REF_ALPHABET}])", re.IGNORECASE
+)
+HANDOFF_PLACEHOLDER = "[перешёл по персональной ссылке из другого канала]"
+
+
+def phone_variants(phone: str | None) -> list[str]:
+    """Phones are stored as +<digits>, but older rows may lack the plus."""
+    digits = re.sub(r"\D", "", phone or "")
+    return [digits, f"+{digits}"] if len(digits) >= 7 else []
 
 
 @dataclass(frozen=True)
@@ -73,7 +86,10 @@ class IngestService:
         if msg.is_edit:
             return await self.ingest_edit(dialog, msg)
 
-        client = dialog.client if dialog else await self.find_or_create_client(channel, msg)
+        if dialog:
+            client = dialog.client
+        else:
+            client, msg = await self.resolve_client(channel, msg)
         if dialog is None:
             dialog = await self.dialogs.add(
                 Dialog(
@@ -125,6 +141,47 @@ class IngestService:
         )
 
     # ---- pieces --------------------------------------------------------------------------
+    async def resolve_client(
+        self, channel: Channel, msg: InboundMessage
+    ) -> tuple[Client, InboundMessage]:
+        """The client for a NEW dialog. A lead stays with the persona it came to: a new identity
+        is attached to an existing client of the SAME persona when its first message carries that
+        client's ref code, or when the phone is the same; otherwise a new client is created.
+        Returns the (possibly code-stripped) message."""
+        known = await self.clients.by_identity(channel.id, msg.external_user_id)
+        if known:
+            return known, msg
+        match = REF_IN_TEXT.search(msg.text or "")
+        if match:
+            owner = await self.clients.by_ref(match.group(1).lower())
+            if owner is not None and await self.can_attach(owner, channel):
+                stripped = (msg.text[: match.start()] + msg.text[match.end():]).strip()
+                msg = replace(msg, text=stripped or (HANDOFF_PLACEHOLDER if not msg.media_kind else ""))
+                return await self.attach(owner, channel, msg), msg
+        for phone in phone_variants(msg.phone):
+            owner = await self.clients.by_phone(channel.persona_id, phone)
+            if owner is not None and await self.can_attach(owner, channel):
+                return await self.attach(owner, channel, msg), msg
+        return await self.find_or_create_client(channel, msg), msg
+
+    async def can_attach(self, owner: Client, channel: Channel) -> bool:
+        """Same persona only, and never onto a client who already has an identity on this very
+        channel (that would be a different person)."""
+        if owner.persona_id != channel.persona_id:
+            return False
+        return all(i.channel_id != channel.id for i in await self.clients.identities_of(owner.id))
+
+    async def attach(self, client: Client, channel: Channel, msg: InboundMessage) -> Client:
+        await self.clients.add_identity(client, channel.id, channel.kind, msg.external_user_id)
+        if msg.phone and not client.phone:
+            client.phone = msg.phone
+        if msg.user_handle and not client.handle:
+            client.handle = msg.user_handle.lstrip("@")[:120]
+        for dialog in await self.dialogs.for_client(client.id):
+            await self.followups.cancel(dialog.id)  # the client is talking to us elsewhere now
+        log.info("client %s: identity on channel %s attached", client.id, channel.id)
+        return client
+
     async def find_or_create_client(self, channel: Channel, msg: InboundMessage) -> Client:
         client = await self.clients.by_identity(channel.id, msg.external_user_id)
         if client:

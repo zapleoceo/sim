@@ -35,6 +35,21 @@ class ClientRepo(Repository[Client]):
             .where(ClientIdentity.channel_id == channel_id, ClientIdentity.external_id == external_id)
         )
 
+    async def by_phone(self, persona_id: int, phone: str) -> Client | None:
+        return await self.session.scalar(
+            select(Client)
+            .where(Client.persona_id == persona_id, Client.phone == phone)
+            .order_by(Client.id)
+            .limit(1)
+        )
+
+    async def identities_of(self, client_id: int) -> Sequence[ClientIdentity]:
+        return (
+            await self.session.scalars(
+                select(ClientIdentity).where(ClientIdentity.client_id == client_id)
+            )
+        ).all()
+
     async def add_identity(
         self, client: Client, channel_id: int, kind: ChannelKind, external_id: str
     ) -> ClientIdentity:
