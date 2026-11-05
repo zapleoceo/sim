@@ -88,11 +88,18 @@ backend/sim/
 
 ```
 канал ──webhook/poll──▶ ingest ──▶ message(in) + job(reply, run_at=now+debounce)
-worker ──▶ job(reply): ai_paused? → стоп
-                     conversation: промпт → Broker → {reply, stage, needs, next_step, handoff}
-                     funnel.advance(...) ; outbound.send(reply, delay)
-оператор в админке ──▶ outbound.send(manual) (ИИ на этом диалоге ставится на паузу)
+                                   └▶ job(media) для вложения (webhook сети не трогает)
+worker ──▶ job(media): channel port.download_media(ref) → файл; голос → Broker transcribe → text
+worker ──▶ job(reply): ai_paused? → стоп; открытый media-job диалога → ждать (повтор через 3 с)
+                     один reply на диалог (advisory lock); промпт → Broker → {reply, stage, ...}
+                     пришло новое сообщение клиента за время вызова → ответ отбрасывается,
+                     следующий job отвечает с полным контекстом
+                     funnel.advance(...) ; outbound.queue_ai(reply, delay) → job(send)
+оператор в админке ──▶ outbound.send(manual): ИИ на паузе, неотправленные ответы ИИ отменяются
 ```
+
+Правки сообщений Telegram (`edited_message`) сохраняются с пометкой «[изменено]», но нового
+ответа ИИ не вызывают. Правка approved/scheduled поста оператором (не owner) возвращает его в `draft`.
 
 Ответ модели — JSON (`response_format: json_object`). Если JSON не разобрался — один повтор, затем
 диалог помечается для оператора, клиенту ничего не уходит.
@@ -120,7 +127,11 @@ worker ──▶ job(reply): ai_paused? → стоп
 - Webhook Telegram: проверка `X-Telegram-Bot-Api-Secret-Token` (секрет на канал).
 - Webhook Evolution: доступен только из docker-сети, nginx не проксирует `/hooks/evolution`.
 - Webhook партнёра: HMAC-SHA256 тела, секрет в env, защита от replay (timestamp ± 5 мин).
-- Логин: rate limit, одинаковое сообщение на неверный логин/пароль.
+- Логин: rate limit по паре (логин, IP) и по IP (по логину отдельно лимита нет — иначе чужой может
+  заблокировать владельца). IP клиента берётся из `X-Real-IP`/`X-Forwarded-For` только если TCP-пир
+  входит в `SIM_TRUSTED_PROXIES` (по умолчанию `127.0.0.1,::1,172.16.0.0/12`: nginx + docker-шлюз).
+  Одинаковое сообщение на неверный логин/пароль.
+- В `SIM_ENV=prod` `/api/docs` и `/api/openapi.json` отключены.
 - Все запросы к БД — через ORM/параметры; входящий текст клиента идёт в промпт только как
   user-сообщение, не в system (защита от prompt injection в персону).
 - В логах нет секретов и полных текстов учётных данных.

@@ -55,15 +55,16 @@ rules: string[], followup_hours: number[], reply_delay_s: [min, max], created_at
 ## Диалоги (единый инбокс WA + TG + IG)
 | Метод | Путь | Параметры / тело | Ответ |
 |---|---|---|---|
-| GET | `/api/dialogs` | `channel_kind?, persona_id?, stage?, status?, q?, unread_only?` | `{items: DialogRow[], total}` |
+| GET | `/api/dialogs` | `channel_kind?, persona_id?, stage?, status?, q?, unread_only?, needs_operator?` (только диалоги, где ИИ передал/не справился) | `{items: DialogRow[], total}` |
 | GET | `/api/dialogs/{id}` | — | `{dialog, client, messages: Message[]}` |
 | POST | `/api/dialogs/{id}/messages` | `{text}` | `Message` (оператор; ИИ этого диалога ставится на паузу) |
-| POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` |
+| POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`) |
+| POST | `/api/dialogs/{id}/resolve` | — | `Dialog` — снимает `needs_operator`, не меняя паузу ИИ. Флаг также снимается ответом оператора и возобновлением ИИ |
 | POST | `/api/dialogs/{id}/read` | — | `204` |
 
 `DialogRow`: `{id, channel_kind, persona: {id, name, avatar_url}, client: {id, display_name, avatar_url, stage, status},
 last_message: {text, direction, at}, unread: number, ai_paused}`.
-`Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed", model?}`.
+`Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed"|"cancelled", model?}`. `cancelled` — ответ ИИ не отправлен, потому что диалог перешёл к человеку (оператор/владелец написал, пауза ИИ) или клиент отказался.
 
 ## Клиенты
 | Метод | Путь | Тело | Ответ |
@@ -120,6 +121,6 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 | GET | `/api/health` | `{ok, db, broker, version}` |
 
 ## Дополнения реализации (аддитивные поля)
-`DialogRow.needs_operator`, `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
-`Client.ref_code`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
+`DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
+`Client.ref_code`, `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
