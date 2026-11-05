@@ -29,5 +29,5 @@ echo "== up"
 ssh "$HOST" "cd $DEST/infra && docker compose build && docker compose up -d --remove-orphans && docker compose ps"
 
 echo "== smoke"
-ssh "$HOST" "curl -fsS http://127.0.0.1:8010/api/health"
+ssh "$HOST" 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8010/api/health && exit 0; sleep 2; done; exit 1'
 echo
