@@ -9,6 +9,7 @@ from datetime import timedelta
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.models import Channel, Client, Dialog, Message
 from sim.adapters.db.repositories.conversations import ClientRepo, DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
@@ -82,6 +83,7 @@ class IngestService:
                 )
             )
             dialog.channel, dialog.client = channel, client
+        await lock(self.session, NS_DIALOG, dialog.id)  # see sim.adapters.db.locks
         text = (msg.text or "").strip() or (placeholder_for(msg.media_kind) if msg.media_kind else "")
         created_at = to_naive_utc(msg.occurred_at)
         message = Message(

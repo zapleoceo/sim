@@ -10,6 +10,7 @@ from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.catalog import ChannelRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
+from sim.config import Settings
 from sim.ports.channel import PollingChannelPort
 from sim.services.conversation import ConversationError
 from sim.wiring import Container
@@ -17,8 +18,16 @@ from sim.worker.handlers import HANDLERS, Handler
 
 log = logging.getLogger(__name__)
 
-LEASE_S = 900          # longer than the longest broker budget
+LEASE_MARGIN_S = 300   # HTTP overhead, DB work and clock skew on top of the model calls
 CLAIM_BATCH = 4
+
+
+def lease_seconds(settings: Settings) -> int:
+    """How long a claimed job is ours. ConversationService.ask() may make TWO broker calls (one
+    retry on bad JSON), each up to the longest poll budget: the lease must outlive both, or
+    a second worker re-claims the job while the first is still answering."""
+    longest = max(settings.broker_poll_budget_s, settings.broker_subscription_budget_s)
+    return int(2 * longest) + LEASE_MARGIN_S
 
 
 class Worker:
@@ -33,7 +42,9 @@ class Worker:
     async def tick(self) -> int:
         """Claim due jobs and run them concurrently. Returns how many were run."""
         async with transaction(self.c.factory) as s:
-            jobs = await JobRepo(s).claim(self.c.clock(), LEASE_S, CLAIM_BATCH)
+            jobs = await JobRepo(s).claim(
+                self.c.clock(), lease_seconds(self.c.settings), CLAIM_BATCH
+            )
             snapshot = [(j.id, j.kind, dict(j.payload or {})) for j in jobs]
         if snapshot:
             await asyncio.gather(*(self.run_job(*item) for item in snapshot))

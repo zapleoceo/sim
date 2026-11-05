@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
 from sim.adapters.db.models import Dialog, Message, Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
@@ -40,6 +42,7 @@ RETRY_NUDGE = (
 )
 
 
+REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
 
 
@@ -49,7 +52,7 @@ class ConversationError(Exception):
 
 @dataclass(frozen=True)
 class ReplyOutcome:
-    status: str  # sent | empty | skipped | needs_operator | waiting_media
+    status: str  # sent | empty | skipped | needs_operator | waiting_media | busy | superseded
     decision: Decision | None = None
     message: Message | None = None
 
@@ -190,19 +193,24 @@ class ConversationService:
         last = await self.messages.last(dialog_id)
         if last is None or (last.direction is Direction.IN) == followup:
             return ReplyOutcome("skipped")  # nothing to answer / client already replied
+        if not await try_lock(self.session, NS_REPLY, dialog_id):
+            # One reply at a time per dialog. A customer reply gets another go; a follow-up
+            # simply yields (a reply is already on its way).
+            if not followup:
+                await self.defer_reply(dialog_id, REPLY_BUSY_S)
+            return ReplyOutcome("busy")
         if not followup and await self.jobs.has_open(jobkinds.MEDIA, jobkinds.media_prefix(dialog_id)):
             # A voice message is still being downloaded / transcribed: answer once it is text.
-            await self.jobs.upsert_pending(
-                jobkinds.REPLY, {"dialog_id": dialog_id},
-                self.clock() + timedelta(seconds=MEDIA_WAIT_S), jobkinds.reply_key(dialog_id),
-            )
+            await self.defer_reply(dialog_id, MEDIA_WAIT_S)
             return ReplyOutcome("waiting_media")
         persona = await self.personas.get(client.persona_id)
         if persona is None or not persona.is_active:
             return ReplyOutcome("skipped")
         strategy = await self.strategy_for(persona.id)
 
-        history = history_turns(await self.messages.recent(dialog_id, HISTORY_LIMIT))
+        recent = await self.messages.recent(dialog_id, HISTORY_LIMIT)
+        cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
+        history = history_turns(recent)
         ctx = DialogContext(
             stage=client.stage,
             status=client.status.value,
@@ -217,10 +225,36 @@ class ConversationService:
         )
         prompt = build_messages(persona_profile(persona), strategy_profile(strategy), history, ctx)
         decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
+        # The model call took a while. From here on, hold the dialog lock (ingest takes it to
+        # insert a client message) and re-read the world before anything is queued.
+        await lock(self.session, NS_DIALOG, dialog_id)
+        dialog = await self.reload(dialog_id)
+        client = dialog.client
+        if dialog.ai_paused or client.status is ClientStatus.REFUSED:
+            return ReplyOutcome("skipped")  # a human took over / the client refused meanwhile
+        newer = await self.messages.last(dialog_id, Direction.IN)
+        if newer is not None and newer.id > cutoff:
+            # The client wrote again while we were thinking: this answer is already stale. The
+            # reply job queued for that message answers with the full context.
+            await self.defer_reply(dialog_id, 0)
+            return ReplyOutcome("superseded")
         if decision is None:
             dialog.needs_operator = True
             return ReplyOutcome("needs_operator")
         return await self.apply(dialog, strategy, decision, result, followup=followup)
+
+    async def defer_reply(self, dialog_id: int, seconds: float) -> None:
+        """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
+        await self.jobs.upsert_pending(
+            jobkinds.REPLY, {"dialog_id": dialog_id},
+            self.clock() + timedelta(seconds=seconds), jobkinds.reply_key(dialog_id),
+        )
+
+    async def reload(self, dialog_id: int) -> Dialog:
+        """The dialog with its client and channel re-read from the database (other
+        transactions committed while the model was answering)."""
+        stmt = select(Dialog).where(Dialog.id == dialog_id).execution_options(populate_existing=True)
+        return (await self.session.scalars(stmt)).unique().one()
 
     async def apply(
         self,
