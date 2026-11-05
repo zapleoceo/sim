@@ -73,7 +73,7 @@ class Strategy(Base):
     goal: Mapped[str] = mapped_column(Text, default="")
     offer: Mapped[str] = mapped_column(Text, default="")
     partner_name: Mapped[str] = mapped_column(String(120), default="")
-    registration_url: Mapped[str] = mapped_column(String(500), default="")
+    registration_url: Mapped[str] = mapped_column(Text, default="")
     stage_playbook: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     rules: Mapped[list[str]] = mapped_column(JSON, default=list)
     followup_hours: Mapped[list[float]] = mapped_column(JSON, default=list)
@@ -89,12 +89,12 @@ class Persona(Base):
     name: Mapped[str] = mapped_column(String(120), unique=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gender: Mapped[str] = mapped_column(String(32), default="")
-    avatar_url: Mapped[str] = mapped_column(String(500), default="")
-    tagline: Mapped[str] = mapped_column(String(300), default="")
+    avatar_url: Mapped[str] = mapped_column(Text, default="")
+    tagline: Mapped[str] = mapped_column(Text, default="")
     character: Mapped[str] = mapped_column(Text, default="")
     backstory: Mapped[str] = mapped_column(Text, default="")
     communication_style: Mapped[str] = mapped_column(Text, default="")
-    language: Mapped[str] = mapped_column(String(64), default="ru")
+    language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
     voice_id: Mapped[str] = mapped_column(String(120), default="")
     strategy_id: Mapped[int | None] = mapped_column(
@@ -116,7 +116,7 @@ class Channel(Base):
     status: Mapped[SessionStatus] = mapped_column(
         enum_col(SessionStatus), default=SessionStatus.NEW
     )
-    account_label: Mapped[str] = mapped_column(String(200), default="")
+    account_label: Mapped[str] = mapped_column(Text, default="")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     session_enc: Mapped[str | None] = mapped_column(Text, nullable=True)  # Fernet token
@@ -129,8 +129,8 @@ class Client(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id"), index=True)
-    display_name: Mapped[str] = mapped_column(String(200), default="")
-    avatar_url: Mapped[str] = mapped_column(String(500), default="")
+    display_name: Mapped[str] = mapped_column(Text, default="")
+    avatar_url: Mapped[str] = mapped_column(Text, default="")
     phone: Mapped[str] = mapped_column(String(40), default="")
     handle: Mapped[str] = mapped_column(String(120), default="")
     ref_code: Mapped[str] = mapped_column(String(32), unique=True)
@@ -206,7 +206,7 @@ class Message(Base):
     author: Mapped[Author] = mapped_column(enum_col(Author))
     text: Mapped[str] = mapped_column(Text, default="")
     media_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    media_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     delivery: Mapped[Delivery] = mapped_column(enum_col(Delivery), default=Delivery.SENT)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
