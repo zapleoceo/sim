@@ -42,7 +42,7 @@ async def run_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -
 
 
 async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
-    await c.outbound(s).deliver(int(payload["message_id"]))
+    await c.outbound(s).deliver(int(payload["message_id"]), final=bool(payload.get("final")))
 
 
 async def giveup_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:

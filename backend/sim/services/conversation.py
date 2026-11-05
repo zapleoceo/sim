@@ -243,7 +243,8 @@ class ConversationService:
         if not decision.reply:
             return ReplyOutcome("empty", decision)
         message = await self.outbound.queue_ai(
-            dialog, decision.reply, result, list(strategy.reply_delay_s or [])
+            dialog, decision.reply, result, list(strategy.reply_delay_s or []),
+            final=stop or decision.handoff_to_operator,
         )
         if not followup and not stop and not decision.handoff_to_operator:
             dialog.followup_step = 0

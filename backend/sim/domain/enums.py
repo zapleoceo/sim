@@ -53,6 +53,7 @@ class Delivery(StrEnum):
     QUEUED = "queued"
     SENT = "sent"
     FAILED = "failed"
+    CANCELLED = "cancelled"   # superseded (operator took over / AI paused) before it was sent
 
 
 class Role(StrEnum):

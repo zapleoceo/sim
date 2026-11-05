@@ -24,6 +24,7 @@ from sim.services import jobkinds
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
+from sim.services.outbound import cancel_queued_ai
 
 log = logging.getLogger(__name__)
 
@@ -233,6 +234,7 @@ class IngestService:
         await self.messages.add(message)
         apply_message(dialog, message)
         dialog.ai_paused = True
+        await cancel_queued_ai(self.session, dialog.id, "cancelled: the owner wrote from the phone")
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
         await self.followups.cancel(dialog.id)
         return IngestResult(message=message, dialog=dialog, client=dialog.client)

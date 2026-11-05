@@ -5,6 +5,7 @@ import random
 from collections.abc import Callable, Mapping
 from datetime import timedelta
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.crypto import SecretBox
@@ -13,7 +14,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
-from sim.domain.enums import Author, ChannelKind, Delivery, Direction
+from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.dialog_state import apply_message
@@ -31,6 +32,30 @@ def pick_delay(reply_delay_s: list[float] | None, rng: Callable[[float, float], 
         lo, hi = float(reply_delay_s[0]), float(reply_delay_s[1])
     lo, hi = max(lo, 0.0), max(hi, 0.0)
     return rng(min(lo, hi), max(lo, hi))
+
+
+def send_key(message_id: int) -> str:
+    return f"send:{message_id}"
+
+
+async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -> int:
+    """A human took over (or the AI was paused): AI replies still waiting for their human-like
+    delay must not go out. Marks them cancelled and cancels their SEND jobs."""
+    rows = (
+        await session.scalars(
+            select(Message).where(
+                Message.dialog_id == dialog_id,
+                Message.author == Author.AI,
+                Message.delivery == Delivery.QUEUED,
+            )
+        )
+    ).all()
+    jobs = JobRepo(session)
+    for message in rows:
+        message.delivery = Delivery.CANCELLED
+        message.error = reason[:500]
+        await jobs.cancel_pending(jobkinds.SEND, send_key(message.id))
+    return len(rows)
 
 
 class OutboundService:
@@ -58,7 +83,12 @@ class OutboundService:
         text: str,
         result: LLMResult | None,
         reply_delay_s: list[float] | None,
+        *,
+        final: bool = False,
     ) -> Message:
+        """Queue an AI reply. `final` = the last thing the AI says before stepping back (a
+        refusal farewell, a hand-off note): it is still delivered although the dialog is
+        paused / the client refused by the time it is sent."""
         now = self.clock()
         message = Message(
             dialog_id=dialog.id,
@@ -77,13 +107,17 @@ class OutboundService:
         apply_message(dialog, message)
         delay = pick_delay(reply_delay_s, self.rng)
         await self.jobs.enqueue(
-            jobkinds.SEND, {"message_id": message.id}, now + timedelta(seconds=delay)
+            jobkinds.SEND,
+            {"message_id": message.id, "final": final},
+            now + timedelta(seconds=delay),
+            dedup_key=send_key(message.id),
         )
         return message
 
     async def send_manual(self, dialog: Dialog, operator_id: int, text: str) -> Message:
         """An operator writes in the dialog: the AI steps back on this dialog."""
         now = self.clock()
+        await cancel_queued_ai(self.session, dialog.id, "cancelled: an operator took over")
         message = Message(
             dialog_id=dialog.id,
             direction=Direction.OUT,
@@ -99,16 +133,29 @@ class OutboundService:
         dialog.operator_id = operator_id
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
         await self.jobs.cancel_pending(jobkinds.FOLLOWUP, jobkinds.followup_key(dialog.id))
-        await self.jobs.enqueue(jobkinds.SEND, {"message_id": message.id}, now)
+        await self.jobs.enqueue(
+            jobkinds.SEND, {"message_id": message.id}, now, dedup_key=send_key(message.id)
+        )
         return message
 
-    async def deliver(self, message_id: int) -> None:
+    async def deliver(self, message_id: int, *, final: bool = False) -> None:
         message = await self.messages.get(message_id)
         if message is None or message.delivery is Delivery.SENT:
             return
         dialog = await self.dialogs.get(message.dialog_id)
         if dialog is None:
             raise SendFailed("dialog not found")
+        if message.delivery is Delivery.CANCELLED:
+            return
+        if (
+            message.author is Author.AI
+            and not final
+            and (dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED)
+        ):
+            # Queued while the AI was active; a human took over / the client refused since.
+            message.delivery = Delivery.CANCELLED
+            message.error = "cancelled: AI paused or client refused before sending"
+            return
         channel = dialog.channel
         connector = self.registry.get(channel.kind)
         if connector is None:

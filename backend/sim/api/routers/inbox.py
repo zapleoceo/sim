@@ -32,6 +32,7 @@ from sim.api.schemas import (
 from sim.clock import to_naive_utc
 from sim.domain.enums import ChannelKind, ClientStatus, Direction, Stage
 from sim.services.funnel import FunnelRuleError, FunnelService
+from sim.services.outbound import cancel_queued_ai
 
 dialogs = APIRouter(prefix="/api/dialogs", tags=["dialogs"], dependencies=[Depends(authed)])
 clients = APIRouter(prefix="/api/clients", tags=["clients"], dependencies=[Depends(authed)])
@@ -106,7 +107,9 @@ async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App,
 async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
     dialog = await dialog_or_404(s, dialog_id)
     dialog.ai_paused = body.paused
-    if not body.paused:
+    if body.paused:
+        await cancel_queued_ai(s, dialog.id, "cancelled: AI paused by an operator")
+    else:
         dialog.needs_operator = False
         last = await MessageRepo(s).last(dialog.id)
         if last is not None and last.direction is Direction.IN:  # an unanswered client message
