@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 
 SUBSCRIPTION_PREFIXES = ("claude-sub/", "codex-sub/")
 JOB_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+# Without max_tokens the broker applies its own default (1024), which truncates JSON decisions.
+DEFAULT_MAX_TOKENS = 2048
 POLL_MAX_ERRORS = 5  # consecutive transient poll failures tolerated per job
 DEFAULT_POLL_AFTER_S = 2.0
 MAX_POLL_SLEEP_S = 15.0
@@ -46,6 +48,16 @@ def pick(data: dict[str, Any], meta: dict[str, Any], *names: str) -> Any:
     return None
 
 
+def finish_reason_of(data: dict[str, Any], meta: dict[str, Any]) -> str | None:
+    """`finish_reason` from the poll body, its result_meta or an OpenAI-style choices[0]."""
+    value = pick(data, meta, "finish_reason")
+    if value is None:
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            value = choices[0].get("finish_reason")
+    return str(value)[:32] if value is not None else None
+
+
 def to_result(data: dict[str, Any], *, latency_ms: int, job_id: str | None) -> LLMResult:
     raw_meta = data.get("result_meta")
     meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
@@ -63,6 +75,7 @@ def to_result(data: dict[str, Any], *, latency_ms: int, job_id: str | None) -> L
         cost_usd=float(cost) if cost is not None else None,
         latency_ms=latency_ms,
         job_id=job_id,
+        finish_reason=finish_reason_of(data, meta),
     )
 
 
@@ -107,8 +120,7 @@ class BrokerLLM:
         if model:
             body["model"] = model
         if not is_subscription_model(model):
-            if max_tokens is not None:
-                body["max_tokens"] = max_tokens
+            body["max_tokens"] = max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS
             if temperature is not None:
                 body["temperature"] = temperature
         params = {"capability": capability}

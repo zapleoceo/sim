@@ -139,9 +139,9 @@ class ConversationService:
             workflow=workflow,
             dialog_id=dialog_id,
         )
-        decision = parse_decision(result.text)
+        decision = self.usable_decision(result, workflow, dialog_id)
         if decision is None:
-            log.warning("unparsable decision (workflow=%s dialog=%s), retrying", workflow, dialog_id)
+            log.warning("unusable decision (workflow=%s dialog=%s), retrying", workflow, dialog_id)
             retry = [*messages, {"role": "system", "content": RETRY_NUDGE}]
             result = await self.llm.chat(
                 retry,
@@ -151,8 +151,22 @@ class ConversationService:
                 workflow=workflow,
                 dialog_id=dialog_id,
             )
-            decision = parse_decision(result.text)
+            decision = self.usable_decision(result, workflow, dialog_id)
         return decision, result
+
+    @staticmethod
+    def usable_decision(
+        result: LLMResult, workflow: str, dialog_id: int | None
+    ) -> Decision | None:
+        """Parsed decision, or None. An output cut off by the token limit is a parse failure
+        even if a prefix happens to parse: the reply would be truncated mid-sentence."""
+        if result.finish_reason == "length":
+            log.warning(
+                "model output truncated (finish_reason=length, workflow=%s dialog=%s)",
+                workflow, dialog_id,
+            )
+            return None
+        return parse_decision(result.text)
 
     # ---- the reply job -------------------------------------------------------------------
     async def run_reply(

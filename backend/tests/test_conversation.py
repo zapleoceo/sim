@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sim.adapters.db.models import Client, Dialog, Job, LlmCall, Message
 from sim.adapters.db.session import transaction
 from sim.domain.enums import Author, ClientStatus, Delivery, Stage
-from sim.ports.llm import LLMError
+from sim.ports.llm import LLMError, LLMResult
 from sim.services import jobkinds
 from tests.conftest import decision_json, inbound, make_world
 from tests.test_ingest import ingest
@@ -76,6 +76,25 @@ async def test_invalid_json_is_retried_once(container, world, fake_llm):
     outcome = await run_reply(container)
     assert outcome.status == "sent" and len(fake_llm.calls) == 2
     assert "not a valid JSON" in fake_llm.calls[1][0][-1]["content"]
+
+
+async def test_truncated_output_is_a_retryable_failure_and_audited(container, world, fake_llm, caplog):
+    cut = LLMResult(text=decision_json(reply="обрезано"), finish_reason="length", model="m")
+    fake_llm.replies = [cut, decision_json(reply="Полный ответ")]
+    await start(container, world)
+    outcome = await run_reply(container)
+    assert outcome.status == "sent" and outcome.message.text == "Полный ответ"
+    assert len(fake_llm.calls) == 2 and "finish_reason=length" in caplog.text
+    async with container.factory() as s:
+        reasons = [c.finish_reason for c in (await s.scalars(select(LlmCall).order_by(LlmCall.id)))]
+    assert reasons == ["length", None]
+
+
+async def test_truncated_twice_marks_needs_operator(container, world, fake_llm):
+    cut = LLMResult(text=decision_json(), finish_reason="length")
+    fake_llm.replies = [cut, cut]
+    await start(container, world)
+    assert (await run_reply(container)).status == "needs_operator"
 
 
 async def test_invalid_json_twice_marks_needs_operator_and_sends_nothing(

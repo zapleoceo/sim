@@ -43,7 +43,7 @@ class FakeLLM:
     """Scripted LLMPort. `replies` items are returned in order; an Exception item is raised."""
 
     def __init__(self) -> None:
-        self.replies: list[str | Exception] = []
+        self.replies: list[str | Exception | LLMResult] = []
         self.calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
         self.transcript = "привет из голосового"
 
@@ -52,6 +52,8 @@ class FakeLLM:
         item = self.replies.pop(0) if self.replies else decision_json()
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, LLMResult):
+            return item
         return LLMResult(
             text=item, model="fake-model", provider="fake", tokens_in=100, tokens_out=20,
             cached_tokens=50, cost_usd=0.002, latency_ms=7, job_id="1",

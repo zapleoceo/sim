@@ -80,6 +80,7 @@ class AuditedLLM:
                 cost_usd=result.cost_usd,
                 latency_ms=result.latency_ms,
                 job_id=result.job_id,
+                finish_reason=result.finish_reason,
             )
         )
         return result

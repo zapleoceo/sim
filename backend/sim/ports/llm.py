@@ -16,6 +16,7 @@ class LLMResult:
     cost_usd: float | None = None
     latency_ms: int = 0
     job_id: str | None = None
+    finish_reason: str | None = None     # "stop" | "length" | ... as reported by the provider
 
 
 class LLMError(Exception):

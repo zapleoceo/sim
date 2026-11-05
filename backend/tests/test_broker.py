@@ -137,3 +137,27 @@ async def test_transcribe_job_flow():
 async def test_list_models():
     respx.get(f"{URL}/v1/models").respond(200, json={"object": "list", "data": [{"id": "a"}, {"id": "b"}]})
     assert [m["id"] for m in await make().list_models()] == ["a", "b"]
+
+
+@respx.mock
+async def test_default_max_tokens_is_sent_for_regular_models():
+    submit = respx.post(f"{URL}/v1/jobs").respond(202, json={"job_id": 1, "poll_after_s": 1})
+    respx.get(f"{URL}/v1/jobs/1").respond(200, json={**DONE, "job_id": 1})
+    await make().chat(MSGS, model="gemini/flash")
+    await make().chat(MSGS)  # no pinned model: broker chain
+    for call in submit.calls:
+        assert json.loads(call.request.content)["max_tokens"] == 2048
+
+
+@respx.mock
+async def test_finish_reason_is_read_from_body_meta_or_choices():
+    respx.post(f"{URL}/v1/jobs").respond(202, json={"job_id": 1, "poll_after_s": 1})
+    poll = respx.get(f"{URL}/v1/jobs/1")
+    poll.respond(200, json={**DONE, "finish_reason": "length"})
+    assert (await make().chat(MSGS)).finish_reason == "length"
+    poll.respond(200, json={**DONE, "result_meta": {"finish_reason": "stop"}})
+    assert (await make().chat(MSGS)).finish_reason == "stop"
+    poll.respond(200, json={**DONE, "choices": [{"finish_reason": "length"}]})
+    assert (await make().chat(MSGS)).finish_reason == "length"
+    poll.respond(200, json=DONE)
+    assert (await make().chat(MSGS)).finish_reason is None
