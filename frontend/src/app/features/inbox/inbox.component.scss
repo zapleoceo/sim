@@ -61,6 +61,8 @@
 .right .bubble { border-bottom-left-radius: 14px; border-bottom-right-radius: 4px; }
 .bubble[data-author='ai'] { background: var(--sim-bubble-ai); }
 .bubble[data-author='operator'] { background: var(--sim-bubble-operator); }
+.bubble[data-blocked='true'] { opacity: 0.75; border: 1px dashed var(--sim-danger); }
+.blocked-note { display: block; font-size: 11px; color: var(--sim-danger); }
 .author { display: block; font-size: 11px; font-weight: 600; color: var(--sim-text-muted); margin-bottom: 2px; }
 .text { white-space: pre-wrap; }
 .foot { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 11px; color: var(--sim-text-muted); margin-top: 2px; }

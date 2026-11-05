@@ -67,6 +67,11 @@ export class DashboardComponent {
       { label: 'Выручка', value: this.money(d.revenue) },
       { label: 'Выплаты партнёра', value: this.money(d.partner_payouts) },
       { label: 'Расход на LLM', value: `$${d.llm.cost_usd.toFixed(2)}`, hint: `${d.llm.calls} вызовов` },
+      {
+        label: 'Контролер ответов',
+        value: String(d.guard.ok + d.guard.rewritten + d.guard.blocked),
+        hint: `ок: ${d.guard.ok}, исправлено: ${d.guard.rewritten}, заблокировано: ${d.guard.blocked}`,
+      },
     ];
   });
 

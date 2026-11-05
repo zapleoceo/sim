@@ -19,6 +19,7 @@ import { DialogsApi } from '../../core/api/dialogs.api';
 import { PersonasApi } from '../../core/api/personas.api';
 import { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona } from '../../core/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS, STAGES, STATUSES, STATUS_LABELS } from '../../core/stages';
+import { GuardBadgeComponent } from '../../shared/guard-badge.component';
 import { AvatarComponent } from '../../shared/avatar.component';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
@@ -60,7 +61,7 @@ interface DayGroup { key: string; label: string; items: MessageVm[] }
   imports: [
     ReactiveFormsModule, TextFieldModule, RouterLink, MatFormFieldModule, MatSelectModule, MatIconModule, MatButtonModule,
     MatSlideToggleModule, MatTooltipModule, AvatarComponent, ChannelIconComponent, EmptyStateComponent,
-    StageChipComponent, StatusBadgeComponent, NeedsOperatorBadgeComponent,
+    StageChipComponent, StatusBadgeComponent, NeedsOperatorBadgeComponent, GuardBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './inbox.component.html',
