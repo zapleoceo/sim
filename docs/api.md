@@ -20,9 +20,9 @@ Secure, SameSite=Lax) + заголовок `X-CSRF-Token` на POST/PUT/PATCH/DE
 | GET | `/api/personas` | — | `{items: Persona[]}` |
 | POST | `/api/personas` | `PersonaIn` | `Persona` |
 | GET/PUT/DELETE | `/api/personas/{id}` | `PersonaIn` | `Persona` / `204` |
-| POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}]}` | `{reply, decision, model, latency_ms}` — пробный ответ без отправки |
+| POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}]}` | `{reply, decision, model, latency_ms}` — пробный ответ без отправки; `decision` = разобранный JSON-ответ модели `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался) |
 
-`Persona`: `{id, name, age, gender, avatar_url, tagline, character, backstory, communication_style,
+`Persona`: `{id, name, age, gender ("female"|"male"|"other"), avatar_url, tagline, character, backstory, communication_style,
 language, model, voice_id, strategy_id, is_active, disclosure_text, created_at}`.
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).
 
@@ -76,6 +76,8 @@ last_message: {text, direction, at}, unread: number, ai_paused}`.
 `Client`: `{id, display_name, avatar_url, persona_id, stage, status, next_step, next_step_at, notes,
 needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.
 `ClientCard`: `Client + {events: FunnelEvent[], partner_events: PartnerEvent[]}`.
+`FunnelEvent`: `{id, created_at, type: "stage"|"status", from_stage, to_stage, from_status, to_status, actor: "ai"|"operator"|"partner"|"system", reason}` (для `type=stage` заполнены `*_stage`, для `status` — `*_status`, остальные `null`).
+`PartnerEvent`: `{id, event: "registration"|"payment", occurred_at, amount, currency, payout, external_id}`.
 
 ## Воронка
 | GET | `/api/funnel` | `persona_id?` | `{stages: [{stage, count, clients: ClientMini[] (до 50)}], statuses: {active, paused, no_response, refused}}` |
@@ -92,7 +94,7 @@ needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.
 status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, published_at, error}`.
 
 ## Аналитика
-| GET | `/api/analytics/summary` | `from, to, persona_id?` | см. ниже |
+| GET | `/api/analytics/summary` | `from, to` (`YYYY-MM-DD`, обе границы включительно), `persona_id?` | см. ниже |
 
 ```json
 {"contacts": 0, "new_contacts": 0, "replied": 0,
@@ -116,3 +118,8 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Служебное
 | GET | `/api/health` | `{ok, db, broker, version}` |
+
+## Дополнения реализации (аддитивные поля)
+`DialogRow.needs_operator`, `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
+`Client.ref_code`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
+`GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.

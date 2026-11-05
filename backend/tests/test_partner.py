@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import json
+import time
+
+import pytest
+from sqlalchemy import select
+
+from sim.adapters.db.models import Client, PartnerEvent
+from sim.adapters.db.session import transaction
+from sim.domain.enums import Stage
+from sim.services.partner import PartnerAuthError, sign, verify_signature
+from tests.conftest import PARTNER_SECRET, inbound
+from tests.test_ingest import ingest
+
+BODY = b'{"client_ref":"x"}'
+
+
+def test_valid_signature_passes():
+    ts = str(int(time.time()))
+    verify_signature("s", ts, sign("s", ts, BODY), BODY)
+
+
+@pytest.mark.parametrize(
+    ("secret", "ts_offset", "tamper", "match"),
+    [
+        ("s", 0, True, "bad signature"),            # wrong signature
+        ("s", -600, False, "replay window"),        # stale
+        ("s", 600, False, "replay window"),         # from the future
+        ("", 0, False, "not configured"),           # no secret configured
+    ],
+)
+def test_rejected_signatures(secret, ts_offset, tamper, match):
+    ts = str(int(time.time()) + ts_offset)
+    sig = sign("s", ts, BODY)
+    if tamper:
+        sig = sig[:-1] + ("0" if sig[-1] != "0" else "1")
+    with pytest.raises(PartnerAuthError, match=match):
+        verify_signature(secret, ts, sig, BODY)
+
+
+@pytest.mark.parametrize(("ts", "sig"), [(None, "x"), ("1", None), ("abc", "x")])
+def test_missing_or_malformed_headers(ts, sig):
+    with pytest.raises(PartnerAuthError):
+        verify_signature("s", ts, sig, BODY)
+
+
+def signed_headers(body: bytes, ts: int | None = None) -> dict[str, str]:
+    stamp = str(ts if ts is not None else int(time.time()))
+    return {"X-Sim-Timestamp": stamp, "X-Sim-Signature": sign(PARTNER_SECRET, stamp, body),
+            "Content-Type": "application/json"}
+
+
+async def client_ref(container, world) -> str:
+    await ingest(container, world.channel.id, inbound("hi"))
+    async with container.factory() as s:
+        return (await s.scalars(select(Client))).one().ref_code
+
+
+async def test_webhook_registration_then_payment(api, container, world):
+    ref = await client_ref(container, world)
+    reg = json.dumps({"client_ref": ref, "event": "registration", "external_id": "r1",
+                      "occurred_at": "2026-11-05T10:00:00Z"}).encode()
+    assert (await api.post("/hooks/partner", content=reg, headers=signed_headers(reg))).json() == {"ok": True}
+    pay = json.dumps({"client_ref": ref, "event": "payment", "external_id": "p1", "amount": 49.5,
+                      "currency": "USD", "payout": 10, "occurred_at": "2026-11-05T11:00:00Z"}).encode()
+    assert (await api.post("/hooks/partner", content=pay, headers=signed_headers(pay))).status_code == 200
+    # idempotent repeat
+    assert (await api.post("/hooks/partner", content=pay, headers=signed_headers(pay))).status_code == 200
+    async with container.factory() as s:
+        assert (await s.scalars(select(Client))).one().stage is Stage.PAID
+        events = (await s.scalars(select(PartnerEvent))).all()
+        assert len(events) == 2
+        assert sorted(e.amount or 0 for e in events) == [0, 49.5]
+
+
+async def test_webhook_bad_signature_replay_and_unknown_ref(api, container, world):
+    ref = await client_ref(container, world)
+    body = json.dumps({"client_ref": ref, "event": "registration", "external_id": "r1",
+                       "occurred_at": "2026-11-05T10:00:00Z"}).encode()
+    bad = signed_headers(body)
+    bad["X-Sim-Signature"] = "0" * 64
+    assert (await api.post("/hooks/partner", content=body, headers=bad)).status_code == 401
+    old = signed_headers(body, ts=int(time.time()) - 3600)
+    assert (await api.post("/hooks/partner", content=body, headers=old)).status_code == 401
+    assert (await api.post("/hooks/partner", content=body)).status_code == 401
+    ghost = json.dumps({"client_ref": "nope", "event": "payment", "external_id": "z",
+                        "occurred_at": "2026-11-05T10:00:00Z"}).encode()
+    assert (await api.post("/hooks/partner", content=ghost, headers=signed_headers(ghost))).status_code == 404
+
+
+async def test_csv_import_counts_and_errors(container, world):
+    ref = await client_ref(container, world)
+    csv_text = (
+        "client_ref,event,amount,currency,payout,occurred_at,external_id\n"
+        f"{ref},registration,,,,2026-11-05T10:00:00Z,e1\n"
+        f"{ref},payment,100,USD,20,2026-11-05T11:00:00Z,e2\n"
+        f"{ref},payment,100,USD,20,2026-11-05T11:00:00Z,e2\n"      # duplicate
+        "nobody,registration,,,,2026-11-05T10:00:00Z,e3\n"         # unknown ref
+        f"{ref},refund,,,,2026-11-05T10:00:00Z,e4\n"                # bad event
+    )
+    async with transaction(container.factory) as s:
+        res = await container.partner(s).import_csv(csv_text.encode())
+    assert (res.imported, res.skipped, len(res.errors)) == (2, 1, 2)
+    assert "line 5" in res.errors[0] and "line 6" in res.errors[1]
+    async with container.factory() as s:
+        assert (await s.scalars(select(Client))).one().stage is Stage.PAID
+
+
+async def test_csv_import_missing_columns(container):
+    async with transaction(container.factory) as s:
+        res = await container.partner(s).import_csv(b"a,b\n1,2\n")
+    assert res.imported == 0 and "missing columns" in res.errors[0]
+
+
+async def test_import_endpoint_owner_only(api, container, world):
+    ref = await client_ref(container, world)
+    csv_bytes = f"client_ref,event\n{ref},registration\n".encode()
+    csrf = await login_owner(api)
+    resp = await api.post("/api/partner/import", files={"file": ("p.csv", csv_bytes, "text/csv")},
+                          headers={"X-CSRF-Token": csrf})
+    assert resp.status_code == 200 and resp.json()["imported"] == 1
+
+
+async def login_owner(api) -> str:
+    from tests.conftest import OWNER, login
+
+    return await login(api, *OWNER)
