@@ -64,8 +64,15 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         if owns_container:
             await c.engine.dispose()
 
-    app = FastAPI(title="Sim", docs_url="/api/docs", openapi_url="/api/openapi.json",
-                  lifespan=lifespan)
+    # The schema lists every internal route: public only outside production.
+    docs = cfg.env != "prod"
+    app = FastAPI(
+        title="Sim",
+        docs_url="/api/docs" if docs else None,
+        redoc_url=None,
+        openapi_url="/api/openapi.json" if docs else None,
+        lifespan=lifespan,
+    )
     for router in (
         system.router, auth.router, catalog.personas, catalog.strategies, catalog.models,
         channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
