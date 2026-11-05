@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     reply_debounce_s: int = 8          # wait for a burst of client messages before answering
     worker_tick_s: float = 2.0
 
+    static_dir: str = "../frontend/dist/sim/browser"   # built Angular app (prod: /app/static)
+    media_dir: str = "./media"                         # downloaded voice/images (prod: /app/media)
+
 
 @lru_cache
 def settings() -> Settings:
