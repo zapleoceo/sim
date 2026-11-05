@@ -175,7 +175,7 @@ def dynamic_context(ctx: DialogContext, strategy: StrategyProfile) -> str:
         f"- Known needs: {needs}",
         f"- Notes: {one_line(ctx.notes, 600) or '(none)'}",
         f"- Planned next step: {one_line(ctx.next_step) or '(none)'}",
-        f"- Client display name (untrusted): \"{one_line(ctx.client_name, 60)}\"",
+        f"- Client display name (untrusted): {json.dumps(one_line(ctx.client_name, 60), ensure_ascii=False)}",
         f"- Current UTC time: {ctx.now.strftime('%Y-%m-%d %H:%M')}",
         f"- Channel: {ctx.channel_kind}",
         f"- Personal registration link: {link}",
