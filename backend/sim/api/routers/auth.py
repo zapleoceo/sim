@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from sim.api.clientip import resolve_client_ip
-from sim.api.deps import COOKIE, App, Authed, Db
+from sim.api.deps import COOKIE, App, Authed, Db, Principal, authed
 from sim.api.schemas import TelegramLoginIn, user_out
 from sim.config import Settings
 from sim.services.auth import (
@@ -84,7 +84,12 @@ async def login_link(token: str, request: Request, c: App, s: Db):
 
 @router.post("/logout", status_code=204)
 async def logout(request: Request, response: Response, c: App, s: Db) -> Response:
-    await c.auth(s).logout(request.cookies.get(COOKIE))
+    token = request.cookies.get(COOKIE)
+    # A live session needs the CSRF token like every other mutation (else a cross-site POST
+    # could log the admin out); an expired/unknown one has nothing to protect: just clear the cookie.
+    if (row := await c.auth(s).authenticate(token)) is not None:
+        await authed(request, Principal(row.user, row))
+        await c.auth(s).logout(token)
     response.delete_cookie(COOKIE, path="/")
     response.status_code = 204
     return response

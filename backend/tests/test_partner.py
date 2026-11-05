@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime
 
 import pytest
 from sqlalchemy import select
 
 from sim.adapters.db.models import Client, PartnerEvent
 from sim.adapters.db.session import transaction
-from sim.domain.enums import Stage
+from sim.domain.enums import PartnerEventKind, Stage
 from sim.services.partner import PartnerAuthError, sign, verify_signature
 from tests.conftest import PARTNER_SECRET, inbound
 from tests.test_ingest import ingest
@@ -87,6 +88,27 @@ async def test_webhook_bad_signature_replay_and_unknown_ref(api, container, worl
     ghost = json.dumps({"client_ref": "nope", "event": "payment", "external_id": "z",
                         "occurred_at": "2026-11-05T10:00:00Z"}).encode()
     assert (await api.post("/hooks/partner", content=ghost, headers=signed_headers(ghost))).status_code == 404
+
+
+async def test_record_race_on_unique_event_is_duplicate(container, world, monkeypatch):
+    """Two concurrent identical webhooks: both pass find(), the loser hits the unique constraint."""
+    from sim.adapters.db.repositories.records import PartnerEventRepo
+    from sim.services.partner import PartnerEventIn
+
+    ref = await client_ref(container, world)
+    event = PartnerEventIn(client_ref=ref, kind=PartnerEventKind.PAYMENT, external_id="race",
+                           occurred_at=datetime(2026, 11, 5, 11, 0), amount=10)
+    async with transaction(container.factory) as s:
+        assert await container.partner(s).record(event) is True
+
+    async def stale_find(self, kind, external_id):
+        return None   # the twin's row is not visible yet at check time
+
+    monkeypatch.setattr(PartnerEventRepo, "find", stale_find)
+    async with transaction(container.factory) as s:
+        assert await container.partner(s).record(event) is False
+    async with container.factory() as s:
+        assert len((await s.scalars(select(PartnerEvent))).all()) == 1
 
 
 async def test_csv_import_counts_and_errors(container, world):

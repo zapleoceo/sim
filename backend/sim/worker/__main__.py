@@ -14,7 +14,7 @@ async def main() -> None:
     try:
         await Worker(container).run()
     finally:
-        await container.engine.dispose()
+        await container.aclose()
 
 
 if __name__ == "__main__":

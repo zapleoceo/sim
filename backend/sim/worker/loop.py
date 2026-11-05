@@ -108,14 +108,18 @@ class Worker:
         return total
 
     async def poll_one(self, channel_id: int) -> int:
-        async with transaction(self.c.factory) as s:
+        # Network I/O (seconds) happens with no DB transaction open; ingestion gets its own short one.
+        async with self.c.factory() as s:
             channel = await ChannelRepo(s).get(channel_id)
             if channel is None:
                 return 0
-            connector = self.c.registry[channel.kind]
-            session = self.c.box.decrypt_json(channel.session_enc)
-            port = cast(PollingChannelPort, connector.build_port(channel.id, session))
-            inbound = await port.fetch_inbound()
+            kind, session = channel.kind, self.c.box.decrypt_json(channel.session_enc)
+        port = cast(PollingChannelPort, self.c.registry[kind].build_port(channel_id, session))
+        inbound = await port.fetch_inbound()
+        async with transaction(self.c.factory) as s:
+            channel = await ChannelRepo(s).get(channel_id)
+            if channel is None:   # deleted while we were fetching
+                return 0
             ingest = self.c.ingest(s)
             for msg in inbound:
                 await ingest.ingest(channel, msg)

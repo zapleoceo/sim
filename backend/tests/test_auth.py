@@ -93,8 +93,19 @@ async def test_api_login_me_logout(api):
     user = me.json()["user"]
     assert user["role"] == "owner" and user["telegram_id"] == OWNER[0]
     assert set(user) == {"id", "role", "telegram_id", "tg_username", "display_name", "photo_url"}
-    assert (await api.post("/api/auth/logout")).status_code == 204
+    assert (await api.post("/api/auth/logout")).status_code == 403          # no CSRF token
+    assert (await api.post("/api/auth/logout", headers={"X-CSRF-Token": "bad"})).status_code == 403
+    assert (await api.get("/api/auth/me")).status_code == 200               # still logged in
+    assert (await api.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})).status_code == 204
     assert (await api.get("/api/auth/me")).status_code == 401
+
+
+async def test_logout_without_live_session_clears_cookie(api):
+    resp = await api.post("/api/auth/logout")
+    assert resp.status_code == 204
+    api.cookies.set("sim_session", "stale-token")
+    resp = await api.post("/api/auth/logout")
+    assert resp.status_code == 204 and "sim_session" in resp.headers["set-cookie"]
 
 
 async def test_login_updates_profile(api, container):
@@ -201,7 +212,7 @@ async def test_operator_cannot_edit_personas_or_channels(api):
     owner_csrf = await login(api, *OWNER)
     created = await api.post("/api/personas", json={"name": "P1"}, headers={"X-CSRF-Token": owner_csrf})
     pid = created.json()["id"]
-    await api.post("/api/auth/logout")
+    await api.post("/api/auth/logout", headers={"X-CSRF-Token": owner_csrf})
 
     csrf = await login(api, *OPERATOR)
     h = {"X-CSRF-Token": csrf}

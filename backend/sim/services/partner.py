@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import PartnerEvent
@@ -104,18 +105,24 @@ class PartnerService:
             raise PartnerDataError(f"unknown client_ref {event.client_ref!r}")
         if await self.events.find(event.kind, event.external_id):
             return False
-        await self.events.add(
-            PartnerEvent(
-                client_id=client.id,
-                kind=event.kind,
-                external_id=event.external_id,
-                amount=event.amount,
-                currency=event.currency,
-                payout=event.payout,
-                source=event.source,
-                occurred_at=to_naive_utc(event.occurred_at),
-            )
-        )
+        try:
+            # Savepoint: a concurrent twin that won the race trips UniqueConstraint(kind,
+            # external_id) here; only the savepoint rolls back, the outer transaction lives on.
+            async with self.session.begin_nested():
+                await self.events.add(
+                    PartnerEvent(
+                        client_id=client.id,
+                        kind=event.kind,
+                        external_id=event.external_id,
+                        amount=event.amount,
+                        currency=event.currency,
+                        payout=event.payout,
+                        source=event.source,
+                        occurred_at=to_naive_utc(event.occurred_at),
+                    )
+                )
+        except IntegrityError:
+            return False
         await self.funnel.advance(
             client, STAGE_FOR[event.kind], Actor.PARTNER, f"partner {event.kind.value}"
         )

@@ -12,6 +12,8 @@
 ```bash
 cd backend && uv sync && cp .env.example .env   # заполнить SIM_SECRET_KEY, SIM_BROKER_PROJECT_KEY
 uv run alembic upgrade head && uv run python -m sim.seed
+uv run python scripts/demo_data.py                 # по желанию: демо-данные для UI, только SQLite;
+                                                  # печатает одноразовую ссылку входа (SIM_PUBLIC_URL, по умолчанию :4200)
 uv run uvicorn sim.api.main:create_app --factory --port 8000
 uv run python -m sim.worker                       # отдельный терминал
 uv run pytest -q && uv run ruff check .

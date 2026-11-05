@@ -94,6 +94,19 @@ class BrokerLLM:
         self.poll_budget_s = poll_budget_s
         self.subscription_budget_s = subscription_budget_s
         self.sleep = sleep
+        self._client: httpx.AsyncClient | None = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """One pooled client per adapter, created lazily (keep-alive to the broker across calls)."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=JOB_HTTP_TIMEOUT)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     @property
     def headers(self) -> dict[str, str]:
@@ -129,13 +142,13 @@ class BrokerLLM:
             body["workflow"] = workflow
         start = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=JOB_HTTP_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self.url}/v1/jobs", params=params, headers=self.headers, json=body
-                )
-                resp.raise_for_status()
-                job = resp.json()
-                data = await self.poll(client, job, capability, start + self.budget_for(model))
+            client = self.client
+            resp = await client.post(
+                f"{self.url}/v1/jobs", params=params, headers=self.headers, json=body
+            )
+            resp.raise_for_status()
+            job = resp.json()
+            data = await self.poll(client, job, capability, start + self.budget_for(model))
         except LLMError:
             raise
         except (httpx.HTTPError, ValueError, KeyError, TimeoutError) as exc:
@@ -147,26 +160,26 @@ class BrokerLLM:
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         start = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=JOB_HTTP_TIMEOUT) as client:
-                files = {"file": (filename, audio, "application/octet-stream")}
+            client = self.client
+            files = {"file": (filename, audio, "application/octet-stream")}
+            resp = await client.post(
+                f"{self.url}/v1/transcribe/jobs",
+                params={"workflow": "voice"},
+                headers=self.headers,
+                files=files,
+            )
+            if resp.status_code in (404, 405):  # older broker: synchronous endpoint only
                 resp = await client.post(
-                    f"{self.url}/v1/transcribe/jobs",
+                    f"{self.url}/v1/transcribe",
                     params={"workflow": "voice"},
                     headers=self.headers,
                     files=files,
                 )
-                if resp.status_code in (404, 405):  # older broker: synchronous endpoint only
-                    resp = await client.post(
-                        f"{self.url}/v1/transcribe",
-                        params={"workflow": "voice"},
-                        headers=self.headers,
-                        files=files,
-                    )
-                resp.raise_for_status()
-                job = resp.json()
-                data = job
-                if job.get("job_id") is not None:
-                    data = await self.poll(client, job, "audio", start + self.poll_budget_s)
+            resp.raise_for_status()
+            job = resp.json()
+            data = job
+            if job.get("job_id") is not None:
+                data = await self.poll(client, job, "audio", start + self.poll_budget_s)
         except LLMError:
             raise
         except (httpx.HTTPError, ValueError, KeyError, TimeoutError) as exc:
@@ -175,10 +188,9 @@ class BrokerLLM:
 
     async def list_models(self) -> list[dict[str, Any]]:
         try:
-            async with httpx.AsyncClient(timeout=JOB_HTTP_TIMEOUT) as client:
-                resp = await client.get(f"{self.url}/v1/models", headers=self.headers)
-                resp.raise_for_status()
-                payload = resp.json()
+            resp = await self.client.get(f"{self.url}/v1/models", headers=self.headers)
+            resp.raise_for_status()
+            payload = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise LLMError(f"models: {err_text(exc)}") from exc
         rows = payload.get("data", []) if isinstance(payload, dict) else payload

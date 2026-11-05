@@ -73,6 +73,12 @@ class Container:
     publisher: ContentPublisher | None = None
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
 
+    async def aclose(self) -> None:
+        """Shutdown: release the LLM adapter's pooled HTTP client and the DB engine."""
+        if (close := getattr(self.llm, "aclose", None)) is not None:
+            await close()
+        await self.engine.dispose()
+
     # ---- per-unit-of-work services -------------------------------------------------------
     def audited(self) -> AuditedLLM:
         return AuditedLLM(self.llm, self.factory, self.clock)

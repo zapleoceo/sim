@@ -87,7 +87,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         await register_admin_bot_webhook(c)
         yield
         if owns_container:
-            await c.engine.dispose()
+            await c.aclose()
 
     # The schema lists every internal route: public only outside production.
     docs = cfg.env != "prod"
