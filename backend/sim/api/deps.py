@@ -56,10 +56,17 @@ async def authed(request: Request, p: Annotated[Principal, Depends(current_princ
 
 
 async def owner_only(p: Annotated[Principal, Depends(authed)]) -> Principal:
-    if p.user.role is not Role.OWNER:
+    if not p.user.role.has_owner_rights:
         raise HTTPException(403, "Owner role required")
+    return p
+
+
+async def superadmin_only(p: Annotated[Principal, Depends(authed)]) -> Principal:
+    if p.user.role is not Role.SUPERADMIN:
+        raise HTTPException(403, "Superadmin role required")
     return p
 
 
 Authed = Annotated[Principal, Depends(authed)]
 Owner = Annotated[Principal, Depends(owner_only)]
+Superadmin = Annotated[Principal, Depends(superadmin_only)]

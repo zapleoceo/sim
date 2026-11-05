@@ -1,6 +1,10 @@
 """Shared fixtures: sqlite file DB per test, fake LLM, fake connector, container, API client."""
 from __future__ import annotations
 
+import hashlib
+import hmac
+import itertools
+import time
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -12,7 +16,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.channels.capabilities import Capability
-from sim.adapters.db.models import Channel, Persona, Strategy
+from sim.adapters.db.models import AdminUser, Channel, Persona, Strategy
 from sim.adapters.db.session import create_all, transaction
 from sim.api.main import create_app
 from sim.config import Settings
@@ -22,7 +26,28 @@ from sim.ports.llm import LLMError, LLMResult
 from sim.wiring import Container, build_container
 
 PARTNER_SECRET = "partner-secret"
-OWNER = ("boss", "correct horse battery")
+BOT_TOKEN = "123456:TEST-login-bot-token"
+BOT_USERNAME = "sim_login_bot"
+OWNER = (1001,)          # Telegram ids of the seeded admins: owner, operator, superadmin
+OPERATOR = (1002,)
+SUPERADMIN = (1003,)
+_hash_counter = itertools.count(1)
+
+
+def sign_widget(data: dict[str, Any], token: str = BOT_TOKEN) -> dict[str, Any]:
+    """Add a valid Telegram Login Widget `hash` to the fields."""
+    check = "\n".join(f"{k}={v}" for k, v in sorted(data.items()) if v not in (None, ""))
+    secret = hashlib.sha256(token.encode()).digest()
+    return {**data, "hash": hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()}
+
+
+def widget_payload(tg_id: int, **over: Any) -> dict[str, Any]:
+    """A fresh signed payload; auth_date differs per call so that every hash is unique."""
+    data: dict[str, Any] = {
+        "id": tg_id, "first_name": "Test", "auth_date": int(time.time()) - next(_hash_counter),
+        **over,
+    }
+    return sign_widget(data)
 
 
 def decision_json(**over: Any) -> str:
@@ -148,8 +173,8 @@ def make_settings(tmp_path) -> Settings:
         secret_key=Fernet.generate_key().decode(),
         cookie_secure=False,
         partner_webhook_secret=PARTNER_SECRET,
-        bootstrap_owner_username=OWNER[0],
-        bootstrap_owner_password=OWNER[1],
+        tg_login_bot_token=BOT_TOKEN,
+        tg_login_bot_username=BOT_USERNAME,
         media_dir=str(tmp_path / "media"),
         static_dir=str(tmp_path / "no-static"),
         reply_debounce_s=5,
@@ -235,16 +260,17 @@ async def api(container: Container) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(container=container)
     app.state.container = container  # ASGITransport does not run lifespan
     async with transaction(container.factory) as s:
-        await container.auth(s).create_user(OWNER[0], OWNER[1], Role.OWNER)
-        await container.auth(s).create_user("op", "operator-pass-1", Role.OPERATOR)
+        for (tg_id,), role in ((OWNER, Role.OWNER), (OPERATOR, Role.OPERATOR),
+                               (SUPERADMIN, Role.SUPERADMIN)):
+            s.add(AdminUser(telegram_id=tg_id, role=role, display_name=f"admin {tg_id}"))
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 
-async def login(client: httpx.AsyncClient, user: str, password: str) -> str:
-    """Log in, return the CSRF token."""
-    resp = await client.post("/api/auth/login", json={"username": user, "password": password})
+async def login(client: httpx.AsyncClient, tg_id: int) -> str:
+    """Log in through the Telegram widget endpoint, return the CSRF token."""
+    resp = await client.post("/api/auth/telegram", json=widget_payload(tg_id))
     assert resp.status_code == 200, resp.text
     return resp.json()["csrf_token"]
 

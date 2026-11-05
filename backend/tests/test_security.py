@@ -5,7 +5,7 @@ import pytest
 
 from sim.api.clientip import resolve_client_ip
 from sim.services.auth import LoginRateLimiter, TooManyAttempts
-from tests.conftest import OWNER
+from tests.conftest import OWNER, widget_payload
 
 TRUSTED = "127.0.0.1,::1,172.16.0.0/12"
 
@@ -62,21 +62,22 @@ def test_limiter_table_is_bounded_and_check_does_not_grow_it():
 
 async def test_api_limit_is_per_client_address_behind_proxy(api):
     """Every request has the same TCP peer (the docker gateway); only X-Real-IP differs."""
-    bad = {"username": OWNER[0], "password": "nope"}
+    bad = {**widget_payload(OWNER[0]), "hash": "0" * 64}
     attacker = {"X-Real-IP": "198.51.100.9"}
     for _ in range(5):
-        assert (await api.post("/api/auth/login", json=bad, headers=attacker)).status_code == 401
-    assert (await api.post("/api/auth/login", json=bad, headers=attacker)).status_code == 429
-    good = {"username": OWNER[0], "password": OWNER[1]}
-    owner = await api.post("/api/auth/login", json=good, headers={"X-Real-IP": "203.0.113.5"})
+        assert (await api.post("/api/auth/telegram", json=bad, headers=attacker)).status_code == 401
+    assert (await api.post("/api/auth/telegram", json=bad, headers=attacker)).status_code == 429
+    owner = await api.post(
+        "/api/auth/telegram", json=widget_payload(OWNER[0]), headers={"X-Real-IP": "203.0.113.5"}
+    )
     assert owner.status_code == 200
 
 
 async def test_spoofed_forwarding_header_from_untrusted_peer_is_ignored(container, api):
     container.settings.trusted_proxies = "10.99.0.0/16"  # the test peer (127.0.0.1) is not trusted
-    bad = {"username": OWNER[0], "password": "nope"}
+    bad = {**widget_payload(OWNER[0]), "hash": "0" * 64}
     for i in range(5):
-        r = await api.post("/api/auth/login", json=bad, headers={"X-Real-IP": f"1.2.3.{i}"})
+        r = await api.post("/api/auth/telegram", json=bad, headers={"X-Real-IP": f"1.2.3.{i}"})
         assert r.status_code == 401
-    r = await api.post("/api/auth/login", json=bad, headers={"X-Real-IP": "1.2.3.99"})
+    r = await api.post("/api/auth/telegram", json=bad, headers={"X-Real-IP": "1.2.3.99"})
     assert r.status_code == 429  # rotating the forged header did not reset the limit

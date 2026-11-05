@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     Float,
@@ -43,8 +44,12 @@ class AdminUser(Base):
     __tablename__ = "admin_user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(64), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Admins sign in only through Telegram. telegram_id is NULL until an admin invited by
+    # @username logs in for the first time (then it is bound).
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    tg_username: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)  # lowercase, no @
+    display_name: Mapped[str] = mapped_column(String(120), default="")
+    photo_url: Mapped[str] = mapped_column(Text, default="")
     role: Mapped[Role] = mapped_column(enum_col(Role), default=Role.OPERATOR)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -63,6 +68,27 @@ class AuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     user: Mapped[AdminUser] = relationship(lazy="joined")
+
+
+class UsedLoginHash(Base):
+    """Telegram widget `hash` values already accepted (one-time use). Purged after expiry."""
+
+    __tablename__ = "used_login_hash"
+
+    hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class LoginLink(Base):
+    """Break-glass one-time login URL issued by `python -m sim.cli login-link`. Only sha256."""
+
+    __tablename__ = "login_link"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("admin_user.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Strategy(Base):

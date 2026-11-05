@@ -1,29 +1,52 @@
-"""Admin authentication: argon2 passwords, server-side sessions, CSRF token, login rate limit."""
+"""Admin authentication: Telegram Login Widget only, server-side sessions, CSRF token, rate limit."""
 from __future__ import annotations
 
 import hashlib
+import hmac
+import re
 import secrets
 import time
 from collections import OrderedDict, deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
-from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerificationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import AdminUser, AuthSession
-from sim.adapters.db.repositories.accounts import AdminUserRepo, AuthSessionRepo
+from sim.adapters.db.models import AdminUser, AuthSession, LoginLink
+from sim.adapters.db.repositories.accounts import (
+    AdminUserRepo,
+    AuthSessionRepo,
+    LoginLinkRepo,
+    UsedLoginHashRepo,
+)
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Role
 
-INVALID_CREDENTIALS = "Invalid username or password"
-hasher = PasswordHasher()
-DUMMY_HASH = hasher.hash("sim-dummy-password")  # burns the same time for unknown users
+INVALID_LOGIN = "Telegram login could not be verified"
+INVALID_LINK = "Login link is invalid or expired"
+ACCESS_DENIED = "Доступ не выдан"
+WIDGET_MAX_AGE_S = 3600        # auth_date older than this is rejected
+WIDGET_MAX_SKEW_S = 60         # auth_date this far in the future is tolerated
+LOGIN_LINK_TTL = timedelta(minutes=10)
+TG_USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")
 
 
 class AuthError(Exception):
-    """Wrong credentials (the message is identical for unknown user and wrong password)."""
+    """The login could not be verified (bad / stale / replayed Telegram signature, bad link)."""
+
+
+class AccessDenied(Exception):
+    """Valid Telegram identity that is not an active admin."""
+
+    def __init__(self, telegram_id: int) -> None:
+        super().__init__(ACCESS_DENIED)
+        self.telegram_id = telegram_id
+
+
+class NotConfigured(Exception):
+    """The Telegram login bot token is not set."""
 
 
 class TooManyAttempts(Exception):
@@ -32,12 +55,68 @@ class TooManyAttempts(Exception):
         self.retry_after_s = retry_after_s
 
 
-class LoginRateLimiter:
-    """Sliding window of FAILED attempts, keyed by (username, ip) pair and by ip alone.
+def normalize_tg_username(value: str | None) -> str | None:
+    """`@Name` / `Name` -> `name`; None for empty. Raises ValueError for an invalid name."""
+    name = (value or "").strip().removeprefix("@").lower()
+    if not name:
+        return None
+    if not TG_USERNAME_RE.match(name):
+        raise ValueError("Invalid Telegram username")
+    return name
 
-    There is deliberately NO per-username key: it would let anyone lock the owner out from
-    anywhere. The (username, ip) pair stops password guessing against one account from one
-    address; the ip key (a looser cap) stops one address from spraying many usernames.
+
+@dataclass(frozen=True)
+class TelegramProfile:
+    id: int
+    username: str | None
+    display_name: str
+    photo_url: str
+    auth_date: int
+    hash: str
+
+
+def verify_telegram_widget(
+    data: Mapping[str, Any], bot_token: str, *, now: float | None = None
+) -> TelegramProfile:
+    """Check a Telegram Login Widget payload: HMAC-SHA256 (secret = sha256(bot_token)) over the
+    sorted `key=value` lines, constant-time compare, auth_date within 1 hour and not in the
+    future. Raises AuthError / NotConfigured. One-time use of the hash is enforced by the
+    service (it needs the database)."""
+    if not bot_token:
+        raise NotConfigured
+    incoming = str(data.get("hash") or "").lower()
+    pairs = sorted((k, str(v)) for k, v in data.items() if k != "hash" and v not in (None, ""))
+    check_string = "\n".join(f"{k}={v}" for k, v in pairs)
+    secret = hashlib.sha256(bot_token.encode()).digest()
+    expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+    if not incoming or not hmac.compare_digest(expected, incoming):
+        raise AuthError(INVALID_LOGIN)
+    try:
+        auth_date = int(data["auth_date"])
+        tg_id = int(data["id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AuthError(INVALID_LOGIN) from exc
+    now = time.time() if now is None else now
+    if auth_date > now + WIDGET_MAX_SKEW_S or now - auth_date > WIDGET_MAX_AGE_S:
+        raise AuthError(INVALID_LOGIN)
+    first, last = str(data.get("first_name") or ""), str(data.get("last_name") or "")
+    username = str(data.get("username") or "").lower() or None
+    return TelegramProfile(
+        id=tg_id,
+        username=username,
+        display_name=f"{first} {last}".strip() or (f"@{username}" if username else str(tg_id)),
+        photo_url=str(data.get("photo_url") or ""),
+        auth_date=auth_date,
+        hash=incoming,
+    )
+
+
+class LoginRateLimiter:
+    """Sliding window of FAILED attempts, keyed by (subject, ip) pair and by ip alone.
+
+    There is deliberately NO per-subject key: it would let anyone lock the owner out from
+    anywhere. The (subject, ip) pair stops hammering one identity from one address; the ip
+    key (a looser cap) stops one address from spraying many identities.
     The key table is bounded: expired buckets are dropped and, past `max_keys`, the least
     recently touched ones go first."""
 
@@ -56,9 +135,9 @@ class LoginRateLimiter:
         self.failures: OrderedDict[str, deque[float]] = OrderedDict()
 
     @staticmethod
-    def keys_for(username: str, ip: str) -> tuple[str, str]:
+    def keys_for(subject: str, ip: str) -> tuple[str, str]:
         """(pair key, ip key). The pair key is first."""
-        return f"pair:{username.lower()}|{ip}", f"ip:{ip}"
+        return f"pair:{subject.lower()}|{ip}", f"ip:{ip}"
 
     def limit_for(self, key: str) -> int:
         return self.ip_max_failures if key.startswith("ip:") else self.max_failures
@@ -111,35 +190,82 @@ class AuthService:
         *,
         ttl_h: int,
         limiter: LoginRateLimiter,
+        bot_token: str = "",
         clock: Clock = utcnow,
     ) -> None:
         self.users = AdminUserRepo(session)
         self.sessions = AuthSessionRepo(session)
+        self.used_hashes = UsedLoginHashRepo(session)
+        self.links = LoginLinkRepo(session)
         self.ttl = timedelta(hours=ttl_h)
         self.limiter = limiter
+        self.bot_token = bot_token
         self.clock = clock
 
-    async def create_user(self, username: str, password: str, role: Role) -> AdminUser:
-        return await self.users.add(
-            AdminUser(username=username, password_hash=hasher.hash(password), role=role)
-        )
+    # ---- users -----------------------------------------------------------------------------
+    async def sync_superadmins(self, telegram_ids: list[int]) -> int:
+        """Make every configured id an active superadmin (idempotent). Returns rows changed."""
+        changed = 0
+        for tg_id in telegram_ids:
+            user = await self.users.by_telegram_id(tg_id)
+            if user is None:
+                await self.users.add(
+                    AdminUser(
+                        telegram_id=tg_id, role=Role.SUPERADMIN, is_active=True,
+                        display_name=str(tg_id),
+                    )
+                )
+                changed += 1
+            elif user.role is not Role.SUPERADMIN or not user.is_active:
+                user.role, user.is_active = Role.SUPERADMIN, True
+                changed += 1
+        return changed
 
-    async def bootstrap_owner(self, username: str, password: str) -> AdminUser | None:
-        """Create the first owner from settings when there are no admins yet (idempotent)."""
-        if not username or not password or await self.users.count():
-            return None
-        return await self.create_user(username, password, Role.OWNER)
-
-    async def login(self, username: str, password: str, client_addr: str = "") -> LoginResult:
-        keys = self.limiter.keys_for(username, client_addr)
+    # ---- Telegram login --------------------------------------------------------------------
+    async def login_telegram(self, data: Mapping[str, Any], client_addr: str = "") -> LoginResult:
+        keys = self.limiter.keys_for(str(data.get("id", "")), client_addr)
         self.limiter.check(*keys)
-        user = await self.users.by_username(username)
-        if not self.password_ok(user.password_hash if user else DUMMY_HASH, password) or (
-            user is None or not user.is_active
-        ):
+        now = self.clock()
+        try:
+            profile = verify_telegram_widget(data, self.bot_token)
+            # Only a correctly signed hash is recorded, so garbage cannot burn real ones.
+            await self.used_hashes.purge_expired(now)
+            fresh = await self.used_hashes.claim(
+                profile.hash, now + timedelta(seconds=WIDGET_MAX_AGE_S + WIDGET_MAX_SKEW_S)
+            )
+            if not fresh:
+                raise AuthError(INVALID_LOGIN)  # replay
+        except AuthError:
             self.limiter.record_failure(*keys)
-            raise AuthError(INVALID_CREDENTIALS)
+            raise
+        user = await self.find_admin(profile)
+        if user is None:
+            raise AccessDenied(profile.id)
         self.limiter.reset(*keys)
+        await self.refresh_profile(user, profile)
+        return await self.issue_session(user)
+
+    async def find_admin(self, profile: TelegramProfile) -> AdminUser | None:
+        user = await self.users.by_telegram_id(profile.id)
+        if user is not None:
+            return user if user.is_active else None
+        if profile.username:  # invited by @username: the first login binds the numeric id
+            invited = await self.users.by_tg_username(profile.username)
+            if invited is not None and invited.telegram_id is None and invited.is_active:
+                invited.telegram_id = profile.id
+                return invited
+        return None
+
+    async def refresh_profile(self, user: AdminUser, profile: TelegramProfile) -> None:
+        user.display_name = profile.display_name
+        user.photo_url = profile.photo_url
+        if profile.username != user.tg_username:
+            holder = await self.users.by_tg_username(profile.username) if profile.username else None
+            if holder is None or holder.id == user.id:
+                user.tg_username = profile.username
+        await self.users.session.flush()
+
+    async def issue_session(self, user: AdminUser) -> LoginResult:
         now = self.clock()
         await self.sessions.purge_expired(now)
         token = secrets.token_urlsafe(32)
@@ -154,13 +280,39 @@ class AuthService:
         )
         return LoginResult(user=user, token=token, csrf_token=csrf)
 
-    @staticmethod
-    def password_ok(password_hash: str, password: str) -> bool:
-        try:
-            return hasher.verify(password_hash, password)
-        except (VerificationError, InvalidHashError):
-            return False
+    # ---- break-glass login link ------------------------------------------------------------
+    async def create_login_link(self, telegram_id: int) -> str:
+        """One-time token (valid 10 minutes) for an existing active admin; only sha256 stored."""
+        user = await self.users.by_telegram_id(telegram_id)
+        if user is None or not user.is_active:
+            raise AccessDenied(telegram_id)
+        now = self.clock()
+        await self.links.purge_expired(now)
+        token = secrets.token_urlsafe(32)
+        await self.links.add(
+            LoginLink(
+                user_id=user.id, token_hash=hash_token(token), expires_at=now + LOGIN_LINK_TTL
+            )
+        )
+        return token
 
+    async def login_with_link(self, token: str, client_addr: str = "") -> LoginResult:
+        keys = self.limiter.keys_for("link", client_addr)
+        self.limiter.check(*keys)
+        row = await self.links.by_token_hash(hash_token(token)) if token else None
+        user = await self.users.get(row.user_id) if row is not None else None
+        if (
+            row is None
+            or user is None
+            or not user.is_active
+            or row.expires_at < self.clock()
+            or not await self.links.consume(row.id)
+        ):
+            self.limiter.record_failure(*keys)
+            raise AuthError(INVALID_LINK)
+        return await self.issue_session(user)
+
+    # ---- sessions --------------------------------------------------------------------------
     async def authenticate(self, token: str | None) -> AuthSession | None:
         if not token:
             return None

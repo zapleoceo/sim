@@ -18,7 +18,7 @@ from sim.adapters.db.models import (
     Strategy,
 )
 from sim.adapters.db.models import Channel as ChannelRow
-from sim.domain.enums import ChannelKind, ClientStatus, ContentKind, Stage
+from sim.domain.enums import ChannelKind, ClientStatus, ContentKind, Role, Stage
 from sim.services.channels import ConnectState
 
 
@@ -32,9 +32,31 @@ class Body(BaseModel):
 
 
 # ---- inputs -------------------------------------------------------------------------------
-class LoginIn(Body):
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=1, max_length=256)
+class TelegramLoginIn(BaseModel):
+    """Telegram Login Widget payload. Every received field takes part in the signature, so
+    unknown fields are kept (extra="allow") and verified, not dropped."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: int
+    auth_date: int
+    hash: str = Field(min_length=1, max_length=128)
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
+    photo_url: str | None = None
+
+
+class AdminCreateIn(Body):
+    telegram_id: int | None = Field(default=None, gt=0)
+    tg_username: str | None = Field(default=None, max_length=65)
+    role: Role = Role.OPERATOR
+    display_name: str = Field(default="", max_length=120)
+
+
+class AdminPatchIn(Body):
+    role: Role | None = None
+    is_active: bool | None = None
 
 
 class PersonaIn(Body):
@@ -151,7 +173,14 @@ class PartnerHookIn(Body):
 
 # ---- outputs ------------------------------------------------------------------------------
 def user_out(u: AdminUser) -> dict[str, Any]:
-    return {"id": u.id, "username": u.username, "role": u.role.value}
+    return {
+        "id": u.id, "role": u.role.value, "telegram_id": u.telegram_id,
+        "tg_username": u.tg_username, "display_name": u.display_name, "photo_url": u.photo_url,
+    }
+
+
+def admin_out(u: AdminUser) -> dict[str, Any]:
+    return {**user_out(u), "is_active": u.is_active, "created_at": dt(u.created_at)}
 
 
 def persona_out(p: Persona) -> dict[str, Any]:

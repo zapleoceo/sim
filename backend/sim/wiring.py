@@ -18,6 +18,7 @@ from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
 from sim.ports.llm import LLMPort
+from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
 from sim.services.auth import AuthService, LoginRateLimiter
 from sim.services.channels import ChannelService
@@ -74,8 +75,15 @@ class Container:
 
     def auth(self, s: AsyncSession) -> AuthService:
         return AuthService(
-            s, ttl_h=self.settings.session_ttl_h, limiter=self.limiter, clock=self.clock
+            s,
+            ttl_h=self.settings.session_ttl_h,
+            limiter=self.limiter,
+            bot_token=self.settings.tg_login_bot_token,
+            clock=self.clock,
         )
+
+    def admins(self, s: AsyncSession) -> AdminService:
+        return AdminService(s)
 
     def outbound(self, s: AsyncSession) -> OutboundService:
         return OutboundService(s, self.registry, self.box, clock=self.clock, rng=self.rng)

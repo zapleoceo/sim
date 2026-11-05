@@ -37,10 +37,11 @@ def test_media_store_rejects_path_traversal(tmp_path):
 
 
 async def test_seed_is_idempotent_and_complete(container):
+    container.settings.superadmin_telegram_ids = "42, junk"
     first = await seed(container, container.settings)
     second = await seed(container, container.settings)
-    assert first == {"strategies": 1, "personas": 2, "owner": 1}
-    assert second == {"strategies": 0, "personas": 0, "owner": 0}
+    assert first == {"strategies": 1, "personas": 2, "superadmins": 1}
+    assert second == {"strategies": 0, "personas": 0, "superadmins": 0}
     async with container.factory() as s:
         personas = (await s.scalars(select(Persona).order_by(Persona.id))).all()
         strategy = (await s.scalars(select(Strategy))).one()

@@ -57,8 +57,14 @@ class Delivery(StrEnum):
 
 
 class Role(StrEnum):
+    SUPERADMIN = "superadmin"   # owner rights + manages the admins
     OWNER = "owner"
     OPERATOR = "operator"
+
+    @property
+    def has_owner_rights(self) -> bool:
+        """The single place that says who may do owner-only things (settings, approvals)."""
+        return self in (Role.SUPERADMIN, Role.OWNER)
 
 
 class PartnerEventKind(StrEnum):

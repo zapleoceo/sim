@@ -34,14 +34,22 @@ class Settings(BaseSettings):
 
     partner_webhook_secret: str = ""
 
-    bootstrap_owner_username: str = ""
-    bootstrap_owner_password: str = ""
+    # Admin login is Telegram-only (Login Widget; the bot needs the site domain via BotFather
+    # /setdomain). Superadmins are upserted from the comma list on seed / API start.
+    tg_login_bot_token: str = ""
+    tg_login_bot_username: str = ""                    # without @
+    superadmin_telegram_ids: str = ""
 
     reply_debounce_s: int = 8          # wait for a burst of client messages before answering
     worker_tick_s: float = 2.0
 
     static_dir: str = "../frontend/dist/sim/browser"   # built Angular app (prod: /app/static)
     media_dir: str = "./media"                         # downloaded voice/images (prod: /app/media)
+
+
+def parse_telegram_ids(spec: str) -> list[int]:
+    """Comma list of numeric Telegram ids; junk items are skipped."""
+    return [int(x) for x in (i.strip() for i in spec.split(",")) if x.isdigit()]
 
 
 @lru_cache

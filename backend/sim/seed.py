@@ -1,4 +1,4 @@
-"""`python -m sim.seed`: idempotent initial data (docs/personas.md) and the bootstrap owner.
+"""`python -m sim.seed`: idempotent initial data (docs/personas.md) and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
 
 Existing rows are matched by name and left untouched, so edits made in the admin survive a
 re-run."""
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.adapters.db.session import create_all, transaction
-from sim.config import Settings, settings
+from sim.config import Settings, parse_telegram_ids, settings
 from sim.wiring import Container, build_container
 
 log = logging.getLogger(__name__)
@@ -146,10 +146,9 @@ async def seed(container: Container, cfg: Settings) -> dict[str, Any]:
         await create_all(container.engine)  # dev convenience; prod schema is Alembic's
     async with transaction(container.factory) as s:
         created: dict[str, Any] = dict(await seed_catalog(s))
-        owner = await container.auth(s).bootstrap_owner(
-            cfg.bootstrap_owner_username, cfg.bootstrap_owner_password
+        created["superadmins"] = await container.auth(s).sync_superadmins(
+            parse_telegram_ids(cfg.superadmin_telegram_ids)
         )
-        created["owner"] = 1 if owner else 0
     return created
 
 
