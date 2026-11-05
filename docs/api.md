@@ -48,10 +48,12 @@ superadmin нельзя удалить, понизить или деактиви
 | GET | `/api/personas` | — | `{items: Persona[]}` |
 | POST | `/api/personas` | `PersonaIn` | `Persona` |
 | GET/PUT/DELETE | `/api/personas/{id}` | `PersonaIn` | `Persona` / `204` |
-| POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}]}` | `{reply, decision, model, latency_ms}` — пробный ответ без отправки; `decision` = разобранный JSON-ответ модели `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался) |
+| POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}]}` | `{reply, decision, guard, model, latency_ms}` — пробный ответ без отправки, **с прогоном через контролера**; `reply` — то, что ушло бы клиенту (после исправления; `""`, если контролер заблокировал); `decision` = разобранный JSON-ответ генератора `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался; тогда `guard = null`); `guard` = `{verdict: "ok"/"rewritten"/"blocked", violations: string[], model, original_text}` (`original_text` — черновик для `rewritten`/`blocked`, иначе `null`) |
 
-`Persona`: `{id, name, age, gender ("female"|"male"|"other"), avatar_url, tagline, character, backstory, communication_style,
+`Persona`: `{id, name, age, gender ("female"|"male"|"other"), avatar_url, description, prohibitions,
 language, model, voice_id, strategy_id, is_active, disclosure_text, created_at}`.
+`description` — один свободный текст (кто она, характер, биография, как пишет); `prohibitions` — «чего нельзя», по правилу на строку
+(попадают в системный промпт, раздел «Чего нельзя никогда», и в промпт контролера). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).
 
 ## Стратегии (сценарии общения)
@@ -97,7 +99,7 @@ rules: string[], followup_hours: number[], reply_delay_s: [min, max], created_at
 
 `DialogRow`: `{id, channel_kind, persona: {id, name, avatar_url}, client: {id, display_name, avatar_url, stage, status},
 last_message: {text, direction, at}, unread: number, ai_paused}`.
-`Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed"|"cancelled", model?}`. `cancelled` — ответ ИИ не отправлен, потому что диалог перешёл к человеку (оператор/владелец написал, пауза ИИ) или клиент отказался.
+`Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed"|"cancelled", model?, error?, guard}`. `cancelled` — ответ ИИ не отправлен, потому что диалог перешёл к человеку (оператор/владелец написал, пауза ИИ), клиент отказался или контролер заблокировал черновик (тогда `error` = причина). `guard` — только у сообщений ИИ, иначе `null`: `{verdict: "ok"|"rewritten"|"blocked", violations: string[], model, original_text}`; для `rewritten` `text` — отправленный исправленный текст, `original_text` — черновик генератора; для `blocked` `text` — заблокированный черновик.
 
 ## Клиенты
 | Метод | Путь | Тело | Ответ |
@@ -136,6 +138,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
  "registrations": 0, "payments": 0, "revenue": 0.0, "partner_payouts": 0.0,
  "conversion": {"contact_to_registration": 0.0, "registration_to_payment": 0.0},
  "llm": {"calls": 0, "cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0},
+ "guard": {"ok": 0, "rewritten": 0, "blocked": 0},
  "by_channel": [{"kind": "telegram", "contacts": 0, "registrations": 0, "payments": 0}],
  "daily": [{"date": "2026-11-05", "contacts": 0, "registrations": 0, "payments": 0}]}
 ```
@@ -155,5 +158,5 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Дополнения реализации (аддитивные поля)
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
-`Client.ref_code`, `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
+`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
