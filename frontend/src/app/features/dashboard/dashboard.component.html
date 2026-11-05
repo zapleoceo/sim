@@ -1,0 +1,94 @@
+<div class="sim-page">
+  <sim-page-header title="Аналитика" subtitle="Контакты, конверсия и затраты за период">
+    <div class="presets" role="group" aria-label="Быстрый выбор периода">
+      <button mat-stroked-button type="button" (click)="setPreset(7)">7 дней</button>
+      <button mat-stroked-button type="button" (click)="setPreset(30)">30 дней</button>
+      <button mat-stroked-button type="button" (click)="setPreset(90)">90 дней</button>
+    </div>
+  </sim-page-header>
+
+  <form class="filters sim-card" [formGroup]="filters">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Период</mat-label>
+      <mat-date-range-input [rangePicker]="picker" formGroupName="range">
+        <input matStartDate formControlName="start" placeholder="С" />
+        <input matEndDate formControlName="end" placeholder="По" />
+      </mat-date-range-input>
+      <mat-datepicker-toggle matIconSuffix [for]="picker" />
+      <mat-date-range-picker #picker />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Персонаж</mat-label>
+      <mat-select formControlName="persona_id">
+        <mat-option [value]="null">Все персонажи</mat-option>
+        @for (p of personas(); track p.id) {
+          <mat-option [value]="p.id">{{ p.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </form>
+
+  @if (data(); as d) {
+    <section class="kpis" aria-label="Ключевые показатели" [class.loading]="loading()">
+      @for (k of kpis(); track k.label) {
+        <div class="sim-card kpi">
+          <span class="sim-muted">{{ k.label }}</span>
+          <strong>{{ k.value }}</strong>
+          @if (k.hint) {
+            <span class="sim-muted small">{{ k.hint }}</span>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="conv">
+      <div class="sim-card kpi">
+        <span class="sim-muted">Контакт → регистрация</span>
+        <strong>{{ d.conversion.contact_to_registration | percent: '1.0-1' }}</strong>
+      </div>
+      <div class="sim-card kpi">
+        <span class="sim-muted">Регистрация → оплата</span>
+        <strong>{{ d.conversion.registration_to_payment | percent: '1.0-1' }}</strong>
+      </div>
+    </section>
+
+    <div class="charts">
+      <section class="sim-card">
+        <h2>Воронка по этапам</h2>
+        <sim-bar-chart [data]="stageBars()" />
+      </section>
+      <section class="sim-card">
+        <h2>По дням</h2>
+        <sim-line-chart [labels]="dailyLabels()" [series]="dailySeries()" />
+      </section>
+    </div>
+
+    <section class="sim-card">
+      <h2>По каналам</h2>
+      @if (channelRows().length) {
+        <div class="sim-scroll-x">
+          <table class="sim-table">
+            <thead>
+              <tr><th>Канал</th><th class="num">Контакты</th><th class="num">Регистрации</th><th class="num">Оплаты</th></tr>
+            </thead>
+            <tbody>
+              @for (c of channelRows(); track c.kind) {
+                <tr>
+                  <td>{{ c.label }}</td>
+                  <td class="num">{{ c.contacts | number }}</td>
+                  <td class="num">{{ c.registrations | number }}</td>
+                  <td class="num">{{ c.payments | number }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <sim-empty-state icon="hub" title="Нет данных по каналам" />
+      }
+    </section>
+  } @else {
+    <sim-empty-state icon="insights" [title]="loading() ? 'Загружаем…' : 'Нет данных'" hint="Выберите период и персонажа." />
+  }
+</div>

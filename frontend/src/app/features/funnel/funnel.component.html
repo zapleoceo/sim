@@ -1,0 +1,74 @@
+<div class="sim-page wide">
+  <sim-page-header title="Воронка" subtitle="Перетаскивайте карточки между этапами. Регистрацию и оплату ставит только партнёр.">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="persona">
+      <mat-label>Персонаж</mat-label>
+      <mat-select [formControl]="persona">
+        <mat-option [value]="null">Все персонажи</mat-option>
+        @for (p of personas(); track p.id) {
+          <mat-option [value]="p.id">{{ p.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </sim-page-header>
+
+  @if (statuses(); as st) {
+    <div class="statuses" role="list" aria-label="Статусы клиентов">
+      @for (s of statusOrder; track s) {
+        <div class="status sim-card" role="listitem">
+          <strong>{{ st[s] }}</strong>
+          <span class="sim-muted">{{ statusLabels[s] }}</span>
+        </div>
+      }
+    </div>
+  }
+
+  <div class="board" cdkDropListGroup>
+    @for (col of columns(); track col.stage) {
+      <section
+        class="col"
+        [class.locked]="col.locked"
+        [attr.data-stage]="col.stage"
+        [style.--chip-color]="col.color"
+        [attr.aria-label]="col.label"
+      >
+        <header>
+          <span class="dot"></span>
+          <h2>{{ col.label }}</h2>
+          <span class="n">{{ col.count }}</span>
+        </header>
+        <div
+          class="cards"
+          cdkDropList
+          [cdkDropListData]="col.stage"
+          [cdkDropListEnterPredicate]="canEnter"
+          (cdkDropListDropped)="onDrop($event)"
+        >
+          @for (c of col.clients; track c.id) {
+            <article class="card" cdkDrag [cdkDragDisabled]="col.locked" [cdkDragData]="c" (cdkDragReleased)="onRelease($event)">
+              <a class="who" [routerLink]="['/clients', c.id]">
+                <sim-avatar [name]="c.display_name" [url]="c.avatar_url" [size]="28" />
+                <span class="name">{{ c.display_name }}</span>
+              </a>
+              <sim-status-badge [status]="c.status" />
+              @if (!col.locked) {
+                <button mat-icon-button type="button" class="mv" [matMenuTriggerFor]="menu" [matMenuTriggerData]="{ client: c, from: col.stage }" aria-label="Переместить на другой этап">
+                  <mat-icon class="material-icons-outlined">swap_horiz</mat-icon>
+                </button>
+              }
+            </article>
+          } @empty {
+            <p class="empty sim-muted">Пусто</p>
+          }
+        </div>
+      </section>
+    }
+  </div>
+
+  <mat-menu #menu="matMenu">
+    <ng-template matMenuContent let-client="client" let-from="from">
+      @for (s of moveTargets; track s.id) {
+        <button mat-menu-item type="button" [disabled]="s.id === from" (click)="move(client, from, s.id)">{{ s.label }}</button>
+      }
+    </ng-template>
+  </mat-menu>
+</div>

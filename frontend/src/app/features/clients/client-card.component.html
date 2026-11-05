@@ -1,0 +1,116 @@
+<div class="sim-page">
+  <a mat-button routerLink="/clients" class="back">
+    <mat-icon class="material-icons-outlined">arrow_back</mat-icon>
+    Все клиенты
+  </a>
+
+  @if (card(); as c) {
+    <header class="sim-card head">
+      <sim-avatar [name]="c.display_name" [url]="c.avatar_url" [size]="64" />
+      <div class="sim-grow">
+        <h1>{{ c.display_name }}</h1>
+        <p class="sim-muted">В базе с {{ createdAt() }}</p>
+        <div class="channels">
+          @for (ch of c.channels; track ch.dialog_id) {
+            <a class="ch" [routerLink]="['/inbox']" [queryParams]="{ d: ch.dialog_id }">
+              <sim-channel-icon [kind]="ch.kind" />
+              Открыть диалог
+            </a>
+          }
+        </div>
+      </div>
+      <sim-status-badge [status]="c.status" />
+    </header>
+
+    <section class="sim-card" aria-labelledby="stage-h">
+      <h2 id="stage-h">Этап воронки</h2>
+      <div class="stepper" role="group" aria-label="Этап воронки">
+        @for (s of stages; track s.id) {
+          <button
+            type="button"
+            class="step"
+            [class.current]="s.id === c.stage"
+            [attr.aria-pressed]="s.id === c.stage"
+            [attr.aria-disabled]="!s.aiReachable"
+            [class.locked]="!s.aiReachable"
+            [matTooltip]="s.aiReachable ? '' : partnerHint"
+            [style.--chip-color]="s.color"
+            (click)="setStage(s.id)"
+          >
+            @if (!s.aiReachable) {
+              <mat-icon class="material-icons-outlined">lock</mat-icon>
+            }
+            {{ s.label }}
+          </button>
+        }
+      </div>
+      <mat-form-field appearance="outline" subscriptSizing="dynamic" class="status">
+        <mat-label>Статус</mat-label>
+        <mat-select [formControl]="statusControl" (selectionChange)="setStatus($event.value)">
+          @for (s of statuses; track s.id) {
+            <mat-option [value]="s.id">{{ s.label }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </section>
+
+    <form class="sim-card" [formGroup]="form" (ngSubmit)="save()">
+      <h2>Работа с клиентом</h2>
+      <div class="sim-form-grid">
+        <mat-form-field appearance="outline">
+          <mat-label>Имя</mat-label>
+          <input matInput formControlName="display_name" />
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Следующий шаг</mat-label>
+          <input matInput formControlName="next_step" placeholder="Напр.: напомнить про ссылку" />
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Когда</mat-label>
+          <input matInput type="datetime-local" formControlName="next_step_at" />
+        </mat-form-field>
+        @if (c.needs.length) {
+          <div class="needs">
+            <span class="sim-muted">Потребности</span>
+            <div class="chips">
+              @for (n of c.needs; track n) {
+                <span class="need">{{ n }}</span>
+              }
+            </div>
+          </div>
+        }
+        <mat-form-field appearance="outline" class="sim-wide">
+          <mat-label>Заметки</mat-label>
+          <textarea matInput rows="4" formControlName="notes"></textarea>
+        </mat-form-field>
+      </div>
+      <div class="sim-row actions">
+        <button mat-flat-button type="submit" [disabled]="saving() || form.pristine">Сохранить</button>
+      </div>
+    </form>
+
+    <section class="sim-card" aria-labelledby="hist-h">
+      <h2 id="hist-h">История</h2>
+      @if (timeline().length) {
+        <ol class="timeline">
+          @for (t of timeline(); track $index) {
+            <li [class.partner]="t.partner">
+              <mat-icon class="material-icons-outlined">{{ t.icon }}</mat-icon>
+              <div>
+                <strong>{{ t.title }}</strong>
+                @if (t.detail) {
+                  <span class="sim-muted"> · {{ t.detail }}</span>
+                }
+                <div class="sim-muted when">{{ t.when }}</div>
+              </div>
+            </li>
+          }
+        </ol>
+      } @else {
+        <sim-empty-state icon="history" title="Событий пока нет" />
+      }
+    </section>
+  } @else {
+    <sim-empty-state icon="hourglass_empty" title="Загружаем клиента…" />
+  }
+</div>
