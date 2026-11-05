@@ -1,0 +1,108 @@
+name: sim
+
+# Prod on 195.201.31.49 (/var/www/sim). Only the API is published, and only on loopback —
+# nginx proxies sim.zapleo.com to it. Postgres and Evolution stay inside the compose network.
+# No Redis: the job queue is a Postgres table (host has ~1 GB RAM to spare).
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    container_name: sim-postgres
+    environment:
+      POSTGRES_USER: sim
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: sim
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=40"]
+    volumes:
+      - sim_pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sim -d sim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    restart: unless-stopped
+
+  # WhatsApp as a linked device (Baileys). Not published: api/worker reach it by name and it
+  # calls back http://api:8000/hooks/evolution/<channel_id> with a per-channel secret header.
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: sim-evolution
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      SERVER_URL: http://evolution:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?EVOLUTION_API_KEY must be set}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://sim:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: sim
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      CONFIG_SESSION_PHONE_CLIENT: Sim
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "10"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      LOG_LEVEL: ERROR,WARN
+    volumes:
+      - sim_evolution:/evolution/instances
+    mem_limit: 512m
+    restart: unless-stopped
+
+  migrate:
+    build: ../backend
+    image: sim-backend:latest
+    container_name: sim-migrate
+    depends_on:
+      postgres: {condition: service_healthy}
+    env_file: [.env]
+    environment: &appenv
+      SIM_ENV: prod
+      SIM_DATABASE_URL: postgresql+asyncpg://sim:${POSTGRES_PASSWORD}@postgres:5432/sim
+      SIM_EVOLUTION_URL: http://evolution:8080
+      SIM_EVOLUTION_WEBHOOK_BASE: http://api:8000
+    command: ["sh", "-c", "alembic upgrade head && python -m sim.seed"]
+    restart: "no"
+
+  api:
+    image: sim-backend:latest
+    container_name: sim-api
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    env_file: [.env]
+    environment: *appenv
+    ports:
+      - "127.0.0.1:8010:8000"
+    volumes:
+      - ../frontend/dist/sim/browser:/app/static:ro
+      - sim_media:/app/media
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status==200 else 1)"]
+      interval: 20s
+      timeout: 6s
+      retries: 3
+    mem_limit: 384m
+    restart: unless-stopped
+
+  worker:
+    image: sim-backend:latest
+    container_name: sim-worker
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    env_file: [.env]
+    environment: *appenv
+    command: ["python", "-m", "sim.worker"]
+    volumes:
+      - sim_media:/app/media
+    mem_limit: 384m
+    restart: unless-stopped
+
+volumes:
+  sim_pgdata:
+  sim_evolution:
+  sim_media:

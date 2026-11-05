@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Deploy Sim to prod: build the admin locally, rsync code to the server, rebuild and restart.
+# Usage: infra/deploy.sh            (from the repo root)
+# Server .env lives only on the server (/var/www/sim/infra/.env) and is never synced.
+set -euo pipefail
+
+HOST="${SIM_DEPLOY_HOST:-hetzner-root}"
+DEST="/var/www/sim"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "== tests"
+(cd "$ROOT/backend" && uv run pytest -q && uv run ruff check .)
+
+echo "== build admin"
+(cd "$ROOT/frontend" && npm ci --no-audit --no-fund && npm run build)
+
+echo "== sync (committed HEAD only — uncommitted edits never reach prod)"
+if [ -n "$(git -C "$ROOT" status --porcelain -- backend infra frontend/src)" ]; then
+  echo "working tree has uncommitted changes in backend/infra/frontend — commit first" >&2
+  exit 1
+fi
+REV="$(git -C "$ROOT" rev-parse --short HEAD)"
+ssh "$HOST" "mkdir -p $DEST && cd $DEST && find . -mindepth 1 -maxdepth 1 ! -name infra ! -name broker-project.json -exec rm -rf {} + && find infra -mindepth 1 ! -name .env -delete 2>/dev/null || true"
+git -C "$ROOT" archive --format=tar HEAD | ssh "$HOST" "tar -x -C $DEST"
+tar -C "$ROOT" -cf - frontend/dist/sim/browser | ssh "$HOST" "tar -x -C $DEST"
+ssh "$HOST" "echo $REV > $DEST/REVISION"
+
+echo "== up"
+ssh "$HOST" "cd $DEST/infra && docker compose build && docker compose up -d --remove-orphans && docker compose ps"
+
+echo "== smoke"
+ssh "$HOST" "curl -fsS http://127.0.0.1:8010/api/health"
+echo
