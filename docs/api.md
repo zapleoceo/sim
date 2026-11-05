@@ -72,13 +72,18 @@ rules: string[], followup_hours: number[], reply_delay_s: [min, max], created_at
 | GET | `/api/channels` | — | `{items: Channel[]}` |
 | POST | `/api/channels` | `{kind, persona_id, name}` | `Channel` |
 | DELETE | `/api/channels/{id}` | — | `204` (отвязывает сессию) |
-| POST | `/api/channels/{id}/connect` | по kind: telegram `{bot_token}`; instagram `{username, password, proxy?}`; whatsapp `{}` | `ConnectState` |
-| POST | `/api/channels/{id}/verify` | instagram `{code}` (2FA / challenge) | `ConnectState` |
+| POST | `/api/channels/{id}/connect` | по kind: telegram `{bot_token}`; telegram_user `{api_id, api_hash, phone, proxy?}` (все значения строками); instagram `{username, password, proxy?}`; whatsapp `{}` | `ConnectState` |
+| POST | `/api/channels/{id}/verify` | telegram_user `{code}` (код входа, затем пароль 2FA тем же полем); instagram `{code}` (2FA / challenge) | `ConnectState` |
 | GET | `/api/channels/{id}/state` | — | `ConnectState` |
 
 `Channel`: `{id, kind, name, persona_id, status, account_label, last_error, last_activity_at}`.
 `status`: `new | pending | active | challenge | expired | error`.
-`ConnectState`: `{status, qr_data_uri?, need?: "2fa"|"challenge", message?}`.
+`ConnectState`: `{status, qr_data_uri?, need?: "code"|"2fa"|"challenge", message?}`.
+
+Вход `telegram_user`: `connect` → `status: challenge, need: "code"` (Telegram прислал код в приложение/SMS);
+`verify {code}` → `active`, либо `need: "2fa"` (включён облачный пароль): тогда `verify {code: "<пароль>"}`.
+Неверный код/пароль и FloodWait оставляют `challenge` с `message` по-русски; истёкший код, неверный
+номер или api_id/api_hash дают `status: error` (подключение начинается заново).
 
 ## Диалоги (единый инбокс WA + TG + IG)
 | Метод | Путь | Параметры / тело | Ответ |

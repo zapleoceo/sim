@@ -115,9 +115,22 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 
 | Канал | Транспорт | Как подключается | Приём | Риски |
 |---|---|---|---|---|
-| Telegram | Bot API (официально) | токен бота от @BotFather | webhook `/hooks/telegram/{channel_id}` + `secret_token` | нет |
+| Telegram (бот) | Bot API (официально) | токен бота от @BotFather | webhook `/hooks/telegram/{channel_id}` + `secret_token` | нет |
+| Telegram (аккаунт, `telegram_user`) | Telethon (MTProto, личный аккаунт, userbot) | `api_id`/`api_hash` с my.telegram.org → API development tools, телефон, код, пароль 2FA | опрос раз в ~20 с в worker (`SIM_TG_USER_POLL_INTERVAL_S`) | ограничение/бан аккаунта при подозрительной активности; FloodWait |
 | WhatsApp | Evolution API v2 (Baileys, self-hosted) | QR-код в админке | webhook Evolution → `/hooks/evolution/{channel_id}` (внутренняя сеть, apikey) | неофициальный клиент, риск бана номера |
 | Instagram | instagrapi (private API) | логин/пароль (+2FA/challenge код) в админке | опрос раз в ~2 мин в worker | риск checkpoint/бана; прокси с geo как у логина |
+
+Telegram-аккаунт (`telegram_user`): StringSession (api_id, api_hash, string_session, прокси) хранится
+зашифрованно в `channel.session_enc`; код входа и пароль 2FA нигде не сохраняются. Незавершённый
+вход лежит в сессии под `pending` (с `phone_code_hash`), поэтому переживает рестарт. Клиент
+подключается без подписки на обновления (`receive_updates=False`) и ничего не помечает
+прочитанным; читаются только личные диалоги с людьми (без групп, каналов, ботов и 777000).
+Курсор по сообщениям (id на собеседника) живёт в памяти worker; после рестарта подхватываются
+только непрочитанные и пришедшие за последние 24 ч (дубли отсекает `external_id`).
+Отправка: чанки по 4096, минимум 3 с между отправками с аккаунта (`SIM_TG_USER_MIN_SEND_INTERVAL_S`),
+FloodWait на отправке даёт `flood_wait:<секунды>` и повтор job по backoff. Отвязка делает `log_out`,
+чтобы не оставлять «призрачное» устройство в сессиях аккаунта. Новое значение `ChannelKind` миграции
+не требует: enum хранится как VARCHAR(32) без CHECK.
 
 Голос: входящие голосовые → Broker `/v1/transcribe/jobs`. Исходящий голос (ElevenLabs) и видео
 (Vivix) — `VoicePort`/`VideoPort` с заглушкой; подключаются после проверки API и цены.
@@ -149,6 +162,8 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 | Evolution API v2.3.7 | брать | уже используется в stepan2; Apache-2.0; self-hosted |
 | instagrapi | брать | единственный живой вариант логина в IG без Meta App Review |
 | Telegram Bot API напрямую через httpx | брать | 3 метода, отдельная библиотека не нужна |
+| Telethon (userbot для `telegram_user`) | брать | MIT, живой (1.45.0), StringSession, `receive_updates=False`; прокси через python-socks |
+| Pyrogram | нет | не поддерживается (заброшен); форки без гарантий |
 | Redis/arq | нет | лишний сервис на сервере с 1 ГБ свободной RAM; хватает Postgres SKIP LOCKED |
 | stepan2 целиком (мультифилиальность, CRM, MBS, реклама) | нет | другой домен; тянет 90% ненужного |
 | Angular 19 (standalone, signals) для админки | брать | основной фронтенд-стек команды |
