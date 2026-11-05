@@ -16,6 +16,7 @@ import { ClientMini, ClientStatus, FunnelResponse, Persona, Stage } from '../../
 import { STAGES, STATUSES, STATUS_LABELS, stageMeta } from '../../core/stages';
 import { ToastService } from '../../core/toast.service';
 import { AvatarComponent } from '../../shared/avatar.component';
+import { FilterBarComponent, FiltersTemplateDirective } from '../../shared/filter-bar.component';
 import { PageHeaderComponent } from '../../shared/page-header.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 
@@ -25,7 +26,7 @@ interface Column { stage: Stage; label: string; color: string; locked: boolean; 
   selector: 'sim-funnel',
   imports: [
     ReactiveFormsModule, RouterLink, CdkDropListGroup, CdkDropList, CdkDrag, MatButtonModule, MatFormFieldModule,
-    MatIconModule, MatMenuModule, MatSelectModule, PageHeaderComponent, AvatarComponent, StatusBadgeComponent,
+    MatIconModule, MatMenuModule, MatSelectModule, FilterBarComponent, FiltersTemplateDirective, PageHeaderComponent, AvatarComponent, StatusBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './funnel.component.html',

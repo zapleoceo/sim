@@ -8,24 +8,38 @@
 
   <div class="layout" [class.editing]="selected() !== null">
     <div class="board">
-      @for (col of columns(); track col.status) {
-        <section class="col" [attr.aria-label]="col.label">
-          <h2><mat-icon class="material-icons-outlined">{{ col.icon }}</mat-icon>{{ col.label }}<span class="n">{{ col.posts.length }}</span></h2>
-          @for (item of col.posts; track item.post.id) {
+      @if (loaded() && !posts().length) {
+        <sim-empty-state icon="photo_library" title="Постов пока нет" hint="Создайте черновик, сгенерируйте подпись и одобрите публикацию." />
+      } @else {
+       @if (activeColumn(); as active) {
+        <nav mat-tab-nav-bar [tabPanel]="panel" mat-stretch-tabs="false" mat-align-tabs="start" aria-label="Статус постов">
+          @for (col of visibleColumns(); track col.status) {
+            <a mat-tab-link role="tab" tabindex="0" [active]="col.status === active.status" (click)="tabStatus.set(col.status)" (keydown.enter)="tabStatus.set(col.status)">
+              {{ col.label }}<span class="n">{{ col.posts.length }}</span>
+            </a>
+          }
+        </nav>
+        <mat-tab-nav-panel #panel class="cards">
+          @for (item of active.posts; track item.post.id) {
             <button type="button" class="sim-card post" [class.active]="current()?.id === item.post.id" (click)="selected.set(item.post)">
+              <span class="head">
+                <mat-icon class="material-icons-outlined" [attr.aria-label]="item.kind">{{ item.kindIcon }}</mat-icon>
+                <span class="who sim-grow">{{ item.persona || 'Без персонажа' }}</span>
+                <span class="meta sim-muted">{{ item.kind }}</span>
+              </span>
               <span class="cap">{{ item.post.caption || 'Без подписи' }}</span>
-              <span class="meta sim-muted">{{ item.kind }}@if (item.when) { · {{ item.when }} }</span>
-              @if (item.post.error) {
-                <span class="err">{{ item.post.error }}</span>
+              @if (item.when) {
+                <span class="meta sim-muted">{{ item.when }}</span>
+              }
+              @if (item.error) {
+                <span class="err">{{ item.error }}</span>
               }
             </button>
           } @empty {
-            <p class="sim-muted empty">Пусто</p>
+            <p class="sim-muted empty">В этом статусе постов нет</p>
           }
-        </section>
-      }
-      @if (loaded() && !posts().length) {
-        <sim-empty-state icon="photo_library" title="Постов пока нет" hint="Создайте черновик, сгенерируйте подпись и одобрите публикацию." />
+        </mat-tab-nav-panel>
+       }
       }
     </div>
 
@@ -65,11 +79,7 @@
               }
             </mat-select>
           </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>Публикация</mat-label>
-            <input matInput type="datetime-local" formControlName="scheduled_at" />
-            <mat-hint>Пусто — без расписания</mat-hint>
-          </mat-form-field>
+          <sim-datetime-field label="Публикация" hint="Пусто — без расписания" [control]="form.controls.scheduled_at" />
 
           <mat-form-field appearance="outline" class="sim-wide">
             <mat-label>Подпись</mat-label>
@@ -94,10 +104,10 @@
         </div>
 
         @if (current(); as p) {
-          <p class="sim-muted status">Статус: {{ p.status }}@if (p.error) { · <span class="err">{{ p.error }}</span> }</p>
+          <p class="sim-muted status">Статус: {{ currentStatus() }}@if (currentError()) { · <span class="err">{{ currentError() }}</span> }</p>
         }
 
-        <div class="sim-row actions">
+        <div class="sim-save-bar actions">
           @if (current()) {
             <button mat-button type="button" class="danger" (click)="remove()">Удалить</button>
           }

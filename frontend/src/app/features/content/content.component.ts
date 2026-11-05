@@ -6,6 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTabsModule } from '@angular/material/tabs';
 import { EMPTY, Observable, catchError, finalize, forkJoin, of, switchMap } from 'rxjs';
 import { ChannelsApi } from '../../core/api/channels.api';
 import { ContentApi } from '../../core/api/content.api';
@@ -14,8 +15,10 @@ import { AuthService } from '../../core/auth.service';
 import { Channel, ContentIn, ContentKind, ContentPost, ContentStatus, Persona } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../shared/confirm-dialog.component';
+import { humanizeChannelError } from '../../shared/channel-error';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
-import { formatDateTime, fromLocalInput, toLocalInput } from '../../shared/format';
+import { DatetimeFieldComponent } from '../../shared/datetime-field.component';
+import { formatDateTime, fromDate, toDate } from '../../shared/format';
 import { PageHeaderComponent } from '../../shared/page-header.component';
 
 type Selection = ContentPost | 'new' | null;
@@ -27,6 +30,8 @@ const COLUMNS: { status: ContentStatus; label: string; icon: string }[] = [
   { status: 'published', label: 'Опубликовано', icon: 'check_circle' },
   { status: 'failed', label: 'Ошибка', icon: 'error_outline' },
 ];
+
+const KIND_ICONS: Record<ContentKind, string> = { photo: 'photo_camera', video: 'videocam', reel: 'movie', story: 'auto_stories' };
 
 const KIND_LABELS: Record<ContentKind, string> = { photo: 'Фото', video: 'Видео', reel: 'Reels', story: 'Сторис' };
 
@@ -42,7 +47,7 @@ function mediaValidator(c: AbstractControl<string>): ValidationErrors | null {
 @Component({
   selector: 'sim-content',
   imports: [
-    ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule,
+    ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule, MatTabsModule, DatetimeFieldComponent,
     PageHeaderComponent, EmptyStateComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,7 +72,7 @@ export class ContentComponent {
     kind: new FormControl<ContentKind>('photo', { nonNullable: true }),
     caption: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(2200)] }),
     media: new FormControl('', { nonNullable: true, validators: [mediaValidator] }),
-    scheduled_at: new FormControl('', { nonNullable: true }),
+    scheduled_at: new FormControl<Date | null>(null),
   });
 
   protected readonly posts = signal<ContentPost[]>([]);
@@ -85,15 +90,28 @@ export class ContentComponent {
         .map((post) => ({
           post,
           kind: KIND_LABELS[post.kind],
+          kindIcon: KIND_ICONS[post.kind],
+          persona: this.personas().find((p) => p.id === post.persona_id)?.name ?? '',
+          error: humanizeChannelError(post.error),
           when: formatDateTime(post.scheduled_at ?? post.published_at),
         })),
     })).filter((c) => c.posts.length > 0 || c.status !== 'failed'),
   );
+  /** Колонки показываем только когда есть хотя бы один пост (иначе — единое пустое состояние). */
+  protected readonly visibleColumns = computed(() => (this.posts().length ? this.columns() : []));
+  /** Выбранная вкладка статуса; если её нет среди видимых — первая. */
+  protected readonly tabStatus = signal<ContentStatus>('draft');
+  protected readonly activeColumn = computed(() => {
+    const cols = this.visibleColumns();
+    return cols.find((c) => c.status === this.tabStatus()) ?? cols[0] ?? null;
+  });
   protected readonly igChannels = computed(() => this.channels().filter((c) => c.kind === 'instagram'));
   protected readonly current = computed(() => {
     const s = this.selected();
     return s && s !== 'new' ? s : null;
   });
+  protected readonly currentError = computed(() => humanizeChannelError(this.current()?.error));
+  protected readonly currentStatus = computed(() => COLUMNS.find((c) => c.status === this.current()?.status)?.label ?? '');
   protected readonly canApprove = computed(() => this.isOwner() && this.current()?.status === 'draft');
 
   constructor() {
@@ -120,7 +138,7 @@ export class ContentComponent {
         kind: p?.kind ?? 'photo',
         caption: p?.caption ?? '',
         media: (p?.media_urls ?? []).join('\n'),
-        scheduled_at: toLocalInput(p?.scheduled_at),
+        scheduled_at: toDate(p?.scheduled_at),
       });
     });
   }
@@ -193,7 +211,7 @@ export class ContentComponent {
       kind: v.kind,
       caption: v.caption,
       media_urls: parseMediaUrls(v.media),
-      scheduled_at: fromLocalInput(v.scheduled_at),
+      scheduled_at: fromDate(v.scheduled_at),
     };
     const p = this.current();
     this.busy.set(true);

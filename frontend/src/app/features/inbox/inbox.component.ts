@@ -1,4 +1,3 @@
-import { BreakpointObserver } from '@angular/cdk/layout';
 import {
   ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, effect, inject, input, signal, viewChild,
 } from '@angular/core';
@@ -8,6 +7,7 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -22,7 +22,9 @@ import { CHANNEL_KINDS, CHANNEL_LABELS, STAGES, STATUSES, STATUS_LABELS } from '
 import { GuardBadgeComponent } from '../../shared/guard-badge.component';
 import { AvatarComponent } from '../../shared/avatar.component';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
+import { SINGLE_PANE_QUERY, WIDE_QUERY, injectMediaQuery } from '../../shared/breakpoints';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { FilterBarComponent, FiltersTemplateDirective } from '../../shared/filter-bar.component';
 import { dayKey, dayLabel, formatShort, formatTime } from '../../shared/format';
 import { NeedsOperatorBadgeComponent } from '../../shared/needs-operator-badge.component';
 import { StageChipComponent } from '../../shared/stage-chip.component';
@@ -30,6 +32,9 @@ import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { activeFilterCount, createInboxFilterForm, normalizeFilter } from './inbox-filters';
 
 const POLL_MS = 5000;
+const PAGE_SIZE = 50;
+/** За сколько px до конца списка подгружаем следующую страницу. */
+const LOAD_MORE_THRESHOLD = 240;
 
 const MEDIA_LABELS: Record<string, { icon: string; label: string }> = {
   image: { icon: 'image', label: 'Фото' },
@@ -59,7 +64,8 @@ interface DayGroup { key: string; label: string; items: MessageVm[] }
 @Component({
   selector: 'sim-inbox',
   imports: [
-    ReactiveFormsModule, TextFieldModule, RouterLink, MatFormFieldModule, MatSelectModule, MatIconModule, MatButtonModule,
+    ReactiveFormsModule, TextFieldModule, RouterLink, MatFormFieldModule, MatInputModule, MatSelectModule, MatIconModule, MatButtonModule,
+    FilterBarComponent, FiltersTemplateDirective,
     MatSlideToggleModule, MatTooltipModule, AvatarComponent, ChannelIconComponent, EmptyStateComponent,
     StageChipComponent, StatusBadgeComponent, NeedsOperatorBadgeComponent, GuardBadgeComponent,
   ],
@@ -87,14 +93,9 @@ export class InboxComponent {
   protected readonly text = new FormControl('', { nonNullable: true });
 
   protected readonly canSend = toSignal(this.text.valueChanges.pipe(map((v) => v.trim().length > 0)), { initialValue: false });
-  protected readonly isPhone = toSignal(
-    inject(BreakpointObserver).observe('(max-width: 767px)').pipe(map((s) => s.matches)),
-    { initialValue: false },
-  );
-  protected readonly isWide = toSignal(
-    inject(BreakpointObserver).observe('(min-width: 1280px)').pipe(map((s) => s.matches)),
-    { initialValue: false },
-  );
+  /** Ниже 1024px — одна панель: список ИЛИ переписка. */
+  protected readonly isNarrow = injectMediaQuery(SINGLE_PANE_QUERY);
+  protected readonly isWide = injectMediaQuery(WIDE_QUERY);
 
   protected readonly personas = signal<Persona[]>([]);
   protected readonly rows = signal<DialogRow[]>([]);
@@ -102,7 +103,7 @@ export class InboxComponent {
   protected readonly listLoading = signal(true);
   protected readonly detail = signal<DialogDetail | null>(null);
   protected readonly sending = signal(false);
-  protected readonly filtersOpen = signal(false);
+  protected readonly loadingMore = signal(false);
   protected readonly cardOpen = signal(true);
   protected readonly filterCount = signal(0);
 
@@ -110,8 +111,8 @@ export class InboxComponent {
     const n = Number(this.d());
     return Number.isFinite(n) && n > 0 ? n : null;
   });
-  protected readonly showList = computed(() => !this.isPhone() || this.dialogId() === null);
-  protected readonly showConversation = computed(() => !this.isPhone() || this.dialogId() !== null);
+  protected readonly showList = computed(() => !this.isNarrow() || this.dialogId() === null);
+  protected readonly showConversation = computed(() => !this.isNarrow() || this.dialogId() !== null);
   protected readonly showCard = computed(() => this.isWide() && this.cardOpen() && this.detail() !== null);
 
   protected readonly rowVms = computed<RowVm[]>(() =>
@@ -137,6 +138,10 @@ export class InboxComponent {
     return out;
   });
 
+  protected readonly hasMore = computed(() => this.rows().length < this.total());
+
+  protected readonly remaining = computed(() => Math.max(0, this.total() - this.rows().length));
+
   protected readonly messageCount = computed(() => this.detail()?.messages.length ?? 0);
   protected readonly selectedPersonaName = computed(() => {
     const id = this.detail()?.dialog.persona_id;
@@ -149,22 +154,32 @@ export class InboxComponent {
       .pipe(catchError(() => EMPTY), takeUntilDestroyed(this.destroyRef))
       .subscribe((p) => this.personas.set(p));
 
-    // Список: при смене фильтров (q — с задержкой) и каждые 5 с, пока экран открыт.
+    // Список: при смене фильтров (q — с задержкой) — первая страница заново; каждые 5 с — обновляем первую страницу.
     merge(
-      this.filters.valueChanges.pipe(debounceTime(250)),
-      timer(POLL_MS, POLL_MS),
+      this.filters.valueChanges.pipe(
+        debounceTime(250),
+        map(() => true),
+      ),
+      timer(POLL_MS, POLL_MS).pipe(map(() => false)),
     )
       .pipe(
-        startWith(null),
-        switchMap(() => {
+        startWith(true),
+        switchMap((reset) => {
           const filter: DialogFilter = normalizeFilter(this.filters.getRawValue());
           this.filterCount.set(activeFilterCount(filter));
-          return this.api.list(filter, true).pipe(catchError(() => EMPTY));
+          return this.api.list(filter, true, { limit: PAGE_SIZE, offset: 0 }).pipe(
+            map((res) => ({ res, reset })),
+            catchError(() => EMPTY),
+          );
         }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((res) => {
-        this.rows.set(res.items);
+      .subscribe(({ res, reset }) => {
+        // Фоновый опрос обновляет только первую страницу; уже подгруженный хвост остаётся.
+        const head = res.items;
+        const ids = new Set(head.map((r) => r.id));
+        const tail = reset ? [] : this.rows().slice(PAGE_SIZE).filter((r) => !ids.has(r.id));
+        this.rows.set([...head, ...tail]);
         this.total.set(res.total ?? res.items.length);
         this.listLoading.set(false);
       });
@@ -206,8 +221,28 @@ export class InboxComponent {
     this.filters.reset();
   }
 
-  protected toggleFilters(): void {
-    this.filtersOpen.update((v) => !v);
+  /** Подгрузка следующей страницы (offset = сколько уже показано). */
+  protected loadMore(): void {
+    if (this.loadingMore() || !this.hasMore()) return;
+    this.loadingMore.set(true);
+    const filter = normalizeFilter(this.filters.getRawValue());
+    this.api
+      .list(filter, true, { limit: PAGE_SIZE, offset: this.rows().length })
+      .pipe(
+        finalize(() => this.loadingMore.set(false)),
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        const ids = new Set(this.rows().map((r) => r.id));
+        this.rows.set([...this.rows(), ...res.items.filter((r) => !ids.has(r.id))]);
+        this.total.set(res.total ?? this.total());
+      });
+  }
+
+  protected onListScroll(ev: Event): void {
+    const el = ev.target as HTMLElement;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < LOAD_MORE_THRESHOLD) this.loadMore();
   }
 
   protected toggleCard(): void {

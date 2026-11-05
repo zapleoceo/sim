@@ -2,15 +2,15 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ListResponse, SimBranchDetail, SimBranchRow } from '../models';
-import { toParams } from './http-params';
+import { DEFAULT_PAGE, PageRequest, toParams } from './http-params';
 
 @Injectable({ providedIn: 'root' })
 export class SimulationsApi {
   private readonly http = inject(HttpClient);
 
-  list(personaId: number | null = null, limit = 100): Observable<ListResponse<SimBranchRow>> {
+  list(personaId: number | null = null, page: PageRequest = DEFAULT_PAGE): Observable<ListResponse<SimBranchRow>> {
     return this.http.get<ListResponse<SimBranchRow>>('/api/simulations', {
-      params: toParams({ persona_id: personaId, limit }),
+      params: toParams({ persona_id: personaId, ...page }),
     });
   }
   get(id: number): Observable<SimBranchDetail> {

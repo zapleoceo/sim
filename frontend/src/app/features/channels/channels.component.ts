@@ -7,7 +7,9 @@ import { EMPTY, catchError, forkJoin, of, switchMap } from 'rxjs';
 import { ChannelsApi } from '../../core/api/channels.api';
 import { PersonasApi } from '../../core/api/personas.api';
 import { Channel, ChannelStatus, Persona } from '../../core/models';
+import { CHANNEL_LABELS } from '../../core/stages';
 import { ConfirmService } from '../../shared/confirm-dialog.component';
+import { humanizeChannelError } from '../../shared/channel-error';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { formatDateTime } from '../../shared/format';
@@ -45,11 +47,13 @@ const STATUS_VIEW: Record<ChannelStatus, { label: string; tone: 'ok' | 'warn' | 
           <article class="sim-card ch">
             <header>
               <sim-channel-icon [kind]="vm.channel.kind" />
-              <h3 class="sim-grow">{{ vm.channel.name }}</h3>
+              <div class="titles sim-grow">
+                <h3>{{ vm.kindLabel }}</h3>
+                <span class="sim-muted persona">{{ vm.persona }}</span>
+              </div>
               <span class="status" [attr.data-tone]="vm.tone">{{ vm.label }}</span>
             </header>
             <dl>
-              <div><dt class="sim-muted">Персонаж</dt><dd>{{ vm.persona }}</dd></div>
               @if (vm.channel.account_label) {
                 <div><dt class="sim-muted">Аккаунт</dt><dd>{{ vm.channel.account_label }}</dd></div>
               }
@@ -57,8 +61,8 @@ const STATUS_VIEW: Record<ChannelStatus, { label: string; tone: 'ok' | 'warn' | 
                 <div><dt class="sim-muted">Активность</dt><dd>{{ vm.activity }}</dd></div>
               }
             </dl>
-            @if (vm.channel.last_error) {
-              <p class="err" role="alert">{{ vm.channel.last_error }}</p>
+            @if (vm.error) {
+              <p class="err" role="alert">{{ vm.error }}</p>
             }
             <footer>
               @if (vm.channel.status !== 'active') {
@@ -80,6 +84,9 @@ const STATUS_VIEW: Record<ChannelStatus, { label: string; tone: 'ok' | 'warn' | 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sim-space-4); }
     .ch { display: flex; flex-direction: column; gap: var(--sim-space-3); }
     header, footer { display: flex; align-items: center; gap: var(--sim-space-2); }
+    footer { margin-top: auto; }
+    .titles { display: flex; flex-direction: column; min-width: 0; }
+    .persona { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
     h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     dl { margin: 0; display: flex; flex-direction: column; gap: 4px; }
     dl div { display: flex; justify-content: space-between; gap: var(--sim-space-3); }
@@ -110,6 +117,8 @@ export class ChannelsComponent {
       ...STATUS_VIEW[channel.status],
       persona: this.personas().find((p) => p.id === channel.persona_id)?.name ?? '—',
       activity: formatDateTime(channel.last_activity_at),
+      kindLabel: CHANNEL_LABELS[channel.kind],
+      error: humanizeChannelError(channel.last_error),
     })),
   );
 

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
-import { EMPTY, catchError } from 'rxjs';
+import { EMPTY, catchError, finalize } from 'rxjs';
 import { SimulationsApi } from '../../core/api/simulations.api';
 import { SimBranchDetail, SimBranchRow, SimMessage } from '../../core/models';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
@@ -10,6 +10,13 @@ import { GuardBadgeComponent } from '../../shared/guard-badge.component';
 import { PageHeaderComponent } from '../../shared/page-header.component';
 import { StageChipComponent } from '../../shared/stage-chip.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
+
+const PAGE_SIZE = 50;
+
+/** Админ без имени приходит как «169510539» — показываем «ID …». */
+export function adminLabel(name: string): string {
+  return /^\d+$/.test(name.trim()) ? `ID ${name.trim()}` : name;
+}
 
 /** Тестовые переписки админов с персонажами из бота (только просмотр). */
 @Component({
@@ -34,7 +41,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge.component';
                 <strong>{{ r.b.persona.name }}</strong>
                 <sim-stage-chip [stage]="r.b.stage" />
               </span>
-              <span class="sim-muted">{{ r.b.admin.display_name }} · {{ r.b.message_count }} сообщ. · {{ r.last }}</span>
+              <span class="sim-muted">{{ r.admin }} · {{ r.b.message_count }} сообщ. · {{ r.last }}</span>
               @if (r.b.closed_at) {
                 <span class="sim-muted">закрыта</span>
               }
@@ -44,6 +51,11 @@ import { StatusBadgeComponent } from '../../shared/status-badge.component';
               <sim-empty-state icon="science" title="Симуляций пока нет" hint="Админ начинает их командой /persona в боте входа." />
             }
           }
+          @if (remaining() > 0) {
+            <button mat-stroked-button type="button" class="more" [disabled]="loadingMore()" (click)="loadMore()">
+              {{ loadingMore() ? 'Загрузка…' : 'Показать ещё (' + remaining() + ')' }}
+            </button>
+          }
         </div>
 
         @if (view(); as v) {
@@ -52,7 +64,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge.component';
             <header>
               <div class="sim-grow">
                 <h2>{{ d.title }}</h2>
-                <span class="sim-muted">{{ d.admin.display_name }} · создана {{ v.created }}</span>
+                <span class="sim-muted">{{ v.admin }} · создана {{ v.created }}</span>
               </div>
               <sim-status-badge [status]="d.status" />
               <button mat-button type="button" (click)="detail.set(null)">Закрыть</button>
@@ -92,6 +104,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge.component';
     .list { display: flex; flex-direction: column; gap: var(--sim-space-2); }
     .item { display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
     .item.active { outline: 2px solid var(--sim-accent); }
+    .more { align-self: center; }
     .row { display: flex; align-items: center; justify-content: space-between; gap: var(--sim-space-2); }
     .transcript { display: flex; flex-direction: column; gap: var(--sim-space-3); }
     header { display: flex; align-items: center; gap: var(--sim-space-3); }
@@ -115,15 +128,19 @@ export class SimulationsComponent {
   protected readonly branches = signal<SimBranchRow[]>([]);
   protected readonly detail = signal<SimBranchDetail | null>(null);
   protected readonly loaded = signal(false);
+  protected readonly total = signal(0);
+  protected readonly loadingMore = signal(false);
 
   protected readonly rows = computed(() =>
-    this.branches().map((b) => ({ b, last: formatDateTime(b.last_active_at) })),
+    this.branches().map((b) => ({ b, admin: adminLabel(b.admin.display_name), last: formatDateTime(b.last_active_at) })),
   );
+  protected readonly remaining = computed(() => Math.max(0, this.total() - this.branches().length));
   protected readonly view = computed(() => {
     const detail = this.detail();
     if (!detail) return null;
     return {
       detail,
+      admin: adminLabel(detail.admin.display_name),
       created: formatDateTime(detail.created_at),
       needs: detail.needs.join('; '),
       messages: detail.messages.map((m: SimMessage) => ({ m, time: formatTime(m.created_at) })),
@@ -136,7 +153,25 @@ export class SimulationsComponent {
       .pipe(catchError(() => EMPTY), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
         this.branches.set(r.items);
+        this.total.set(r.total ?? r.items.length);
         this.loaded.set(true);
+      });
+  }
+
+  /** Следующая страница списка (offset = сколько уже загружено). */
+  protected loadMore(): void {
+    this.loadingMore.set(true);
+    this.api
+      .list(null, { limit: PAGE_SIZE, offset: this.branches().length })
+      .pipe(
+        finalize(() => this.loadingMore.set(false)),
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((r) => {
+        const ids = new Set(this.branches().map((b) => b.id));
+        this.branches.set([...this.branches(), ...r.items.filter((b) => !ids.has(b.id))]);
+        this.total.set(r.total ?? this.total());
       });
   }
 

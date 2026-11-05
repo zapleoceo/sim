@@ -55,12 +55,12 @@ interface TelegramWindow { onTelegramAuth?: (user: TelegramWidgetUser) => void }
     </div>
   `,
   styles: `
-    :host { display: grid; place-items: center; min-height: 100%; padding: var(--sim-space-4); }
-    .card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: var(--sim-space-3); padding: var(--sim-space-6); }
-    .brand { display: flex; align-items: center; gap: var(--sim-space-3); }
+    :host { display: grid; place-items: center; min-height: 100dvh; padding: var(--sim-space-4); }
+    .card { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: stretch; gap: var(--sim-space-3); padding: var(--sim-space-6); text-align: center; }
+    .brand { display: flex; align-items: center; justify-content: center; gap: var(--sim-space-3); }
     .logo { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--sim-accent); color: var(--mat-sys-on-primary); font-weight: 600; font-size: 18px; }
     .widget { display: flex; justify-content: center; min-height: 44px; }
-    .not-configured, .denied { display: flex; flex-direction: column; gap: var(--sim-space-2); }
+    .not-configured, .denied { display: flex; flex-direction: column; align-items: center; gap: var(--sim-space-2); }
     .denied p { margin: 0; }
     .error { color: var(--sim-danger); margin: 0; }
   `,

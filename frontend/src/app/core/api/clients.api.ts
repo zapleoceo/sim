@@ -4,14 +4,14 @@ import { Observable } from 'rxjs';
 import {
   Client, ClientCard, ClientFilter, ClientPatch, FunnelResponse, ListResponse, StageChange,
 } from '../models';
-import { toParams } from './http-params';
+import { DEFAULT_PAGE, PageRequest, toParams } from './http-params';
 
 @Injectable({ providedIn: 'root' })
 export class ClientsApi {
   private readonly http = inject(HttpClient);
 
-  list(filter: Partial<ClientFilter>): Observable<ListResponse<Client>> {
-    return this.http.get<ListResponse<Client>>('/api/clients', { params: toParams({ ...filter, limit: 100 }) });
+  list(filter: Partial<ClientFilter>, page: PageRequest = DEFAULT_PAGE): Observable<ListResponse<Client>> {
+    return this.http.get<ListResponse<Client>>('/api/clients', { params: toParams({ ...filter, ...page }) });
   }
   get(id: number): Observable<ClientCard> {
     return this.http.get<ClientCard>(`/api/clients/${id}`);

@@ -65,10 +65,7 @@
           <mat-label>Следующий шаг</mat-label>
           <input matInput formControlName="next_step" placeholder="Напр.: напомнить про ссылку" />
         </mat-form-field>
-        <mat-form-field appearance="outline">
-          <mat-label>Когда</mat-label>
-          <input matInput type="datetime-local" formControlName="next_step_at" />
-        </mat-form-field>
+        <sim-datetime-field label="Когда" [control]="form.controls.next_step_at" />
         @if (c.needs.length) {
           <div class="needs">
             <span class="sim-muted">Потребности</span>
@@ -84,7 +81,7 @@
           <textarea matInput rows="4" formControlName="notes"></textarea>
         </mat-form-field>
       </div>
-      <div class="sim-row actions">
+      <div class="sim-save-bar actions">
         <button mat-flat-button type="submit" [disabled]="saving() || form.pristine">Сохранить</button>
       </div>
     </form>

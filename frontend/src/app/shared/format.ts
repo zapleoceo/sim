@@ -41,15 +41,38 @@ export function dayLabel(iso: string, now = new Date()): string {
   return sameDay(d, yesterday) ? 'Вчера' : longDayFmt.format(d);
 }
 
-/** Значение для <input type="datetime-local"> из ISO UTC. */
-export function toLocalInput(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = parse(iso);
-  const p = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+/** ISO UTC -> локальный Date для MatDatepicker/MatTimepicker. */
+export function toDate(iso: string | null | undefined): Date | null {
+  return iso ? parse(iso) : null;
 }
 
-/** Из значения datetime-local (локальное время) — в ISO UTC. */
-export function fromLocalInput(value: string): string | null {
-  return value ? new Date(value).toISOString() : null;
+/** Date из пикеров -> ISO UTC (или null, если значение пустое/невалидное). */
+export function fromDate(value: Date | null): string | null {
+  return value && !Number.isNaN(value.getTime()) ? value.toISOString() : null;
+}
+
+const intFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
+
+/** Целое число с разделителями разрядов (один общий форматтер). */
+export function formatInt(v: number): string {
+  return intFmt.format(v);
+}
+
+const moneyFmt = new Map<string, Intl.NumberFormat>();
+
+/** Деньги с валютой (по умолчанию USD — API не отдаёт валюту сводки). Форматтеры кешируются. */
+export function formatMoney(v: number, currency = 'USD', fractionDigits = 0): string {
+  const key = `${currency}:${fractionDigits}`;
+  let f = moneyFmt.get(key);
+  if (!f) {
+    f = new Intl.NumberFormat('ru-RU', { style: 'currency', currency, minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits });
+    moneyFmt.set(key, f);
+  }
+  return f.format(v);
+}
+
+/** «2026-10-08» -> «08.10». */
+export function formatDayMonth(isoDate: string): string {
+  const [, m, d] = isoDate.split('-');
+  return d && m ? `${d}.${m}` : isoDate;
 }

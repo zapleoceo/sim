@@ -1,10 +1,13 @@
-import { DecimalPipe, PercentPipe } from '@angular/common';
+import { PercentPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatTableModule } from '@angular/material/table';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { EMPTY, catchError, debounceTime, filter, startWith, switchMap, tap } from 'rxjs';
@@ -13,6 +16,8 @@ import { PersonasApi } from '../../core/api/personas.api';
 import { AnalyticsSummary, Persona } from '../../core/models';
 import { CHANNEL_LABELS, STAGES } from '../../core/stages';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { FilterBarComponent, FiltersTemplateDirective } from '../../shared/filter-bar.component';
+import { formatDayMonth, formatInt, formatMoney } from '../../shared/format';
 import { PageHeaderComponent } from '../../shared/page-header.component';
 import { BarChartComponent, BarDatum, LineChartComponent, LineSeries } from './charts.component';
 
@@ -32,9 +37,9 @@ function daysAgo(n: number): Date {
 @Component({
   selector: 'sim-dashboard',
   imports: [
-    ReactiveFormsModule, MatDatepickerModule, MatFormFieldModule, MatSelectModule, MatIconModule, MatButtonModule,
-    PageHeaderComponent, EmptyStateComponent, BarChartComponent, LineChartComponent,
-    DecimalPipe, PercentPipe,
+    ReactiveFormsModule, MatDatepickerModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatIconModule, MatButtonModule, MatProgressBarModule,
+    MatTableModule, FilterBarComponent, FiltersTemplateDirective,
+    PageHeaderComponent, EmptyStateComponent, BarChartComponent, LineChartComponent, PercentPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard.component.html',
@@ -61,15 +66,15 @@ export class DashboardComponent {
     const d = this.data();
     if (!d) return [];
     return [
-      { label: 'Контакты', value: String(d.contacts), hint: `новых: ${d.new_contacts}, ответили: ${d.replied}` },
-      { label: 'Регистрации', value: String(d.registrations) },
-      { label: 'Оплаты', value: String(d.payments) },
-      { label: 'Выручка', value: this.money(d.revenue) },
-      { label: 'Выплаты партнёра', value: this.money(d.partner_payouts) },
-      { label: 'Расход на LLM', value: `$${d.llm.cost_usd.toFixed(2)}`, hint: `${d.llm.calls} вызовов` },
+      { label: 'Контакты', value: formatInt(d.contacts), hint: `новых: ${d.new_contacts}, ответили: ${d.replied}` },
+      { label: 'Регистрации', value: formatInt(d.registrations) },
+      { label: 'Оплаты', value: formatInt(d.payments) },
+      { label: 'Выручка', value: formatMoney(d.revenue) },
+      { label: 'Выплаты партнёра', value: formatMoney(d.partner_payouts) },
+      { label: 'Расход на LLM', value: formatMoney(d.llm.cost_usd, 'USD', 2), hint: `${d.llm.calls} вызовов` },
       {
         label: 'Контролер ответов',
-        value: String(d.guard.ok + d.guard.rewritten + d.guard.blocked),
+        value: formatInt(d.guard.ok + d.guard.rewritten + d.guard.blocked),
         hint: `ок: ${d.guard.ok}, исправлено: ${d.guard.rewritten}, заблокировано: ${d.guard.blocked}`,
       },
     ];
@@ -80,7 +85,7 @@ export class DashboardComponent {
     return STAGES.map((s) => ({ label: s.label, value: by[s.id] ?? 0, color: s.color }));
   });
 
-  protected readonly dailyLabels = computed(() => (this.data()?.daily ?? []).map((x) => x.date.slice(5)));
+  protected readonly dailyLabels = computed(() => (this.data()?.daily ?? []).map((x) => formatDayMonth(x.date)));
   protected readonly dailySeries = computed<LineSeries[]>(() => {
     const daily = this.data()?.daily ?? [];
     return [
@@ -91,8 +96,16 @@ export class DashboardComponent {
   });
 
   protected readonly channelRows = computed(() =>
-    (this.data()?.by_channel ?? []).map((c) => ({ ...c, label: CHANNEL_LABELS[c.kind] ?? c.kind })),
+    (this.data()?.by_channel ?? []).map((c) => ({
+      kind: c.kind,
+      label: CHANNEL_LABELS[c.kind] ?? c.kind,
+      contacts: formatInt(c.contacts),
+      registrations: formatInt(c.registrations),
+      payments: formatInt(c.payments),
+    })),
   );
+
+  protected readonly channelColumns = ['label', 'contacts', 'registrations', 'payments'];
 
   constructor() {
     this.personasApi
@@ -127,9 +140,5 @@ export class DashboardComponent {
 
   protected setPreset(days: number): void {
     this.filters.controls.range.setValue({ start: daysAgo(days - 1), end: new Date() });
-  }
-
-  private money(v: number): string {
-    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(v);
   }
 }

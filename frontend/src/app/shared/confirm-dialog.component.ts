@@ -14,12 +14,15 @@ export interface ConfirmData {
   selector: 'sim-confirm-dialog',
   imports: [MatDialogModule, MatButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    .danger { --mdc-filled-button-container-color: var(--sim-danger); --mdc-filled-button-label-text-color: #fff; }
+  `,
   template: `
     <h2 mat-dialog-title>{{ data.title }}</h2>
     <mat-dialog-content>{{ data.message }}</mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close>Отмена</button>
-      <button mat-flat-button [mat-dialog-close]="true" cdkFocusInitial>{{ data.confirmLabel ?? 'Подтвердить' }}</button>
+      <button mat-flat-button [mat-dialog-close]="true" cdkFocusInitial [class.danger]="data.danger">{{ data.confirmLabel ?? 'Подтвердить' }}</button>
     </mat-dialog-actions>
   `,
 })

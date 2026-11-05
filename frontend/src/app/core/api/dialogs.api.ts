@@ -2,15 +2,15 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message } from '../models';
-import { toParams } from './http-params';
+import { DEFAULT_PAGE, PageRequest, toParams } from './http-params';
 
 @Injectable({ providedIn: 'root' })
 export class DialogsApi {
   private readonly http = inject(HttpClient);
 
-  list(filter: DialogFilter, silent = false): Observable<ListResponse<DialogRow>> {
+  list(filter: DialogFilter, silent = false, page: PageRequest = DEFAULT_PAGE): Observable<ListResponse<DialogRow>> {
     return this.http.get<ListResponse<DialogRow>>('/api/dialogs', {
-      params: toParams({ ...filter, limit: 100 }),
+      params: toParams({ ...filter, ...page }),
       headers: silent ? { 'X-Silent': '1' } : {},
     });
   }

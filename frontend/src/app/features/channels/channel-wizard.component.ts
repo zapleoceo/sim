@@ -12,6 +12,7 @@ import { EMPTY, Observable, catchError, finalize, switchMap, takeWhile, timer } 
 import { ChannelsApi } from '../../core/api/channels.api';
 import { Channel, ChannelKind, ConnectState, Persona } from '../../core/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS } from '../../core/stages';
+import { humanizeChannelError } from '../../shared/channel-error';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
 
 export interface WizardData {
@@ -159,7 +160,7 @@ export class ChannelWizardComponent {
   }
 
   private applyState(s: ConnectState): void {
-    this.message.set(s.message ?? '');
+    this.message.set(humanizeChannelError(s.message));
     this.need.set(s.need ?? null);
     if (s.status === 'active') {
       this.step.set('done');
@@ -193,7 +194,7 @@ export class ChannelWizardComponent {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((s) => {
-        this.message.set(s.message ?? '');
+        this.message.set(humanizeChannelError(s.message));
         if (s.status === 'active') this.step.set('done');
         else if (s.status === 'error' || s.status === 'expired') this.step.set('connect');
         else if (s.qr_data_uri) this.qr.set(s.qr_data_uri);

@@ -79,13 +79,14 @@ describe('authInterceptor', () => {
 });
 
 describe('errorMessage', () => {
-  it('prefers the API detail text', async () => {
+  it('maps status to a human message and never leaks the backend detail', async () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     const http = TestBed.inject(HttpClient);
     const ctrl = TestBed.inject(HttpTestingController);
     let message = '';
     http.get('/x').subscribe({ error: (e: unknown) => (message = errorMessage(e)) });
-    ctrl.expectOne('/x').flush({ detail: 'Нельзя' }, { status: 422, statusText: 'Unprocessable' });
-    expect(message).toBe('Нельзя');
+    ctrl.expectOne('/x').flush({ detail: 'Broker error: HTTP 401' }, { status: 502, statusText: 'Bad Gateway' });
+    expect(message).toBe('Сервис временно недоступен. Попробуйте позже');
+    expect(message).not.toContain('Broker');
   });
 });

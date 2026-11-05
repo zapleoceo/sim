@@ -1,10 +1,10 @@
 <div class="sim-page">
   <sim-page-header title="Администраторы" subtitle="Вход в админку только через Telegram: добавьте Telegram ID или &#64;username" />
 
-  <form class="sim-card add" [formGroup]="form" (ngSubmit)="add()" novalidate>
-    <mat-form-field appearance="outline" class="target">
+  <form class="sim-card add sim-dense" [formGroup]="form" (ngSubmit)="add()" novalidate>
+    <mat-form-field appearance="outline" class="target" floatLabel="always" hideRequiredMarker>
       <mat-label>Telegram ID или &#64;username</mat-label>
-      <input matInput formControlName="target" autocomplete="off" />
+      <input matInput formControlName="target" autocomplete="off" placeholder="123456789 или &#64;username" />
       @if (form.controls.target.hasError('required')) {
         <mat-error>Укажите Telegram ID или &#64;username</mat-error>
       } @else if (form.controls.target.hasError('pattern')) {
@@ -28,57 +28,65 @@
   @if (loaded() && admins().length === 0) {
     <sim-empty-state icon="admin_panel_settings" title="Администраторов нет" hint="Добавьте первого выше." />
   } @else {
-    <div class="sim-card table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Администратор</th>
-            <th>Username</th>
-            <th>Telegram ID</th>
-            <th>Роль</th>
-            <th>Статус</th>
-            <th><span class="visually-hidden">Действия</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (a of admins(); track a.id) {
-            <tr [class.inactive]="!a.is_active">
-              <td>
-                <span class="who">
-                  <sim-avatar [name]="name(a)" [url]="a.photo_url || null" [size]="32" />
-                  <strong>{{ name(a) }}</strong>
-                  @if (a.id === meId) {
-                    <span class="sim-muted">(вы)</span>
-                  }
-                </span>
-              </td>
-              <td>{{ a.tg_username ? '@' + a.tg_username : '—' }}</td>
-              <td>{{ a.telegram_id ?? 'ждёт первого входа' }}</td>
-              <td>
-                <mat-select
-                  class="role-select"
-                  [value]="a.role"
-                  [disabled]="a.id === meId"
-                  (selectionChange)="changeRole(a, $event.value)"
-                  [attr.aria-label]="'Роль: ' + name(a)"
-                >
-                  @for (r of roles; track r) {
-                    <mat-option [value]="r">{{ roleLabels[r] }}</mat-option>
-                  }
-                </mat-select>
-              </td>
-              <td>{{ a.is_active ? 'Активен' : 'Отключён' }}</td>
-              <td class="actions">
-                <button mat-button type="button" [disabled]="a.id === meId" (click)="toggleActive(a)">
+    <div class="sim-card table-wrap sim-dense">
+      <table mat-table [dataSource]="admins()" class="stack">
+        <ng-container matColumnDef="admin">
+          <th mat-header-cell *matHeaderCellDef>Администратор</th>
+          <td mat-cell *matCellDef="let a">
+            <span class="who">
+              <sim-avatar [name]="name(a)" [url]="a.photo_url || null" [size]="32" />
+              <strong>{{ name(a) }}</strong>
+              @if (a.id === meId) {
+                <span class="sim-muted">(вы)</span>
+              }
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="username">
+          <th mat-header-cell *matHeaderCellDef>Username</th>
+          <td mat-cell *matCellDef="let a" data-label="Username">{{ a.tg_username ? '@' + a.tg_username : '—' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="telegram_id">
+          <th mat-header-cell *matHeaderCellDef>Telegram ID</th>
+          <td mat-cell *matCellDef="let a" data-label="Telegram ID">{{ a.telegram_id ?? 'ждёт первого входа' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="role">
+          <th mat-header-cell *matHeaderCellDef>Роль</th>
+          <td mat-cell *matCellDef="let a" data-label="Роль">
+            <mat-select
+              class="role-select"
+              [value]="a.role"
+              [disabled]="a.id === meId"
+              (selectionChange)="changeRole(a, $event.value)"
+              [attr.aria-label]="'Роль: ' + name(a)"
+            >
+              @for (r of roles; track r) {
+                <mat-option [value]="r">{{ roleLabels[r] }}</mat-option>
+              }
+            </mat-select>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Статус</th>
+          <td mat-cell *matCellDef="let a" data-label="Статус">{{ a.is_active ? 'Активен' : 'Отключён' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef><span class="visually-hidden">Действия</span></th>
+          <td mat-cell *matCellDef="let a" class="actions">
+            @if (a.id !== meId) {
+              <div class="act">
+                <button mat-button type="button" (click)="toggleActive(a)">
                   {{ a.is_active ? 'Отключить' : 'Включить' }}
                 </button>
-                <button mat-icon-button type="button" class="danger" aria-label="Удалить" [disabled]="a.id === meId" (click)="remove(a)">
+                <button mat-icon-button type="button" class="danger" aria-label="Удалить" (click)="remove(a)">
                   <mat-icon class="material-icons-outlined">delete</mat-icon>
                 </button>
-              </td>
-            </tr>
-          }
-        </tbody>
+              </div>
+            }
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="columns"></tr>
+        <tr mat-row *matRowDef="let row; columns: columns" [class.inactive]="!row.is_active"></tr>
       </table>
     </div>
   }

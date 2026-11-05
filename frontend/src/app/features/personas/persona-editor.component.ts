@@ -30,11 +30,12 @@ export class PersonaEditorComponent {
   /** `null` — создание нового персонажа. */
   readonly persona = input<Persona | null>(null);
   readonly models = input<BrokerModel[]>([]);
+  /** Список моделей не загрузился: показываем подсказку, выбор остаётся рабочим (авто-цепочка). */
+  readonly modelsUnavailable = input(false);
   readonly strategies = input<Strategy[]>([]);
 
   readonly saved = output<Persona>();
   readonly removed = output<number>();
-  readonly closed = output<void>();
 
   private readonly api = inject(PersonasApi);
   private readonly toast = inject(ToastService);

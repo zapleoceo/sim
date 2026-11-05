@@ -28,6 +28,14 @@ describe('DialogsApi', () => {
     off.flush({ items: [], total: 0 });
   });
 
+  it('sends limit/offset instead of a fixed 100', () => {
+    api.list(DEFAULT_DIALOG_FILTER, true, { limit: 50, offset: 100 }).subscribe();
+    const req = ctrl.expectOne((r) => r.url === '/api/dialogs');
+    expect(req.request.params.get('limit')).toBe('50');
+    expect(req.request.params.get('offset')).toBe('100');
+    req.flush({ items: [], total: 0 });
+  });
+
   it('resolve() posts to /resolve', () => {
     api.resolve(7).subscribe((d) => expect(d.needs_operator).toBe(false));
     const req = ctrl.expectOne('/api/dialogs/7/resolve');

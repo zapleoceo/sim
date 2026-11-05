@@ -40,6 +40,7 @@ export const errorToastInterceptor: HttpInterceptorFn = (req, next) => {
   return next(req).pipe(
     catchError((err: unknown) => {
       if (err instanceof HttpErrorResponse && err.status !== 401 && !req.headers.has('X-Silent')) {
+        console.error(`[api] ${req.method} ${req.url} -> ${err.status}`, err.error);
         toast.error(errorMessage(err));
       }
       return throwError(() => err);
@@ -47,15 +48,24 @@ export const errorToastInterceptor: HttpInterceptorFn = (req, next) => {
   );
 };
 
+/**
+ * Человеческое сообщение по статусу ответа. Сырой текст бэкенда/исключений пользователю не показываем:
+ * подробности уходят в console (см. errorToastInterceptor).
+ */
 export function errorMessage(err: unknown): string {
-  if (err instanceof HttpErrorResponse) {
-    const body: unknown = err.error;
-    if (body && typeof body === 'object' && 'detail' in body) {
-      const detail = (body as { detail: unknown }).detail;
-      if (typeof detail === 'string') return detail;
-    }
-    if (err.status === 0) return 'Нет связи с сервером';
-    return `Ошибка ${err.status}`;
+  if (!(err instanceof HttpErrorResponse)) return 'Что-то пошло не так. Попробуйте ещё раз';
+  switch (err.status) {
+    case 0: return 'Нет связи с сервером';
+    case 400:
+    case 422: return 'Проверьте введённые данные';
+    case 403: return 'Недостаточно прав для этого действия';
+    case 404: return 'Не найдено — возможно, запись уже удалена';
+    case 409: return 'Данные изменились. Обновите страницу и повторите';
+    case 413: return 'Файл слишком большой';
+    case 429: return 'Слишком много запросов. Подождите немного';
+    case 502:
+    case 503:
+    case 504: return 'Сервис временно недоступен. Попробуйте позже';
+    default: return err.status >= 500 ? 'Ошибка сервера. Попробуйте позже' : 'Не удалось выполнить действие';
   }
-  return 'Неизвестная ошибка';
 }

@@ -26,3 +26,9 @@ section h2, form h2 { margin-bottom: var(--sim-space-3); }
 .timeline mat-icon { color: var(--sim-text-muted); }
 .timeline li.partner mat-icon { color: var(--sim-ok); }
 .when { font-size: 12px; }
+
+@media (max-width: 767px) {
+  .head { flex-wrap: wrap; }
+  .step { height: 40px; }
+  .status { max-width: none; }
+}

@@ -1,18 +1,22 @@
-<div class="sim-page wide">
-  <sim-page-header title="Воронка" subtitle="Перетаскивайте карточки между этапами. Регистрацию и оплату ставит только партнёр.">
-    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="persona">
-      <mat-label>Персонаж</mat-label>
-      <mat-select [formControl]="persona">
-        <mat-option [value]="null">Все персонажи</mat-option>
-        @for (p of personas(); track p.id) {
-          <mat-option [value]="p.id">{{ p.name }}</mat-option>
-        }
-      </mat-select>
-    </mat-form-field>
-  </sim-page-header>
+<div class="sim-page sim-page--wide">
+  <sim-page-header title="Воронка" subtitle="Перетаскивайте карточки между этапами. Регистрацию и оплату ставит только партнёр." />
+
+  <sim-filter-bar [activeCount]="persona.value === null ? 0 : 1" [resettable]="false">
+    <ng-template simFilters>
+      <mat-form-field floatLabel="always" appearance="outline" subscriptSizing="dynamic" class="sim-filter-field">
+        <mat-label>Персонаж</mat-label>
+        <mat-select placeholder="Все персонажи" [formControl]="persona">
+          <mat-option [value]="null">Все персонажи</mat-option>
+          @for (p of personas(); track p.id) {
+            <mat-option [value]="p.id">{{ p.name }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </ng-template>
+  </sim-filter-bar>
 
   @if (statuses(); as st) {
-    <div class="statuses" role="list" aria-label="Статусы клиентов">
+    <div class="statuses sim-kpi-grid" role="list" aria-label="Статусы клиентов">
       @for (s of statusOrder; track s) {
         <div class="status sim-card" role="listitem">
           <strong>{{ st[s] }}</strong>
@@ -49,11 +53,18 @@
                 <sim-avatar [name]="c.display_name" [url]="c.avatar_url" [size]="28" />
                 <span class="name">{{ c.display_name }}</span>
               </a>
-              <sim-status-badge [status]="c.status" />
-              @if (!col.locked) {
-                <button mat-icon-button type="button" class="mv" [matMenuTriggerFor]="menu" [matMenuTriggerData]="{ client: c, from: col.stage }" aria-label="Переместить на другой этап">
-                  <mat-icon class="material-icons-outlined">swap_horiz</mat-icon>
-                </button>
+              @if (c.status !== 'active' || !col.locked) {
+                <div class="line2">
+                  @if (c.status !== 'active') {
+                    <sim-status-badge [status]="c.status" />
+                  }
+                  <span class="sim-grow"></span>
+                  @if (!col.locked) {
+                    <button mat-icon-button type="button" class="mv" [matMenuTriggerFor]="menu" [matMenuTriggerData]="{ client: c, from: col.stage }" aria-label="Переместить на другой этап">
+                      <mat-icon class="material-icons-outlined">swap_horiz</mat-icon>
+                    </button>
+                  }
+                </div>
               }
             </article>
           } @empty {

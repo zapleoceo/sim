@@ -16,7 +16,8 @@ import { ToastService } from '../../core/toast.service';
 import { AvatarComponent } from '../../shared/avatar.component';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
-import { formatDateTime, fromLocalInput, toLocalInput } from '../../shared/format';
+import { DatetimeFieldComponent } from '../../shared/datetime-field.component';
+import { formatDateTime, fromDate, toDate } from '../../shared/format';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 
 interface TimelineItem { at: string; icon: string; title: string; detail: string; partner: boolean }
@@ -46,7 +47,7 @@ export function buildTimeline(events: FunnelEvent[], partner: PartnerEvent[]): T
 @Component({
   selector: 'sim-client-card',
   imports: [
-    ReactiveFormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule,
+    ReactiveFormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, DatetimeFieldComponent,
     MatSelectModule, MatTooltipModule, AvatarComponent, ChannelIconComponent, EmptyStateComponent, StatusBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,7 +68,7 @@ export class ClientCardComponent {
   protected readonly form = new FormGroup({
     display_name: new FormControl('', { nonNullable: true }),
     next_step: new FormControl('', { nonNullable: true }),
-    next_step_at: new FormControl('', { nonNullable: true }),
+    next_step_at: new FormControl<Date | null>(null),
     notes: new FormControl('', { nonNullable: true }),
   });
   protected readonly statusControl = new FormControl<ClientStatus>('active', { nonNullable: true });
@@ -100,7 +101,7 @@ export class ClientCardComponent {
         display_name: v.display_name.trim() || c.display_name,
         notes: v.notes,
         next_step: v.next_step,
-        next_step_at: fromLocalInput(v.next_step_at),
+        next_step_at: fromDate(v.next_step_at),
       })
       .pipe(
         catchError(() => {
@@ -157,7 +158,7 @@ export class ClientCardComponent {
     this.form.reset({
       display_name: c.display_name,
       next_step: c.next_step ?? '',
-      next_step_at: toLocalInput(c.next_step_at),
+      next_step_at: toDate(c.next_step_at),
       notes: c.notes ?? '',
     });
     this.statusControl.setValue(c.status, { emitEvent: false });

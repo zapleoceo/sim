@@ -1,10 +1,5 @@
 <div class="wrap">
   <form class="sim-card editor" [formGroup]="form" (ngSubmit)="save()" novalidate>
-    <div class="top">
-      <h2>{{ persona() ? 'Редактирование' : 'Новый персонаж' }}</h2>
-      <button mat-button type="button" class="close" (click)="closed.emit()">Закрыть</button>
-    </div>
-
     <div class="row-top">
       <sim-avatar [name]="persona()?.name || '?'" [url]="persona()?.avatar_url ?? null" [size]="56" />
 
@@ -54,6 +49,9 @@
             </mat-option>
           }
         </mat-select>
+        @if (modelsUnavailable()) {
+          <mat-hint>Список моделей недоступен — используется авто-цепочка</mat-hint>
+        }
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="f-strategy" subscriptSizing="dynamic">
@@ -127,7 +125,7 @@
       </div>
     </details>
 
-    <div class="sim-row actions">
+    <div class="sim-save-bar actions">
       @if (persona()) {
         <button mat-button type="button" class="danger" (click)="remove()">Удалить</button>
       }

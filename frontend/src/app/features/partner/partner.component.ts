@@ -14,7 +14,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
   imports: [MatButtonModule, MatIconModule, PageHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="sim-page narrow">
+    <div class="sim-page sim-page--narrow">
       <sim-page-header title="Партнёр" subtitle="Импорт регистраций и оплат из CSV-выгрузки партнёра" />
 
       <section class="sim-card">
@@ -61,7 +61,6 @@ const MAX_BYTES = 5 * 1024 * 1024;
     </div>
   `,
   styles: `
-    .narrow { max-width: 760px; }
     code { display: block; padding: var(--sim-space-2) var(--sim-space-3); margin: var(--sim-space-2) 0; border-radius: var(--sim-radius-sm); background: var(--sim-surface-2); overflow-x: auto; white-space: nowrap; }
     .drop {
       display: flex; flex-direction: column; align-items: center; gap: var(--sim-space-2); padding: var(--sim-space-6);
@@ -72,7 +71,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
     input[type='file'] { position: absolute; width: 1px; height: 1px; opacity: 0; }
     .actions { margin-top: var(--sim-space-3); }
     .err, .bad { color: var(--sim-danger); }
-    .stats { display: flex; gap: var(--sim-space-6); margin: var(--sim-space-3) 0; }
+    .stats { display: flex; flex-wrap: wrap; gap: var(--sim-space-5); margin: var(--sim-space-3) 0; }
     .stats div { display: flex; flex-direction: column; }
     .stats strong { font-size: 26px; font-variant-numeric: tabular-nums; }
     .ok { color: var(--sim-ok); }

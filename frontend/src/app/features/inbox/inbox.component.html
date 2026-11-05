@@ -1,30 +1,15 @@
-<div class="inbox" [class.phone]="isPhone()" [class.with-card]="showCard()">
+<div class="inbox" [class.single]="isNarrow()" [class.with-card]="showCard()">
   @if (showList()) {
     <section class="list-pane" aria-label="Список диалогов">
       <form class="search-bar" [formGroup]="filters">
-        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="search">
-          <mat-icon matPrefix class="material-icons-outlined">search</mat-icon>
-          <mat-label>Поиск по клиентам и сообщениям</mat-label>
-          <input matInput type="search" formControlName="q" />
-        </mat-form-field>
-        <button
-          mat-icon-button
-          type="button"
-          class="filter-btn"
-          [class.on]="filterCount() > 0"
-          [attr.aria-expanded]="filtersOpen()"
-          aria-label="Фильтры"
-          (click)="toggleFilters()"
-        >
-          <mat-icon class="material-icons-outlined">tune</mat-icon>
-          @if (filterCount() > 0) {
-            <span class="count">{{ filterCount() }}</span>
-          }
-        </button>
-
-        @if (filtersOpen()) {
-          <div class="filters">
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <sim-filter-bar [activeCount]="filterCount()" [alwaysSheet]="true" (cleared)="resetFilters()">
+          <mat-form-field simSearch appearance="outline" subscriptSizing="dynamic" class="sim-search-field search">
+            <mat-icon matPrefix class="material-icons-outlined">search</mat-icon>
+            <mat-label>Поиск</mat-label>
+            <input matInput type="search" formControlName="q" />
+          </mat-form-field>
+          <ng-template simFilters>
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="sim-filter-field">
               <mat-label>Канал</mat-label>
               <mat-select formControlName="channel_kind">
                 <mat-option value="">Все каналы</mat-option>
@@ -33,16 +18,16 @@
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-form-field floatLabel="always" appearance="outline" subscriptSizing="dynamic" class="sim-filter-field">
               <mat-label>Персонаж</mat-label>
-              <mat-select formControlName="persona_id">
+              <mat-select placeholder="Все персонажи" formControlName="persona_id">
                 <mat-option [value]="null">Все персонажи</mat-option>
                 @for (p of personas(); track p.id) {
                   <mat-option [value]="p.id">{{ p.name }}</mat-option>
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="sim-filter-field">
               <mat-label>Этап</mat-label>
               <mat-select formControlName="stage">
                 <mat-option value="">Все этапы</mat-option>
@@ -51,7 +36,7 @@
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="sim-filter-field">
               <mat-label>Статус</mat-label>
               <mat-select formControlName="status">
                 <mat-option value="">Любой статус</mat-option>
@@ -60,17 +45,13 @@
                 }
               </mat-select>
             </mat-form-field>
-            <div class="sim-row filter-foot">
-              <mat-slide-toggle formControlName="unread_only">Только непрочитанные</mat-slide-toggle>
-              <mat-slide-toggle formControlName="needs_operator">Нужен оператор</mat-slide-toggle>
-              <span class="sim-grow"></span>
-              <button mat-button type="button" (click)="resetFilters()" [disabled]="filterCount() === 0">Сбросить</button>
-            </div>
-          </div>
-        }
+            <mat-slide-toggle formControlName="unread_only">Только непрочитанные</mat-slide-toggle>
+            <mat-slide-toggle formControlName="needs_operator">Нужен оператор</mat-slide-toggle>
+          </ng-template>
+        </sim-filter-bar>
       </form>
 
-      <ul class="rows" role="list" (keydown)="onListKeydown($event)">
+      <ul class="rows" role="list" (keydown)="onListKeydown($event)" (scroll)="onListScroll($event)">
         @for (vm of rowVms(); track vm.row.id) {
           <li>
             <button
@@ -115,6 +96,13 @@
             />
           }
         }
+        @if (hasMore()) {
+          <li class="more">
+            <button mat-button type="button" [disabled]="loadingMore()" (click)="loadMore()">
+              {{ loadingMore() ? 'Загрузка…' : 'Показать ещё (' + remaining() + ')' }}
+            </button>
+          </li>
+        }
       </ul>
     </section>
   }
@@ -123,7 +111,7 @@
     <section class="conv-pane" aria-label="Диалог">
       @if (detail(); as d) {
         <header class="conv-head">
-          @if (isPhone()) {
+          @if (isNarrow()) {
             <button mat-icon-button type="button" aria-label="Назад к списку" (click)="back()">
               <mat-icon class="material-icons-outlined">arrow_back</mat-icon>
             </button>

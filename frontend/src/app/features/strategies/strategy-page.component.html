@@ -1,0 +1,123 @@
+@if (!ready()) {
+  <mat-progress-bar class="top-bar" mode="indeterminate" aria-label="Загрузка" />
+}
+<div class="sim-page sim-page--narrow">
+  <a mat-button routerLink="/strategies" class="back">
+    <mat-icon class="material-icons-outlined">arrow_back</mat-icon>
+    Все стратегии
+  </a>
+
+  @if (ready()) {
+    <sim-page-header [title]="strategy() ? strategy()!.name : (missing() ? 'Стратегия' : 'Новая стратегия')" [subtitle]="strategy() ? 'Редактирование' : 'Цель, оффер, правила и playbook по этапам'" />
+
+    @if (missing()) {
+      <sim-empty-state icon="route" title="Стратегия не найдена" hint="Возможно, она была удалена." />
+    } @else {
+      <form class="sim-card editor" [formGroup]="form" (ngSubmit)="save()" novalidate>
+
+        <div class="sim-form-grid">
+          <mat-form-field appearance="outline">
+            <mat-label>Название</mat-label>
+            <input matInput formControlName="name" required />
+            @if (form.controls.name.hasError('required')) {
+              <mat-error>Укажите название</mat-error>
+            }
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Партнёр</mat-label>
+            <input matInput formControlName="partner_name" />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="sim-wide">
+            <mat-label>Ссылка регистрации</mat-label>
+            <input matInput formControlName="registration_url" placeholder="https://…" />
+            <mat-hint>ИИ добавит к ней ?ref=&lt;код клиента&gt;</mat-hint>
+            @if (form.controls.registration_url.hasError('pattern')) {
+              <mat-error>Нужна ссылка вида https://…</mat-error>
+            }
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="sim-wide">
+            <mat-label>Цель</mat-label>
+            <textarea matInput rows="3" formControlName="goal"></textarea>
+            <mat-hint>Короткая формула: чего персонаж хочет добиться</mat-hint>
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="sim-wide">
+            <mat-label>Промпт стратегии</mat-label>
+            <textarea matInput rows="14" formControlName="prompt" class="prompt"></textarea>
+            <mat-hint>Свободный текст: как вести разговор. Ориентиры, а не скрипт; подставляется в системный промпт</mat-hint>
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="sim-wide">
+            <mat-label>Оффер</mat-label>
+            <textarea matInput rows="4" formControlName="offer"></textarea>
+          </mat-form-field>
+        </div>
+
+        <h3>Playbook по этапам</h3>
+        <mat-accordion multi formGroupName="playbook">
+          @for (s of playbookStages; track s.id) {
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title>{{ s.label }}</mat-panel-title>
+              </mat-expansion-panel-header>
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Что делает персонаж на этапе «{{ s.label }}»</mat-label>
+                <textarea matInput rows="4" [formControlName]="s.id"></textarea>
+              </mat-form-field>
+            </mat-expansion-panel>
+          }
+        </mat-accordion>
+
+        <h3>Правила</h3>
+        <div class="rules" formArrayName="rules">
+          @for (r of form.controls.rules.controls; track r; let i = $index) {
+            <div class="sim-row">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic" class="sim-grow">
+                <mat-label>Правило {{ i + 1 }}</mat-label>
+                <input matInput [formControlName]="i" />
+              </mat-form-field>
+              <button mat-icon-button type="button" [attr.aria-label]="'Удалить правило ' + (i + 1)" (click)="removeRule(i)">
+                <mat-icon class="material-icons-outlined">close</mat-icon>
+              </button>
+            </div>
+          }
+          <button mat-button type="button" class="add" (click)="addRule()">
+            <mat-icon class="material-icons-outlined">add</mat-icon>
+            Добавить правило
+          </button>
+        </div>
+
+        <h3>Тайминги</h3>
+        <div class="sim-form-grid">
+          <mat-form-field appearance="outline">
+            <mat-label>Фоллоу-апы, часы</mat-label>
+            <input matInput formControlName="followup" />
+            <mat-hint>Через сколько часов без ответа писать снова: 24, 72, 168</mat-hint>
+            @if (form.controls.followup.hasError('hours')) {
+              <mat-error>Только положительные числа через запятую</mat-error>
+            }
+          </mat-form-field>
+          <div class="delay sim-row">
+            <mat-form-field appearance="outline">
+              <mat-label>Задержка ответа от, с</mat-label>
+              <input matInput type="number" min="0" formControlName="delay_min" />
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>до, с</mat-label>
+              <input matInput type="number" min="0" formControlName="delay_max" />
+            </mat-form-field>
+          </div>
+        </div>
+        @if (form.hasError('delayRange')) {
+          <p class="err" role="alert">Минимальная задержка не может быть больше максимальной.</p>
+        }
+
+        <div class="sim-save-bar actions">
+          @if (strategy()) {
+            <button mat-button type="button" class="danger" (click)="remove()">Удалить</button>
+          }
+          <span class="sim-grow"></span>
+          <button mat-flat-button type="submit" [disabled]="saving()">Сохранить</button>
+        </div>
+      </form>
+    }
+  }
+</div>

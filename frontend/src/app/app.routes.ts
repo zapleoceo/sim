@@ -45,10 +45,34 @@ export const routes: Routes = [
         loadComponent: () => import('./features/personas/personas.component').then((m) => m.PersonasComponent),
       },
       {
+        path: 'personas/new',
+        canActivate: [ownerGuard],
+        title: 'Новый персонаж — Sim',
+        loadComponent: () => import('./features/personas/persona-page.component').then((m) => m.PersonaPageComponent),
+      },
+      {
+        path: 'personas/:id',
+        canActivate: [ownerGuard],
+        title: 'Персонаж — Sim',
+        loadComponent: () => import('./features/personas/persona-page.component').then((m) => m.PersonaPageComponent),
+      },
+      {
         path: 'strategies',
         canActivate: [ownerGuard],
         title: 'Стратегии — Sim',
         loadComponent: () => import('./features/strategies/strategies.component').then((m) => m.StrategiesComponent),
+      },
+      {
+        path: 'strategies/new',
+        canActivate: [ownerGuard],
+        title: 'Новая стратегия — Sim',
+        loadComponent: () => import('./features/strategies/strategy-page.component').then((m) => m.StrategyPageComponent),
+      },
+      {
+        path: 'strategies/:id',
+        canActivate: [ownerGuard],
+        title: 'Стратегия — Sim',
+        loadComponent: () => import('./features/strategies/strategy-page.component').then((m) => m.StrategyPageComponent),
       },
       {
         path: 'simulations',

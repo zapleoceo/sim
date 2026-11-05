@@ -22,7 +22,8 @@ export class PersonasApi {
   preview(id: number, message: string, history: PreviewTurn[]): Observable<PreviewResponse> {
     return this.http.post<PreviewResponse>(`/api/personas/${id}/preview`, { message, history });
   }
+  /** Тихий запрос: недоступный Broker не должен давать тост на каждой загрузке. */
   models(): Observable<BrokerModel[]> {
-    return this.http.get<ListResponse<BrokerModel>>('/api/models').pipe(map((r) => r.items));
+    return this.http.get<ListResponse<BrokerModel>>('/api/models', { headers: { 'X-Silent': '1' } }).pipe(map((r) => r.items));
   }
 }

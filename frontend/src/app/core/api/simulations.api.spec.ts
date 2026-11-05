@@ -27,6 +27,14 @@ describe('SimulationsApi', () => {
     one.flush({ items: [], total: 0 });
   });
 
+  it('sends limit/offset', () => {
+    api.list(null, { limit: 25, offset: 50 }).subscribe();
+    const req = ctrl.expectOne((r) => r.url === '/api/simulations');
+    expect(req.request.params.get('limit')).toBe('25');
+    expect(req.request.params.get('offset')).toBe('50');
+    req.flush({ items: [], total: 0 });
+  });
+
   it('loads a transcript by id', () => {
     api.get(9).subscribe((d) => expect(d.messages.length).toBe(0));
     ctrl.expectOne('/api/simulations/9').flush({ id: 9, messages: [] });

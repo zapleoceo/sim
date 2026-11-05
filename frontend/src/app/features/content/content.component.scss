@@ -1,18 +1,18 @@
 .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sim-space-4); align-items: start; }
 .layout.editing { grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); }
-.board { display: flex; flex-direction: column; gap: var(--sim-space-4); }
-.layout:not(.editing) .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
-.col { display: flex; flex-direction: column; gap: var(--sim-space-2); }
-.col h2 { display: flex; align-items: center; gap: var(--sim-space-2); font-size: 14px; color: var(--sim-text-muted); }
-.col h2 mat-icon { font-size: 18px; width: 18px; height: 18px; }
-.n { font-size: 12px; padding: 0 8px; border-radius: 10px; background: var(--sim-surface-2); line-height: 20px; }
+.board { display: flex; flex-direction: column; gap: var(--sim-space-3); min-width: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--sim-space-3); align-items: stretch; }
+.n { margin-left: 8px; font-size: 12px; padding: 0 8px; border-radius: 10px; background: var(--sim-surface-2); line-height: 20px; font-variant-numeric: tabular-nums; }
+.head { display: flex; align-items: center; gap: var(--sim-space-2); min-width: 0; }
+.head mat-icon { color: var(--sim-text-muted); flex: none; }
+.who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post { display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; color: inherit; cursor: pointer; padding: var(--sim-space-3); }
 .post:hover { background: var(--sim-surface-2); }
 .post.active { border-color: var(--sim-accent); }
 .cap { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .meta { font-size: 12px; }
 .err { color: var(--sim-danger); font-size: 12px; }
-.empty { padding: var(--sim-space-2) 0; }
+.empty { padding: var(--sim-space-5) 0; grid-column: 1 / -1; text-align: center; }
 
 .editor { display: flex; flex-direction: column; gap: var(--sim-space-3); }
 .top { display: flex; align-items: center; justify-content: space-between; }

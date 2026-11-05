@@ -6,6 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTableModule } from '@angular/material/table';
 import { EMPTY, catchError, finalize, switchMap } from 'rxjs';
 import { AdminsApi } from '../../core/api/admins.api';
 import { AuthService } from '../../core/auth.service';
@@ -28,7 +29,7 @@ export function parseAdminTarget(raw: string): Pick<AdminCreate, 'telegram_id' |
 @Component({
   selector: 'sim-admins',
   imports: [
-    ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule,
+    ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule, MatTableModule,
     PageHeaderComponent, EmptyStateComponent, AvatarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,6 +44,7 @@ export class AdminsComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly roles = ROLES;
+  protected readonly columns = ['admin', 'username', 'telegram_id', 'role', 'status', 'actions'];
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly meId = this.auth.user()?.id ?? null;
 
