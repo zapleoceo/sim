@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import httpx
 from sqlalchemy import select
 
 from sim.adapters.db.models import Channel, Client, Dialog, FunnelEvent, Job, Message
@@ -74,30 +73,6 @@ async def test_refused_client_stays_refused_and_gets_no_reply_job(container, wor
     async with container.factory() as s:
         assert (await s.scalars(select(Client))).one().status is ClientStatus.REFUSED
         assert (await s.scalars(select(Job))).all() == []
-
-
-async def test_voice_is_transcribed(container, world, fake_llm):
-    fake_llm.transcript = "расскажите про курс"
-    res = await ingest(
-        container,
-        world.channel.id,
-        inbound("", ext="v1", media_kind="voice", media_url="http://x/voice.ogg"),
-    )
-    assert res.message.text == "расскажите про курс"
-    assert res.message.media_url.startswith("/api/media/")
-
-
-async def test_voice_download_failure_gets_placeholder_and_no_url(container, world):
-    async def boom(url):
-        raise httpx.ConnectError("nope")
-
-    container.download = boom
-    res = await ingest(
-        container,
-        world.channel.id,
-        inbound("", ext="v2", media_kind="voice", media_url="http://tok/secret.ogg"),
-    )
-    assert "не удалось" in res.message.text and res.message.media_url is None
 
 
 async def test_own_message_pauses_ai_and_echo_is_ignored(container, world):

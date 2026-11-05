@@ -1,4 +1,7 @@
-"""Local media store (downloaded voice / images) and the downloader.
+"""Local media store (downloaded voice / images).
+
+Bytes are fetched through the channel port's `download_media` (a Telegram file id or a WhatsApp
+message id is not a URL); this module only keeps them on disk.
 
 Files are stored under settings.media_dir with random names and served only through the
 authenticated /api/media/{name} route; the original URL is not kept (a channel file URL may
@@ -9,9 +12,6 @@ import re
 import secrets
 from pathlib import Path
 
-import httpx
-
-MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_-]{8,64}\.[A-Za-z0-9]{1,8}$")
 
 
@@ -31,18 +31,3 @@ class MediaStore:
             return None
         target = self.root / name
         return target if target.is_file() else None
-
-
-async def download(url: str) -> bytes:
-    """Fetch a media URL with a size cap."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), follow_redirects=True) as client:
-        async with client.stream("GET", url) as resp:
-            resp.raise_for_status()
-            chunks: list[bytes] = []
-            size = 0
-            async for chunk in resp.aiter_bytes():
-                size += len(chunk)
-                if size > MAX_DOWNLOAD_BYTES:
-                    raise ValueError("media too large")
-                chunks.append(chunk)
-    return b"".join(chunks)

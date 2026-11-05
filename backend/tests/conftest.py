@@ -11,6 +11,7 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.adapters.channels.capabilities import Capability
 from sim.adapters.db.models import Channel, Persona, Strategy
 from sim.adapters.db.session import create_all, transaction
 from sim.api.main import create_app
@@ -73,6 +74,17 @@ class FakePort:
     ok: bool = True
     inbound: list[InboundMessage] = field(default_factory=list)
     kind: ChannelKind = ChannelKind.TELEGRAM
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    media: bytes = b"audio-bytes"
+    media_error: Exception | None = None
+    downloads: list[str] = field(default_factory=list)
+
+    async def download_media(self, ref: str) -> bytes:
+        """Like the real adapters: a marker (tg-file:/wa-msg:), never a fetchable URL."""
+        self.downloads.append(ref)
+        if self.media_error is not None:
+            raise self.media_error
+        return self.media
 
     async def send_text(self, external_thread_id: str, text: str) -> SendResult:
         if not self.ok:
@@ -160,10 +172,6 @@ async def container(tmp_path, fake_llm, connector) -> AsyncIterator[Container]:
     c = build_container(make_settings(tmp_path), registry={ChannelKind.TELEGRAM: connector})
     c.llm = fake_llm
 
-    async def no_download(url: str) -> bytes:
-        return b"audio-bytes"
-
-    c.download = no_download
     await create_all(c.engine)
     yield c
     await c.engine.dispose()

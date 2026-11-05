@@ -43,6 +43,29 @@ class JobRepo(Repository[Job]):
             .limit(1)
         )
 
+    async def upsert_pending(
+        self, kind: str, payload: dict[str, Any], run_at: datetime, dedup_key: str
+    ) -> Job:
+        """The one pending job of this key, not earlier than `run_at` (created when missing)."""
+        existing = await self.pending_by_key(dedup_key)
+        if existing is None:
+            return await self.enqueue(kind, payload, run_at, dedup_key=dedup_key)
+        existing.run_at = max(existing.run_at, run_at)
+        return existing
+
+    async def has_open(self, kind: str, key_prefix: str) -> bool:
+        """Is there a pending or running job of this kind whose dedup key starts with the prefix."""
+        found = await self.session.scalar(
+            select(Job.id)
+            .where(
+                Job.kind == kind,
+                Job.dedup_key.like(f"{key_prefix}%"),
+                Job.status.in_(("pending", "running")),
+            )
+            .limit(1)
+        )
+        return found is not None
+
     async def cancel_pending(self, kind: str, dedup_key: str) -> int:
         res = await self.session.execute(
             update(Job)

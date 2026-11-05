@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.session import make_engine, make_session_factory
 from sim.adapters.llm.broker import BrokerLLM
-from sim.adapters.media import MediaStore, download
+from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
 from sim.config import Settings
 from sim.connectors.spec import Connector
@@ -24,8 +24,9 @@ from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
 from sim.services.conversation import ConversationService
 from sim.services.followup import FollowupService
-from sim.services.ingest import Downloader, IngestService
+from sim.services.ingest import IngestService
 from sim.services.llm_audit import AuditedLLM
+from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 
@@ -63,7 +64,6 @@ class Container:
     box: SecretBox
     media: MediaStore
     limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
-    download: Downloader = download
     clock: Clock = utcnow
     rng: Callable[[float, float], float] = random.uniform
     publisher: ContentPublisher | None = None
@@ -87,14 +87,10 @@ class Container:
         return FollowupService(s, clock=self.clock)
 
     def ingest(self, s: AsyncSession) -> IngestService:
-        return IngestService(
-            s,
-            self.llm,
-            self.media,
-            debounce_s=self.settings.reply_debounce_s,
-            download=self.download,
-            clock=self.clock,
-        )
+        return IngestService(s, debounce_s=self.settings.reply_debounce_s, clock=self.clock)
+
+    def media_service(self, s: AsyncSession) -> MediaService:
+        return MediaService(s, self.registry, self.box, self.llm, self.media)
 
     def channels(self, s: AsyncSession) -> ChannelService:
         return ChannelService(s, self.registry, self.box, clock=self.clock)

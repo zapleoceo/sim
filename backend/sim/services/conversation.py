@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, ClientStatus, Direction, Stage
 from sim.domain.funnel import Actor, FunnelRuleError
 from sim.ports.llm import LLMResult
+from sim.services import jobkinds
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.llm_audit import AuditedLLM
@@ -38,13 +40,16 @@ RETRY_NUDGE = (
 )
 
 
+MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
+
+
 class ConversationError(Exception):
     """Misconfiguration (no strategy, missing persona): retrying will not help."""
 
 
 @dataclass(frozen=True)
 class ReplyOutcome:
-    status: str  # sent | empty | skipped | needs_operator
+    status: str  # sent | empty | skipped | needs_operator | waiting_media
     decision: Decision | None = None
     message: Message | None = None
 
@@ -185,6 +190,13 @@ class ConversationService:
         last = await self.messages.last(dialog_id)
         if last is None or (last.direction is Direction.IN) == followup:
             return ReplyOutcome("skipped")  # nothing to answer / client already replied
+        if not followup and await self.jobs.has_open(jobkinds.MEDIA, jobkinds.media_prefix(dialog_id)):
+            # A voice message is still being downloaded / transcribed: answer once it is text.
+            await self.jobs.upsert_pending(
+                jobkinds.REPLY, {"dialog_id": dialog_id},
+                self.clock() + timedelta(seconds=MEDIA_WAIT_S), jobkinds.reply_key(dialog_id),
+            )
+            return ReplyOutcome("waiting_media")
         persona = await self.personas.get(client.persona_id)
         if persona is None or not persona.is_active:
             return ReplyOutcome("skipped")
