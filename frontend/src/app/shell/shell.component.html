@@ -1,0 +1,68 @@
+<div class="shell" [class.phone]="isPhone()">
+  @if (!isPhone()) {
+    <nav class="side" aria-label="Основная навигация">
+      <a class="brand" routerLink="/">
+        <span class="logo" aria-hidden="true">S</span>
+        <span>Sim</span>
+      </a>
+      <ul>
+        @for (item of items(); track item.path) {
+          <li>
+            <a [routerLink]="item.path" routerLinkActive="active" class="nav-link">
+              <mat-icon class="material-icons-outlined">{{ item.icon }}</mat-icon>
+              <span>{{ item.label }}</span>
+            </a>
+          </li>
+        }
+      </ul>
+      <div class="user">
+        <div class="who">
+          <strong>{{ user()?.username }}</strong>
+          <span class="sim-muted">{{ roleLabel() }}</span>
+        </div>
+        <button mat-icon-button type="button" aria-label="Выйти" (click)="logout()">
+          <mat-icon class="material-icons-outlined">logout</mat-icon>
+        </button>
+      </div>
+    </nav>
+  }
+
+  <main class="content" id="main">
+    <router-outlet />
+  </main>
+
+  @if (isPhone()) {
+    <nav class="bottom" aria-label="Основная навигация">
+      @for (item of bottomItems(); track item.path) {
+        <a [routerLink]="item.path" routerLinkActive="active" class="tab">
+          <mat-icon class="material-icons-outlined">{{ item.icon }}</mat-icon>
+          <span>{{ item.label }}</span>
+        </a>
+      }
+      <button type="button" class="tab" (click)="toggleDrawer()" aria-haspopup="dialog" [attr.aria-expanded]="drawerOpen()">
+        <mat-icon class="material-icons-outlined">menu</mat-icon>
+        <span>Ещё</span>
+      </button>
+    </nav>
+
+    @if (drawerOpen()) {
+      <div class="scrim" (click)="closeDrawer()" (keydown.escape)="closeDrawer()" role="presentation"></div>
+      <div class="drawer" role="dialog" aria-label="Меню" (keydown.escape)="closeDrawer()">
+        <div class="who">
+          <strong>{{ user()?.username }}</strong>
+          <span class="sim-muted">{{ roleLabel() }}</span>
+        </div>
+        @for (item of items(); track item.path) {
+          <button type="button" class="drawer-link" (click)="go(item.path)">
+            <mat-icon class="material-icons-outlined">{{ item.icon }}</mat-icon>
+            {{ item.label }}
+          </button>
+        }
+        <button type="button" class="drawer-link" (click)="logout()">
+          <mat-icon class="material-icons-outlined">logout</mat-icon>
+          Выйти
+        </button>
+      </div>
+    }
+  }
+</div>
