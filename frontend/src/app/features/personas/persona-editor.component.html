@@ -1,0 +1,129 @@
+<form class="sim-card editor" [formGroup]="form" (ngSubmit)="save()" novalidate>
+  <div class="top">
+    <h2>{{ persona() ? 'Редактирование' : 'Новый персонаж' }}</h2>
+    <button mat-button type="button" class="close" (click)="closed.emit()">Закрыть</button>
+  </div>
+
+  <div class="sim-form-grid">
+    <mat-form-field appearance="outline">
+      <mat-label>Имя</mat-label>
+      <input matInput formControlName="name" required />
+      @if (form.controls.name.hasError('required')) {
+        <mat-error>Укажите имя</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Возраст</mat-label>
+      <input matInput type="number" formControlName="age" />
+      @if (form.controls.age.invalid) {
+        <mat-error>От 18 до 100</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Пол</mat-label>
+      <mat-select formControlName="gender">
+        <mat-option value="female">Женский</mat-option>
+        <mat-option value="male">Мужской</mat-option>
+        <mat-option value="other">Другое</mat-option>
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Язык</mat-label>
+      <input matInput formControlName="language" placeholder="ru" />
+      @if (form.controls.language.hasError('required')) {
+        <mat-error>Укажите язык</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="sim-wide">
+      <mat-label>Ссылка на аватар</mat-label>
+      <input matInput formControlName="avatar_url" placeholder="https://…" />
+      @if (form.controls.avatar_url.hasError('pattern')) {
+        <mat-error>Нужна ссылка вида https://…</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="sim-wide">
+      <mat-label>Слоган</mat-label>
+      <input matInput formControlName="tagline" />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="sim-wide">
+      <mat-label>Характер</mat-label>
+      <textarea matInput rows="4" formControlName="character" required></textarea>
+      @if (form.controls.character.hasError('required')) {
+        <mat-error>Опишите характер</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="sim-wide">
+      <mat-label>Биография</mat-label>
+      <textarea matInput rows="4" formControlName="backstory"></textarea>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="sim-wide">
+      <mat-label>Стиль общения</mat-label>
+      <textarea matInput rows="3" formControlName="communication_style"></textarea>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="sim-wide">
+      <mat-label>Раскрытие («я виртуальный ассистент»)</mat-label>
+      <textarea matInput rows="2" formControlName="disclosure_text" required></textarea>
+      <mat-hint>Персонаж честно скажет это на прямой вопрос «ты бот?»</mat-hint>
+      @if (form.controls.disclosure_text.hasError('required')) {
+        <mat-error>Обязательное поле</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Модель</mat-label>
+      <mat-select formControlName="model">
+        <mat-option value="">Авто — цепочка chat:sales</mat-option>
+        @for (m of models(); track m.id) {
+          <mat-option [value]="m.id" [disabled]="!m.available">
+            {{ m.name }}
+            @if (m.subscription) {
+              <span class="tag">подписка</span>
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Стратегия</mat-label>
+      <mat-select formControlName="strategy_id">
+        <mat-option [value]="null">Не выбрана</mat-option>
+        @for (s of strategies(); track s.id) {
+          <mat-option [value]="s.id">{{ s.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>ID голоса (ElevenLabs)</mat-label>
+      <input matInput formControlName="voice_id" />
+    </mat-form-field>
+
+    <div class="toggle">
+      <mat-slide-toggle formControlName="is_active">Персонаж активен</mat-slide-toggle>
+    </div>
+  </div>
+
+  <div class="sim-row actions">
+    @if (persona()) {
+      <button mat-button type="button" class="danger" (click)="remove()">Удалить</button>
+    }
+    <span class="sim-grow"></span>
+    <button mat-flat-button type="submit" [disabled]="saving()">Сохранить</button>
+  </div>
+</form>
+
+@if (persona(); as p) {
+  <div class="sim-card preview">
+    <sim-persona-preview [personaId]="p.id" />
+  </div>
+}

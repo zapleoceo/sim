@@ -1,0 +1,22 @@
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sim-space-4); align-items: start; }
+.layout.editing { grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); }
+.list { display: flex; flex-direction: column; gap: var(--sim-space-2); }
+.layout:not(.editing) .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.item { display: flex; flex-direction: column; gap: 2px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.item:hover { background: var(--sim-surface-2); }
+.item.active { border-color: var(--sim-accent); }
+
+.editor { display: flex; flex-direction: column; gap: var(--sim-space-3); }
+.top { display: flex; align-items: center; justify-content: space-between; }
+.editor h3 { margin-top: var(--sim-space-3); }
+.rules { display: flex; flex-direction: column; gap: var(--sim-space-2); }
+.add { align-self: flex-start; }
+mat-expansion-panel { box-shadow: none; border: 1px solid var(--sim-border); background: var(--sim-surface); }
+.delay { align-items: flex-start; }
+.err { color: var(--sim-danger); }
+.danger { color: var(--sim-danger); }
+
+@media (max-width: 899px) {
+  .layout.editing { grid-template-columns: minmax(0, 1fr); }
+  .layout.editing .list { display: none; }
+}

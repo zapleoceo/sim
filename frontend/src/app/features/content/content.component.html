@@ -1,0 +1,116 @@
+<div class="sim-page">
+  <sim-page-header title="Контент Instagram" subtitle="План публикаций: черновик, одобрение, расписание">
+    <button mat-flat-button type="button" (click)="selected.set('new')">
+      <mat-icon class="material-icons-outlined">add</mat-icon>
+      Новый пост
+    </button>
+  </sim-page-header>
+
+  <div class="layout" [class.editing]="selected() !== null">
+    <div class="board">
+      @for (col of columns(); track col.status) {
+        <section class="col" [attr.aria-label]="col.label">
+          <h2><mat-icon class="material-icons-outlined">{{ col.icon }}</mat-icon>{{ col.label }}<span class="n">{{ col.posts.length }}</span></h2>
+          @for (item of col.posts; track item.post.id) {
+            <button type="button" class="sim-card post" [class.active]="current()?.id === item.post.id" (click)="selected.set(item.post)">
+              <span class="cap">{{ item.post.caption || 'Без подписи' }}</span>
+              <span class="meta sim-muted">{{ item.kind }}@if (item.when) { · {{ item.when }} }</span>
+              @if (item.post.error) {
+                <span class="err">{{ item.post.error }}</span>
+              }
+            </button>
+          } @empty {
+            <p class="sim-muted empty">Пусто</p>
+          }
+        </section>
+      }
+      @if (loaded() && !posts().length) {
+        <sim-empty-state icon="photo_library" title="Постов пока нет" hint="Создайте черновик, сгенерируйте подпись и одобрите публикацию." />
+      }
+    </div>
+
+    @if (selected() !== null) {
+      <form class="sim-card editor" [formGroup]="form" (ngSubmit)="save()" novalidate>
+        <div class="top">
+          <h2>{{ current() ? 'Редактирование поста' : 'Новый пост' }}</h2>
+          <button mat-button type="button" (click)="selected.set(null)">Закрыть</button>
+        </div>
+
+        <div class="sim-form-grid">
+          <mat-form-field appearance="outline">
+            <mat-label>Персонаж</mat-label>
+            <mat-select formControlName="persona_id" required>
+              @for (p of personas(); track p.id) {
+                <mat-option [value]="p.id">{{ p.name }}</mat-option>
+              }
+            </mat-select>
+            @if (form.controls.persona_id.hasError('required')) {
+              <mat-error>Выберите персонажа</mat-error>
+            }
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Аккаунт Instagram</mat-label>
+            <mat-select formControlName="channel_id">
+              <mat-option [value]="null">Не выбран</mat-option>
+              @for (c of igChannels(); track c.id) {
+                <mat-option [value]="c.id">{{ c.name }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Тип</mat-label>
+            <mat-select formControlName="kind">
+              @for (k of kinds; track k.id) {
+                <mat-option [value]="k.id">{{ k.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Публикация</mat-label>
+            <input matInput type="datetime-local" formControlName="scheduled_at" />
+            <mat-hint>Пусто — без расписания</mat-hint>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="sim-wide">
+            <mat-label>Подпись</mat-label>
+            <textarea matInput rows="6" formControlName="caption"></textarea>
+            <mat-hint align="end">{{ form.controls.caption.value.length }} / 2200</mat-hint>
+          </mat-form-field>
+          <div class="sim-wide gen">
+            <button mat-stroked-button type="button" [disabled]="busy()" (click)="generateCaption()">
+              <mat-icon class="material-icons-outlined">auto_awesome</mat-icon>
+              Сгенерировать подпись
+            </button>
+            <span class="sim-muted">В стиле выбранного персонажа. Новый пост сначала сохранится как черновик.</span>
+          </div>
+
+          <mat-form-field appearance="outline" class="sim-wide">
+            <mat-label>Ссылки на медиа (по одной в строке)</mat-label>
+            <textarea matInput rows="3" formControlName="media" placeholder="https://…/photo.jpg"></textarea>
+            @if (form.controls.media.hasError('mediaUrl')) {
+              <mat-error>Каждая строка должна быть ссылкой https://…</mat-error>
+            }
+          </mat-form-field>
+        </div>
+
+        @if (current(); as p) {
+          <p class="sim-muted status">Статус: {{ p.status }}@if (p.error) { · <span class="err">{{ p.error }}</span> }</p>
+        }
+
+        <div class="sim-row actions">
+          @if (current()) {
+            <button mat-button type="button" class="danger" (click)="remove()">Удалить</button>
+          }
+          <span class="sim-grow"></span>
+          @if (canApprove()) {
+            <button mat-stroked-button type="button" [disabled]="busy()" (click)="approve()">
+              <mat-icon class="material-icons-outlined">thumb_up</mat-icon>
+              Одобрить
+            </button>
+          }
+          <button mat-flat-button type="submit" [disabled]="busy()">Сохранить</button>
+        </div>
+      </form>
+    }
+  </div>
+</div>

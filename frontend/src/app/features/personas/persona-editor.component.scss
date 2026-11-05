@@ -1,0 +1,6 @@
+:host { display: flex; flex-direction: column; gap: var(--sim-space-4); }
+.top { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sim-space-3); }
+.toggle { display: flex; align-items: center; padding-bottom: var(--sim-space-4); }
+.actions { margin-top: var(--sim-space-2); }
+.danger { color: var(--sim-danger); }
+.tag { margin-left: 8px; padding: 0 6px; border-radius: 6px; font-size: 11px; background: var(--sim-accent-soft); color: var(--sim-accent); }
