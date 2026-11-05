@@ -8,6 +8,7 @@ export const DEFAULT_DIALOG_FILTER: DialogFilter = {
   status: '',
   q: '',
   unread_only: false,
+  needs_operator: false,
 };
 
 export type InboxFilterForm = FormGroup<{
@@ -17,6 +18,7 @@ export type InboxFilterForm = FormGroup<{
   status: FormControl<ClientStatus | ''>;
   q: FormControl<string>;
   unread_only: FormControl<boolean>;
+  needs_operator: FormControl<boolean>;
 }>;
 
 /** Единая форма фильтров инбокса: одно место для валидации, сброса и сериализации в запрос. */
@@ -28,6 +30,7 @@ export function createInboxFilterForm(initial: DialogFilter = DEFAULT_DIALOG_FIL
     status: new FormControl<ClientStatus | ''>(initial.status, { nonNullable: true }),
     q: new FormControl<string>(initial.q, { nonNullable: true }),
     unread_only: new FormControl<boolean>(initial.unread_only, { nonNullable: true }),
+    needs_operator: new FormControl<boolean>(initial.needs_operator, { nonNullable: true }),
   });
 }
 

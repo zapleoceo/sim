@@ -74,12 +74,13 @@ async def list_dialogs(  # noqa: PLR0913
     status: ClientStatus | None = None,
     q: str | None = None,
     unread_only: bool = False,
+    needs_operator: bool = False,
     limit: Limit = 50,
     offset: Offset = 0,
 ):
     rows, total = await DialogRepo(s).search(
         limit, offset, channel_kind=channel_kind, persona_id=persona_id, stage=stage,
-        status=status, q=q, unread_only=unread_only,
+        status=status, q=q, unread_only=unread_only, needs_operator=needs_operator,
     )
     personas = {p.id: p for p in await PersonaRepo(s).all()}
     return {"items": [dialog_row(d, personas.get(d.client.persona_id)) for d in rows], "total": total}
@@ -114,6 +115,15 @@ async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
         last = await MessageRepo(s).last(dialog.id)
         if last is not None and last.direction is Direction.IN:  # an unanswered client message
             await c.ingest(s).queue_reply(dialog, dialog.client)
+    return dialog_out(dialog)
+
+
+@dialogs.post("/{dialog_id}/resolve")
+async def resolve_needs_operator(dialog_id: int, s: Db):
+    """The operator dealt with it: clear the `needs_operator` flag without touching the AI
+    pause (resuming the AI or sending a message also clears it)."""
+    dialog = await dialog_or_404(s, dialog_id)
+    dialog.needs_operator = False
     return dialog_out(dialog)
 
 

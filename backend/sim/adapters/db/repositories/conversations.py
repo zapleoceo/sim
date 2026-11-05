@@ -112,6 +112,7 @@ class DialogRepo(Repository[Dialog]):
         status: ClientStatus | None = None,
         q: str | None = None,
         unread_only: bool = False,
+        needs_operator: bool = False,
     ) -> tuple[Sequence[Dialog], int]:
         stmt = (
             select(Dialog)
@@ -128,6 +129,8 @@ class DialogRepo(Repository[Dialog]):
             stmt = stmt.where(Client.status == status)
         if unread_only:
             stmt = stmt.where(Dialog.unread > 0)
+        if needs_operator:
+            stmt = stmt.where(Dialog.needs_operator.is_(True))
         if q:
             pattern = like(q)
             stmt = stmt.where(

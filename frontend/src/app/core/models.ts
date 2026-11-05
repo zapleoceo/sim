@@ -73,7 +73,7 @@ export interface ConnectState {
 
 export type Direction = 'in' | 'out';
 export type Author = 'client' | 'ai' | 'operator';
-export type Delivery = 'queued' | 'sent' | 'failed';
+export type Delivery = 'queued' | 'sent' | 'failed' | 'cancelled';
 export interface Message {
   id: number;
   direction: Direction;
@@ -93,6 +93,8 @@ export interface DialogRow {
   last_message: { text: string; direction: Direction; at: string } | null;
   unread: number;
   ai_paused: boolean;
+  /** ИИ не справился или передал диалог человеку — нужен оператор. */
+  needs_operator: boolean;
 }
 export interface Dialog {
   id: number;
@@ -100,6 +102,7 @@ export interface Dialog {
   persona_id?: number;
   client_id?: number;
   ai_paused: boolean;
+  needs_operator: boolean;
 }
 export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
 export interface DialogFilter {
@@ -109,6 +112,7 @@ export interface DialogFilter {
   status: ClientStatus | '';
   q: string;
   unread_only: boolean;
+  needs_operator: boolean;
 }
 
 export interface Client {

@@ -62,6 +62,7 @@
             </mat-form-field>
             <div class="sim-row filter-foot">
               <mat-slide-toggle formControlName="unread_only">Только непрочитанные</mat-slide-toggle>
+              <mat-slide-toggle formControlName="needs_operator">Нужен оператор</mat-slide-toggle>
               <span class="sim-grow"></span>
               <button mat-button type="button" (click)="resetFilters()" [disabled]="filterCount() === 0">Сбросить</button>
             </div>
@@ -98,6 +99,9 @@
                   @if (vm.row.ai_paused) {
                     <mat-icon class="material-icons-outlined paused" matTooltip="ИИ на паузе">pause_circle</mat-icon>
                   }
+                  @if (vm.row.needs_operator) {
+                    <sim-needs-operator-badge />
+                  }
                 </span>
               </span>
             </button>
@@ -133,8 +137,16 @@
               }
               <sim-stage-chip [stage]="d.client.stage" />
               <sim-status-badge [status]="d.client.status" />
+              @if (d.dialog.needs_operator) {
+                <sim-needs-operator-badge />
+              }
             </span>
           </div>
+          @if (d.dialog.needs_operator) {
+            <button mat-stroked-button type="button" (click)="resolve()" matTooltip="Снять отметку «нужен оператор»">
+              Обработано
+            </button>
+          }
           <mat-slide-toggle
             [checked]="!d.dialog.ai_paused"
             (change)="toggleAi(!$event.checked)"
@@ -193,6 +205,9 @@
                         }
                         @case ('failed') {
                           <mat-icon class="material-icons-outlined failed" matTooltip="Не доставлено">error_outline</mat-icon>
+                        }
+                        @case ('cancelled') {
+                          <mat-icon class="material-icons-outlined" matTooltip="Отменено: диалог перешёл к человеку">block</mat-icon>
                         }
                       }
                     }

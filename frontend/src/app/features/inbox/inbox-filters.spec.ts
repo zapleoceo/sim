@@ -9,8 +9,10 @@ describe('inbox filter state', () => {
 
   it('counts every non-default filter', () => {
     const form = createInboxFilterForm();
-    form.patchValue({ channel_kind: 'telegram', stage: 'engaged', unread_only: true, persona_id: 3, q: 'анна' });
-    expect(activeFilterCount(form.getRawValue())).toBe(5);
+    form.patchValue({
+      channel_kind: 'telegram', stage: 'engaged', unread_only: true, needs_operator: true, persona_id: 3, q: 'анна',
+    });
+    expect(activeFilterCount(form.getRawValue())).toBe(6);
   });
 
   it('does not count a whitespace-only search', () => {

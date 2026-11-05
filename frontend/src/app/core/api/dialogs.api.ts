@@ -23,6 +23,10 @@ export class DialogsApi {
   setAiPaused(id: number, paused: boolean): Observable<Dialog> {
     return this.http.post<Dialog>(`/api/dialogs/${id}/ai`, { paused });
   }
+  /** Оператор разобрался: снять отметку «нужен оператор» (пауза ИИ не меняется). */
+  resolve(id: number): Observable<Dialog> {
+    return this.http.post<Dialog>(`/api/dialogs/${id}/resolve`, {});
+  }
   markRead(id: number): Observable<void> {
     return this.http.post<void>(`/api/dialogs/${id}/read`, {}, { headers: { 'X-Silent': '1' } });
   }

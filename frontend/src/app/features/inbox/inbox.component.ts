@@ -17,12 +17,13 @@ import {
 } from 'rxjs';
 import { DialogsApi } from '../../core/api/dialogs.api';
 import { PersonasApi } from '../../core/api/personas.api';
-import { DialogDetail, DialogFilter, DialogRow, Message, Persona } from '../../core/models';
+import { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona } from '../../core/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS, STAGES, STATUSES, STATUS_LABELS } from '../../core/stages';
 import { AvatarComponent } from '../../shared/avatar.component';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { dayKey, dayLabel, formatShort, formatTime } from '../../shared/format';
+import { NeedsOperatorBadgeComponent } from '../../shared/needs-operator-badge.component';
 import { StageChipComponent } from '../../shared/stage-chip.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { activeFilterCount, createInboxFilterForm, normalizeFilter } from './inbox-filters';
@@ -59,7 +60,7 @@ interface DayGroup { key: string; label: string; items: MessageVm[] }
   imports: [
     ReactiveFormsModule, TextFieldModule, RouterLink, MatFormFieldModule, MatSelectModule, MatIconModule, MatButtonModule,
     MatSlideToggleModule, MatTooltipModule, AvatarComponent, ChannelIconComponent, EmptyStateComponent,
-    StageChipComponent, StatusBadgeComponent,
+    StageChipComponent, StatusBadgeComponent, NeedsOperatorBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './inbox.component.html',
@@ -244,10 +245,13 @@ export class InboxComponent {
       )
       .subscribe((msg) => {
         this.text.reset();
+        // Ответ оператора ставит ИИ на паузу и снимает «нужен оператор» (так делает и сервер).
         this.detail.update((d) =>
-          d ? { ...d, dialog: { ...d.dialog, ai_paused: true }, messages: [...d.messages, msg] } : d,
+          d
+            ? { ...d, dialog: { ...d.dialog, ai_paused: true, needs_operator: false }, messages: [...d.messages, msg] }
+            : d,
         );
-        this.rows.update((rows) => rows.map((r) => (r.id === id ? { ...r, ai_paused: true } : r)));
+        this.rows.update((rows) => rows.map((r) => (r.id === id ? { ...r, ai_paused: true, needs_operator: false } : r)));
       });
   }
 
@@ -258,9 +262,24 @@ export class InboxComponent {
       .setAiPaused(id, paused)
       .pipe(catchError(() => EMPTY))
       .subscribe((dialog) => {
-        this.detail.update((d) => (d ? { ...d, dialog: { ...d.dialog, ai_paused: dialog.ai_paused } } : d));
-        this.rows.update((rows) => rows.map((r) => (r.id === id ? { ...r, ai_paused: dialog.ai_paused } : r)));
+        this.applyFlags(id, dialog);
       });
+  }
+
+  /** «Отметить обработанным»: снимает «нужен оператор», пауза ИИ остаётся как есть. */
+  protected resolve(): void {
+    const id = this.dialogId();
+    if (id === null) return;
+    this.api
+      .resolve(id)
+      .pipe(catchError(() => EMPTY))
+      .subscribe((dialog) => this.applyFlags(id, dialog));
+  }
+
+  private applyFlags(id: number, dialog: Dialog): void {
+    const flags = { ai_paused: dialog.ai_paused, needs_operator: dialog.needs_operator };
+    this.detail.update((d) => (d ? { ...d, dialog: { ...d.dialog, ...flags } } : d));
+    this.rows.update((rows) => rows.map((r) => (r.id === id ? { ...r, ...flags } : r)));
   }
 
   private applyDetail(d: DialogDetail): void {
@@ -272,7 +291,8 @@ export class InboxComponent {
       prev.messages.length === d.messages.length &&
       prev.messages.at(-1)?.id === d.messages.at(-1)?.id &&
       prev.messages.at(-1)?.delivery === d.messages.at(-1)?.delivery &&
-      prev.dialog.ai_paused === d.dialog.ai_paused;
+      prev.dialog.ai_paused === d.dialog.ai_paused &&
+      prev.dialog.needs_operator === d.dialog.needs_operator;
     if (same) return;
     this.detail.set(d);
     const row = this.rows().find((r) => r.id === d.dialog.id);
