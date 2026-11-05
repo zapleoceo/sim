@@ -12,7 +12,9 @@ echo "== tests"
 (cd "$ROOT/backend" && uv run pytest -q && uv run ruff check .)
 
 echo "== build admin"
-(cd "$ROOT/frontend" && npm ci --no-audit --no-fund && npm run build)
+# Reinstall only when node_modules is out of sync with the lockfile (npm ci wipes the folder,
+# which fails on Windows while a local dev server holds native binaries open).
+(cd "$ROOT/frontend" && { npm ls --depth=0 >/dev/null 2>&1 || npm ci --no-audit --no-fund; } && npm run build)
 
 echo "== sync (committed HEAD only — uncommitted edits never reach prod)"
 if [ -n "$(git -C "$ROOT" status --porcelain -- backend infra frontend/src)" ]; then
