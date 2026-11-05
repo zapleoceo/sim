@@ -2,7 +2,11 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, catchError, map, of, tap } from 'rxjs';
-import { AuthState, User } from './models';
+import { AuthConfig, AuthState, Role, TelegramWidgetUser, User } from './models';
+
+export function hasOwnerRights(role: Role | undefined): boolean {
+  return role === 'owner' || role === 'superadmin';
+}
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -15,7 +19,9 @@ export class AuthService {
   readonly user = this.userState.asReadonly();
   readonly csrfToken = this.csrfState.asReadonly();
   readonly isAuthenticated = computed(() => this.userState() !== null);
-  readonly isOwner = computed(() => this.userState()?.role === 'owner');
+  /** Права владельца: owner и superadmin (зеркало Role.has_owner_rights на бэкенде). */
+  readonly isOwner = computed(() => hasOwnerRights(this.userState()?.role));
+  readonly isSuperadmin = computed(() => this.userState()?.role === 'superadmin');
 
   /** Восстанавливает сессию по cookie. Возвращает true, если пользователь авторизован. */
   restore(): Observable<boolean> {
@@ -29,9 +35,14 @@ export class AuthService {
     );
   }
 
-  login(username: string, password: string): Observable<AuthState> {
+  config(): Observable<AuthConfig> {
+    return this.http.get<AuthConfig>('/api/auth/config');
+  }
+
+  /** Вход через Telegram Login Widget. 403 обрабатывает вызывающий (X-Silent: без тоста). */
+  loginTelegram(user: TelegramWidgetUser): Observable<AuthState> {
     return this.http
-      .post<AuthState>('/api/auth/login', { username, password })
+      .post<AuthState>('/api/auth/telegram', user, { headers: { 'X-Silent': '1' } })
       .pipe(tap((s) => this.apply(s)));
   }
 

@@ -12,6 +12,12 @@ export const authGuard: CanActivateFn = (_route, state) => {
   );
 };
 
+export const superadminGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.isSuperadmin() ? of(true) : of(router.createUrlTree(['/inbox']));
+};
+
 export const ownerGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);

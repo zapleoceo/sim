@@ -1,8 +1,31 @@
 /** Типы строго по docs/api.md. */
 
-export type Role = 'owner' | 'operator';
-export interface User { id: number; username: string; role: Role }
+export type Role = 'superadmin' | 'owner' | 'operator';
+export interface User {
+  id: number;
+  role: Role;
+  telegram_id: number | null;
+  tg_username: string | null;
+  display_name: string;
+  photo_url: string;
+}
 export interface AuthState { user: User; csrf_token: string }
+export interface AdminUser extends User { is_active: boolean; created_at: string }
+export interface AdminCreate { telegram_id?: number; tg_username?: string; role: Role; display_name?: string }
+export interface AdminPatch { role?: Role; is_active?: boolean }
+
+/** Поля, которые Telegram Login Widget отдаёт в onauth (все подписаны hash). */
+export interface TelegramWidgetUser {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+}
+export interface AuthConfig { bot_username: string }
+export interface AccessDeniedBody { detail: string; telegram_id: number }
 
 export interface ListResponse<T> { items: T[]; total?: number }
 

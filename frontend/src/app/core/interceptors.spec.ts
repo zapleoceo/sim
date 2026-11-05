@@ -31,7 +31,7 @@ describe('authInterceptor', () => {
 
   function signIn(): void {
     auth.restore().subscribe();
-    ctrl.expectOne('/api/auth/me').flush({ user: { id: 1, username: 'a', role: 'owner' }, csrf_token: 'tok-123' });
+    ctrl.expectOne('/api/auth/me').flush({ user: { id: 1, role: 'owner', telegram_id: 1, tg_username: null, display_name: 'a', photo_url: '' }, csrf_token: 'tok-123' });
   }
 
   it('adds X-CSRF-Token and credentials to mutating requests', () => {
@@ -72,8 +72,8 @@ describe('authInterceptor', () => {
 
   it('does not redirect when the login request itself returns 401', () => {
     const navigate = spyOn(router, 'navigate').and.resolveTo(true);
-    http.post('/api/auth/login', {}).subscribe({ error: () => undefined });
-    ctrl.expectOne('/api/auth/login').flush({ detail: 'bad' }, { status: 401, statusText: 'Unauthorized' });
+    http.post('/api/auth/telegram', {}).subscribe({ error: () => undefined });
+    ctrl.expectOne('/api/auth/telegram').flush({ detail: 'bad' }, { status: 401, statusText: 'Unauthorized' });
     expect(navigate).not.toHaveBeenCalled();
   });
 });

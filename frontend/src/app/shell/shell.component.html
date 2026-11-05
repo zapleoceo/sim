@@ -16,9 +16,12 @@
         }
       </ul>
       <div class="user">
-        <div class="who">
-          <strong>{{ user()?.username }}</strong>
-          <span class="sim-muted">{{ roleLabel() }}</span>
+        <div class="who-row">
+          <sim-avatar [name]="userName()" [url]="user()?.photo_url || null" [size]="32" />
+          <div class="who">
+            <strong>{{ userName() }}</strong>
+            <span class="sim-muted">{{ roleLabel() }}</span>
+          </div>
         </div>
         <button mat-icon-button type="button" aria-label="Выйти" (click)="logout()">
           <mat-icon class="material-icons-outlined">logout</mat-icon>
@@ -48,9 +51,12 @@
     @if (drawerOpen()) {
       <div class="scrim" (click)="closeDrawer()" (keydown.escape)="closeDrawer()" role="presentation"></div>
       <div class="drawer" role="dialog" aria-label="Меню" (keydown.escape)="closeDrawer()">
-        <div class="who">
-          <strong>{{ user()?.username }}</strong>
-          <span class="sim-muted">{{ roleLabel() }}</span>
+        <div class="who-row">
+          <sim-avatar [name]="userName()" [url]="user()?.photo_url || null" [size]="32" />
+          <div class="who">
+            <strong>{{ userName() }}</strong>
+            <span class="sim-muted">{{ roleLabel() }}</span>
+          </div>
         </div>
         @for (item of items(); track item.path) {
           <button type="button" class="drawer-link" (click)="go(item.path)">

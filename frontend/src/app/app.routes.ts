@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, ownerGuard } from './core/guards';
+import { authGuard, ownerGuard, superadminGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -67,6 +67,12 @@ export const routes: Routes = [
         canActivate: [ownerGuard],
         title: 'Партнёр — Sim',
         loadComponent: () => import('./features/partner/partner.component').then((m) => m.PartnerComponent),
+      },
+      {
+        path: 'admins',
+        canActivate: [superadminGuard],
+        title: 'Администраторы — Sim',
+        loadComponent: () => import('./features/admins/admins.component').then((m) => m.AdminsComponent),
       },
     ],
   },

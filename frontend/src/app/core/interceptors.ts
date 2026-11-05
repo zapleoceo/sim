@@ -6,7 +6,7 @@ import { AuthService } from './auth.service';
 import { ToastService } from './toast.service';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const LOGIN_URL = '/api/auth/login';
+const LOGIN_URL = '/api/auth/telegram';
 
 /** Cookie-сессия, CSRF-заголовок на мутациях, редирект на /login при 401. */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {

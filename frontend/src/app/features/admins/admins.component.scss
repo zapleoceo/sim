@@ -1,0 +1,16 @@
+.add { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sim-space-3); }
+.add .target { flex: 1 1 260px; }
+.add .role { flex: 0 1 200px; }
+.add button { height: 56px; }
+
+.table-wrap { overflow-x: auto; padding: 0; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: var(--sim-space-3) var(--sim-space-4); border-bottom: 1px solid var(--sim-border); white-space: nowrap; }
+th { font-size: 12px; color: var(--sim-text-muted); font-weight: 500; }
+tr:last-child td { border-bottom: 0; }
+tr.inactive { opacity: 0.6; }
+.who { display: inline-flex; align-items: center; gap: var(--sim-space-2); }
+.role-select { min-width: 130px; }
+.actions { text-align: right; }
+.danger { color: var(--sim-danger); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
