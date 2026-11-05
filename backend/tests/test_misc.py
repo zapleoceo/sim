@@ -12,7 +12,7 @@ from sim.domain.enums import ContentStatus
 from sim.seed import seed
 from sim.services.content import NOT_IMPLEMENTED
 from sim.services.conversation import persona_profile, strategy_profile
-from sim.services.prompt import stable_system_prompt
+from sim.services.prompt import PersonaProfile, StrategyProfile, stable_system_prompt
 
 
 def test_secretbox_roundtrip_and_rotation():
@@ -80,6 +80,42 @@ async def test_seed_fills_only_empty_persona_texts(container):
     async with container.factory() as s:
         marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
     assert marina.description == "Своё описание владельца"     # owner edit survives
-    assert "не обещать доход" in marina.prohibitions            # empty -> filled
-    assert eva.description.startswith("Слоган:") and "национальных стереотипов" in eva.prohibitions
-    assert "не упоминать без вопроса" in marina.prohibitions
+    assert "не давить и не торопить" in marina.prohibitions            # empty -> filled
+    assert eva.description.startswith("Я Ева, мне 39") and "национальных стереотипов" in eva.prohibitions
+    assert "не обесценивать трудности" in marina.prohibitions
+
+
+async def test_apply_persona_prompts_overwrites_seeded_texts(container):
+    from sim.persona_prompts import MARINA, STRATEGY_PROMPT, apply_persona_prompts
+
+    await seed(container, container.settings)
+    async with transaction(container.factory) as s:
+        marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
+        marina.description = "правки владельца"
+        strategy = (await s.scalars(select(Strategy))).one()
+        strategy.prompt = ""
+        strategy.rules = ["старое"]
+    async with transaction(container.factory) as s:
+        changes, missing = await apply_persona_prompts(s)
+    assert missing == []
+    assert {(c.target, c.field) for c in changes} >= {(MARINA, "description"), (f"strategy «{strategy.name}»", "prompt")}
+    async with container.factory() as s:
+        marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
+        strategy = (await s.scalars(select(Strategy))).one()
+    assert marina.description.startswith("Мне 45, я Марина") and strategy.prompt == STRATEGY_PROMPT
+    assert strategy.goal.startswith("Твоя цель — подружиться") and len(strategy.rules) == 7
+    async with transaction(container.factory) as s:
+        again, _ = await apply_persona_prompts(s)
+    assert again == []                                  # idempotent
+
+
+def test_prompt_template_is_free_and_keeps_the_honesty_floor():
+    from sim.persona_prompts import STRATEGY_PROMPT
+
+    system = stable_system_prompt(
+        PersonaProfile(name="Х", description="d"), StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"])
+    )
+    assert "guidance, not a script" in system and "Never volunteer that you are an AI" in system
+    assert "never claim to be human" in system and "виртуальная помощница проекта" in system
+    assert "STRATEGY GUIDANCE" in system and "Сначала человек, потом предложение" in system
+    assert system.index("STRATEGY GUIDANCE") < system.index("RULES:")

@@ -1,6 +1,7 @@
 """Inbound webhooks: channels (Telegram, Evolution) and the partner."""
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from typing import Any
@@ -12,6 +13,7 @@ from sim.adapters.db.repositories.catalog import ChannelRepo
 from sim.api.deps import App, Db
 from sim.api.schemas import PartnerHookIn
 from sim.domain.enums import ChannelKind, PartnerEventKind
+from sim.services.admin_bot import SECRET_HEADER, admin_bot_secret
 from sim.services.partner import (
     PartnerAuthError,
     PartnerDataError,
@@ -55,6 +57,28 @@ async def telegram_hook(channel_id: int, request: Request, c: App, s: Db):
 @router.post("/evolution/{channel_id}")
 async def evolution_hook(channel_id: int, request: Request, c: App, s: Db):
     return await channel_webhook(ChannelKind.WHATSAPP, channel_id, request, c, s)
+
+
+@router.post("/admin-bot")
+async def admin_bot_hook(request: Request, c: App, s: Db):
+    """Updates of the login bot (admin simulation chat). Always 200 once the secret matches:
+    a non-2xx answer makes Telegram redeliver the same update in a loop."""
+    token = c.settings.tg_login_bot_token
+    if not token:
+        raise HTTPException(404, "Not found")
+    expected = admin_bot_secret(c.settings.secret_key, token)
+    if not hmac.compare_digest(request.headers.get(SECRET_HEADER, "").encode(), expected.encode()):
+        raise HTTPException(401, "Bad webhook credentials")
+    try:
+        update = await request.json()
+    except ValueError:
+        return {"ok": True, "ignored": True}
+    if isinstance(update, dict):
+        try:
+            await c.admin_bot(s).handle(update)
+        except Exception as exc:  # never the exception text: a Bot API URL carries the token
+            log.warning("admin bot update failed: %s", type(exc).__name__)
+    return {"ok": True}
 
 
 @router.post("/partner")

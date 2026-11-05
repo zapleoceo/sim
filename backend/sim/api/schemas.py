@@ -15,6 +15,8 @@ from sim.adapters.db.models import (
     Message,
     PartnerEvent,
     Persona,
+    SimBranch,
+    SimMessage,
     Strategy,
 )
 from sim.adapters.db.models import Channel as ChannelRow
@@ -87,6 +89,7 @@ class PreviewIn(Body):
 class StrategyIn(Body):
     name: str = Field(min_length=1, max_length=120)
     goal: str = ""
+    prompt: str = ""
     offer: str = ""
     partner_name: str = Field(default="", max_length=120)
     registration_url: str = Field(default="", max_length=500)
@@ -193,7 +196,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
 
 def strategy_out(s: Strategy) -> dict[str, Any]:
     return {
-        "id": s.id, "name": s.name, "goal": s.goal, "offer": s.offer,
+        "id": s.id, "name": s.name, "goal": s.goal, "prompt": s.prompt, "offer": s.offer,
         "partner_name": s.partner_name, "registration_url": s.registration_url,
         "stage_playbook": s.stage_playbook, "rules": s.rules, "followup_hours": s.followup_hours,
         "reply_delay_s": s.reply_delay_s, "notes": s.notes, "created_at": dt(s.created_at),
@@ -313,4 +316,29 @@ def dialog_row(d: Dialog, persona: Persona | None) -> dict[str, Any]:
         "unread": d.unread,
         "ai_paused": d.ai_paused,
         "needs_operator": d.needs_operator,
+    }
+
+
+def sim_branch_row(b: SimBranch, messages: int) -> dict[str, Any]:
+    return {
+        "id": b.id,
+        "admin": {"id": b.admin_user_id, "display_name": b.admin.display_name},
+        "persona": {"id": b.persona_id, "name": b.persona.name},
+        "title": b.title, "message_count": messages, "stage": b.stage.value, "status": b.status.value,
+        "created_at": dt(b.created_at), "last_active_at": dt(b.last_active_at),
+        "closed_at": dt(b.closed_at),
+    }
+
+
+def sim_branch_out(b: SimBranch, messages: int) -> dict[str, Any]:
+    return {
+        **sim_branch_row(b, messages),
+        "needs": b.needs or [], "next_step": b.next_step, "notes": b.notes,
+    }
+
+
+def sim_message_out(m: SimMessage) -> dict[str, Any]:
+    return {
+        "id": m.id, "role": m.role, "text": m.text, "model": m.model, "created_at": dt(m.created_at),
+        "guard": guard_out(m.guard_verdict, m.guard_violations, None, m.original_text),
     }

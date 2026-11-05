@@ -73,10 +73,19 @@ async def run_content_publish(c: Container, s: AsyncSession, payload: dict[str, 
     await c.content(s).publish(int(payload["post_id"]))
 
 
+async def run_sim_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
+    await c.admin_bot(s).run_reply_job(payload)
+
+
+async def giveup_sim_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
+    await c.admin_bot(s).give_up(payload)
+
+
 HANDLERS: dict[str, Handler] = {
     jobkinds.REPLY: Handler(run_reply, giveup_reply),
     jobkinds.MEDIA: Handler(run_media, giveup_media),
     jobkinds.FOLLOWUP: Handler(run_followup, giveup_followup),
     jobkinds.SEND: Handler(run_send, giveup_send),
     jobkinds.CONTENT_PUBLISH: Handler(run_content_publish),
+    jobkinds.SIM_REPLY: Handler(run_sim_reply, giveup_sim_reply),
 }

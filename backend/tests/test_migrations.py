@@ -110,3 +110,25 @@ def test_0004_downgrade_roundtrip(tmp_path):
     command.downgrade(cfg, "0003")
     assert {"tagline", "character", "backstory", "communication_style"} <= columns(db, "persona")
     assert "guard_verdict" not in columns(db, "message")
+
+
+def test_0005_adds_strategy_prompt_and_simulation_tables_and_roundtrips(tmp_path):
+    db = tmp_path / "mig5.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0004")
+    with sqlite3.connect(db) as con:
+        con.execute(
+            "INSERT INTO strategy (id, name, goal, offer, partner_name, registration_url, stage_playbook, "
+            "rules, followup_hours, reply_delay_s, notes, created_at) VALUES "
+            "(1, 'S', '', '', '', '', '{}', '[]', '[]', '[20, 90]', '', '2026-11-01 00:00:00')"
+        )
+    command.upgrade(cfg, "head")
+    assert "prompt" in columns(db, "strategy")
+    assert {"admin_user_id", "persona_id", "stage", "status", "needs", "next_step", "notes", "closed_at"} <= columns(db, "sim_branch")
+    assert {"branch_id", "role", "guard_verdict", "guard_violations", "model"} <= columns(db, "sim_message")
+    assert "debug" in columns(db, "sim_admin_pref")
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT prompt FROM strategy WHERE id = 1").fetchone() == ("",)
+    command.downgrade(cfg, "0004")
+    assert "prompt" not in columns(db, "strategy") and not columns(db, "sim_branch")
+    command.upgrade(cfg, "head")

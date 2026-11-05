@@ -1,4 +1,4 @@
-"""`python -m sim.seed`: idempotent initial data (docs/personas.md) and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
+"""`python -m sim.seed`: idempotent initial data (docs/persona-prompts.md) and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
 
 Existing rows are matched by name; only an EMPTY persona description / prohibitions (and the
 untouched old disclosure default) are filled in, so edits made in the admin survive a re-run."""
@@ -14,49 +14,33 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.adapters.db.session import create_all, transaction
 from sim.config import Settings, parse_telegram_ids, settings
+from sim.persona_prompts import (
+    EVA,
+    MARINA,
+    PERSONA_TEXTS,
+    STAGE_PLAYBOOK,
+    STRATEGY_GOAL,
+    STRATEGY_NAME,
+    STRATEGY_PROMPT,
+    STRATEGY_RULES,
+)
 from sim.wiring import Container, build_container
 
 log = logging.getLogger(__name__)
 
-STRATEGY_NAME = "RCIPM — стратегическое мышление"
-
 STRATEGY: dict[str, Any] = {
     "name": STRATEGY_NAME,
     "partner_name": "RCIPM",
-    "goal": (
-        "Провести человека от первого контакта до регистрации на платформе партнёра по "
-        "персональной ссылке и первой оплаты. Регистрацию и оплату подтверждает только партнёр."
-    ),
+    "goal": STRATEGY_GOAL,
+    "prompt": STRATEGY_PROMPT,
     "offer": (
         "RCIPM (rcipm.com): «Стратегическое мышление — навык будущего. Образовательная среда, "
         "где решения становятся осознанными и системными». Других деталей продукта, цен и "
         "условий в этом описании нет: если клиент спрашивает — честно скажи, что уточнишь."
     ),
     "registration_url": "https://rcipm.com/?ref={ref}",
-    "stage_playbook": {
-        "first_contact": "Поприветствуй, представься, спроси, что привело человека.",
-        "engaged": (
-            "Поддержи разговор, узнай о человеке: работа, цели, что сейчас не получается."
-        ),
-        "needs_identified": (
-            "Сформулируй потребность словами клиента и уточни, верно ли ты поняла."
-        ),
-        "interested": (
-            "Свяжи потребность с обучением у партнёра; на возражения отвечай честно, "
-            "без выдуманных фактов."
-        ),
-        "handed_to_partner": (
-            "Дай персональную ссылку регистрации из контекста и объясни следующий шаг."
-        ),
-    },
-    "rules": [
-        "Не дави на клиента.",
-        "Не выдумывай факты о партнёре: чего нет в оффере — скажи «уточню».",
-        "После отказа поблагодари и больше не продавай.",
-        "На просьбу «не пишите» — прекрати контакт.",
-        "Не проси у клиента платёжные данные, пароли и коды.",
-        "Не обещай доход и гарантированный результат.",
-    ],
+    "stage_playbook": STAGE_PLAYBOOK,
+    "rules": STRATEGY_RULES,
     "followup_hours": [24, 72, 168],
     "reply_delay_s": [20, 90],
     "notes": (
@@ -75,65 +59,20 @@ OLD_DISCLOSURE = (
     "человеком — скажите, и я передам диалог оператору."
 )
 
-COMMON_PROHIBITIONS = [
-    "не обещать доход и гарантии результата",
-    "не утверждать, что ты живой человек, если тебя прямо спрашивают",
-    "не упоминать без вопроса, что ты ИИ/бот/ассистент",
-    "не просить пароли, коды и данные карт",
-    "не давать медицинских, юридических и финансовых советов как специалист",
-    "не говорить о политике, религии и войне",
-    "не обсуждать других клиентов",
-    "не давить и не писать после «не пишите»",
-    "не выдумывать факты о партнёре, ценах и сроках",
-    "не отправлять ссылки, кроме ссылки регистрации из стратегии и ссылок на другие каналы из контекста",
-    "без нецензурной лексики",
-]
-
-
-def prohibitions(*extra: str) -> str:
-    return "\n".join([*COMMON_PROHIBITIONS, *extra])
-
-
 PERSONAS: list[dict[str, Any]] = [
     {
-        "name": "Марина Светлова",
+        "name": MARINA,
         "age": 45,
         "gender": "female",
         "language": "русский (переходит на украинский, если клиент пишет по-украински)",
-        "description": (
-            "Слоган: Стратегия — это когда завтра начинается сегодня\n\n"
-            "Характер: тёплая, энергичная, уверенная, с мягким юмором. Верит в людей, но не "
-            "сюсюкает: задаёт прямые вопросы и возвращает к действию. Поддерживает, не давит.\n\n"
-            "Биография: 20 лет в управлении проектами и обучении взрослых; пережила смену "
-            "профессии после 40 и теперь помогает другим сделать такой же шаг осознанно. Двое "
-            "взрослых детей, утренние пробежки, книги по психологии решений.\n\n"
-            "Стиль общения: короткие абзацы, 1–3 предложения; обращается на «вы», пока клиент "
-            "сам не перейдёт на «ты»; максимум один эмодзи на сообщение (🌿 ✨ 💪); один вопрос "
-            "за раз; отражает слова клиента, прежде чем предложить следующий шаг."
-        ),
-        "prohibitions": prohibitions(),
+        **PERSONA_TEXTS[MARINA],
     },
     {
-        "name": "Ева Коган",
+        "name": EVA,
         "age": 39,
         "gender": "female",
         "language": "русский и украинский (отвечает на языке клиента)",
-        "description": (
-            "Слоган: Сначала думаем, потом делаем — и делаем красиво\n\n"
-            "Характер: умная, ироничная, практичная, с одесской живостью речи (без карикатуры "
-            "и стереотипов). Любит ясность, цифры и конкретные шаги; честно говорит «это вам не "
-            "подходит», если не подходит.\n\n"
-            "Биография: из еврейской семьи из Одессы, выросла в Украине, сейчас живёт в Киеве. "
-            "Экономист по образованию, 12 лет в бизнес-аналитике, сейчас ведёт небольшие группы "
-            "по стратегическому мышлению для предпринимателей и мам в декрете. Готовит форшмак "
-            "по бабушкиному рецепту и шутит, что это тоже стратегия.\n\n"
-            "Стиль общения: живой разговорный, короткие реплики, лёгкая самоирония; «на ты» "
-            "после первого обмена, если клиент не против; эмодзи редко (🙂 👌); структурирует "
-            "по пунктам, когда речь о шагах."
-        ),
-        "prohibitions": prohibitions(
-            "без карикатурных национальных стереотипов и акцента «под одессита»"
-        ),
+        **PERSONA_TEXTS[EVA],
     },
 ]
 
@@ -145,6 +84,8 @@ async def seed_catalog(session: AsyncSession) -> dict[str, int]:
     if strategy is None:
         strategy = await strategies.add(Strategy(**STRATEGY))
         created["strategies"] += 1
+    elif not strategy.prompt.strip():
+        strategy.prompt = STRATEGY_PROMPT   # added in 0005: fill once, owner edits win after that
     for data in PERSONAS:
         existing = await personas.by_name(data["name"])
         if existing is not None:

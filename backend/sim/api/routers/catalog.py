@@ -142,7 +142,9 @@ async def get_strategy(strategy_id: int, s: Db):
 @strategies.put("/{strategy_id}")
 async def update_strategy(strategy_id: int, body: StrategyIn, s: Db, _: Owner):
     strategy = await strategy_or_404(s, strategy_id)
-    for key, value in body.model_dump().items():
+    # Only the fields the client sent: an older client that does not know `prompt` / `notes`
+    # must not wipe them.
+    for key, value in body.model_dump(exclude_unset=True).items():
         setattr(strategy, key, value)
     try:
         await s.flush()

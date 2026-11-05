@@ -156,6 +156,7 @@ class Guard:
         generator_model: str | None,
         allowed_links: list[str],
         dialog_id: int | None,
+        workflow: str = GUARD_WORKFLOW,
     ) -> GuardOutcome:
         system = guard_system_prompt(persona, strategy)
 
@@ -164,7 +165,7 @@ class Guard:
                 {"role": "system", "content": system},
                 {"role": "user", "content": guard_user_message(history, text, stage, allowed_links)},
             ]
-            return await self.run_once(messages, generator_model, dialog_id)
+            return await self.run_once(messages, generator_model, dialog_id, workflow)
 
         first, model = await run(draft)
         if first.verdict == "ok":
@@ -179,23 +180,27 @@ class Guard:
         return GuardOutcome(BLOCKED, draft, reasons or ["the fixed reply did not pass"], model2)
 
     async def run_once(
-        self, messages: list[dict[str, str]], generator_model: str | None, dialog_id: int | None
+        self,
+        messages: list[dict[str, str]],
+        generator_model: str | None,
+        dialog_id: int | None,
+        workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
-        result = await self.call(messages, self.capability, dialog_id)
+        result = await self.call(messages, self.capability, dialog_id, workflow)
         if same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",
                      result.model, self.fallback_capability)
-            result = await self.call(messages, self.fallback_capability, dialog_id)
+            result = await self.call(messages, self.fallback_capability, dialog_id, workflow)
         verdict = parse_verdict(result)
         if verdict is None:
             raise GuardError(f"guard returned an unusable verdict (model={result.model})")
         return verdict, result.model
 
     async def call(
-        self, messages: list[dict[str, str]], capability: str, dialog_id: int | None
+        self, messages: list[dict[str, str]], capability: str, dialog_id: int | None, workflow: str
     ) -> LLMResult:
         return await self.llm.chat(
             messages, capability=capability, json_mode=True,
-            workflow=GUARD_WORKFLOW, dialog_id=dialog_id,
+            workflow=workflow, dialog_id=dialog_id,
         )

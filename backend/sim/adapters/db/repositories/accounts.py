@@ -7,7 +7,16 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import AdminUser, AuthSession, Dialog, LoginLink, UsedLoginHash
+from sim.adapters.db.models import (
+    AdminUser,
+    AuthSession,
+    Dialog,
+    LoginLink,
+    SimAdminPref,
+    SimBranch,
+    SimMessage,
+    UsedLoginHash,
+)
 from sim.adapters.db.repositories.base import Repository
 from sim.domain.enums import Role
 
@@ -39,6 +48,10 @@ class AdminUserRepo(Repository[AdminUser]):
         """Delete the admin together with what points at it (does not rely on DB-level FKs)."""
         await self.session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
         await self.session.execute(delete(LoginLink).where(LoginLink.user_id == user.id))
+        branches = select(SimBranch.id).where(SimBranch.admin_user_id == user.id)
+        await self.session.execute(delete(SimMessage).where(SimMessage.branch_id.in_(branches)))
+        await self.session.execute(delete(SimBranch).where(SimBranch.admin_user_id == user.id))
+        await self.session.execute(delete(SimAdminPref).where(SimAdminPref.admin_user_id == user.id))
         await self.session.execute(
             update(Dialog).where(Dialog.operator_id == user.id).values(operator_id=None)
         )

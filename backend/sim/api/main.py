@@ -10,9 +10,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from sim.adapters.db.session import create_all, transaction
-from sim.api.routers import admins, auth, catalog, channels, content, hooks, inbox, reports, system
+from sim.api.routers import (
+    admins,
+    auth,
+    catalog,
+    channels,
+    content,
+    hooks,
+    inbox,
+    reports,
+    simulations,
+    system,
+)
 from sim.config import Settings, parse_telegram_ids
 from sim.config import settings as get_settings
+from sim.services.admin_bot import admin_bot_secret, register_webhook
 from sim.wiring import Container, build_container
 
 log = logging.getLogger(__name__)
@@ -40,6 +52,22 @@ def mount_spa(app: FastAPI, static_dir: Path) -> None:
         return FileResponse(root / "index.html")
 
 
+async def register_admin_bot_webhook(c: Container) -> None:
+    """Point the login bot's webhook at this API (production only; idempotent). A failure is
+    logged without the token and never stops the API: the Login Widget does not depend on it."""
+    cfg = c.settings
+    transport = c.admin_transport()
+    if cfg.env != "prod" or transport is None:
+        return
+    secret = admin_bot_secret(cfg.secret_key, cfg.tg_login_bot_token)
+    try:
+        await register_webhook(transport, cfg.public_url, secret)
+    except Exception as exc:  # TelegramError text never includes the token
+        log.warning("admin bot setWebhook failed: %s: %s", type(exc).__name__, exc)
+    else:
+        log.info("admin bot webhook registered")
+
+
 def create_app(settings: Settings | None = None, container: Container | None = None) -> FastAPI:
     cfg = settings or (container.settings if container else get_settings())
     owns_container = container is None
@@ -56,6 +84,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
             async with transaction(c.factory) as s:
                 if changed := await c.auth(s).sync_superadmins(ids):
                     log.info("superadmins synced from settings: %d changed", changed)
+        await register_admin_bot_webhook(c)
         yield
         if owns_container:
             await c.engine.dispose()
@@ -72,7 +101,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     for router in (
         system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
         channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
-        reports.analytics, reports.partner, hooks.router,
+        reports.analytics, reports.partner, simulations.router, hooks.router,
     ):
         app.include_router(router)
     if (static := resolve_static_dir(cfg.static_dir)) is not None:

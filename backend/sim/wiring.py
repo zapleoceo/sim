@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from sim.adapters.channels.telegram import BotApiTransport, TelegramTransport
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.session import make_engine, make_session_factory
 from sim.adapters.llm.broker import BrokerLLM
@@ -18,6 +19,7 @@ from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
 from sim.ports.llm import LLMPort
+from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
 from sim.services.auth import AuthService, LoginRateLimiter
@@ -30,6 +32,7 @@ from sim.services.llm_audit import AuditedLLM
 from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
+from sim.services.simulation import SimulationService
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +71,7 @@ class Container:
     clock: Clock = utcnow
     rng: Callable[[float, float], float] = random.uniform
     publisher: ContentPublisher | None = None
+    admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
 
     # ---- per-unit-of-work services -------------------------------------------------------
     def audited(self) -> AuditedLLM:
@@ -94,6 +98,22 @@ class Container:
             guard_capability=self.settings.guard_capability,
             guard_fallback_capability=self.settings.guard_fallback_capability,
         )
+
+    def simulation(self, s: AsyncSession) -> SimulationService:
+        return SimulationService(s, self.conversation(s), clock=self.clock)
+
+    def admin_transport(self) -> TelegramTransport | None:
+        """Bot API transport of the login bot; None when no bot token is configured."""
+        if self.admin_bot_transport is not None:
+            return self.admin_bot_transport
+        token = self.settings.tg_login_bot_token
+        return BotApiTransport(token) if token else None
+
+    def admin_bot(self, s: AsyncSession) -> AdminBot:
+        transport = self.admin_transport()
+        if transport is None:
+            raise RuntimeError("SIM_TG_LOGIN_BOT_TOKEN is not set")
+        return AdminBot(s, transport, self.simulation(s), self.llm, clock=self.clock)
 
     def followup(self, s: AsyncSession) -> FollowupService:
         return FollowupService(s, clock=self.clock)

@@ -60,3 +60,14 @@ def status_on_inbound(status: ClientStatus) -> ClientStatus:
     if status in (ClientStatus.NO_RESPONSE, ClientStatus.PAUSED):
         return ClientStatus.ACTIVE
     return status
+
+
+def advance_by_ai(current: Stage, proposed: Stage | None) -> Stage:
+    """The stage after an AI proposal; a forbidden or absent proposal changes nothing. For the
+    states that have no client row (admin simulations): the same rules as a real client."""
+    if proposed is None:
+        return current
+    try:
+        return next_stage(current, proposed, Actor.AI)
+    except FunnelRuleError:
+        return current

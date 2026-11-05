@@ -97,6 +97,8 @@ class Strategy(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     goal: Mapped[str] = mapped_column(Text, default="")
+    # Free-text conversation guidance (guidelines, not a script), rendered in the stable system prompt.
+    prompt: Mapped[str] = mapped_column(Text, default="")
     offer: Mapped[str] = mapped_column(Text, default="")
     partner_name: Mapped[str] = mapped_column(String(120), default="")
     registration_url: Mapped[str] = mapped_column(Text, default="")
@@ -336,3 +338,55 @@ class LlmCall(Base):
     job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class SimBranch(Base):
+    """An admin's test conversation with a persona inside the login bot. Never a client/dialog:
+    simulations stay out of the inbox and analytics and are never sent to a real channel."""
+
+    __tablename__ = "sim_branch"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    admin_user_id: Mapped[int] = mapped_column(
+        ForeignKey("admin_user.id", ondelete="CASCADE"), index=True
+    )
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Simulated funnel state, kept in the branch instead of a client row.
+    stage: Mapped[Stage] = mapped_column(enum_col(Stage), default=Stage.FIRST_CONTACT)
+    status: Mapped[ClientStatus] = mapped_column(enum_col(ClientStatus), default=ClientStatus.ACTIVE)
+    needs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    next_step: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+    admin: Mapped[AdminUser] = relationship(lazy="joined")
+    persona: Mapped[Persona] = relationship(lazy="joined")
+
+
+class SimMessage(Base):
+    __tablename__ = "sim_message"
+    __table_args__ = (Index("ix_sim_message_branch_id_id", "branch_id", "id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("sim_branch.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(8))  # client | ai
+    text: Mapped[str] = mapped_column(Text, default="")
+    guard_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    guard_violations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # generator draft if rewritten
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class SimAdminPref(Base):
+    """Per-admin simulation settings (the footer toggle `/debug`)."""
+
+    __tablename__ = "sim_admin_pref"
+
+    admin_user_id: Mapped[int] = mapped_column(
+        ForeignKey("admin_user.id", ondelete="CASCADE"), primary_key=True
+    )
+    debug: Mapped[bool] = mapped_column(Boolean, default=True)

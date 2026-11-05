@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -21,7 +22,7 @@ from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
-from sim.services.guard import BLOCKED, Guard, GuardOutcome
+from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.prompt import (
@@ -61,6 +62,16 @@ class ReplyOutcome:
 
 
 @dataclass(frozen=True)
+class Draft:
+    """One generated-and-guarded reply: what the model decided and what the guard made of it.
+    Shared by the real dialog flow's siblings (preview, admin simulations)."""
+
+    decision: Decision | None
+    result: LLMResult
+    guard: GuardOutcome | None = None
+
+
+@dataclass(frozen=True)
 class PreviewResult:
     reply: str
     decision: Decision | None
@@ -85,6 +96,7 @@ def strategy_profile(s: Strategy) -> StrategyProfile:
     return StrategyProfile(
         name=s.name,
         goal=s.goal,
+        prompt=s.prompt,
         offer=s.offer,
         partner_name=s.partner_name,
         registration_url=s.registration_url,
@@ -93,14 +105,20 @@ def strategy_profile(s: Strategy) -> StrategyProfile:
     )
 
 
-def history_turns(messages: list[Message]) -> list[Turn]:
-    """Client -> user turn; AI and operator -> assistant turn. A draft the guard blocked was
-    never sent: the client did not see it, so it is not part of the conversation."""
+def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
+    """(is_client, text, guard_verdict) -> turns. A draft the guard blocked was never sent: the
+    client did not see it, so it is not part of the conversation. The one rule for every source
+    of history (real dialogs, admin simulations)."""
     return [
-        Turn("user" if m.author is Author.CLIENT else "assistant", m.text)
-        for m in messages
-        if m.guard_verdict != BLOCKED
+        Turn("user" if is_client else "assistant", text)
+        for is_client, text, verdict in items
+        if verdict != BLOCKED
     ]
+
+
+def history_turns(messages: list[Message]) -> list[Turn]:
+    """Client -> user turn; AI and operator -> assistant turn."""
+    return visible_turns((m.author is Author.CLIENT, m.text, m.guard_verdict) for m in messages)
 
 
 class ConversationService:
@@ -158,6 +176,7 @@ class ConversationService:
         result: LLMResult,
         ctx: DialogContext,
         dialog_id: int | None,
+        guard_workflow: str = GUARD_WORKFLOW,
     ) -> GuardOutcome:
         """Pre-send guard for one draft. Raises LLMError (fail closed) when it cannot judge."""
         allowed = [
@@ -175,6 +194,7 @@ class ConversationService:
             generator_model=result.model,
             allowed_links=allowed,
             dialog_id=dialog_id,
+            workflow=guard_workflow,
         )
 
     async def ask(
@@ -358,7 +378,29 @@ class ConversationService:
             await self.followups.schedule(dialog, strategy, 0, message)
         return ReplyOutcome("sent", decision, message)
 
-    # ---- preview -------------------------------------------------------------------------
+    # ---- drafts shared with preview and admin simulations --------------------------------
+    async def draft_reply(  # noqa: PLR0913
+        self,
+        persona: Persona,
+        strategy: Strategy,
+        history: list[Turn],
+        ctx: DialogContext,
+        *,
+        workflow: str,
+        guard_workflow: str = GUARD_WORKFLOW,
+        dialog_id: int | None = None,
+    ) -> Draft:
+        """The same builder, model call and pre-send guard as production, without any dialog
+        bookkeeping. `history` ends with the client's latest message."""
+        prompt = build_messages(persona_profile(persona), strategy_profile(strategy), history, ctx)
+        decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
+        guard: GuardOutcome | None = None
+        if decision is not None and decision.reply:
+            guard = await self.review(
+                persona, strategy, history, decision, result, ctx, dialog_id, guard_workflow
+            )
+        return Draft(decision, result, guard)
+
     async def preview(
         self, persona: Persona, message: str, history: list[Turn] | None = None
     ) -> PreviewResult:
@@ -373,15 +415,10 @@ class ConversationService:
             now=self.clock(),
         )
         turns = [*(history or []), Turn("user", message)]
-        prompt = build_messages(persona_profile(persona), strategy_profile(strategy), turns, ctx)
-        decision, result = await self.ask(prompt, persona, workflow="preview", dialog_id=None)
-        guard: GuardOutcome | None = None
-        reply = result.text[:2000]
-        if decision is not None:
-            reply = decision.reply
-            if decision.reply:
-                guard = await self.review(
-                    persona, strategy, turns, decision, result, ctx, None
-                )
-                reply = guard.text if guard.allowed else ""
-        return PreviewResult(reply, decision, result.model, result.latency_ms, guard)
+        draft = await self.draft_reply(persona, strategy, turns, ctx, workflow="preview")
+        reply = draft.result.text[:2000]
+        if draft.decision is not None:
+            reply = draft.decision.reply
+            if draft.guard is not None:
+                reply = draft.guard.text if draft.guard.allowed else ""
+        return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms, draft.guard)

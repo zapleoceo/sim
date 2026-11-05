@@ -87,7 +87,7 @@ class FakeLLM:
 
     async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> LLMResult:
         self.calls.append((messages, kwargs))
-        is_guard = kwargs.get("workflow") == "guard"
+        is_guard = str(kwargs.get("workflow", "")).endswith("guard")
         queue = self.guard_replies if is_guard else self.replies
         item = queue.pop(0) if queue else (guard_json() if is_guard else decision_json())
         if isinstance(item, Exception):
@@ -101,11 +101,11 @@ class FakeLLM:
 
     @property
     def gen_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
-        return [c for c in self.calls if c[1].get("workflow") != "guard"]
+        return [c for c in self.calls if not str(c[1].get("workflow", "")).endswith("guard")]
 
     @property
     def guard_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
-        return [c for c in self.calls if c[1].get("workflow") == "guard"]
+        return [c for c in self.calls if str(c[1].get("workflow", "")).endswith("guard")]
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         return LLMResult(text=self.transcript)

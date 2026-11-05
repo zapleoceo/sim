@@ -191,7 +191,10 @@ class AnalyticsService:
     async def llm_totals(
         self, start: datetime, end: datetime, persona_id: int | None
     ) -> dict[str, Any]:
-        stmt = select(LlmCall).where(LlmCall.created_at >= start, LlmCall.created_at < end)
+        # Admin simulations (workflows "sim*") are test traffic, not part of the business numbers.
+        stmt = select(LlmCall).where(
+            LlmCall.created_at >= start, LlmCall.created_at < end, LlmCall.workflow.not_like("sim%")
+        )
         if persona_id:
             stmt = (
                 stmt.join(Dialog, Dialog.id == LlmCall.dialog_id)

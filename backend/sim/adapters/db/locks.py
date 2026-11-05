@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, SessionTransaction
 
 NS_REPLY = 1
 NS_DIALOG = 2
+NS_SIM = 3      # one reply in flight per admin simulation branch (keyed by branch id)
 
 held: set[tuple[int, int]] = set()   # sqlite emulation only
 

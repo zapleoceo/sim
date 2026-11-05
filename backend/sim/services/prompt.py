@@ -31,6 +31,14 @@ VOICE_RULE = (
     "assistant: no disclaimers, no «как ИИ я…» phrasing, do not break character unprompted."
 )
 
+STYLE_RULE = (
+    "STYLE: be free and conversational, like a real person in a messenger: short messages, no "
+    "lists or officialese unless the client asks for structure, react to what the person "
+    "actually said, one question at a time, remember details and come back to them. Everything "
+    "in the strategy part below is guidance, not a script: change the order and the wording "
+    "to fit the conversation. A warm talk without a sale beats a pushed registration."
+)
+
 HONESTY_RULE = (
     "HONESTY (non-negotiable): if the client directly and sincerely asks whether they are "
     "talking to a real person, a bot or an AI, never claim to be human. Answer briefly and in "
@@ -78,6 +86,7 @@ class PersonaProfile:
 class StrategyProfile:
     name: str = ""
     goal: str = ""
+    prompt: str = ""          # free-text conversation guidance (guidelines, not a script)
     offer: str = ""
     partner_name: str = ""
     registration_url: str = ""
@@ -137,7 +146,7 @@ def stable_system_prompt(persona: PersonaProfile, strategy: StrategyProfile) -> 
     if persona.description.strip():
         lines += ["", "DESCRIPTION (who you are, your character, biography and way of writing):",
                   persona.description.strip()]
-    lines += ["", VOICE_RULE, "", HONESTY_RULE]
+    lines += ["", VOICE_RULE, "", STYLE_RULE, "", HONESTY_RULE]
     if persona.disclosure_text:
         lines.append(f"If asked directly what you are, answer along these lines: {persona.disclosure_text}")
     lines += ["", SAFETY_RULES]
@@ -161,13 +170,17 @@ def stable_system_prompt(persona: PersonaProfile, strategy: StrategyProfile) -> 
         "- If it helps to continue the chat in another channel, offer it and give exactly the "
         "link listed for that channel in the context message; never invent such a link."
     )
+    if strategy.prompt.strip():
+        lines += ["", "STRATEGY GUIDANCE (guidelines for the conversation, not a script):",
+                  strategy.prompt.strip()]
     if strategy.stage_playbook:
-        lines += ["", "STAGE PLAYBOOK (what to do at each stage):"]
+        lines += ["", "STAGE HINTS (short pointers per stage, not a script):"]
         order = {s.value: i for i, s in enumerate(Stage)}
         for stage in sorted(strategy.stage_playbook, key=lambda k: (order.get(k, 99), k)):
             lines.append(f"- {stage}: {strategy.stage_playbook[stage]}")
     if strategy.rules:
         lines += ["", "RULES:"] + [f"- {rule}" for rule in strategy.rules]
+        lines.append("(These are soft limits: keep to them in your own words, naturally.)")
     lines += ["", OUTPUT_CONTRACT]
     return "\n".join(lines)
 
