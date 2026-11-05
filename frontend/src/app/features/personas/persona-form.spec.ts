@@ -1,13 +1,13 @@
-import { EMPTY_PERSONA, createPersonaForm } from './persona-form';
+import { EMPTY_PERSONA, countRules, createPersonaForm } from './persona-form';
 
 describe('persona form validation', () => {
-  const valid = { ...EMPTY_PERSONA, name: 'Марина', character: 'Тёплая, энергичная', disclosure_text: 'Я виртуальный ассистент проекта.' };
+  const valid = { ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная', disclosure_text: 'Я виртуальный ассистент проекта.' };
 
   it('is invalid when empty', () => {
     const form = createPersonaForm();
     expect(form.invalid).toBeTrue();
     expect(form.controls.name.hasError('required')).toBeTrue();
-    expect(form.controls.character.hasError('required')).toBeTrue();
+    expect(form.controls.description.hasError('required')).toBeTrue();
     expect(form.controls.disclosure_text.hasError('required')).toBeTrue();
   });
 
@@ -50,5 +50,10 @@ describe('persona form validation', () => {
 
   it('getRawValue matches the PersonaIn contract keys', () => {
     expect(Object.keys(createPersonaForm(valid).getRawValue()).sort()).toEqual(Object.keys(EMPTY_PERSONA).sort());
+  });
+
+  it('counts only non-empty prohibition lines', () => {
+    expect(countRules('')).toBe(0);
+    expect(countRules(['не обещать доход', '', '  ', 'не просить пароли', ''].join('\n'))).toBe(2);
   });
 });

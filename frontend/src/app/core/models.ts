@@ -41,10 +41,10 @@ export interface Persona {
   age: number | null;
   gender: string;
   avatar_url: string;
-  tagline: string;
-  character: string;
-  backstory: string;
-  communication_style: string;
+  /** Свободный текст: кто она, характер, биография, как пишет. */
+  description: string;
+  /** Что персонаж не должен писать и делать: одно правило на строку. */
+  prohibitions: string;
   language: string;
   model: string;
   voice_id: string;
@@ -56,7 +56,21 @@ export interface Persona {
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
 
 export interface PreviewTurn { role: 'user' | 'assistant'; text: string }
-export interface PreviewResponse { reply: string; decision: unknown; model: string; latency_ms: number }
+export type GuardVerdict = 'ok' | 'rewritten' | 'blocked';
+export interface GuardInfo {
+  verdict: GuardVerdict;
+  violations: string[];
+  model: string | null;
+  /** Черновик генератора; задан, если контролер исправил или заблокировал ответ. */
+  original_text: string | null;
+}
+export interface PreviewResponse {
+  reply: string;
+  decision: unknown;
+  guard: GuardInfo | null;
+  model: string;
+  latency_ms: number;
+}
 
 export interface Strategy {
   id: number;
@@ -107,6 +121,9 @@ export interface Message {
   created_at: string;
   delivery: Delivery;
   model?: string | null;
+  error?: string | null;
+  /** Результат контролера; только у сообщений ИИ. */
+  guard?: GuardInfo | null;
 }
 export interface DialogRow {
   id: number;
@@ -214,6 +231,7 @@ export interface AnalyticsSummary {
   partner_payouts: number;
   conversion: { contact_to_registration: number; registration_to_payment: number };
   llm: { calls: number; cost_usd: number; tokens_in: number; tokens_out: number };
+  guard: { ok: number; rewritten: number; blocked: number };
   by_channel: { kind: ChannelKind; contacts: number; registrations: number; payments: number }[];
   daily: { date: string; contacts: number; registrations: number; payments: number }[];
 }

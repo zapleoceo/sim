@@ -8,13 +8,14 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { EMPTY, catchError, finalize } from 'rxjs';
 import { PersonasApi } from '../../core/api/personas.api';
-import { PreviewTurn } from '../../core/models';
+import { GuardInfo, PreviewTurn } from '../../core/models';
+import { GuardBadgeComponent } from '../../shared/guard-badge.component';
 
-interface PreviewMsg { role: 'user' | 'assistant'; text: string; meta?: string; decision?: unknown }
+interface PreviewMsg { role: 'user' | 'assistant'; text: string; meta?: string; decision?: unknown; guard?: GuardInfo | null }
 
 @Component({
   selector: 'sim-persona-preview',
-  imports: [ReactiveFormsModule, JsonPipe, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule],
+  imports: [ReactiveFormsModule, JsonPipe, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, GuardBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="head">
@@ -26,7 +27,14 @@ interface PreviewMsg { role: 'user' | 'assistant'; text: string; meta?: string; 
     <div class="chat" role="log" aria-live="polite">
       @for (m of messages(); track $index) {
         <div class="msg" [class.me]="m.role === 'user'">
-          <div class="bubble">{{ m.text }}</div>
+          @if (m.guard?.verdict === 'blocked') {
+            <div class="bubble blocked">Ответ заблокирован контролером и не был бы отправлен.</div>
+          } @else {
+            <div class="bubble">{{ m.text }}</div>
+          }
+          @if (m.guard) {
+            <sim-guard-badge [guard]="m.guard" />
+          }
           @if (m.meta) {
             <span class="meta sim-muted">{{ m.meta }}</span>
           }
@@ -63,6 +71,7 @@ interface PreviewMsg { role: 'user' | 'assistant'; text: string; meta?: string; 
     .msg { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; &.me { align-items: flex-end; } }
     .bubble { max-width: 90%; padding: 8px 12px; border-radius: 14px; background: var(--sim-bubble-ai); white-space: pre-wrap; overflow-wrap: anywhere; }
     .me .bubble { background: var(--sim-bubble-client); }
+    .blocked { background: var(--sim-surface); border: 1px dashed var(--sim-danger); color: var(--sim-danger); }
     .typing { opacity: 0.6; }
     .meta { font-size: 11px; }
     details { font-size: 12px; max-width: 100%; }
@@ -111,7 +120,7 @@ export class PersonaPreviewComponent {
       .subscribe((r) =>
         this.messages.update((m) => [
           ...m,
-          { role: 'assistant', text: r.reply, meta: `${r.model} · ${r.latency_ms} мс`, decision: r.decision },
+          { role: 'assistant', text: r.reply, meta: `${r.model} · ${r.latency_ms} мс`, decision: r.decision, guard: r.guard },
         ]),
       );
   }

@@ -8,10 +8,8 @@ export type PersonaForm = FormGroup<{
   age: FormControl<number | null>;
   gender: FormControl<string>;
   avatar_url: FormControl<string>;
-  tagline: FormControl<string>;
-  character: FormControl<string>;
-  backstory: FormControl<string>;
-  communication_style: FormControl<string>;
+  description: FormControl<string>;
+  prohibitions: FormControl<string>;
   language: FormControl<string>;
   model: FormControl<string>;
   voice_id: FormControl<string>;
@@ -25,10 +23,8 @@ export const EMPTY_PERSONA: PersonaIn = {
   age: null,
   gender: 'female',
   avatar_url: '',
-  tagline: '',
-  character: '',
-  backstory: '',
-  communication_style: '',
+  description: '',
+  prohibitions: '',
   language: 'ru',
   model: '',
   voice_id: '',
@@ -41,7 +37,7 @@ const text = (value: string, validators = [Validators.maxLength(4000)]): FormCon
   new FormControl(value, { nonNullable: true, validators });
 
 /**
- * Форма персонажа. Обязательны: имя, характер, язык и текст раскрытия
+ * Форма персонажа. Обязательны: имя, описание, язык и текст раскрытия
  * («я виртуальный ассистент») — без него ИИ нечем честно ответить на прямой вопрос.
  */
 export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaForm {
@@ -50,10 +46,8 @@ export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaFo
     age: new FormControl<number | null>(initial.age, [Validators.min(18), Validators.max(100)]),
     gender: text(initial.gender, [Validators.required]),
     avatar_url: text(initial.avatar_url, [Validators.pattern(AVATAR_URL_PATTERN), Validators.maxLength(500)]),
-    tagline: text(initial.tagline, [Validators.maxLength(200)]),
-    character: text(initial.character, [Validators.required, Validators.maxLength(4000)]),
-    backstory: text(initial.backstory),
-    communication_style: text(initial.communication_style),
+    description: text(initial.description, [Validators.required, Validators.maxLength(20000)]),
+    prohibitions: text(initial.prohibitions, [Validators.maxLength(10000)]),
     language: text(initial.language, [Validators.required, Validators.maxLength(16)]),
     model: text(initial.model, [Validators.maxLength(200)]),
     voice_id: text(initial.voice_id, [Validators.maxLength(200)]),
@@ -63,16 +57,19 @@ export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaFo
   });
 }
 
+/** Число непустых правил в поле «Чего нельзя» (одно правило на строку). */
+export function countRules(value: string): number {
+  return value.split(/\r?\n/).filter((line) => line.trim() !== '').length;
+}
+
 export function personaToInput(p: Persona): PersonaIn {
   return {
     name: p.name,
     age: p.age,
     gender: p.gender,
     avatar_url: p.avatar_url,
-    tagline: p.tagline,
-    character: p.character,
-    backstory: p.backstory,
-    communication_style: p.communication_style,
+    description: p.description,
+    prohibitions: p.prohibitions,
     language: p.language,
     model: p.model,
     voice_id: p.voice_id,

@@ -33,7 +33,7 @@ type Selection = Persona | 'new' | null;
               <sim-avatar [name]="p.name" [url]="p.avatar_url" [size]="56" />
               <span class="info">
                 <strong>{{ p.name }}@if (p.age) {, {{ p.age }}}</strong>
-                <span class="sim-muted tagline">{{ p.tagline }}</span>
+                <span class="sim-muted tagline">{{ p.description }}</span>
                 <span class="meta">
                   <span class="pill" [class.off]="!p.is_active">{{ p.is_active ? 'Активен' : 'Выключен' }}</span>
                   <span class="sim-muted">{{ p.model || 'chat:sales' }}</span>
