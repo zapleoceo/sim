@@ -97,6 +97,9 @@ services:
     env_file: [.env]
     environment: *appenv
     command: ["python", "-m", "sim.worker"]
+    # The image HEALTHCHECK probes the API port; the worker serves no HTTP.
+    healthcheck:
+      disable: true
     volumes:
       - sim_media:/app/media
     mem_limit: 384m
