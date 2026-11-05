@@ -62,13 +62,19 @@ class ContentService:
             raise ContentError("persona not found")
         return await self.posts.add(ContentPost(**self.normalise(fields)))
 
-    async def update(self, post: ContentPost, **fields: Any) -> ContentPost:
+    async def update(self, post: ContentPost, *, by_owner: bool, **fields: Any) -> ContentPost:
+        """Only the owner approves. An operator's edit of an approved/scheduled post changes
+        text nobody approved, so the post goes back to DRAFT and its publish job is cancelled."""
         if post.status not in EDITABLE:
             raise ContentError(f"a {post.status.value} post cannot be edited")
         for key, value in self.normalise(fields).items():
             setattr(post, key, value)
         if post.status in (ContentStatus.APPROVED, ContentStatus.SCHEDULED):
-            await self.plan(post)
+            if by_owner:
+                await self.plan(post)
+            else:
+                await self.jobs.cancel_pending(jobkinds.CONTENT_PUBLISH, f"content:{post.id}")
+                post.status = ContentStatus.DRAFT
         elif post.status is ContentStatus.FAILED:
             post.status, post.error = ContentStatus.DRAFT, None
         return post

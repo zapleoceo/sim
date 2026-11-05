@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from sim.adapters.db.models import ContentPost
 from sim.adapters.db.repositories.records import ContentRepo
-from sim.api.deps import App, Db, authed, owner_only
+from sim.api.deps import App, Authed, Db, authed, owner_only
 from sim.api.schemas import ContentIn, content_out
+from sim.domain.enums import Role
 from sim.ports.llm import LLMError
 from sim.services.content import ContentError
 
@@ -33,10 +34,13 @@ async def create_post(body: ContentIn, c: App, s: Db):
 
 
 @router.put("/{post_id}")
-async def update_post(post_id: int, body: ContentIn, c: App, s: Db):
+async def update_post(post_id: int, body: ContentIn, c: App, s: Db, p: Authed):
     post = await post_or_404(s, post_id)
     try:
-        return content_out(await c.content(s).update(post, **body.model_dump()))
+        updated = await c.content(s).update(
+            post, by_owner=p.user.role is Role.OWNER, **body.model_dump()
+        )
+        return content_out(updated)
     except ContentError as exc:
         raise HTTPException(409, str(exc)) from exc
 
