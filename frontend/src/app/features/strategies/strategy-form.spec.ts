@@ -19,9 +19,10 @@ describe('strategy form', () => {
     form.controls.playbook.patchValue({ engaged: 'Узнать о человеке' });
     const body = strategyFromForm(form, {
       id: 1, name: 'old', goal: '', offer: '', partner_name: '', registration_url: '',
-      stage_playbook: { legacy_stage: 'keep me' }, rules: [], followup_hours: [], reply_delay_s: [1, 2], created_at: '',
+      prompt: '', stage_playbook: { legacy_stage: 'keep me' }, rules: [], followup_hours: [], reply_delay_s: [1, 2], created_at: '',
     });
     expect(body.name).toBe('RCIPM');
+    expect(body.prompt).toBe('');
     expect(body.followup_hours).toEqual([24, 72]);
     expect(body.reply_delay_s).toEqual([20, 90]);
     expect(body.stage_playbook['legacy_stage']).toBe('keep me');

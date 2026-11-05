@@ -8,6 +8,7 @@ export const PLAYBOOK_STAGES = STAGES.filter((s) => s.aiReachable);
 export type StrategyForm = FormGroup<{
   name: FormControl<string>;
   goal: FormControl<string>;
+  prompt: FormControl<string>;
   offer: FormControl<string>;
   partner_name: FormControl<string>;
   registration_url: FormControl<string>;
@@ -44,6 +45,7 @@ export function createStrategyForm(): StrategyForm {
     {
       name: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(120)] }),
       goal: new FormControl('', { nonNullable: true }),
+      prompt: new FormControl('', { nonNullable: true }),
       offer: new FormControl('', { nonNullable: true }),
       partner_name: new FormControl('', { nonNullable: true }),
       registration_url: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^(https?:\/\/\S+)?$/i)] }),
@@ -64,6 +66,7 @@ export function fillStrategyForm(form: StrategyForm, s: Strategy | null): void {
   form.patchValue({
     name: s?.name ?? '',
     goal: s?.goal ?? '',
+    prompt: s?.prompt ?? '',
     offer: s?.offer ?? '',
     partner_name: s?.partner_name ?? '',
     registration_url: s?.registration_url ?? '',
@@ -79,6 +82,7 @@ export function strategyFromForm(form: StrategyForm, original: Strategy | null):
   return {
     name: v.name.trim(),
     goal: v.goal,
+    prompt: v.prompt,
     offer: v.offer,
     partner_name: v.partner_name,
     registration_url: v.registration_url.trim(),

@@ -51,6 +51,12 @@ export const routes: Routes = [
         loadComponent: () => import('./features/strategies/strategies.component').then((m) => m.StrategiesComponent),
       },
       {
+        path: 'simulations',
+        canActivate: [ownerGuard],
+        title: 'Симуляции — Sim',
+        loadComponent: () => import('./features/simulations/simulations.component').then((m) => m.SimulationsComponent),
+      },
+      {
         path: 'channels',
         canActivate: [ownerGuard],
         title: 'Каналы — Sim',

@@ -13,6 +13,8 @@ describe('visibleNav', () => {
   it('keeps owner pages for owner and superadmin, hides them from operator', () => {
     expect(labels('owner')).toContain('Персонажи');
     expect(labels('superadmin')).toContain('Персонажи');
+    expect(labels('owner')).toContain('Симуляции');
+    expect(labels('operator')).not.toContain('Симуляции');
     expect(labels('operator')).toEqual(['Диалоги', 'Клиенты', 'Воронка', 'Аналитика']);
   });
 });

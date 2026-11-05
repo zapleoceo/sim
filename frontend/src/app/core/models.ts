@@ -76,6 +76,8 @@ export interface Strategy {
   id: number;
   name: string;
   goal: string;
+  /** Свободный промпт стратегии: ориентиры разговора, не скрипт. */
+  prompt: string;
   offer: string;
   partner_name: string;
   registration_url: string;
@@ -237,3 +239,30 @@ export interface AnalyticsSummary {
 }
 
 export interface PartnerImportResult { imported: number; skipped: number; errors: string[] }
+
+export interface SimBranchRow {
+  id: number;
+  admin: { id: number; display_name: string };
+  persona: { id: number; name: string };
+  title: string;
+  message_count: number;
+  stage: Stage;
+  status: ClientStatus;
+  created_at: string;
+  last_active_at: string;
+  closed_at: string | null;
+}
+export interface SimMessage {
+  id: number;
+  role: 'client' | 'ai';
+  text: string;
+  model: string | null;
+  created_at: string;
+  guard: GuardInfo | null;
+}
+export interface SimBranchDetail extends SimBranchRow {
+  needs: string[];
+  next_step: string;
+  notes: string;
+  messages: SimMessage[];
+}

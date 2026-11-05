@@ -20,3 +20,5 @@ mat-expansion-panel { box-shadow: none; border: 1px solid var(--sim-border); bac
   .layout.editing { grid-template-columns: minmax(0, 1fr); }
   .layout.editing .list { display: none; }
 }
+
+.prompt { font-family: var(--sim-font-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.45; }
