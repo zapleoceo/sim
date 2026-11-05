@@ -62,8 +62,21 @@ language, model, voice_id, strategy_id, is_active, disclosure_text, created_at}`
 | GET/POST | `/api/strategies` | `{items: Strategy[]}` / `Strategy` |
 | GET/PUT/DELETE | `/api/strategies/{id}` | `Strategy` |
 
-`Strategy`: `{id, name, goal, offer, partner_name, registration_url, stage_playbook: {<stage>: string},
+`Strategy`: `{id, name, goal, prompt, offer, partner_name, registration_url, stage_playbook: {<stage>: string},
 rules: string[], followup_hours: number[], reply_delay_s: [min, max], created_at}`.
+`prompt` — свободный текст стратегии (ориентиры разговора, не скрипт; миграция 0005), попадает в стабильный системный промпт. `PUT` обновляет только присланные поля: клиент, не знающий `prompt`/`notes`, их не затирает.
+
+## Симуляции (только `owner`+, чтение)
+Тестовые диалоги админов с персонажами из бота входа (см. architecture.md, «Симуляции в боте»). Не создают клиентов, диалогов и сообщений, не попадают в инбокс и аналитику.
+
+| Метод | Путь | Ответ |
+|---|---|---|
+| GET | `/api/simulations?persona_id&admin_id&limit&offset` | `{items: SimBranchRow[], total}`, свежие сверху |
+| GET | `/api/simulations/{id}` | `SimBranchDetail`; 404, если ветки нет |
+
+`SimBranchRow`: `{id, admin: {id, display_name}, persona: {id, name}, title, message_count, stage, status, created_at, last_active_at, closed_at}`.
+`SimBranchDetail` = `SimBranchRow` + `{needs: string[], next_step, notes, messages: SimMessage[]}`;
+`SimMessage`: `{id, role: "client"|"ai", text, model, created_at, guard: {verdict, violations, model: null, original_text} | null}`.
 
 ## Модели Broker
 | GET | `/api/models` | `{items: [{id, name, subscription, available}]}` — проксирует каталог Broker |
@@ -152,6 +165,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 ## Webhooks каналов
 | POST | `/hooks/telegram/{channel_id}` | Update Bot API; заголовок `X-Telegram-Bot-Api-Secret-Token` |
 | POST | `/hooks/evolution/{channel_id}` | событие Evolution `messages.upsert`; заголовок `apikey`; только из docker-сети |
+| POST | `/hooks/admin-bot` | Update Bot API бота входа (`message`, `callback_query`); заголовок `X-Telegram-Bot-Api-Secret-Token` = `hex(hmac_sha256(SIM_SECRET_KEY, "admin-bot:" + токен бота))`, неверный — 401. После верного секрета всегда `200 {ok: true}` (ответ модели считает job, не запрос) |
 
 ## Служебное
 | GET | `/api/health` | `{ok, db, broker, version}` |
