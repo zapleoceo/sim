@@ -29,7 +29,7 @@ export interface AccessDeniedBody { detail: string; telegram_id: number }
 
 export interface ListResponse<T> { items: T[]; total?: number }
 
-export type ChannelKind = 'telegram' | 'whatsapp' | 'instagram';
+export type ChannelKind = 'telegram' | 'telegram_user' | 'whatsapp' | 'instagram';
 export type Stage =
   | 'first_contact' | 'engaged' | 'needs_identified' | 'interested'
   | 'handed_to_partner' | 'registered' | 'paid';
@@ -90,7 +90,7 @@ export interface ChannelIn { kind: ChannelKind; persona_id: number; name: string
 export interface ConnectState {
   status: ChannelStatus;
   qr_data_uri?: string;
-  need?: '2fa' | 'challenge';
+  need?: 'code' | '2fa' | 'challenge';
   message?: string;
 }
 

@@ -6,6 +6,7 @@ import { CHANNEL_LABELS } from '../core/stages';
 
 const ICONS: Record<ChannelKind, string> = {
   telegram: 'send',
+  telegram_user: 'person',
   whatsapp: 'chat',
   instagram: 'photo_camera',
 };
@@ -19,6 +20,7 @@ const ICONS: Record<ChannelKind, string> = {
   styles: `
     :host { display: inline-flex; width: 24px; height: 24px; border-radius: 6px; align-items: center; justify-content: center; color: #fff; }
     :host([data-kind='telegram']) { background: #2a8fd1; }
+    :host([data-kind='telegram_user']) { background: #1c6fa8; }
     :host([data-kind='whatsapp']) { background: #25a35a; }
     :host([data-kind='instagram']) { background: linear-gradient(135deg, #a255c9, #e0527a 60%, #f0963c); }
     mat-icon { font-size: 15px; width: 15px; height: 15px; }

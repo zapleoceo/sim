@@ -7,6 +7,9 @@ export interface ConnectBody {
   bot_token?: string;
   username?: string;
   password?: string;
+  api_id?: string;
+  api_hash?: string;
+  phone?: string;
   proxy?: string;
 }
 

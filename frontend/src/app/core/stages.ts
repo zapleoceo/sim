@@ -41,7 +41,8 @@ export const STATUS_LABELS: Record<ClientStatus, string> = {
 export const STATUSES = Object.keys(STATUS_LABELS) as ClientStatus[];
 
 export const CHANNEL_LABELS: Record<ChannelKind, string> = {
-  telegram: 'Telegram',
+  telegram: 'Telegram (бот)',
+  telegram_user: 'Telegram (аккаунт)',
   whatsapp: 'WhatsApp',
   instagram: 'Instagram',
 };

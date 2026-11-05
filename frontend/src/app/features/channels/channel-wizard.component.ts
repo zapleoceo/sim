@@ -20,7 +20,7 @@ export interface WizardData {
   channel?: Channel;
 }
 
-type Step = 'setup' | 'connect' | 'qr' | 'code' | 'done';
+type Step = 'setup' | 'connect' | 'qr' | 'code' | 'password' | 'done';
 
 const QR_POLL_MS = 3000;
 
@@ -57,8 +57,17 @@ export class ChannelWizardComponent {
     password: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     proxy: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^(\w+:\/\/)?\S+:\d+.*$|^$/)] }),
   });
+  protected readonly tguForm = new FormGroup({
+    api_id: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^\d+$/)] }),
+    api_hash: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[0-9a-fA-F]{32}$/)] }),
+    phone: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^\+?[\d\s()-]{7,20}$/)] }),
+    proxy: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^(\w+:\/\/)?\S+:\d+.*$|^$/)] }),
+  });
   protected readonly codeForm = new FormGroup({
     code: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.minLength(4)] }),
+  });
+  protected readonly passwordForm = new FormGroup({
+    password: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
   });
 
   protected readonly step = signal<Step>('setup');
@@ -66,7 +75,7 @@ export class ChannelWizardComponent {
   protected readonly busy = signal(false);
   protected readonly qr = signal<string | null>(null);
   protected readonly message = signal('');
-  protected readonly need = signal<'2fa' | 'challenge' | null>(null);
+  protected readonly need = signal<'code' | '2fa' | 'challenge' | null>(null);
 
   protected readonly kind = computed(() => this.channel()?.kind ?? this.setupForm.controls.kind.value);
   protected readonly isNew = !this.data.channel;
@@ -110,6 +119,14 @@ export class ChannelWizardComponent {
     if (ch.kind === 'telegram') {
       if (this.tokenForm.invalid) return this.tokenForm.markAllAsTouched();
       body = { bot_token: this.tokenForm.controls.bot_token.value.trim() };
+    } else if (ch.kind === 'telegram_user') {
+      if (this.tguForm.invalid) return this.tguForm.markAllAsTouched();
+      const v = this.tguForm.getRawValue();
+      // api_id уходит строкой: бэкенд принимает credentials как dict[str, str].
+      body = {
+        api_id: v.api_id.trim(), api_hash: v.api_hash.trim(), phone: v.phone.trim(),
+        ...(v.proxy.trim() ? { proxy: v.proxy.trim() } : {}),
+      };
     } else if (ch.kind === 'instagram') {
       if (this.igForm.invalid) return this.igForm.markAllAsTouched();
       const v = this.igForm.getRawValue();
@@ -121,9 +138,13 @@ export class ChannelWizardComponent {
   protected verify(): void {
     const ch = this.channel();
     if (!ch) return;
-    if (this.codeForm.invalid) return this.codeForm.markAllAsTouched();
-    this.run(this.api.verify(ch.id, this.codeForm.controls.code.value.trim()), (s) => {
-      this.codeForm.reset();
+    // Шаг пароля 2FA использует тот же verify: значение уходит в поле `code`, пробелы не режем.
+    const password = this.step() === 'password';
+    const form = password ? this.passwordForm : this.codeForm;
+    if (form.invalid) return form.markAllAsTouched();
+    const value = password ? this.passwordForm.controls.password.value : this.codeForm.controls.code.value.trim();
+    this.run(this.api.verify(ch.id, value), (s) => {
+      form.reset();
       this.applyState(s);
     });
   }
@@ -145,7 +166,7 @@ export class ChannelWizardComponent {
       return;
     }
     if (s.need) {
-      this.step.set('code');
+      this.step.set(s.need === '2fa' && this.kind() === 'telegram_user' ? 'password' : 'code');
       return;
     }
     if (s.qr_data_uri || (this.kind() === 'whatsapp' && s.status === 'pending')) {
