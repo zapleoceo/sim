@@ -117,14 +117,25 @@ class TelegramAdapter:
             return await self._t.call("sendMessage", params)
 
     async def send_text(self, external_thread_id: str, text: str) -> SendResult:
-        last_id: str | None = None
-        for part in chunk_text(text):
+        """Long texts go out in chunks. A failure on the FIRST chunk is a failed send (nothing
+        reached the client). A failure on a later chunk is a partial delivery: reporting it as
+        failed would make the retry resend every chunk and duplicate the text, so it is
+        logged and reported as sent (the first message id is returned)."""
+        first_id: str | None = None
+        parts = chunk_text(text)
+        for index, part in enumerate(parts):
             try:
                 res = await self._send_one(external_thread_id, part)
             except TelegramError as exc:
-                return SendResult(ok=False, error=str(exc))
-            last_id = str((res or {}).get("message_id", "")) or last_id
-        return SendResult(ok=True, external_message_id=last_id)
+                if index == 0:
+                    return SendResult(ok=False, error=str(exc))
+                logger.warning(
+                    "telegram partial delivery: chunk %d/%d failed (%s); not retrying",
+                    index + 1, len(parts), exc,
+                )
+                break
+            first_id = first_id or str((res or {}).get("message_id", "")) or None
+        return SendResult(ok=True, external_message_id=first_id)
 
     async def session_status(self) -> SessionStatus:
         try:

@@ -112,6 +112,25 @@ async def test_send_text_chunks_long_message():
 
 
 @respx.mock
+async def test_partial_delivery_is_not_reported_as_failure(caplog):
+    """Chunk 2 of 2 fails: a retry would resend chunk 1, so the send counts as done."""
+    ok = httpx.Response(200, json={"ok": True, "result": {"message_id": 11}})
+    bad = httpx.Response(400, json={"ok": False, "error_code": 400, "description": "boom"})
+    route = respx.post(f"{API}/sendMessage").mock(side_effect=[ok, bad])
+    res = await TelegramConnector().build_port(1, SESSION).send_text("42", "x" * 5000)
+    assert res.ok and res.external_message_id == "11" and route.call_count == 2
+    assert "partial delivery" in caplog.text
+
+
+@respx.mock
+async def test_first_chunk_failure_is_still_a_failed_send():
+    bad = httpx.Response(400, json={"ok": False, "error_code": 400, "description": "boom"})
+    respx.post(f"{API}/sendMessage").mock(return_value=bad)
+    res = await TelegramConnector().build_port(1, SESSION).send_text("42", "x" * 5000)
+    assert not res.ok
+
+
+@respx.mock
 async def test_send_text_failure_is_result_not_exception():
     respx.post(f"{API}/sendMessage").mock(return_value=httpx.Response(
         403, json={"ok": False, "error_code": 403, "description": "bot was blocked"}))
