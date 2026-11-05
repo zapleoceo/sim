@@ -67,3 +67,46 @@ def test_0003_downgrade_roundtrip(tmp_path):
     command.upgrade(cfg, "head")
     command.downgrade(cfg, "0002")
     assert {"username", "password_hash"} <= columns(db, "admin_user")
+
+
+def test_0004_folds_persona_fields_into_description_and_adds_guard_columns(tmp_path):
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0003")
+    with sqlite3.connect(db) as con:
+        con.execute(
+            "INSERT INTO persona (id, name, gender, avatar_url, tagline, character, backstory, "
+            "communication_style, language, model, voice_id, is_active, is_virtual_disclosed, "
+            "disclosure_text, created_at) VALUES (1, 'Марина', 'female', '', 'Слоган А', "
+            "'Тёплая', 'Двадцать лет в проектах', 'Коротко', 'ru', '', '', 1, 1, 'd', "
+            "'2026-11-01 00:00:00')"
+        )
+        con.execute(
+            "INSERT INTO persona (id, name, gender, avatar_url, tagline, character, backstory, "
+            "communication_style, language, model, voice_id, is_active, is_virtual_disclosed, "
+            "disclosure_text, created_at) VALUES (2, 'Пустая', 'female', '', '', '', 'Только био', "
+            "'', 'ru', '', '', 1, 1, '', '2026-11-01 00:00:00')"
+        )
+    command.upgrade(cfg, "0004")
+    cols = columns(db, "persona")
+    assert {"description", "prohibitions"} <= cols
+    assert not {"tagline", "character", "backstory", "communication_style"} & cols
+    assert {"guard_verdict", "guard_violations", "guard_model", "original_text"} <= columns(db, "message")
+    with sqlite3.connect(db) as con:
+        rows = dict(con.execute("SELECT id, description FROM persona"))
+        assert con.execute("SELECT prohibitions FROM persona WHERE id = 1").fetchone() == ("",)
+        assert con.execute("SELECT name, disclosure_text FROM persona WHERE id = 1").fetchone() == ("Марина", "d")
+    assert rows[1] == (
+        "Слоган: Слоган А\n\nХарактер: Тёплая\n\nБиография: Двадцать лет в проектах\n\n"
+        "Стиль общения: Коротко"
+    )
+    assert rows[2] == "Биография: Только био"          # empty sections are skipped
+
+
+def test_0004_downgrade_roundtrip(tmp_path):
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "0003")
+    assert {"tagline", "character", "backstory", "communication_style"} <= columns(db, "persona")
+    assert "guard_verdict" not in columns(db, "message")

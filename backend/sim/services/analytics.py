@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Channel, Client, Dialog, LlmCall, Message, PartnerEvent
@@ -101,6 +101,7 @@ class AnalyticsService:
                 "registration_to_payment": ratio(len(pay_clients), len(reg_clients)),
             },
             "llm": await self.llm_totals(start, end, persona_id),
+            "guard": await self.guard_counts(start, end, persona_id),
             "by_channel": by_channel,
             "daily": [{"date": d.isoformat(), **v} for d, v in sorted(daily.items())],
         }
@@ -162,6 +163,30 @@ class AnalyticsService:
         for client_id, kind in rows.all():  # oldest dialog wins (ordered desc, overwritten)
             result[client_id] = kind
         return result
+
+    async def guard_counts(
+        self, start: datetime, end: datetime, persona_id: int | None
+    ) -> dict[str, int]:
+        """AI messages by the pre-send guard's final verdict."""
+        stmt = (
+            select(Message.guard_verdict, func.count(Message.id))
+            .where(
+                Message.created_at >= start, Message.created_at < end,
+                Message.guard_verdict.is_not(None),
+            )
+            .group_by(Message.guard_verdict)
+        )
+        if persona_id:
+            stmt = (
+                stmt.join(Dialog, Dialog.id == Message.dialog_id)
+                .join(Client, Client.id == Dialog.client_id)
+                .where(Client.persona_id == persona_id)
+            )
+        counts = {"ok": 0, "rewritten": 0, "blocked": 0}
+        for verdict, n in (await self.session.execute(stmt)).all():
+            if verdict in counts:
+                counts[verdict] = int(n)
+        return counts
 
     async def llm_totals(
         self, start: datetime, end: datetime, persona_id: int | None

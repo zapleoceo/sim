@@ -116,10 +116,10 @@ class Persona(Base):
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gender: Mapped[str] = mapped_column(String(32), default="")
     avatar_url: Mapped[str] = mapped_column(Text, default="")
-    tagline: Mapped[str] = mapped_column(Text, default="")
-    character: Mapped[str] = mapped_column(Text, default="")
-    backstory: Mapped[str] = mapped_column(Text, default="")
-    communication_style: Mapped[str] = mapped_column(Text, default="")
+    # Free text: who she is, character, biography, how she writes (Markdown-ish).
+    description: Mapped[str] = mapped_column(Text, default="")
+    # What she must never write or do: one rule per line.
+    prohibitions: Mapped[str] = mapped_column(Text, default="")
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
     voice_id: Mapped[str] = mapped_column(String(120), default="")
@@ -241,6 +241,11 @@ class Message(Base):
     tokens_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Pre-send guard (AI messages only): ok | rewritten | blocked.
+    guard_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    guard_violations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    guard_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # generator draft if rewritten
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 

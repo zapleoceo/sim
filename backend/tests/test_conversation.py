@@ -47,7 +47,7 @@ async def test_reply_applies_decision_and_queues_send_and_followup(container, wo
     kinds = [j.kind for j in jobs]
     assert jobkinds.SEND in kinds and jobkinds.FOLLOWUP in kinds
     async with container.factory() as s:
-        call = (await s.scalars(select(LlmCall))).one()
+        call = (await s.scalars(select(LlmCall).where(LlmCall.workflow == "reply"))).one()
         assert call.cached_tokens == 50 and call.workflow == "reply" and call.dialog_id == dialog.id
 
 
@@ -74,8 +74,8 @@ async def test_invalid_json_is_retried_once(container, world, fake_llm):
     fake_llm.replies = ["not json at all", decision_json(reply="Ок")]
     await start(container, world)
     outcome = await run_reply(container)
-    assert outcome.status == "sent" and len(fake_llm.calls) == 2
-    assert "not a valid JSON" in fake_llm.calls[1][0][-1]["content"]
+    assert outcome.status == "sent" and len(fake_llm.gen_calls) == 2
+    assert "not a valid JSON" in fake_llm.gen_calls[1][0][-1]["content"]
 
 
 async def test_truncated_output_is_a_retryable_failure_and_audited(container, world, fake_llm, caplog):
@@ -84,9 +84,9 @@ async def test_truncated_output_is_a_retryable_failure_and_audited(container, wo
     await start(container, world)
     outcome = await run_reply(container)
     assert outcome.status == "sent" and outcome.message.text == "Полный ответ"
-    assert len(fake_llm.calls) == 2 and "finish_reason=length" in caplog.text
+    assert len(fake_llm.gen_calls) == 2 and "finish_reason=length" in caplog.text
     async with container.factory() as s:
-        reasons = [c.finish_reason for c in (await s.scalars(select(LlmCall).order_by(LlmCall.id)))]
+        reasons = [c.finish_reason for c in (await s.scalars(select(LlmCall).where(LlmCall.workflow == "reply").order_by(LlmCall.id)))]
     assert reasons == ["length", None]
 
 

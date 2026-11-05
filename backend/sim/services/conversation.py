@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
 
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
 from sim.adapters.db.models import Dialog, Message, Persona, Strategy
-from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
+from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo, StrategyRepo
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
@@ -21,6 +21,7 @@ from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
+from sim.services.guard import BLOCKED, Guard, GuardOutcome
 from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.prompt import (
@@ -31,7 +32,9 @@ from sim.services.prompt import (
     StrategyProfile,
     Turn,
     build_messages,
+    handoff_link,
     parse_decision,
+    registration_link,
 )
 
 log = logging.getLogger(__name__)
@@ -63,6 +66,7 @@ class PreviewResult:
     decision: Decision | None
     model: str | None
     latency_ms: int
+    guard: GuardOutcome | None = None
 
 
 def persona_profile(p: Persona) -> PersonaProfile:
@@ -70,10 +74,8 @@ def persona_profile(p: Persona) -> PersonaProfile:
         name=p.name,
         age=p.age,
         gender=p.gender,
-        tagline=p.tagline,
-        character=p.character,
-        backstory=p.backstory,
-        communication_style=p.communication_style,
+        description=p.description,
+        prohibitions=p.prohibitions,
         language=p.language,
         disclosure_text=p.disclosure_text,
     )
@@ -92,9 +94,12 @@ def strategy_profile(s: Strategy) -> StrategyProfile:
 
 
 def history_turns(messages: list[Message]) -> list[Turn]:
-    """Client -> user turn; AI and operator -> assistant turn."""
+    """Client -> user turn; AI and operator -> assistant turn. A draft the guard blocked was
+    never sent: the client did not see it, so it is not part of the conversation."""
     return [
-        Turn("user" if m.author is Author.CLIENT else "assistant", m.text) for m in messages
+        Turn("user" if m.author is Author.CLIENT else "assistant", m.text)
+        for m in messages
+        if m.guard_verdict != BLOCKED
     ]
 
 
@@ -106,9 +111,14 @@ class ConversationService:
         outbound: OutboundService,
         *,
         clock: Clock = utcnow,
+        guard_capability: str = "structured",
+        guard_fallback_capability: str = "prefilter",
     ) -> None:
         self.session = session
         self.llm = llm
+        self.guard = Guard(
+            llm, capability=guard_capability, fallback_capability=guard_fallback_capability
+        )
         self.outbound = outbound
         self.clock = clock
         self.dialogs = DialogRepo(session)
@@ -129,6 +139,43 @@ class ConversationService:
         if strategy is None:
             raise ConversationError("no strategy configured")
         return strategy
+
+    async def handoff_links(self, persona: Persona, channel_id: int, ref_code: str) -> list[tuple[str, str]]:
+        """Links to the persona's OTHER active channels that carry the client's ref code."""
+        links = []
+        for ch in await ChannelRepo(self.session).active_for_persona(persona.id):
+            url = handoff_link(ch.kind.value, ch.account_label, ref_code) if ch.id != channel_id else ""
+            if url:
+                links.append((ch.kind.value, url))
+        return links
+
+    async def review(  # noqa: PLR0913
+        self,
+        persona: Persona,
+        strategy: Strategy,
+        history: list[Turn],
+        decision: Decision,
+        result: LLMResult,
+        ctx: DialogContext,
+        dialog_id: int | None,
+    ) -> GuardOutcome:
+        """Pre-send guard for one draft. Raises LLMError (fail closed) when it cannot judge."""
+        allowed = [
+            link
+            for link in (registration_link(strategy.registration_url, ctx.ref_code),
+                         *(url for _, url in ctx.handoff_links))
+            if link
+        ]
+        return await self.guard.review(
+            persona=persona_profile(persona),
+            strategy=strategy_profile(strategy),
+            history=history,
+            draft=decision.reply,
+            stage=ctx.stage,
+            generator_model=result.model,
+            allowed_links=allowed,
+            dialog_id=dialog_id,
+        )
 
     async def ask(
         self,
@@ -222,9 +269,16 @@ class ConversationService:
             notes=client.notes,
             next_step=client.next_step,
             instruction=instruction,
+            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
         )
         prompt = build_messages(persona_profile(persona), strategy_profile(strategy), history, ctx)
         decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
+        guard: GuardOutcome | None = None
+        stale = await self.messages.last(dialog_id, Direction.IN)
+        if decision is not None and decision.reply and (stale is None or stale.id <= cutoff):
+            # (A draft already overtaken by a newer client message is not worth a guard call;
+            # the locked re-check below drops it.) Fail closed: a guard error propagates, the job retries; nothing goes out unchecked.
+            guard = await self.review(persona, strategy, history, decision, result, ctx, dialog_id)
         # The model call took a while. From here on, hold the dialog lock (ingest takes it to
         # insert a client message) and re-read the world before anything is queued.
         await lock(self.session, NS_DIALOG, dialog_id)
@@ -241,7 +295,7 @@ class ConversationService:
         if decision is None:
             dialog.needs_operator = True
             return ReplyOutcome("needs_operator")
-        return await self.apply(dialog, strategy, decision, result, followup=followup)
+        return await self.apply(dialog, strategy, decision, result, guard, followup=followup)
 
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
@@ -262,6 +316,7 @@ class ConversationService:
         strategy: Strategy,
         decision: Decision,
         result: LLMResult,
+        guard: GuardOutcome | None,
         *,
         followup: bool,
     ) -> ReplyOutcome:
@@ -286,11 +341,17 @@ class ConversationService:
             dialog.ai_paused = True
             await self.followups.cancel(dialog.id)
 
-        if not decision.reply:
+        if not decision.reply or guard is None:
             return ReplyOutcome("empty", decision)
+        if not guard.allowed:
+            # Nothing is sent; the operator sees the draft and the violations in the dialog.
+            dialog.needs_operator = True
+            await self.outbound.store_blocked(dialog, result, guard)
+            return ReplyOutcome("blocked", decision)
+        decision = replace(decision, reply=guard.text)
         message = await self.outbound.queue_ai(
-            dialog, decision.reply, result, list(strategy.reply_delay_s or []),
-            final=stop or decision.handoff_to_operator,
+            dialog, guard.text, result, list(strategy.reply_delay_s or []),
+            final=stop or decision.handoff_to_operator, guard=guard,
         )
         if not followup and not stop and not decision.handoff_to_operator:
             dialog.followup_step = 0
@@ -314,5 +375,13 @@ class ConversationService:
         turns = [*(history or []), Turn("user", message)]
         prompt = build_messages(persona_profile(persona), strategy_profile(strategy), turns, ctx)
         decision, result = await self.ask(prompt, persona, workflow="preview", dialog_id=None)
-        reply = decision.reply if decision else result.text[:2000]
-        return PreviewResult(reply, decision, result.model, result.latency_ms)
+        guard: GuardOutcome | None = None
+        reply = result.text[:2000]
+        if decision is not None:
+            reply = decision.reply
+            if decision.reply:
+                guard = await self.review(
+                    persona, strategy, turns, decision, result, ctx, None
+                )
+                reply = guard.text if guard.allowed else ""
+        return PreviewResult(reply, decision, result.model, result.latency_ms, guard)

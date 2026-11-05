@@ -32,6 +32,13 @@ async def giveup_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -
         dialog.needs_operator = True
 
 
+async def giveup_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
+    """The follow-up could not be produced / guarded after all retries: a human decides."""
+    dialog = await DialogRepo(s).get(int(payload["dialog_id"]))
+    if dialog is not None:
+        dialog.needs_operator = True
+
+
 async def run_media(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
     await c.media_service(s).process(
         int(payload["message_id"]), str(payload["ref"]), str(payload["kind"]),
@@ -69,7 +76,7 @@ async def run_content_publish(c: Container, s: AsyncSession, payload: dict[str, 
 HANDLERS: dict[str, Handler] = {
     jobkinds.REPLY: Handler(run_reply, giveup_reply),
     jobkinds.MEDIA: Handler(run_media, giveup_media),
-    jobkinds.FOLLOWUP: Handler(run_followup),
+    jobkinds.FOLLOWUP: Handler(run_followup, giveup_followup),
     jobkinds.SEND: Handler(run_send, giveup_send),
     jobkinds.CONTENT_PUBLISH: Handler(run_content_publish),
 }

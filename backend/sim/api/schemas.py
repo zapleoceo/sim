@@ -64,10 +64,8 @@ class PersonaIn(Body):
     age: int | None = Field(default=None, ge=0, le=120)
     gender: Literal["female", "male", "other"] = "other"
     avatar_url: str = Field(default="", max_length=500)
-    tagline: str = Field(default="", max_length=300)
-    character: str = ""
-    backstory: str = ""
-    communication_style: str = ""
+    description: str = ""
+    prohibitions: str = ""
     language: str = Field(default="ru", max_length=64)
     model: str = Field(default="", max_length=120)
     voice_id: str = Field(default="", max_length=120)
@@ -186,8 +184,8 @@ def admin_out(u: AdminUser) -> dict[str, Any]:
 def persona_out(p: Persona) -> dict[str, Any]:
     return {
         "id": p.id, "name": p.name, "age": p.age, "gender": p.gender, "avatar_url": p.avatar_url,
-        "tagline": p.tagline, "character": p.character, "backstory": p.backstory,
-        "communication_style": p.communication_style, "language": p.language, "model": p.model,
+        "description": p.description, "prohibitions": p.prohibitions,
+        "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "strategy_id": p.strategy_id, "is_active": p.is_active,
         "disclosure_text": p.disclosure_text, "created_at": dt(p.created_at),
     }
@@ -218,11 +216,23 @@ def connect_state_out(s: ConnectState) -> dict[str, Any]:
     return out
 
 
+def guard_out(
+    verdict: str | None, violations: list[str] | None, model: str | None, original: str | None
+) -> dict[str, Any] | None:
+    if verdict is None:
+        return None
+    return {
+        "verdict": verdict, "violations": list(violations or []), "model": model,
+        "original_text": original,
+    }
+
+
 def message_out(m: Message) -> dict[str, Any]:
     return {
         "id": m.id, "direction": m.direction.value, "author": m.author.value, "text": m.text,
         "media_kind": m.media_kind, "media_url": m.media_url, "created_at": dt(m.created_at),
-        "delivery": m.delivery.value, "model": m.model,
+        "delivery": m.delivery.value, "model": m.model, "error": m.error,
+        "guard": guard_out(m.guard_verdict, m.guard_violations, m.guard_model, m.original_text),
     }
 
 

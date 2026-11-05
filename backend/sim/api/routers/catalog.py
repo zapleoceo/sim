@@ -11,11 +11,13 @@ from sim.api.schemas import (
     PersonaIn,
     PreviewIn,
     StrategyIn,
+    guard_out,
     persona_out,
     strategy_out,
 )
 from sim.ports.llm import LLMError
 from sim.services.conversation import ConversationError
+from sim.services.guard import GuardOutcome
 from sim.services.models import catalog_items
 from sim.services.prompt import Turn
 
@@ -85,6 +87,14 @@ async def delete_persona(persona_id: int, s: Db, _: Owner) -> Response:
     return Response(status_code=204)
 
 
+def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
+    """The draft the operator may want to see: the original of a rewrite, the blocked text."""
+    if g is None:
+        return None
+    draft = g.original_text if g.verdict == "rewritten" else (g.text if g.verdict == "blocked" else None)
+    return guard_out(g.verdict, g.violations, g.model, draft)
+
+
 @personas.post("/{persona_id}/preview")
 async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Authed):
     persona = await persona_or_404(s, persona_id)
@@ -105,6 +115,7 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
             "next_step": d.next_step, "handoff_to_operator": d.handoff_to_operator,
             "refused": d.refused, "stop_contact": d.stop_contact,
         },
+        "guard": preview_guard(result.guard),
         "model": result.model,
         "latency_ms": result.latency_ms,
     }

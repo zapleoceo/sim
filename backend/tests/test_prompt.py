@@ -13,14 +13,17 @@ from sim.services.prompt import (
     Turn,
     build_messages,
     dynamic_context,
+    handoff_link,
     parse_decision,
     registration_link,
     stable_system_prompt,
 )
 
 PERSONA = PersonaProfile(
-    name="Марина", age=45, character="тёплая", backstory="20 лет", language="ru",
-    disclosure_text="Я виртуальный ассистент.",
+    name="Марина", age=45, language="ru",
+    description="Характер: тёплая. Биография: 20 лет в проектах.",
+    prohibitions="- не обещать доход\n2. не просить пароли\n\nбез мата",
+    disclosure_text="Я виртуальная помощница проекта.",
 )
 STRATEGY = StrategyProfile(
     name="S", goal="регистрация", offer="курс", partner_name="RCIPM",
@@ -52,10 +55,39 @@ def test_layout_system_history_system():
     assert [m["role"] for m in msgs] == ["system", "user", "assistant", "system"]
 
 
-def test_honesty_rule_and_disclosure_present():
+def test_voice_and_honesty_rules_present():
     system = stable_system_prompt(PERSONA, STRATEGY)
-    assert "virtual AI" in system and "Never claim or imply that you are a real person" in system
-    assert "Я виртуальный ассистент." in system
+    # lives the role, never volunteers being an AI...
+    assert "Never volunteer that you are an AI" in system and "no disclaimers" in system
+    # ...but never claims to be human on a direct question
+    assert "directly and sincerely asks" in system and "never claim to be human" in system
+    assert "Я виртуальная помощница проекта." in system
+
+
+def test_description_and_prohibitions_sections():
+    system = stable_system_prompt(PERSONA, STRATEGY)
+    assert "Характер: тёплая. Биография: 20 лет в проектах." in system
+    block = system.split("Чего нельзя никогда:\n", 1)[1].split("\n\n", 1)[0]
+    assert block.splitlines() == ["- не обещать доход", "- не просить пароли", "- без мата"]
+    # prohibitions come before the strategy rules
+    assert system.index("Чего нельзя никогда") < system.index("STRATEGY") < system.index("RULES:")
+
+
+def test_no_prohibitions_section_when_empty():
+    bare = PersonaProfile(name="Х", description="d")
+    assert "Чего нельзя никогда" not in stable_system_prompt(bare, STRATEGY)
+
+
+def test_handoff_links_and_context():
+    wa = handoff_link("whatsapp", "+380 50 123-45-67", "abc12345")
+    assert wa.startswith("https://wa.me/380501234567?text=") and "%23abc12345" in wa
+    assert handoff_link("telegram", "@sim_bot", "abc12345") == "https://t.me/sim_bot?start=abc12345"
+    assert handoff_link("telegram_user", "@eva", "abc12345").startswith("https://t.me/eva?text=")
+    assert handoff_link("instagram", "@x", "abc12345") == ""
+    text = dynamic_context(ctx("Анна", "abc12345", handoff_links=[("whatsapp", wa)]), STRATEGY)
+    assert wa in text
+    # the stable prompt only says how to use them, it never contains a client link
+    assert "abc12345" not in stable_system_prompt(PERSONA, STRATEGY)
 
 
 def test_stable_prompt_has_no_dynamic_data():

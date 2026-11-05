@@ -51,7 +51,9 @@ async def test_seed_is_idempotent_and_complete(container):
     for p in personas:
         assert p.disclosure_text and p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
-        assert "virtual AI" in system and p.name in system
+        assert p.name in system and "Never volunteer that you are an AI" in system
+        assert p.description and p.prohibitions and "Чего нельзя никогда" in system
+        assert p.disclosure_text in system
 
 
 async def test_publish_without_publisher_marks_failed(container, world):
@@ -65,3 +67,19 @@ async def test_publish_without_publisher_marks_failed(container, world):
     async with container.factory() as s:
         row = await s.get(ContentPost, pid)
         assert row.status is ContentStatus.FAILED and row.error == NOT_IMPLEMENTED
+
+
+async def test_seed_fills_only_empty_persona_texts(container):
+    await seed(container, container.settings)
+    async with transaction(container.factory) as s:
+        marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
+        marina.description = "Своё описание владельца"
+        marina.prohibitions = ""
+        eva.description = ""
+    await seed(container, container.settings)
+    async with container.factory() as s:
+        marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
+    assert marina.description == "Своё описание владельца"     # owner edit survives
+    assert "не обещать доход" in marina.prohibitions            # empty -> filled
+    assert eva.description.startswith("Слоган:") and "национальных стереотипов" in eva.prohibitions
+    assert "не упоминать без вопроса" in marina.prohibitions

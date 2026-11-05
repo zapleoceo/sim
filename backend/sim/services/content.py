@@ -32,7 +32,7 @@ class ContentPublisher(Protocol):
 def caption_prompt(persona: Persona, kind: str, idea: str) -> list[dict[str, Any]]:
     system = (
         f"You write Instagram captions for the virtual persona {persona.name}.\n"
-        f"Character: {persona.character}\nCommunication style: {persona.communication_style}\n"
+        f"Persona description:\n{persona.description}\n"
         f"Language: {persona.language}\n"
         "Never present the persona as a real human. Output ONLY the caption text: no quotes, "
         "no explanations, at most 1500 characters, then 3-6 relevant hashtags."

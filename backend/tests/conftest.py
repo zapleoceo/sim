@@ -65,25 +65,47 @@ def decision_json(**over: Any) -> str:
     return json.dumps({**base, **over}, ensure_ascii=False)
 
 
+def guard_json(verdict: str = "ok", violations: list[str] | None = None, fixed: str = "") -> str:
+    import json
+
+    return json.dumps(
+        {"verdict": verdict, "violations": violations or [], "fixed_reply": fixed},
+        ensure_ascii=False,
+    )
+
+
 class FakeLLM:
-    """Scripted LLMPort. `replies` items are returned in order; an Exception item is raised."""
+    """Scripted LLMPort. `replies` items (generator calls) and `guard_replies` items (workflow
+    "guard") are returned in order; an Exception item is raised. An empty guard queue answers
+    "ok" from a model different from the generator's ("fake-guard")."""
 
     def __init__(self) -> None:
+        self.guard_replies: list[str | Exception | LLMResult] = []
         self.replies: list[str | Exception | LLMResult] = []
         self.calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
         self.transcript = "привет из голосового"
 
     async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> LLMResult:
         self.calls.append((messages, kwargs))
-        item = self.replies.pop(0) if self.replies else decision_json()
+        is_guard = kwargs.get("workflow") == "guard"
+        queue = self.guard_replies if is_guard else self.replies
+        item = queue.pop(0) if queue else (guard_json() if is_guard else decision_json())
         if isinstance(item, Exception):
             raise item
         if isinstance(item, LLMResult):
             return item
         return LLMResult(
-            text=item, model="fake-model", provider="fake", tokens_in=100, tokens_out=20,
+            text=item, model="fake-guard" if is_guard else "fake-model", provider="fake", tokens_in=100, tokens_out=20,
             cached_tokens=50, cost_usd=0.002, latency_ms=7, job_id="1",
         )
+
+    @property
+    def gen_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
+        return [c for c in self.calls if c[1].get("workflow") != "guard"]
+
+    @property
+    def guard_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
+        return [c for c in self.calls if c[1].get("workflow") == "guard"]
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         return LLMResult(text=self.transcript)
@@ -226,8 +248,9 @@ async def make_world(c: Container, *, persona_name: str = "Марина", model:
         s.add(strategy)
         await s.flush()
         persona = Persona(
-            name=persona_name, age=45, character="тёплая", backstory="20 лет в проектах",
-            communication_style="коротко", language="ru", strategy_id=strategy.id, model=model,
+            name=persona_name, age=45,
+            description="Характер: тёплая. Биография: 20 лет в проектах. Стиль общения: коротко.",
+            prohibitions="не обещать доход\nне просить пароли", language="ru", strategy_id=strategy.id, model=model,
             disclosure_text="Я виртуальный ассистент.",
         )
         s.add(persona)
@@ -275,4 +298,4 @@ async def login(client: httpx.AsyncClient, tg_id: int) -> str:
     return resp.json()["csrf_token"]
 
 
-__all__ = ["FakeConnector", "FakeLLM", "LLMError", "World", "decision_json", "login"]
+__all__ = ["FakeConnector", "FakeLLM", "LLMError", "World", "decision_json", "guard_json", "login"]

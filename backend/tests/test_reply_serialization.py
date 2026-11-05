@@ -77,7 +77,7 @@ async def test_client_message_during_a_running_reply_yields_one_reply_with_full_
     await make_due(container)
     await worker.tick()                                    # job 2, with both messages
     assert await ai_texts(container) == ["A2 (full)"]
-    sent_prompt = fake_llm.calls[1][0]
+    sent_prompt = fake_llm.gen_calls[1][0]
     users = " ".join(m["content"] for m in sent_prompt if m["role"] == "user")
     assert "one" in users and "two" in users
 

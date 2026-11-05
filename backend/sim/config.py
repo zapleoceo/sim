@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     tg_login_bot_username: str = ""                    # without @
     superadmin_telegram_ids: str = ""
 
+    # Pre-send guard: a DIFFERENT broker rotation than the generator (chat:sales / persona.model);
+    # when the guard is served by the generator's own model it is re-run on the fallback.
+    guard_capability: str = "structured"
+    guard_fallback_capability: str = "prefilter"
+
     reply_debounce_s: int = 8          # wait for a burst of client messages before answering
     worker_tick_s: float = 2.0
 

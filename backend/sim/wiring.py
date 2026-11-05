@@ -89,7 +89,11 @@ class Container:
         return OutboundService(s, self.registry, self.box, clock=self.clock, rng=self.rng)
 
     def conversation(self, s: AsyncSession) -> ConversationService:
-        return ConversationService(s, self.audited(), self.outbound(s), clock=self.clock)
+        return ConversationService(
+            s, self.audited(), self.outbound(s), clock=self.clock,
+            guard_capability=self.settings.guard_capability,
+            guard_fallback_capability=self.settings.guard_fallback_capability,
+        )
 
     def followup(self, s: AsyncSession) -> FollowupService:
         return FollowupService(s, clock=self.clock)

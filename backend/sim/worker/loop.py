@@ -28,7 +28,9 @@ def lease_seconds(settings: Settings) -> int:
     retry on bad JSON), each up to the longest poll budget: the lease must outlive both, or
     a second worker re-claims the job while the first is still answering."""
     longest = max(settings.broker_poll_budget_s, settings.broker_subscription_budget_s)
-    return int(2 * longest) + LEASE_MARGIN_S
+    # ...plus up to four guard calls (verdict + same-model fallback, twice after a rewrite),
+    # which run on non-subscription rotations.
+    return int(2 * longest + 4 * settings.broker_poll_budget_s) + LEASE_MARGIN_S
 
 
 class Worker:

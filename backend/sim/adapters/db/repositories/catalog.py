@@ -46,6 +46,18 @@ class ChannelRepo(Repository[Channel]):
         )
         return res.all()
 
+    async def active_for_persona(self, persona_id: int) -> Sequence[Channel]:
+        res = await self.session.scalars(
+            select(Channel)
+            .where(
+                Channel.persona_id == persona_id,
+                Channel.status == SessionStatus.ACTIVE,
+                Channel.is_archived.is_(False),
+            )
+            .order_by(Channel.id)
+        )
+        return res.all()
+
     async def has_dialogs(self, channel_id: int) -> bool:
         n = await self.session.scalar(
             select(func.count(Dialog.id)).where(Dialog.channel_id == channel_id)

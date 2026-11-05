@@ -18,6 +18,7 @@ from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direct
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.dialog_state import apply_message
+from sim.services.guard import GuardOutcome
 
 DEFAULT_DELAY_S = (20.0, 90.0)
 
@@ -58,6 +59,17 @@ async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -
     return len(rows)
 
 
+def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
+    if guard is None:
+        return {}
+    return {
+        "guard_verdict": guard.verdict,
+        "guard_violations": list(guard.violations),
+        "guard_model": guard.model,
+        "original_text": guard.original_text,
+    }
+
+
 class OutboundService:
     def __init__(
         self,
@@ -85,8 +97,9 @@ class OutboundService:
         reply_delay_s: list[float] | None,
         *,
         final: bool = False,
+        guard: GuardOutcome | None = None,
     ) -> Message:
-        """Queue an AI reply. `final` = the last thing the AI says before stepping back (a
+        """Queue an AI reply (`text` is the final, guard-approved text; `guard` is recorded). `final` = the last thing the AI says before stepping back (a
         refusal farewell, a hand-off note): it is still delivered although the dialog is
         paused / the client refused by the time it is sent."""
         now = self.clock()
@@ -102,6 +115,7 @@ class OutboundService:
             tokens_in=result.tokens_in if result else None,
             tokens_out=result.tokens_out if result else None,
             cost_usd=result.cost_usd if result else None,
+            **guard_fields(guard),
         )
         await self.messages.add(message)
         apply_message(dialog, message)
@@ -112,6 +126,29 @@ class OutboundService:
             now + timedelta(seconds=delay),
             dedup_key=send_key(message.id),
         )
+        return message
+
+    async def store_blocked(
+        self, dialog: Dialog, result: LLMResult | None, guard: GuardOutcome
+    ) -> Message:
+        """The guard blocked the draft: keep it for the operator, never send it. The message does
+        not touch the dialog preview / unread counters and has no SEND job."""
+        message = Message(
+            dialog_id=dialog.id,
+            direction=Direction.OUT,
+            author=Author.AI,
+            text=guard.text,
+            delivery=Delivery.CANCELLED,
+            error=("blocked by the guard: " + "; ".join(guard.violations))[:500],
+            created_at=self.clock(),
+            model=result.model if result else None,
+            provider=result.provider if result else None,
+            tokens_in=result.tokens_in if result else None,
+            tokens_out=result.tokens_out if result else None,
+            cost_usd=result.cost_usd if result else None,
+            **guard_fields(guard),
+        )
+        await self.messages.add(message)
         return message
 
     async def send_manual(self, dialog: Dialog, operator_id: int, text: str) -> Message:
