@@ -1,0 +1,191 @@
+"""Dialogs (the unified inbox), clients and the funnel board."""
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from sim.adapters.db.models import Client, Dialog
+from sim.adapters.db.repositories.catalog import PersonaRepo
+from sim.adapters.db.repositories.conversations import (
+    ClientRepo,
+    DialogRepo,
+    FunnelEventRepo,
+    MessageRepo,
+)
+from sim.adapters.db.repositories.records import PartnerEventRepo
+from sim.api.deps import App, Authed, Db, authed
+from sim.api.schemas import (
+    AiToggleIn,
+    ClientPatchIn,
+    OperatorMessageIn,
+    StageChangeIn,
+    client_mini,
+    client_out,
+    dialog_out,
+    dialog_row,
+    funnel_event_out,
+    message_out,
+    partner_event_out,
+)
+from sim.clock import to_naive_utc
+from sim.domain.enums import ChannelKind, ClientStatus, Direction, Stage
+from sim.services.funnel import FunnelRuleError, FunnelService
+
+dialogs = APIRouter(prefix="/api/dialogs", tags=["dialogs"], dependencies=[Depends(authed)])
+clients = APIRouter(prefix="/api/clients", tags=["clients"], dependencies=[Depends(authed)])
+funnel = APIRouter(prefix="/api/funnel", tags=["funnel"], dependencies=[Depends(authed)])
+
+Limit = Annotated[int, Query(ge=1, le=200)]
+Offset = Annotated[int, Query(ge=0)]
+FUNNEL_CLIENTS_PER_STAGE = 50
+
+
+async def dialog_or_404(s: Db, dialog_id: int) -> Dialog:
+    dialog = await DialogRepo(s).get(dialog_id)
+    if dialog is None:
+        raise HTTPException(404, "Dialog not found")
+    return dialog
+
+
+async def client_or_404(s: Db, client_id: int) -> Client:
+    client = await ClientRepo(s).get(client_id)
+    if client is None:
+        raise HTTPException(404, "Client not found")
+    return client
+
+
+async def channels_of(s: AsyncSession, client: Client) -> list[dict[str, Any]]:
+    return [
+        {"kind": d.channel.kind.value, "dialog_id": d.id}
+        for d in await DialogRepo(s).for_client(client.id)
+    ]
+
+
+# ---- dialogs ------------------------------------------------------------------------------
+@dialogs.get("")
+async def list_dialogs(  # noqa: PLR0913
+    s: Db,
+    channel_kind: ChannelKind | None = None,
+    persona_id: int | None = None,
+    stage: Stage | None = None,
+    status: ClientStatus | None = None,
+    q: str | None = None,
+    unread_only: bool = False,
+    limit: Limit = 50,
+    offset: Offset = 0,
+):
+    rows, total = await DialogRepo(s).search(
+        limit, offset, channel_kind=channel_kind, persona_id=persona_id, stage=stage,
+        status=status, q=q, unread_only=unread_only,
+    )
+    personas = {p.id: p for p in await PersonaRepo(s).all()}
+    return {"items": [dialog_row(d, personas.get(d.client.persona_id)) for d in rows], "total": total}
+
+
+@dialogs.get("/{dialog_id}")
+async def get_dialog(dialog_id: int, s: Db):
+    dialog = await dialog_or_404(s, dialog_id)
+    messages = await MessageRepo(s).recent(dialog_id, 1000)
+    return {
+        "dialog": dialog_out(dialog),
+        "client": client_out(dialog.client, await channels_of(s, dialog.client)),
+        "messages": [message_out(m) for m in messages],
+    }
+
+
+@dialogs.post("/{dialog_id}/messages", status_code=201)
+async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App, s: Db, p: Authed):
+    dialog = await dialog_or_404(s, dialog_id)
+    message = await c.outbound(s).send_manual(dialog, p.user.id, body.text)
+    return message_out(message)
+
+
+@dialogs.post("/{dialog_id}/ai")
+async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
+    dialog = await dialog_or_404(s, dialog_id)
+    dialog.ai_paused = body.paused
+    if not body.paused:
+        dialog.needs_operator = False
+        last = await MessageRepo(s).last(dialog.id)
+        if last is not None and last.direction is Direction.IN:  # an unanswered client message
+            await c.ingest(s).queue_reply(dialog, dialog.client)
+    return dialog_out(dialog)
+
+
+@dialogs.post("/{dialog_id}/read", status_code=204)
+async def mark_read(dialog_id: int, s: Db) -> Response:
+    (await dialog_or_404(s, dialog_id)).unread = 0
+    return Response(status_code=204)
+
+
+# ---- clients ------------------------------------------------------------------------------
+@clients.get("")
+async def list_clients(  # noqa: PLR0913
+    s: Db,
+    stage: Stage | None = None,
+    status: ClientStatus | None = None,
+    persona_id: int | None = None,
+    q: str | None = None,
+    limit: Limit = 50,
+    offset: Offset = 0,
+):
+    rows, total = await ClientRepo(s).search(
+        limit, offset, stage=stage, status=status, persona_id=persona_id, q=q
+    )
+    return {"items": [client_out(r, await channels_of(s, r)) for r in rows], "total": total}
+
+
+@clients.get("/{client_id}")
+async def get_client(client_id: int, s: Db):
+    client = await client_or_404(s, client_id)
+    return {
+        **client_out(client, await channels_of(s, client)),
+        "events": [funnel_event_out(e) for e in await FunnelEventRepo(s).for_client(client.id)],
+        "partner_events": [
+            partner_event_out(e) for e in await PartnerEventRepo(s).for_client(client.id)
+        ],
+    }
+
+
+@clients.patch("/{client_id}")
+async def patch_client(client_id: int, body: ClientPatchIn, s: Db):
+    client = await client_or_404(s, client_id)
+    for field in body.model_fields_set:
+        value = getattr(body, field)
+        if field == "next_step_at":
+            value = to_naive_utc(value) if value else None
+        elif value is None:
+            continue  # text fields are not nullable
+        setattr(client, field, value)
+    return client_out(client, await channels_of(s, client))
+
+
+@clients.post("/{client_id}/stage")
+async def change_stage(client_id: int, body: StageChangeIn, s: Db):
+    client = await client_or_404(s, client_id)
+    if body.stage is None and body.status is None:
+        raise HTTPException(422, "stage or status is required")
+    try:
+        await FunnelService(s).operator_update(
+            client, stage=body.stage, status=body.status, reason=body.reason
+        )
+    except FunnelRuleError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return client_out(client, await channels_of(s, client))
+
+
+# ---- funnel -------------------------------------------------------------------------------
+@funnel.get("")
+async def funnel_board(s: Db, persona_id: int | None = None):
+    rows = await ClientRepo(s).for_funnel(persona_id)
+    stages = {st: {"stage": st.value, "count": 0, "clients": []} for st in Stage}
+    statuses = {st.value: 0 for st in ClientStatus}
+    for client in rows:
+        column = stages[client.stage]
+        column["count"] += 1
+        if len(column["clients"]) < FUNNEL_CLIENTS_PER_STAGE:
+            column["clients"].append(client_mini(client))
+        statuses[client.status.value] += 1
+    return {"stages": list(stages.values()), "statuses": statuses}
