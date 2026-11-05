@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -33,26 +33,60 @@ class TooManyAttempts(Exception):
 
 
 class LoginRateLimiter:
-    """Sliding window of FAILED attempts per key (username and client address)."""
+    """Sliding window of FAILED attempts, keyed by (username, ip) pair and by ip alone.
 
-    def __init__(self, max_failures: int = 5, window_s: int = 900) -> None:
+    There is deliberately NO per-username key: it would let anyone lock the owner out from
+    anywhere. The (username, ip) pair stops password guessing against one account from one
+    address; the ip key (a looser cap) stops one address from spraying many usernames.
+    The key table is bounded: expired buckets are dropped and, past `max_keys`, the least
+    recently touched ones go first."""
+
+    def __init__(
+        self,
+        max_failures: int = 5,
+        window_s: int = 900,
+        *,
+        ip_max_failures: int = 20,
+        max_keys: int = 10_000,
+    ) -> None:
         self.max_failures = max_failures
+        self.ip_max_failures = ip_max_failures
         self.window_s = window_s
-        self.failures: dict[str, deque[float]] = defaultdict(deque)
+        self.max_keys = max_keys
+        self.failures: OrderedDict[str, deque[float]] = OrderedDict()
+
+    @staticmethod
+    def keys_for(username: str, ip: str) -> tuple[str, str]:
+        """(pair key, ip key). The pair key is first."""
+        return f"pair:{username.lower()}|{ip}", f"ip:{ip}"
+
+    def limit_for(self, key: str) -> int:
+        return self.ip_max_failures if key.startswith("ip:") else self.max_failures
+
+    def prune(self, now: float) -> None:
+        for key in [k for k, b in self.failures.items() if not b or now - b[-1] > self.window_s]:
+            del self.failures[key]
 
     def check(self, *keys: str, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
         for key in keys:
-            bucket = self.failures[key]
+            bucket = self.failures.get(key)
+            if bucket is None:
+                continue
             while bucket and now - bucket[0] > self.window_s:
                 bucket.popleft()
-            if len(bucket) >= self.max_failures:
+            if len(bucket) >= self.limit_for(key):
                 raise TooManyAttempts(int(self.window_s - (now - bucket[0])) + 1)
 
     def record_failure(self, *keys: str, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
         for key in keys:
-            self.failures[key].append(now)
+            self.failures.setdefault(key, deque()).append(now)
+            self.failures.move_to_end(key)
+        if len(self.failures) > self.max_keys:
+            self.prune(now)
+        while len(self.failures) > self.max_keys:
+            self.failures.popitem(last=False)
 
     def reset(self, *keys: str) -> None:
         for key in keys:
@@ -97,7 +131,7 @@ class AuthService:
         return await self.create_user(username, password, Role.OWNER)
 
     async def login(self, username: str, password: str, client_addr: str = "") -> LoginResult:
-        keys = (f"user:{username.lower()}", f"addr:{client_addr}")
+        keys = self.limiter.keys_for(username, client_addr)
         self.limiter.check(*keys)
         user = await self.users.by_username(username)
         if not self.password_ok(user.password_hash if user else DUMMY_HASH, password) or (
@@ -105,7 +139,7 @@ class AuthService:
         ):
             self.limiter.record_failure(*keys)
             raise AuthError(INVALID_CREDENTIALS)
-        self.limiter.reset(keys[0])
+        self.limiter.reset(*keys)
         now = self.clock()
         await self.sessions.purge_expired(now)
         token = secrets.token_urlsafe(32)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from sim.api.clientip import resolve_client_ip
 from sim.api.deps import COOKIE, App, Authed, Db
 from sim.api.schemas import LoginIn, user_out
 from sim.services.auth import AuthError, TooManyAttempts
@@ -11,7 +12,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/login")
 async def login(body: LoginIn, request: Request, response: Response, c: App, s: Db):
-    addr = request.client.host if request.client else ""
+    peer = request.client.host if request.client else ""
+    addr = resolve_client_ip(peer, request.headers, c.settings.trusted_proxies)
     try:
         result = await c.auth(s).login(body.username, body.password, addr)
     except TooManyAttempts as exc:

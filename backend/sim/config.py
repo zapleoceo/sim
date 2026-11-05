@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     secret_key: str = ""
     session_ttl_h: int = 72
     cookie_secure: bool = True
+    # Peers whose X-Real-IP / X-Forwarded-For we believe (nginx + docker gateway); comma list of IPs/CIDRs.
+    trusted_proxies: str = "127.0.0.1,::1,172.16.0.0/12"
 
     broker_url: str = "https://aib.zapleo.com"
     broker_project_key: str = ""
