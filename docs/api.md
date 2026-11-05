@@ -8,11 +8,39 @@ Secure, SameSite=Lax) + заголовок `X-CSRF-Token` на POST/PUT/PATCH/DE
 ## Auth
 | Метод | Путь | Тело / параметры | Ответ |
 |---|---|---|---|
-| POST | `/api/auth/login` | `{username, password}` | `{user, csrf_token}` + cookie |
+| GET | `/api/auth/config` | — (публичный) | `{bot_username}` — бот Telegram Login Widget; `""`, если не настроен |
+| POST | `/api/auth/telegram` | поля виджета `{id, first_name?, last_name?, username?, photo_url?, auth_date, hash}` | `{user, csrf_token}` + cookie; `401` подпись/свежесть/повтор; `403 {"detail": "Доступ не выдан", "telegram_id": N}`; `429`; `503` бот не настроен |
+| GET | `/api/auth/link?token=` | — (break-glass) | `303 → /` + cookie; `401` ссылка использована/просрочена |
 | POST | `/api/auth/logout` | — | `204` |
-| GET | `/api/auth/me` | — | `{user: {id, username, role}, csrf_token}` / `401` |
+| GET | `/api/auth/me` | — | `{user: {id, role, telegram_id, tg_username, display_name, photo_url}, csrf_token}` / `401` |
 
-Роли: `owner` (всё), `operator` (диалоги, клиенты, воронка; без настроек персонажей/каналов).
+Вход в админку — **только через Telegram** (пароля нет). `POST /api/auth/telegram` проверяет HMAC-SHA256
+подписи виджета (секрет = sha256(токен бота), сравнение за постоянное время), `auth_date` не старше
+1 часа и не из будущего (допуск 60 с), `hash` одноразовый (таблица `used_login_hash`). Затем ищется
+активный админ по `telegram_id`; если нет — по `tg_username` (без учёта регистра) среди ещё не
+привязанных (приглашение по @username): `telegram_id` привязывается. Имя, фото и username
+обновляются при каждом входе. Rate limit по (id, IP) и по IP.
+
+Break-glass для оператора сервера: `python -m sim.cli login-link <telegram_id>` печатает одноразовый
+URL `{SIM_PUBLIC_URL}/api/auth/link?token=…` на 10 минут (в БД только sha256 токена); только для
+существующего активного админа.
+
+Роли: `superadmin` (всё, что `owner`, + управление админами), `owner` (всё, кроме управления
+админами), `operator` (диалоги, клиенты, воронка; без настроек персонажей/каналов).
+В `SIM_SUPERADMIN_TELEGRAM_IDS` перечисляются Telegram id, которые при старте API и в
+`python -m sim.seed` всегда становятся активными superadmin.
+
+## Администраторы (только `superadmin`, мутации — с CSRF)
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/api/admins` | — | `{items: Admin[]}` |
+| POST | `/api/admins` | `{telegram_id? \| tg_username?, role, display_name?}` (нужно одно из двух) | `Admin` (`201`); `409` дубль; `422` |
+| PATCH | `/api/admins/{id}` | `{role?, is_active?}` | `Admin`; деактивация отзывает сессии |
+| DELETE | `/api/admins/{id}` | — | `204` |
+
+`Admin`: `{id, role, telegram_id, tg_username, display_name, photo_url, is_active, created_at}`.
+Superadmin не может понизить, деактивировать или удалить себя (`409`); последнего активного
+superadmin нельзя удалить, понизить или деактивировать (`409`). Не-superadmin получает `403`.
 
 ## Персонажи
 | Метод | Путь | Тело | Ответ |

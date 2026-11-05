@@ -16,7 +16,7 @@ LLM: только через AIbroker (`https://aib.zapleo.com`, проект `s
 2. **LLM — только Broker.** Ключей провайдеров в проекте нет. Модель задаётся на уровне персонажа
    (`persona.model`: пусто = цепочка Broker `chat:sales`, или точный pin `claude-sub/claude-sonnet-5-5`).
 3. **Секреты каналов шифруются** (Fernet/MultiFernet, ключ из env, ротация через список ключей).
-   Пароли админов — argon2. Сессии — httpOnly + Secure + SameSite=Lax cookie, CSRF-токен
+   Вход админов — только Telegram Login Widget (паролей нет). Сессии — httpOnly + Secure + SameSite=Lax cookie, CSRF-токен
    на мутирующих запросах.
 4. **Персонаж — виртуальный представитель.** Это зафиксировано в персоне и в системном
    промпте: на прямой вопрос «ты бот/человек?» персонаж честно отвечает, что он виртуальный ИИ-
@@ -40,7 +40,7 @@ backend/sim/
     db/                ORM-модели, репозитории
   connectors/          ConnectorSpec + REGISTRY (kind → как собрать порт, capabilities)
   services/
-    auth.py            админы, сессии, роли (owner / operator)
+    auth.py            админы, сессии, Telegram-вход, роли (superadmin / owner / operator)
     ingest.py          входящее сообщение → клиент/диалог/сообщение, дедуп по external_id
     conversation.py    сборка промпта (персона + стратегия + этап + история) → Broker → JSON-решение
     outbound.py        отправка через канал, «человеческая» задержка, ручной режим оператора
@@ -58,7 +58,7 @@ backend/sim/
 
 | Таблица | Назначение |
 |---|---|
-| `admin_user` | логин, argon2-хеш, роль |
+| `admin_user` | `telegram_id` (уникальный, пусто до первого входа по приглашению), `tg_username`, имя, фото, роль (`superadmin`/`owner`/`operator`), активность; `used_login_hash` (одноразовые hash виджета), `login_link` (break-glass) |
 | `persona` | имя, возраст, характер, биография, стиль, язык, модель, голос (ElevenLabs voice_id), аватар, `is_virtual_disclosed` |
 | `strategy` | сценарий общения: цель, этапы, правила, оффер партнёра, ссылка регистрации |
 | `channel` | kind (`instagram`/`whatsapp`/`telegram`), persona_id, зашифрованные учётные данные, статус сессии |
@@ -127,10 +127,15 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 - Webhook Telegram: проверка `X-Telegram-Bot-Api-Secret-Token` (секрет на канал).
 - Webhook Evolution: доступен только из docker-сети, nginx не проксирует `/hooks/evolution`.
 - Webhook партнёра: HMAC-SHA256 тела, секрет в env, защита от replay (timestamp ± 5 мин).
-- Логин: rate limit по паре (логин, IP) и по IP (по логину отдельно лимита нет — иначе чужой может
+- Логин только через Telegram Login Widget: HMAC-SHA256 (секрет = sha256 токена бота), сравнение
+  за постоянное время, `auth_date` не старше 1 часа и не из будущего (допуск 60 с), `hash`
+  одноразовый (в БД, чистится по сроку); доступ только у активных админов из `admin_user`
+  (приглашение по id или @username, `SIM_SUPERADMIN_TELEGRAM_IDS` — всегда superadmin).
+  Break-glass: `python -m sim.cli login-link <id>` — одноразовая ссылка на 10 минут (sha256 в БД).
+  Управление админами — только superadmin; последнего superadmin и себя убрать нельзя.
+- Логин: rate limit по паре (telegram id, IP) и по IP (отдельного лимита на id нет — иначе чужой может
   заблокировать владельца). IP клиента берётся из `X-Real-IP`/`X-Forwarded-For` только если TCP-пир
   входит в `SIM_TRUSTED_PROXIES` (по умолчанию `127.0.0.1,::1,172.16.0.0/12`: nginx + docker-шлюз).
-  Одинаковое сообщение на неверный логин/пароль.
 - В `SIM_ENV=prod` `/api/docs` и `/api/openapi.json` отключены.
 - Все запросы к БД — через ORM/параметры; входящий текст клиента идёт в промпт только как
   user-сообщение, не в system (защита от prompt injection в персону).
