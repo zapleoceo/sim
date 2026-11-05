@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 REF_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 VOICE_KINDS = ("audio", "voice")
 ECHO_WINDOW = timedelta(minutes=10)
+EDIT_PREFIX = "[изменено] "
 VOICE_FAILED = "[голосовое сообщение: не удалось распознать]"
 MEDIA_PLACEHOLDERS = {
     "image": "[изображение]",
@@ -90,6 +91,8 @@ class IngestService:
             return IngestResult(duplicate=True, dialog=dialog, client=dialog.client)
         if msg.from_me:
             return await self.ingest_own(dialog, msg)
+        if msg.is_edit:
+            return await self.ingest_edit(dialog, msg)
 
         client = dialog.client if dialog else await self.find_or_create_client(channel, msg)
         if dialog is None:
@@ -205,6 +208,30 @@ class IngestService:
         else:
             await self.jobs.enqueue(jobkinds.REPLY, {"dialog_id": dialog.id}, run_at, dedup_key=key)
         return True
+
+    async def ingest_edit(self, dialog: Dialog | None, msg: InboundMessage) -> IngestResult:
+        """The client edited an earlier message. The new text is kept in the dialog (marked, so
+        the model and the operator see it is a correction) but is not a new turn: no unread, no
+        status change, no new reply (the original message was already answered or queued)."""
+        text = (msg.text or "").strip()
+        if dialog is None or not text:
+            return IngestResult(duplicate=True)
+        message = Message(
+            dialog_id=dialog.id,
+            direction=Direction.IN,
+            author=Author.CLIENT,
+            text=f"{EDIT_PREFIX}{text}",
+            external_id=msg.external_id,
+            delivery=Delivery.SENT,
+            created_at=to_naive_utc(msg.occurred_at),
+        )
+        try:
+            async with self.session.begin_nested():
+                self.session.add(message)
+        except IntegrityError:
+            return IngestResult(duplicate=True, dialog=dialog, client=dialog.client)
+        apply_message(dialog, message)
+        return IngestResult(message=message, dialog=dialog, client=dialog.client)
 
     async def ingest_own(self, dialog: Dialog | None, msg: InboundMessage) -> IngestResult:
         """A message sent from the account itself (phone app). A human took the wheel: the AI

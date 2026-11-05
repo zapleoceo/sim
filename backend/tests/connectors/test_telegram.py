@@ -165,3 +165,10 @@ async def test_disconnect_deletes_webhook_and_download_media():
         return_value=httpx.Response(200, content=b"abc"))
     port = TelegramConnector().build_port(7, SESSION)
     assert await port.download_media("tg-file:V1") == b"abc"
+
+
+def test_parse_marks_edits():
+    c = TelegramConnector()
+    [e] = c.parse_webhook({"edited_message": _update(text="fixed", edit_date=1_700_000_100)["message"]})
+    [m] = c.parse_webhook(_update(text="hi"))
+    assert e.is_edit is True and m.is_edit is False

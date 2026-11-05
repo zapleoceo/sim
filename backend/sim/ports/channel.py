@@ -24,6 +24,7 @@ class InboundMessage:
     phone: str | None = None             # WhatsApp: the address IS the phone
     media_kind: str | None = None        # image | video | audio | voice
     media_url: str | None = None
+    is_edit: bool = False                # the sender edited an earlier message (not a new turn)
     from_me: bool = False                # sent from the account itself (phone app) — not a client turn
 
 

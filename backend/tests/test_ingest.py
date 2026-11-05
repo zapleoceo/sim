@@ -122,3 +122,28 @@ async def test_own_message_pauses_ai_and_echo_is_ignored(container, world):
         assert (await s.scalars(select(Dialog))).unique().one().ai_paused is True
         pending = await s.scalars(select(Job).where(Job.kind == "reply", Job.status == "pending"))
         assert pending.all() == []
+
+
+async def test_edited_message_is_stored_but_does_not_trigger_another_reply(container, world):
+    await ingest(container, world.channel.id, inbound("курс за 100$?", ext="1"))
+    async with transaction(container.factory) as s:  # the reply to the original already ran
+        for job in (await s.scalars(select(Job))).all():
+            job.status = "done"
+    res = await ingest(
+        container, world.channel.id, inbound("курс за 200$?", ext="1:e1", is_edit=True)
+    )
+    assert res.message is not None and not res.reply_queued
+    async with container.factory() as s:
+        jobs = (await s.scalars(select(Job).where(Job.status == "pending"))).all()
+        assert jobs == []                                   # no new reply job
+        dialog = (await s.scalars(select(Dialog))).unique().one()
+        assert dialog.unread == 1 and dialog.last_message_text == "[изменено] курс за 200$?"
+        texts = [m.text for m in (await s.scalars(select(Message).order_by(Message.id))).all()]
+        assert texts == ["курс за 100$?", "[изменено] курс за 200$?"]
+
+
+async def test_edit_of_unknown_dialog_is_ignored(container, world):
+    res = await ingest(container, world.channel.id, inbound("x", ext="9:e1", is_edit=True))
+    assert res.duplicate
+    async with container.factory() as s:
+        assert (await s.scalars(select(Message))).all() == []

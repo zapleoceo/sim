@@ -213,5 +213,6 @@ def parse_update(payload: Any) -> list[InboundMessage]:
             user_handle=f"@{uname}" if uname else None,
             media_kind=kind,
             media_url=url,
+            is_edit=edited,
         )
     ]
