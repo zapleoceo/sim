@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     ig_proxy: str = ""
     ig_poll_interval_s: int = 120
 
+    # Telegram userbot (personal account, MTProto)
+    tg_user_poll_interval_s: int = 20
+    tg_user_min_send_interval_s: float = 3.0   # anti-ban: min gap between sends per account
+
     partner_webhook_secret: str = ""
 
     # Admin login is Telegram-only (Login Widget; the bot needs the site domain via BotFather

@@ -8,6 +8,7 @@ class ChannelKind(StrEnum):
     INSTAGRAM = "instagram"
     WHATSAPP = "whatsapp"
     TELEGRAM = "telegram"
+    TELEGRAM_USER = "telegram_user"     # a personal account over MTProto (userbot)
 
 
 class SessionStatus(StrEnum):

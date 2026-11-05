@@ -34,6 +34,7 @@ def test_entry_satisfies_protocol(kind):
 def test_polling_flags():
     assert REGISTRY[ChannelKind.INSTAGRAM].polling is True
     assert REGISTRY[ChannelKind.TELEGRAM].polling is False
+    assert REGISTRY[ChannelKind.TELEGRAM_USER].polling is True
     assert REGISTRY[ChannelKind.WHATSAPP].polling is False
 
 

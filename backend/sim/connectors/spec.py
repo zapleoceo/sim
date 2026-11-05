@@ -21,6 +21,9 @@ class Connector(Protocol):
     # True: the worker calls build_port(...).fetch_inbound() on a timer (Instagram).
     # False: messages arrive through parse_webhook (Telegram, WhatsApp).
     polling: bool
+    # Optional (polling connectors): name of the Settings field holding the poll interval in
+    # seconds; the worker falls back to ig_poll_interval_s.
+    # poll_interval_setting: str
 
     async def connect(
         self, channel_id: int, credentials: Mapping[str, str], session: Session

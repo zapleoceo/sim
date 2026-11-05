@@ -11,6 +11,7 @@ from sim.adapters.db.repositories.catalog import ChannelRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.config import Settings
+from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
 from sim.services.conversation import ConversationError
 from sim.wiring import Container
@@ -35,8 +36,10 @@ class Worker:
         self.c = container
         self.handlers = handlers if handlers is not None else HANDLERS
         self.stop = asyncio.Event()
-        self.poll_task: asyncio.Task[None] | None = None
-        self.last_poll = 0.0
+        # One poll task per channel kind: a slow Instagram sweep (2-5 s per call) must not hold
+        # back the Telegram userbot, which polls every ~20 s.
+        self.poll_tasks: dict[ChannelKind, asyncio.Task[None]] = {}
+        self.last_poll: dict[ChannelKind, float] = {}
 
     # ---- jobs ----------------------------------------------------------------------------
     async def tick(self) -> int:
@@ -81,9 +84,14 @@ class Worker:
             except Exception:
                 log.exception("giveup of job %s failed", job_id)
 
-    # ---- polling channels (Instagram) ----------------------------------------------------
-    async def poll_channels(self) -> int:
-        kinds = [k for k, conn in self.c.registry.items() if conn.polling]
+    # ---- polling channels (Instagram, Telegram userbot) ----------------------------------
+    def poll_interval(self, kind: ChannelKind) -> float:
+        name = getattr(self.c.registry[kind], "poll_interval_setting", "ig_poll_interval_s")
+        return float(getattr(self.c.settings, name))
+
+    async def poll_channels(self, only: list[ChannelKind] | None = None) -> int:
+        kinds = [k for k, conn in self.c.registry.items()
+                 if conn.polling and (only is None or k in only)]
         if not kinds:
             return 0
         async with self.c.factory() as s:
@@ -118,18 +126,20 @@ class Worker:
             if channel is not None:
                 channel.last_error = message
 
-    async def poll_in_background(self) -> None:
+    async def poll_in_background(self, kind: ChannelKind) -> None:
         try:
-            await self.poll_channels()
+            await self.poll_channels([kind])
         except Exception:
             log.exception("channel polling crashed")
 
     def maybe_start_poll(self, now: float) -> None:
-        interval = self.c.settings.ig_poll_interval_s
-        busy = self.poll_task is not None and not self.poll_task.done()
-        if not busy and now - self.last_poll >= interval:
-            self.last_poll = now
-            self.poll_task = asyncio.create_task(self.poll_in_background())
+        for kind, conn in self.c.registry.items():
+            task = self.poll_tasks.get(kind)
+            busy = task is not None and not task.done()
+            due = now - self.last_poll.get(kind, float("-inf")) >= self.poll_interval(kind)
+            if conn.polling and not busy and due:
+                self.last_poll[kind] = now
+                self.poll_tasks[kind] = asyncio.create_task(self.poll_in_background(kind))
 
     # ---- lifecycle -----------------------------------------------------------------------
     def install_signal_handlers(self) -> None:
@@ -155,6 +165,7 @@ class Worker:
                     await asyncio.wait_for(self.stop.wait(), self.c.settings.worker_tick_s)
                 except TimeoutError:
                     pass
-        if self.poll_task is not None and not self.poll_task.done():
-            await self.poll_task
+        for task in self.poll_tasks.values():
+            if not task.done():
+                await task
         log.info("worker stopped")

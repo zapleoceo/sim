@@ -6,11 +6,13 @@ from __future__ import annotations
 from sim.connectors.instagram import InstagramConnector
 from sim.connectors.spec import Connector
 from sim.connectors.telegram import TelegramConnector
+from sim.connectors.telegram_user import TelegramUserConnector
 from sim.connectors.whatsapp import WhatsAppConnector
 from sim.domain.enums import ChannelKind
 
 REGISTRY: dict[ChannelKind, Connector] = {
     ChannelKind.TELEGRAM: TelegramConnector(),
+    ChannelKind.TELEGRAM_USER: TelegramUserConnector(),
     ChannelKind.WHATSAPP: WhatsAppConnector(),
     ChannelKind.INSTAGRAM: InstagramConnector(),
 }

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from sqlalchemy import select
 
-from sim.adapters.db.models import Dialog, Job, Message
+from sim.adapters.db.models import Channel, Dialog, Job, Message
 from sim.adapters.db.repositories.jobs import JobRepo, backoff_s
 from sim.adapters.db.session import transaction
 from sim.clock import utcnow
-from sim.domain.enums import ClientStatus, Delivery
+from sim.domain.enums import ChannelKind, ClientStatus, Delivery
 from sim.services import jobkinds
 from sim.worker.handlers import Handler
 from sim.worker.loop import Worker
@@ -184,3 +185,30 @@ async def test_polling_channels_are_ingested(container, world):
 async def test_non_polling_channels_are_not_polled(container, world, connector):
     connector.port.inbound = [inbound("x")]
     assert await Worker(container).poll_channels() == 0
+
+
+async def test_poll_interval_is_per_connector(container, world):
+    """Instagram keeps ig_poll_interval_s; the Telegram userbot polls on its own, shorter one."""
+    ig, tg = FakeConnector(ChannelKind.INSTAGRAM, polling=True), FakeConnector(
+        ChannelKind.TELEGRAM_USER, polling=True)
+    tg.poll_interval_setting = "tg_user_poll_interval_s"
+    container.registry = {ChannelKind.INSTAGRAM: ig, ChannelKind.TELEGRAM_USER: tg}
+    container.settings = container.settings.model_copy(
+        update={"ig_poll_interval_s": 120, "tg_user_poll_interval_s": 20})
+    worker = Worker(container)
+    assert worker.poll_interval(ChannelKind.INSTAGRAM) == 120
+    assert worker.poll_interval(ChannelKind.TELEGRAM_USER) == 20
+    worker.maybe_start_poll(1000.0)
+    await asyncio.gather(*worker.poll_tasks.values())
+    assert set(worker.poll_tasks) == {ChannelKind.INSTAGRAM, ChannelKind.TELEGRAM_USER}
+    worker.maybe_start_poll(1030.0)                     # +30 s: only the userbot is due
+    assert worker.last_poll == {ChannelKind.INSTAGRAM: 1000.0, ChannelKind.TELEGRAM_USER: 1030.0}
+    await asyncio.gather(*worker.poll_tasks.values())
+
+
+async def test_telegram_user_kind_is_storable(container, world):
+    async with transaction(container.factory) as s:
+        s.add(Channel(kind=ChannelKind.TELEGRAM_USER, persona_id=world.persona.id, name="acc"))
+    async with container.factory() as s:
+        kinds = (await s.scalars(select(Channel.kind).order_by(Channel.id))).all()
+    assert kinds[-1] is ChannelKind.TELEGRAM_USER

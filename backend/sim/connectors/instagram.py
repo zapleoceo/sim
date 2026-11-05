@@ -43,6 +43,7 @@ class InstagramConnector:
     kind = ChannelKind.INSTAGRAM
     label = "Instagram"
     polling = True
+    poll_interval_setting = "ig_poll_interval_s"
     capabilities = frozenset({Capability.PUBLISH_PHOTO, Capability.DOWNLOAD_MEDIA})
 
     def __init__(self, client_factory: ClientFactory = build_ig_client) -> None:
