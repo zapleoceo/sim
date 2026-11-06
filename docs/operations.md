@@ -23,7 +23,7 @@ API/worker могут обращаться к внешним каналам и B
 - Отдельный PostgreSQL suite должен проверять миграции, advisory locks, SKIP LOCKED и конкурентные webhook/jobs.
 - Прогнать сценарии CSV duplicate, одинаковой fallback-модели guard, delivery failure, отменённой истории, смешанных валют и зависшего LLM job.
 
-Эти команды проверены по конфигурационным файлам. При ревью 7 ноября 2026 года полный suite не запускался; результатов pass/fail приложения нет.
+Изолированная проверка b27a89b от 7 ноября 2026: 344 backend-теста, Ruff, Angular build и ESLint прошли. Два локальных probe подтвердили CSV identity и guard fallback findings. Frontend runtime-тесты заблокированы запуском Chromium; PostgreSQL и production не проверены. Методика, предупреждения и ограничения — в [отчёте ревью](review-2026-11-07.md#проверки-и-границы-ревью).
 
 ## Документированный production-путь
 URL: https://sim.zapleo.com. В репозитории: Cloudflare → nginx → Docker Compose. API публикуется на loopback:8010. Compose поднимает postgres, evolution, migrate, api и worker.

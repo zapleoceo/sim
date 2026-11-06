@@ -8,7 +8,7 @@
 - Персонажи и стратегия: [docs/personas.md](docs/personas.md)
 - Цели и состояние возможностей: [docs/project-status.md](docs/project-status.md)
 - Запуск, проверки и эксплуатация: [docs/operations.md](docs/operations.md)
-- Статическое ревью и приоритеты: [docs/review-2026-11-07.md](docs/review-2026-11-07.md)
+- Ревью, результаты проверок и приоритеты: [docs/review-2026-11-07.md](docs/review-2026-11-07.md)
 
 ## Состояние реализации
 
