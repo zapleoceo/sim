@@ -74,14 +74,16 @@ class JobRepo(Repository[Job]):
         )
         return res.rowcount or 0  # type: ignore[attr-defined]
 
-    async def claim(self, now: datetime, lease_s: int, limit: int = 4) -> list[Job]:
+    async def claim(
+        self, now: datetime, lease_s: int, limit: int = 4, *, exclude_ids: tuple[int, ...] = ()
+    ) -> list[Job]:
         """Lease up to `limit` due jobs (pending, or running with an expired lease)."""
         due = (Job.status == "pending") & (Job.run_at <= now)
         stale = (Job.status == "running") & (Job.locked_until < now)
         rows = (
             await self.session.scalars(
                 select(Job)
-                .where(due | stale)
+                .where(due | stale, Job.id.not_in(exclude_ids))
                 .order_by(Job.run_at, Job.id)
                 .limit(limit)
                 .with_for_update(skip_locked=True)
