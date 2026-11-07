@@ -162,12 +162,33 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 {"contacts": 0, "new_contacts": 0, "replied": 0,
  "by_stage": {"first_contact": 0, "...": 0},
  "registrations": 0, "payments": 0, "revenue": 0.0, "partner_payouts": 0.0,
+ "revenue_by_currency": [], "partner_payouts_by_currency": [],
  "conversion": {"contact_to_registration": 0.0, "registration_to_payment": 0.0},
  "llm": {"calls": 0, "cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0},
  "guard": {"ok": 0, "rewritten": 0, "blocked": 0},
  "by_channel": [{"kind": "telegram", "contacts": 0, "registrations": 0, "payments": 0}],
  "daily": [{"date": "2026-11-05", "contacts": 0, "registrations": 0, "payments": 0}]}
 ```
+
+`revenue_by_currency` и `partner_payouts_by_currency` — массивы `{currency, total}`.
+Выручка включает только `amount` событий payment; выплаты включают `payout` всех
+событий, включая registration. Валюта выплаты — `currency` того же события.
+Суммы группируются после удаления пробелов по краям и приведения валюты к верхнему
+регистру, без конвертации и без изменения исходных данных. Каждая сумма округляется
+до двух знаков после сложения. Отсутствующая/пустая валюта — отдельная группа
+`{"currency": null, "total": ...}`: её сумма не считается подтверждённой суммой в одной валюте.
+Порядок: валюты по алфавиту, затем неизвестная. Неизвестные непустые коды сохраняются
+как метки, без проверки ISO и без подмены USD/RUB.
+
+Прежние поля `revenue` и `partner_payouts` остаются числом только при одной
+указанной валюте соответствующего показателя. При нескольких валютах или группе
+без валюты они равны `null`; потребителям следует показывать группы с валютами.
+Если сумм нет, группы пустые, а старое поле равно `0.0` (без подразумеваемой валюты).
+Это изменение контракта для старых клиентов: необходимо обработать `null` и перейти
+на группы; обновление API и dashboard следует выкладывать совместно. Новый dashboard
+при ответе старого API без групп показывает «Сводка по валютам недоступна».
+`null` в amount/payout не создаёт группу, явный ноль создаёт. Дата и persona_id
+фильтруют события до группировки. Расходы `llm.cost_usd` по-прежнему отдельно в USD.
 
 ## Партнёр
 | POST | `/api/partner/import` | multipart CSV `client_ref,event,amount,currency,payout,occurred_at,external_id` | `{imported, skipped, errors[]}` |
