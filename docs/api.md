@@ -141,6 +141,9 @@ needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.
 | GET | `/api/funnel` | `persona_id?` | `{stages: [{stage, count, clients: ClientMini[] (до 50)}], statuses: {active, paused, no_response, refused}}` |
 
 ## Контент Instagram
+
+Публикация одного фото подготовлена, но по умолчанию отключена. Условия отдельного включения и ограничения повторных попыток: [Instagram content publishing](instagram-content-publishing.md). Это не готовность к производственному включению.
+
 | Метод | Путь | Ответ |
 |---|---|---|
 | GET/POST | `/api/content` | `{items: ContentPost[]}` / `ContentPost` |
