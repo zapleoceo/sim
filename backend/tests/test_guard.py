@@ -189,6 +189,51 @@ async def test_same_model_as_generator_triggers_the_fallback_capability(containe
     assert {r.model for r in rows} == {"fake-model", "fake-guard"}   # both models are on record
 
 
+@pytest.mark.parametrize("model", ["fake-model", "  FAKE-MODEL  "])
+@pytest.mark.parametrize("rewrite", [False, True])
+async def test_same_model_fallback_fails_closed(
+    container, world, fake_llm, connector, model, rewrite
+):
+    fake_llm.replies = [decision_json(reply=DRAFT)]
+    same = LLMResult(text=guard_json("ok"), model=model)
+    prefix = [guard_json("rewrite", ["обещание"], "Как дела?")] if rewrite else []
+    # A further retry could succeed, but must never be attempted.
+    fake_llm.guard_replies = [*prefix, same, same, guard_json("ok")]
+    await start(container, world)
+    with pytest.raises(GuardError, match="fallback returned the generator's model"):
+        await run_reply(container)
+    caps = [kw["capability"] for _, kw in fake_llm.guard_calls]
+    assert caps == (["structured"] if rewrite else []) + ["structured", "prefilter"]
+    assert fake_llm.guard_replies == [guard_json("ok")]
+    _, _, messages, jobs = await state(container)
+    assert ai_messages(messages) == []
+    assert not any(j.kind in (jobkinds.SEND, jobkinds.FOLLOWUP) for j in jobs)
+    assert connector.port.sent == []
+    if rewrite:
+        for payload, _ in fake_llm.guard_calls[1:]:
+            assert json.loads(payload[1]["content"])["draft_reply"] == "Как дела?"
+
+
+@pytest.mark.parametrize("missing", ["generator", "primary", "fallback"])
+async def test_missing_model_metadata_preserves_existing_behavior(
+    container, world, fake_llm, missing
+):
+    # Missing identity does not prove independence, but is not a known collision.
+    fake_llm.replies = [LLMResult(
+        text=decision_json(reply="Привет!"),
+        model=None if missing == "generator" else "fake-model",
+    )]
+    fake_llm.guard_replies = [LLMResult(
+        text=guard_json("ok"), model=None if missing == "primary" else "fake-model",
+    )]
+    if missing == "fallback":
+        fake_llm.guard_replies.append(LLMResult(text=guard_json("ok"), model=None))
+    await start(container, world)
+    assert (await run_reply(container)).status == "sent"
+    caps = [kw["capability"] for _, kw in fake_llm.guard_calls]
+    assert caps == (["structured", "prefilter"] if missing == "fallback" else ["structured"])
+
+
 async def test_followups_are_guarded_too(container, world, fake_llm):
     fake_llm.replies = [decision_json(reply="Привет!")]
     await start(container, world)
