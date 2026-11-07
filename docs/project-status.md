@@ -1,7 +1,11 @@
 # Цели и состояние SIM
 
-Кандидат: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b` + [PR #9](https://github.com/zapleoceo/sim/pull/9).
-Слияние PR #9 и deployment не подтверждены; это описание подготовленного изменения.
+Срез main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`, PR #1–#10 слиты.
+Подтверждено состояние Git; production-версия и deployment не подтверждены.
+
+Дополнительно описан локальный кандидат fencing состояния job: он ещё не слит.
+Кандидат: 502 backend-теста прошли (16 существующих предупреждений, 47,78 с),
+63 focused-теста и Ruff прошли. Историческая база PR #10: 470 тестов и Ruff.
 
 ## Подтверждённый бриф
 Пользователь описал:
@@ -18,7 +22,7 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 
 ## База текущего состояния
 
-База main `a7736bcb3d493f25be340f064b92f46e9c2bb14b`, после PR #2–#8. Статусы ниже описывают код,
+База main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`, после PR #1–#10. Статусы ниже описывают код,
 не факт выкладки или работы внешних каналов. Публикации Instagram по умолчанию выключены;
 в этой работе флаги и production не менялись.
 
@@ -38,7 +42,8 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 | Контролер ответов | Реализовано с ограничением | Проверка, rewrite/block; известная одинаковая fallback-модель блокируется, но missing ID, aliases и self-rewrite остаются ограничениями |
 | Симуляции | Реализовано в коде | Отдельные ветки в боте входа и read-only просмотр owner+ |
 | История ИИ и очередь | Исправлено в коде | Только доставленные исходящие в истории; rolling pool до четырёх job, без distributed fencing |
-| Финансовая аналитика | Исправлено в коде | Отдельные суммы по валютам, без FX; legacy scalar nullable. Кандидат PR #9 исключает из `replied` неотправленные/blocked исходящие; порядок остаётся по `created_at` |
+| Финансовая аналитика | Исправлено в коде | Отдельные суммы по валютам, без FX; legacy scalar nullable. PR #9 исключает из `replied` неотправленные/blocked исходящие; порядок остаётся по `created_at` |
+| Nginx login routes | Исправлено в исходниках (PR #10) | Exact locations Telegram/link; runtime и применение на сервере не проверены |
 | Production | Не проверено | URL и схема деплоя описаны; фактическая версия и состояние не подтверждены |
 
 ## Что ещё требует решения владельца
@@ -47,17 +52,19 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 3. Выбрать ожидаемые задержки ответа и минимальный объём одновременных диалогов для нагрузочной проверки.
 
 Валютная политика и приём CSV уже определены в [API](api.md); повторное решение владельца
-для них не требуется. Доставленные исходящие в `replied` исправлены в кандидате PR #9; слияние и deployment
-не подтверждены. Для nginx login routes подготовлен отдельный локальный config-кандидат:
+для них не требуется. Доставленные исходящие в `replied` исправлены в слитом PR #9. Nginx login routes исправлены в слитом PR #10:
 точные `/api/auth/telegram` и `/api/auth/link`, без ужесточения остальных auth/read routes.
 Проверены исходные директивы; `nginx -t`, runtime и deployment не подтверждены.
-Открыты job fencing и ограничения независимости guard. Подробности: [ревью](review-2026-11-07.md).
+Выкладка обоих исправлений не подтверждена. Для состояния job подготовлен локальный кандидат generation/CAS fencing, ещё не слитый
+и прошедший 502 backend-теста и Ruff. Lease renewal и защита handler/external side effects остаются
+открытыми, как и ограничения независимости guard. Старые worker нужно полностью вывести
+из работы перед rollout кандидата. Подробности: [ревью](review-2026-11-07.md).
 
 ## Последняя локальная проверка
-464 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли на неизменённом frontend. Spec только
+Кандидат: 502 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли на неизменённом frontend. Spec только
 скомпилированы, browser/Karma не запускались. Последняя Angular build не подтверждена:
-сетевой доступ к npm registry не был разрешён. Проверки production и фактического релиза нет.
+проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было. Проверки production и фактического релиза нет.
 Для пилота Instagram см. [условия включения](instagram-content-publishing.md) и
 [intent/receipt](publication-intents.md).
 
-Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/wiring.py).
+Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/wiring.py).

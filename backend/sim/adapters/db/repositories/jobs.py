@@ -77,7 +77,10 @@ class JobRepo(Repository[Job]):
     async def claim(
         self, now: datetime, lease_s: int, limit: int = 4, *, exclude_ids: tuple[int, ...] = ()
     ) -> list[Job]:
-        """Lease up to `limit` due jobs (pending, or running with an expired lease)."""
+        """Lease up to `limit` due jobs (pending, or running with an expired lease).
+
+        attempts also fences ownership: increment it on every claim, never reset it on retry.
+        """
         due = (Job.status == "pending") & (Job.run_at <= now)
         stale = (Job.status == "running") & (Job.locked_until < now)
         rows = (
@@ -93,7 +96,12 @@ class JobRepo(Repository[Job]):
         for job in rows:
             res = await self.session.execute(
                 update(Job)
-                .where(Job.id == job.id, Job.status == job.status)
+                .where(
+                    Job.id == job.id,
+                    Job.status == job.status,
+                    Job.attempts == job.attempts,
+                    due | stale,
+                )
                 .values(
                     status="running",
                     attempts=Job.attempts + 1,
@@ -105,20 +113,36 @@ class JobRepo(Repository[Job]):
                 claimed.append(job)
         return claimed
 
-    async def complete(self, job_id: int, now: datetime) -> None:
-        await self.session.execute(
+    async def complete(self, job_id: int, now: datetime, *, claim_attempt: int) -> bool:
+        """Complete only this running claim; a newer claim or terminal state wins.
+
+        Expiry permits a new claim but does not by itself reject the current owner's result.
+        This fences queue state, not handler side effects or external calls.
+        """
+        res = await self.session.execute(
             update(Job)
-            .where(Job.id == job_id)
+            .where(Job.id == job_id, Job.status == "running", Job.attempts == claim_attempt)
             .values(status="done", finished_at=now, locked_until=None, last_error=None)
         )
+        return bool(res.rowcount)  # type: ignore[attr-defined]
 
-    async def fail(self, job: Job, error: str, now: datetime, *, retry: bool = True) -> bool:
-        """Record a failure. Returns True when the job is out of attempts (terminally failed)."""
-        exhausted = (not retry) or job.attempts >= job.max_attempts
+    async def fail(
+        self, job: Job, error: str, now: datetime, *, claim_attempt: int, retry: bool = True
+    ) -> bool:
+        """Fail only this claim. True means it was changed to terminally failed.
+
+        `claim_attempt` is captured at claim time, never taken from a reloaded job.
+        A fenced-out failure returns False so its caller must not run giveup.
+        """
+        exhausted = (not retry) or claim_attempt >= job.max_attempts
         values: dict[str, Any] = {"last_error": error[:2000], "locked_until": None}
         if exhausted:
             values.update(status="failed", finished_at=now)
         else:
-            values.update(status="pending", run_at=now + timedelta(seconds=backoff_s(job.attempts)))
-        await self.session.execute(update(Job).where(Job.id == job.id).values(**values))
-        return exhausted
+            values.update(status="pending", run_at=now + timedelta(seconds=backoff_s(claim_attempt)))
+        res = await self.session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status == "running", Job.attempts == claim_attempt)
+            .values(**values)
+        )
+        return bool(res.rowcount) and exhausted  # type: ignore[attr-defined]

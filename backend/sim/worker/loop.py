@@ -45,13 +45,14 @@ class Worker:
         self.job_tasks: dict[int, asyncio.Task[None]] = {}
 
     # ---- jobs ----------------------------------------------------------------------------
-    async def claim_jobs(self, limit: int) -> list[tuple[int, str, dict]]:
+    async def claim_jobs(self, limit: int) -> list[tuple[int, str, dict, int]]:
         async with transaction(self.c.factory) as s:
             jobs = await JobRepo(s).claim(
                 self.c.clock(), lease_seconds(self.c.settings), limit,
                 exclude_ids=tuple(self.job_tasks),
             )
-            return [(j.id, j.kind, dict(j.payload or {})) for j in jobs]
+            # attempts increases on every claim: keep our generation across handler I/O.
+            return [(j.id, j.kind, dict(j.payload or {}), j.attempts) for j in jobs]
 
     def reap_jobs(self) -> None:
         for job_id, task in list(self.job_tasks.items()):
@@ -82,7 +83,7 @@ class Worker:
             await asyncio.gather(*(self.run_job(*item) for item in snapshot))
         return len(snapshot)
 
-    async def run_job(self, job_id: int, kind: str, payload: dict) -> None:
+    async def run_job(self, job_id: int, kind: str, payload: dict, claim_attempt: int) -> None:
         handler = self.handlers.get(kind)
         error: str | None = None
         retry = True
@@ -100,12 +101,14 @@ class Worker:
         async with transaction(self.c.factory) as s:
             repo = JobRepo(s)
             if error is None:
-                await repo.complete(job_id, self.c.clock())
+                await repo.complete(job_id, self.c.clock(), claim_attempt=claim_attempt)
                 return
             job = await s.get(Job, job_id)
             if job is None:
                 return
-            exhausted = await repo.fail(job, error, self.c.clock(), retry=retry)
+            exhausted = await repo.fail(
+                job, error, self.c.clock(), claim_attempt=claim_attempt, retry=retry
+            )
         if exhausted and handler is not None and handler.giveup is not None:
             try:
                 async with transaction(self.c.factory) as s:

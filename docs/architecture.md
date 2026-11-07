@@ -1,9 +1,13 @@
 # Sim — архитектура MVP
 
-Кандидат: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b` + [PR #9](https://github.com/zapleoceo/sim/pull/9).
-Слияние PR #9 и deployment не подтверждены; это описание подготовленного изменения.
+Срез main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`, PR #1–#10 слиты.
+Подтверждено состояние Git; production-версия и deployment не подтверждены.
 
-База кода: `a7736bcb3d493f25be340f064b92f46e9c2bb14b`. Описание кода и репозиторной конфигурации,
+Дополнительно описан локальный кандидат fencing состояния job: он ещё не слит.
+Кандидат: 502 backend-теста прошли (16 существующих предупреждений, 47,78 с),
+63 focused-теста и Ruff прошли. Историческая база PR #10: 470 тестов и Ruff.
+
+База кода: `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`. Описание кода и репозиторной конфигурации,
 не подтверждение текущего production. Контекст брифа: [состояние проекта](project-status.md).
 
 Платформа ИИ-персонажей: привлечение в Instagram, личное общение в WhatsApp и Telegram,
@@ -116,7 +120,7 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 История реального диалога включает входящие и только `sent` исходящие сообщения.
 Фильтрация происходит до лимита истории; `queued`, `failed`, `cancelled` и guard-blocked
 черновики не воспринимаются как увиденные клиентом. Inbox сохраняет все записи.
-В кандидате PR #9 аналитический `replied` также учитывает только `sent` исходящие без
+После PR #9 аналитический `replied` также учитывает только `sent` исходящие без
 `guard_verdict=blocked`, сохраняя все входящие. Период и порядок по-прежнему определяются
 по `created_at`, отдельного `sent_at` нет; это приближение хронологии доставки. Счётчики
 `guard` не изменены (см. [ревью](review-2026-11-07.md)).
@@ -289,15 +293,23 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 | Angular 19 (standalone, signals) для админки | брать | основной фронтенд-стек команды |
 | Flask + itstep-* пакеты (правило `python.md`) | нет | Sim — проект zapleo, не itstep: внутренний PyPI и сервисы itstep отсюда недоступны; берём стек stepan2 (FastAPI, uv), чтобы переносить его код без переписывания |
 
-## Очередь, публикации и финансовые события после PR #2–#8
+## Очередь, публикации и финансовые события после PR #1–#10
 
 `Worker.run()` держит до четырёх job: свободный слот заполняется без ожидания остальных,
 проверки due job и polling продолжаются с `worker_tick_s`. Активные job этого worker
 исключаются до лимита claim. При SIGTERM/SIGINT новые claim прекращаются, уже взятые
 job/polling завершаются. `tick()` остаётся batch-вызовом для тестов/разовых запусков,
 не для одновременной работы с `run()`. Это локальная конкурентность, не distributed
-fencing: истёкший lease позволяет другому worker повторно взять долгую job, а complete/fail
-не защищены токеном владения. Порядок завершения не гарантируется.
+fencing: на слитой базе PR #10 истёкший lease позволяет другому worker повторно взять
+долгую job, а complete/fail не защищены поколением владения. Порядок завершения не гарантируется.
+
+Локальный кандидат переносит claim-time `attempts` через Worker и защищает complete/fail
+условием `running` + то же поколение; claim повторно проверяет due/expired и attempts.
+Terminal giveup выполняется только после применённого terminal-failure CAS. Схема и HTTP
+не меняются. Это ещё не слито; 502 backend-теста и Ruff прошли. Lease renewal и fencing побочных
+эффектов не добавлены; старый владелец может завершить истёкший lease, если нового claim нет.
+Старые worker нужно полностью вывести из работы перед запуском новых. Подробный контракт
+и пределы: [API, очередь](api.md#локальный-кандидат-fencing-состояния-очереди).
 
 Один JPEG Instagram поддерживается только при `SIM_IG_CONTENT_ENABLED=true` и явном
 `SIM_IG_CONTENT_POST_IDS`; значения по умолчанию false и пустой список. Нужны утверждённый
@@ -323,9 +335,8 @@ registration и payment, выручка — только payment. API и dashboa
 
 ## Основание и границы проверки
 
-Последняя локальная проверка: 464 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли
-на неизменённом frontend. Browser/Karma не запускались; последняя Angular build не подтверждена: сетевой
-доступ к npm registry не был разрешён. PostgreSQL-конкурентность и реальные каналы
+Последняя локальная проверка кандидата: 502 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли
+на неизменённом frontend. Browser/Karma не запускались; последняя Angular build не подтверждена: проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было. PostgreSQL-конкурентность и реальные каналы
 не проверены. Подробности: [operations.md](operations.md).
 
-Исходники базы main (изменение аналитики — в PR #9): [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/partner.py).
+Исходники main (изменение аналитики слито в PR #9): [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/partner.py).

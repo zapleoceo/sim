@@ -54,7 +54,7 @@ async def claim_reply(container):
     await make_due(container)
     async with transaction(container.factory) as s:
         job = (await JobRepo(s).claim(utcnow(), 900))[0]
-        return job.id, dict(job.payload)
+        return job.id, dict(job.payload), job.attempts
 
 
 async def test_client_message_during_a_running_reply_yields_one_reply_with_full_context(
@@ -63,9 +63,9 @@ async def test_client_message_during_a_running_reply_yields_one_reply_with_full_
     fake_llm.replies = [decision_json(reply="A1 (stale)"), decision_json(reply="A2 (full)")]
     entered, release = gate_llm(fake_llm)
     await ingest(container, world.channel.id, inbound("one", ext="m1"))
-    job_id, payload = await claim_reply(container)
+    job_id, payload, attempt = await claim_reply(container)
     worker = Worker(container)
-    first = asyncio.create_task(worker.run_job(job_id, jobkinds.REPLY, payload))
+    first = asyncio.create_task(worker.run_job(job_id, jobkinds.REPLY, payload, attempt))
     await entered.wait()                                   # job 1 is inside the model call
     await ingest(container, world.channel.id, inbound("two", ext="m2"))
     await make_due(container)
@@ -89,9 +89,9 @@ async def test_reply_is_dropped_when_the_client_wrote_after_the_prompt_was_built
     fake_llm.replies = [decision_json(reply="stale"), decision_json(reply="fresh")]
     entered, release = gate_llm(fake_llm)
     await ingest(container, world.channel.id, inbound("one", ext="m1"))
-    job_id, payload = await claim_reply(container)
+    job_id, payload, attempt = await claim_reply(container)
     worker = Worker(container)
-    first = asyncio.create_task(worker.run_job(job_id, jobkinds.REPLY, payload))
+    first = asyncio.create_task(worker.run_job(job_id, jobkinds.REPLY, payload, attempt))
     await entered.wait()
     await ingest(container, world.channel.id, inbound("two", ext="m2"))
     release.set()
