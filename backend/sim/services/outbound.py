@@ -1,15 +1,17 @@
 """Outbound messages: queue, human-like delay, delivery through the channel port, manual mode."""
 from __future__ import annotations
 
+import hashlib
+import json
 import random
 from collections.abc import Callable, Mapping
 from datetime import timedelta
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.crypto import SecretBox
-from sim.adapters.db.models import Dialog, Message
+from sim.adapters.db.models import Channel, Dialog, Message
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
@@ -19,6 +21,7 @@ from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
+from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 
 DEFAULT_DELAY_S = (20.0, 90.0)
 
@@ -70,6 +73,13 @@ def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
     }
 
 
+def apply_receipt(message: Message, channel: Channel, receipt: SendReceipt) -> None:
+    message.delivery, message.error = Delivery.SENT, None
+    if receipt.external_id:
+        message.external_id = receipt.external_id
+    channel.last_activity_at = max(channel.last_activity_at or receipt.sent_at, receipt.sent_at)
+
+
 class OutboundService:
     def __init__(
         self,
@@ -77,6 +87,7 @@ class OutboundService:
         registry: Mapping[ChannelKind, Connector],
         box: SecretBox,
         *,
+        factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
         rng: Callable[[float, float], float] = random.uniform,
     ) -> None:
@@ -88,6 +99,7 @@ class OutboundService:
         self.messages = MessageRepo(session)
         self.dialogs = DialogRepo(session)
         self.jobs = JobRepo(session)
+        self.receipts = SendReceipts(factory, clock)
 
     async def queue_ai(
         self,
@@ -194,25 +206,44 @@ class OutboundService:
             message.error = "cancelled: AI paused or client refused before sending"
             return
         channel = dialog.channel
+        fingerprint = hashlib.sha256(json.dumps({
+            "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
+            "thread": dialog.external_thread_id, "text": message.text,
+            "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
+        }, sort_keys=True).encode()).hexdigest()
+        previous = await self.receipts.previous(message.id, fingerprint)
+        if previous is not None:
+            apply_receipt(message, channel, previous)
+            return
         connector = self.registry.get(channel.kind)
         if connector is None:
             raise SendFailed(f"no connector for {channel.kind}")
         try:
             session = self.box.decrypt_json(channel.session_enc)
             port = connector.build_port(channel.id, session)
-            result = await port.send_text(dialog.external_thread_id, message.text)
         except Exception as exc:  # connector errors are heterogeneous; the job retries
             raise SendFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
-        if not result.ok:
-            raise SendFailed(result.error or "send failed")
-        message.delivery = Delivery.SENT
-        message.error = None
-        if result.external_message_id:
-            message.external_id = result.external_message_id
-        channel.last_activity_at = self.clock()
+
+        await self.receipts.claim(message.id, fingerprint)
+        try:
+            result = await port.send_text(dialog.external_thread_id, message.text)
+            if not result.ok:
+                # The common transport contract cannot prove that a failed request had no effect.
+                raise SendUncertain(UNCERTAIN_SEND)
+            receipt = await self.receipts.acknowledge(
+                message.id, fingerprint, result.external_message_id,
+            )
+        except Exception:
+            # Cancellation/crash also leaves the committed intent: recovery refuses a new send.
+            # Never persist a transport exception containing credentials or message text.
+            raise SendUncertain(UNCERTAIN_SEND) from None
+        apply_receipt(message, channel, receipt)
 
     async def mark_failed(self, message_id: int, error: str) -> None:
         message = await self.messages.get(message_id)
         if message is not None and message.delivery is not Delivery.SENT:
             message.delivery = Delivery.FAILED
             message.error = error[:500]
+            dialog = await self.dialogs.get(message.dialog_id)
+            if dialog is not None:
+                dialog.needs_operator = True

@@ -82,7 +82,7 @@ services:
       - ../frontend/dist/sim/browser:/app/static:ro
       - sim_media:/app/media
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status==200 else 1)"]
+      test: ["CMD", "python", "-m", "sim.readiness"]
       interval: 20s
       timeout: 6s
       retries: 3

@@ -97,7 +97,9 @@ class Container:
         return AdminService(s)
 
     def outbound(self, s: AsyncSession) -> OutboundService:
-        return OutboundService(s, self.registry, self.box, clock=self.clock, rng=self.rng)
+        return OutboundService(
+            s, self.registry, self.box, factory=self.factory, clock=self.clock, rng=self.rng,
+        )
 
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(

@@ -251,6 +251,18 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
+class OutboundSendIntent(Base):
+    """Permanent send fence, without FK/cascade; sent_at marks an acknowledged send."""
+
+    __tablename__ = "outbound_send_intent"
+
+    message_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class FunnelEvent(Base):
     __tablename__ = "funnel_event"
 
