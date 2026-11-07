@@ -1,7 +1,8 @@
 """Build a source-pinned SIM release tar from tracked backend files and CI-built UI.
 
-This command runs only inside GitHub Actions after backend/PostgreSQL and frontend
-checks succeeded. It never deploys or reads production credentials.
+This command runs inside the CI frontend job after its checks succeed.
+The separate backend/PostgreSQL job is also required for the workflow to pass.
+It never deploys or reads staging credentials.
 """
 from __future__ import annotations
 
@@ -134,12 +135,12 @@ def main() -> None:
         ).hexdigest(),
         "entries": entries,
     }
-    (OUT / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    (OUT / "manifest.json").write_bytes(manifest_bytes)
+    manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
     print(
-        f"SIM release artifact: commit={commit} tree={tree} files={len(entries)} "
-        f"tar_sha256={archive_sha}"
+        f"SIM bundle validated: commit={commit} tree={tree} files={len(entries)} "
+        f"tar_sha256={archive_sha} manifest_sha256={manifest_sha}"
     )
 
 
