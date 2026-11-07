@@ -113,6 +113,19 @@ class JobRepo(Repository[Job]):
                 claimed.append(job)
         return claimed
 
+    async def is_current_claim(self, job_id: int, *, claim_attempt: int) -> bool:
+        """Read current ownership before starting a handler, without extending its lease.
+
+        Expiry alone does not revoke ownership. This is only a preflight: a later reclaim
+        can still race handler I/O, and external actions are not fenced by this read.
+        """
+        found = await self.session.scalar(
+            select(Job.id).where(
+                Job.id == job_id, Job.status == "running", Job.attempts == claim_attempt
+            )
+        )
+        return found is not None
+
     async def complete(self, job_id: int, now: datetime, *, claim_attempt: int) -> bool:
         """Complete only this running claim; a newer claim or terminal state wins.
 

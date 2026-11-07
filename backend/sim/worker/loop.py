@@ -84,6 +84,12 @@ class Worker:
         return len(snapshot)
 
     async def run_job(self, job_id: int, kind: str, payload: dict, claim_attempt: int) -> None:
+        # A task may have waited long enough for another worker to claim it. Do not start
+        # known-stale work. Close this read session before the handler's unit of work.
+        # Read failures propagate without retry/giveup; lease recovery remains unchanged.
+        async with self.c.factory() as s:
+            if not await JobRepo(s).is_current_claim(job_id, claim_attempt=claim_attempt):
+                return
         handler = self.handlers.get(kind)
         error: str | None = None
         retry = True
