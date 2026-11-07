@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import ContentPost, Persona
+from sim.adapters.db.models import ContentPost, ContentPublishIntent, Persona
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.repositories.records import ContentRepo
@@ -49,6 +49,7 @@ class ContentService:
         publisher: ContentPublisher | None = None,
         clock: Clock = utcnow,
     ) -> None:
+        self.session = session
         self.posts = ContentRepo(session)
         self.personas = PersonaRepo(session)
         self.jobs = JobRepo(session)
@@ -65,6 +66,8 @@ class ContentService:
         """Only the owner approves. An operator's edit of an approved/scheduled post changes
         text nobody approved, so the post goes back to DRAFT and its publish job is cancelled."""
         post = await self.lock_post(post)
+        if await self.session.get(ContentPublishIntent, post.id) is not None:
+            raise ContentError("Publication already attempted; reconciliation required")
         if post.status not in EDITABLE:
             raise ContentError(f"a {post.status.value} post cannot be edited")
         for key, value in self.normalise(fields).items():
@@ -87,6 +90,8 @@ class ContentService:
 
     async def approve(self, post: ContentPost) -> ContentPost:
         post = await self.lock_post(post)
+        if await self.session.get(ContentPublishIntent, post.id) is not None:
+            raise ContentError("Publication already attempted; reconciliation required")
         if post.status not in (ContentStatus.DRAFT, ContentStatus.FAILED):
             raise ContentError(f"a {post.status.value} post cannot be approved")
         post.status, post.error = ContentStatus.APPROVED, None
@@ -135,7 +140,9 @@ class ContentService:
         except Exception:
             post.status, post.error = ContentStatus.FAILED, "Publication failed; reconcile before retrying"
             return
-        post.status, post.published_at, post.error = ContentStatus.PUBLISHED, self.clock(), None
+        post.status, post.published_at, post.error = (
+            ContentStatus.PUBLISHED, post.published_at or self.clock(), None
+        )
 
     @staticmethod
     def normalise(fields: dict[str, Any]) -> dict[str, Any]:

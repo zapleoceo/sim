@@ -148,6 +148,7 @@ needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.
 |---|---|---|
 | GET/POST | `/api/content` | `{items: ContentPost[]}` / `ContentPost` |
 | PUT/DELETE | `/api/content/{id}` | `ContentPost` |
+| GET | `/api/content/{id}/publication` | Только owner/superadmin: `{post_id, state: "not_attempted"|"uncertain"|"receipt_known", attempted_at?, external_id?, published_at?}`; чтение сохранённой истории, без сброса попытки |
 | POST | `/api/content/{id}/approve` | `ContentPost` (только owner) |
 | POST | `/api/content/{id}/generate-caption` | `{caption}` — подпись в стиле персонажа через Broker |
 
