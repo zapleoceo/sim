@@ -222,6 +222,8 @@ export interface ContentPost {
 }
 export type ContentIn = Pick<ContentPost, 'persona_id' | 'channel_id' | 'kind' | 'caption' | 'media_urls' | 'scheduled_at'>;
 
+export interface CurrencyTotal { currency: string | null; total: number }
+
 export interface AnalyticsSummary {
   contacts: number;
   new_contacts: number;
@@ -229,8 +231,10 @@ export interface AnalyticsSummary {
   by_stage: Record<string, number>;
   registrations: number;
   payments: number;
-  revenue: number;
-  partner_payouts: number;
+  revenue: number | null;
+  partner_payouts: number | null;
+  revenue_by_currency: CurrencyTotal[];
+  partner_payouts_by_currency: CurrencyTotal[];
   conversion: { contact_to_registration: number; registration_to_payment: number };
   llm: { calls: number; cost_usd: number; tokens_in: number; tokens_out: number };
   guard: { ok: number; rewritten: number; blocked: number };

@@ -13,7 +13,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { EMPTY, catchError, debounceTime, filter, startWith, switchMap, tap } from 'rxjs';
 import { AnalyticsApi } from '../../core/api/analytics.api';
 import { PersonasApi } from '../../core/api/personas.api';
-import { AnalyticsSummary, Persona } from '../../core/models';
+import { AnalyticsSummary, CurrencyTotal, Persona } from '../../core/models';
 import { CHANNEL_LABELS, STAGES } from '../../core/stages';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { FilterBarComponent, FiltersTemplateDirective } from '../../shared/filter-bar.component';
@@ -26,6 +26,15 @@ interface Kpi { label: string; value: string; hint?: string }
 export function toIsoDate(d: Date): string {
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Keep partner currencies explicit, including non-ISO labels and missing currency. */
+export function formatCurrencyTotals(buckets: CurrencyTotal[] | null | undefined): string {
+  if (!buckets) return 'Сводка по валютам недоступна';
+  const number = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return buckets.length
+    ? buckets.map((bucket) => `${number.format(bucket.total)} ${bucket.currency ?? 'без валюты (непроверенная сумма)'}`).join(' · ')
+    : 'Нет сумм';
 }
 
 function daysAgo(n: number): Date {
@@ -69,8 +78,8 @@ export class DashboardComponent {
       { label: 'Контакты', value: formatInt(d.contacts), hint: `новых: ${d.new_contacts}, ответили: ${d.replied}` },
       { label: 'Регистрации', value: formatInt(d.registrations) },
       { label: 'Оплаты', value: formatInt(d.payments) },
-      { label: 'Выручка', value: formatMoney(d.revenue) },
-      { label: 'Выплаты партнёра', value: formatMoney(d.partner_payouts) },
+      { label: 'Выручка', value: formatCurrencyTotals(d.revenue_by_currency) },
+      { label: 'Выплаты партнёра', value: formatCurrencyTotals(d.partner_payouts_by_currency) },
       { label: 'Расход на LLM', value: formatMoney(d.llm.cost_usd, 'USD', 2), hint: `${d.llm.calls} вызовов` },
       {
         label: 'Контролер ответов',
