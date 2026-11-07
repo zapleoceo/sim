@@ -14,7 +14,7 @@ from sim.adapters.db.models import (
     Message,
 )
 from sim.adapters.db.repositories.base import Repository
-from sim.domain.enums import ChannelKind, ClientStatus, Direction, Stage
+from sim.domain.enums import ChannelKind, ClientStatus, Delivery, Direction, Stage
 
 
 def like(text: str) -> str:
@@ -173,6 +173,22 @@ class MessageRepo(Repository[Message]):
             await self.session.scalars(
                 select(Message)
                 .where(Message.dialog_id == dialog_id)
+                .order_by(Message.id.desc())
+                .limit(limit)
+            )
+        ).all()
+        return list(reversed(rows))
+
+    async def recent_visible(self, dialog_id: int, limit: int) -> list[Message]:
+        """Client-visible history; filter before limiting so drafts do not evict real turns."""
+        rows = (
+            await self.session.scalars(
+                select(Message)
+                .where(
+                    Message.dialog_id == dialog_id,
+                    or_(Message.direction == Direction.IN, Message.delivery == Delivery.SENT),
+                    or_(Message.guard_verdict.is_(None), Message.guard_verdict != "blocked"),
+                )
                 .order_by(Message.id.desc())
                 .limit(limit)
             )

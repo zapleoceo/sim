@@ -183,3 +183,13 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
 `Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
+
+
+## Видимость истории для ИИ
+История реального диалога включает входящие сообщения и только отправленные (`sent`)
+исходящие сообщения ИИ или оператора. `queued`, `failed` и `cancelled` не считаются
+увиденными клиентом; guard-blocked черновики также исключаются. Фильтрация происходит
+до лимита последних сообщений, поэтому очередь неотправленных черновиков не вытесняет
+реальные реплики. После успешной повторной отправки сообщение снова доступно истории.
+Это правило не удаляет записи из inbox/админки и не меняет историю симуляций.
+Метрики аналитики и гарантии внешней доставки этим изменением не пересматриваются.
