@@ -24,8 +24,10 @@
   corrected and rechecked. Visual PASS for tested local scenarios: 12 widths, 132 numeric
   assertions, zero failed/overflow. Filters, paging, role denial and source links verified.
   Independent reviewer inspected final combined diff and three final screenshots; no blocker.
-  Next: separately authorized release/real connector acceptance. Synthetic localhost18400
-  remains available; no push, merge or deployment in this feature task.
+  DOT subsequently requested a checkpoint/push for cloud continuation before laptop reboot.
+  Feature source committed and pushed as `14bda0ca357c4390a691510cd9c2713fdca8f360`.
+  Synthetic localhost18400 server PID38804 stopped; no worker/test run remains active.
+  Next: cloud handoff in `cloud-handoff.md`; no merge/deployment authorized or performed.
 - Shared adapter: unregistered SIM. Existing FastAPI/uv + Angular19 conventions govern.
 
 ## Scope assumptions
