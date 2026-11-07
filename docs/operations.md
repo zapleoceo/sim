@@ -1,4 +1,6 @@
-# Запуск тесты и деплой SIM
+# Запуск, тесты и деплой SIM
+
+Документация для main `747af2f75f10f38648e869ee2efd7d109b4249d1`. Фактическая production-версия неизвестна.
 
 ## Безопасная локальная подготовка
 Нужен полный checkout конкретного commit, Python 3.12+, uv, Node/npm. Версию Node следует согласовать с Angular 19 и lockfile; в package.json отдельный engines-контракт не задан. Не запускайте приложение из неполного набора файлов.
@@ -23,7 +25,13 @@ API/worker могут обращаться к внешним каналам и B
 - Отдельный PostgreSQL suite должен проверять миграции, advisory locks, SKIP LOCKED и конкурентные webhook/jobs.
 - Прогнать сценарии CSV duplicate, одинаковой fallback-модели guard, delivery failure, отменённой истории, смешанных валют и зависшего LLM job.
 
-Изолированная проверка b27a89b от 7 ноября 2026: 344 backend-теста, Ruff, Angular build и ESLint прошли. Два локальных probe подтвердили CSV identity и guard fallback findings. Frontend runtime-тесты заблокированы запуском Chromium; PostgreSQL и production не проверены. Методика, предупреждения и ограничения — в [отчёте ревью](review-2026-11-07.md#проверки-и-границы-ревью).
+Команды выше — инструкция для будущего разрешённого полного прогона, не список всего
+выполненного. На текущем срезе локально: 438 backend-тестов прошли (16 существующих
+предупреждений Alembic), Ruff прошёл; TypeScript app/spec и ESLint прошли. Компиляция spec
+не означает выполнение unit tests. Последняя Angular build не подтверждена: сетевой доступ к npm registry не был разрешён.
+Browser/Karma не запускались (известное ограничение среды на сокеты). PostgreSQL locking,
+реальные каналы, production health и release commit не проверены. Исторический статический
+аудит b27a89b не следует выдавать за эти более поздние результаты.
 
 ## Документированный production-путь
 URL: https://sim.zapleo.com. В репозитории: Cloudflare → nginx → Docker Compose. API публикуется на loopback:8010. Compose поднимает postgres, evolution, migrate, api и worker.
@@ -46,6 +54,21 @@ Alias по умолчанию: hetzner-root; override SIM_DEPLOY_HOST. Ката�
 - Выполнять только после разрешения на deployment и при отсутствии действующего ограничения доступа.
 - После: проверить REVISION, миграции, health, worker и изолированный бизнес-сценарий; не выдавать health за полную проверку продукта.
 
-Production, SSH и секретные файлы в этой работе не читались. Наличие backup/restore и фактический TLS не подтверждены.
+## Публикации Instagram и восстановление
 
-Источники: [README](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/README.md), [backend config](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/backend/pyproject.toml), [frontend scripts](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/frontend/package.json), [deploy](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/infra/deploy.sh), [compose](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/infra/docker-compose.yml).
+По умолчанию `SIM_IG_CONTENT_ENABLED=false`, `SIM_IG_CONTENT_POST_IDS=[]`. Оба gate,
+owner approval и явный активный канал обязательны; deployment сам по себе не разрешает
+публикацию. В этой работе флаги не включались. Перед отдельным пилотом прочитайте
+[ограничения фото](instagram-content-publishing.md) и [durable intent/receipt](publication-intents.md).
+Миграция 0006 нужна до запуска нового кода. Постоянные intents включать в backup/restore;
+не удалять записи и не восстанавливать snapshot без новых intents ради повторной отправки.
+Downgrade непустой intent-таблицы запрещён. Неизвестный исход проверяется человеком в
+реальном аккаунте только при разрешённом доступе, не повторным upload и не копированием
+поста под новым ID. Read-only `/api/content/{id}/publication` доступен owner/superadmin.
+Receipt может восстановить статус только при совпадении fingerprint и допустимом состоянии
+поста/аккаунта; это не подтверждение exactly-once внешнего сервиса.
+
+Production, SSH и секретные файлы в рамках обновления документации не читались.
+Наличие backup/restore и фактический TLS не подтверждены. Независимые локальные проверки остаются отдельной задачей.
+
+Источники: [README](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/README.md), [backend config](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/pyproject.toml), [frontend scripts](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/frontend/package.json), [deploy](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/infra/deploy.sh), [compose](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/infra/docker-compose.yml).

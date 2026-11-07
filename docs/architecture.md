@@ -1,10 +1,14 @@
 # Sim — архитектура MVP
 
+Срез кода: `747af2f75f10f38648e869ee2efd7d109b4249d1`. Описание кода и репозиторной конфигурации,
+не подтверждение текущего production. Контекст брифа: [состояние проекта](project-status.md).
+
 Платформа ИИ-персонажей: привлечение в Instagram, личное общение в WhatsApp и Telegram,
 сопровождение клиента по воронке до регистрации и первой оплаты у партнёра.
 
-Прод: `https://sim.zapleo.com` (Cloudflare → nginx :80 на 195.201.31.49 → docker compose).
-LLM: только через AIbroker (`https://aib.zapleo.com`, проект `sim`, id 21, лимиты $0 — бесплатные
+Документированная схема: `https://sim.zapleo.com` → Cloudflare → nginx :80 → docker compose.
+Фактический origin TLS и версия production не проверены.
+Репозиторная конфигурация LLM: только через AIbroker (`https://aib.zapleo.com`, проект `sim`, id 21, лимиты $0 — бесплатные
 провайдеры + подписочные `claude-sub/*`, `codex-sub/*`).
 
 ## Принципы
@@ -28,8 +32,8 @@ LLM: только через AIbroker (`https://aib.zapleo.com`, проект `s
    контролере (см. «Контролер»); проверяется тестами на сборку промпта и контролера.
 5. **Оплаты и регистрации подтверждает только партнёр** (webhook с HMAC или импорт CSV),
    не ИИ и не оператор вручную по словам клиента.
-6. **Без Redis.** Очередь задач — таблица `job` в Postgres (`FOR UPDATE SKIP LOCKED`). На сервере
-   ~1 ГБ свободной RAM, лишний сервис не нужен.
+6. **Без Redis.** Очередь задач — таблица `job` в Postgres (`FOR UPDATE SKIP LOCKED`). Исходное обоснование в репозитории —
+   ограниченная RAM сервера; текущий объём свободной памяти не измерялся.
 
 ## Модули (backend, Python 3.12, FastAPI, SQLAlchemy 2 async, Alembic)
 
@@ -73,7 +77,8 @@ backend/sim/
 | `message` | направление, автор (`client`/`ai`/`operator`), текст, медиа, external_id, токены/модель/стоимость; для сообщений ИИ — `guard_verdict` (`ok`/`rewritten`/`blocked`), `guard_violations` (JSON), `guard_model`, `original_text` (черновик генератора, если контролер его исправил) |
 | `funnel_event` | смена этапа/статуса: откуда, куда, кто, почему |
 | `partner_event` | регистрация/оплата от партнёра: внешний id, сумма, валюта, выплата нам |
-| `content_post` | контент IG: тип, подпись, медиа, статус (`draft`/`approved`/`scheduled`/`published`), время |
+| `content_post` | контент IG: тип, подпись, медиа, статус (`draft`/`approved`/`scheduled`/`published`/`failed`), время |
+| `content_publish_intent` | постоянный intent по post ID; fingerprint, время попытки и внешний receipt; хранится независимо от удаления поста |
 | `sim_branch`, `sim_message`, `sim_admin_pref` | симуляции админов в боте входа: ветка (админ, персонаж, этап/статус/потребности/следующий шаг/заметки, `closed_at`, `last_active_at`), её сообщения (`role` `client`/`ai`, вердикт контролера, нарушения, модель) и настройка `/debug`. Отдельно от `client`/`dialog`/`message` |
 | `job` | очередь: kind (`reply`, `send`, `followup`, `media`, `content_publish`, `sim_reply`), payload, run_at, attempts, locked_until |
 | `llm_call` | аудит каждого вызова Broker (модель, токены, cost, latency, ошибка); вызовы контролера — `workflow = "guard"`; симуляции — `sim` и `sim_guard` (в сводку расходов аналитики не входят) |
@@ -105,6 +110,12 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 оператор в админке ──▶ outbound.send(manual): ИИ на паузе, неотправленные ответы ИИ отменяются
 ```
 
+История реального диалога включает входящие и только `sent` исходящие сообщения.
+Фильтрация происходит до лимита истории; `queued`, `failed`, `cancelled` и guard-blocked
+черновики не воспринимаются как увиденные клиентом. Inbox сохраняет все записи.
+Это исправление не меняет аналитический `replied`, который пока учитывает неотправленные
+исходящие (см. [открытые риски](review-2026-11-07.md)).
+
 Правки сообщений Telegram (`edited_message`) сохраняются с пометкой «[изменено]», но нового
 ответа ИИ не вызывают. Правка approved/scheduled поста оператором (не owner) возвращает его в `draft`.
 
@@ -121,8 +132,11 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 перезапускается на `SIM_GUARD_FALLBACK_CAPABILITY` (по умолчанию `prefilter`); оба вызова
 видны в `llm_call` (`workflow = "guard"`, поля `capability`/`model`).
 
-Ограничение реализации: после fallback совпадение модели повторно не проверяется. Поэтому
-другая ротация запрашивается, но фактическая независимость модели контролера не гарантирована.
+После fallback известное повторное совпадение ID с исходным генератором вызывает
+`GuardError`: сообщение не ставится на отправку. Сравнение игнорирует регистр и пробелы
+по краям, включая проверку rewrite. Отсутствующие ID пока допускаются, разные ID могут
+быть алиасами. Rewrite сравнивается с исходным генератором, поэтому контролер может
+проверять собственную правку. Полная независимость модели этим не доказана.
 
 Вход: system = фиксированные инструкции + `prohibitions` персоны + правила стратегии + жёсткие
 глобальные правила (не отрицать ИИ на прямой вопрос; без обещаний дохода; без паролей/кодов/карт;
@@ -265,7 +279,48 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 | Telegram Bot API напрямую через httpx | брать | 3 метода, отдельная библиотека не нужна |
 | Telethon (userbot для `telegram_user`) | брать | MIT, живой (1.45.0), StringSession, `receive_updates=False`; прокси через python-socks |
 | Pyrogram | нет | не поддерживается (заброшен); форки без гарантий |
-| Redis/arq | нет | лишний сервис на сервере с 1 ГБ свободной RAM; хватает Postgres SKIP LOCKED |
+| Redis/arq | нет | исходное обоснование: ограниченная RAM сервера; используется Postgres SKIP LOCKED, текущая память не измерялась |
 | stepan2 целиком (мультифилиальность, CRM, MBS, реклама) | нет | другой домен; тянет 90% ненужного |
 | Angular 19 (standalone, signals) для админки | брать | основной фронтенд-стек команды |
 | Flask + itstep-* пакеты (правило `python.md`) | нет | Sim — проект zapleo, не itstep: внутренний PyPI и сервисы itstep отсюда недоступны; берём стек stepan2 (FastAPI, uv), чтобы переносить его код без переписывания |
+
+## Очередь, публикации и финансовые события после PR #2–#8
+
+`Worker.run()` держит до четырёх job: свободный слот заполняется без ожидания остальных,
+проверки due job и polling продолжаются с `worker_tick_s`. Активные job этого worker
+исключаются до лимита claim. При SIGTERM/SIGINT новые claim прекращаются, уже взятые
+job/polling завершаются. `tick()` остаётся batch-вызовом для тестов/разовых запусков,
+не для одновременной работы с `run()`. Это локальная конкурентность, не distributed
+fencing: истёкший lease позволяет другому worker повторно взять долгую job, а complete/fail
+не защищены токеном владения. Порядок завершения не гарантируется.
+
+Один JPEG Instagram поддерживается только при `SIM_IG_CONTENT_ENABLED=true` и явном
+`SIM_IG_CONTENT_POST_IDS`; значения по умолчанию false и пустой список. Нужны утверждённый
+пост, активная персона и явно выбранный активный Instagram-канал этой персоны с сессией.
+Удалённые URL, video/reel/story и несколько файлов не поддержаны. Полного upload/UI-пути нет.
+До внешнего upload независимо коммитится постоянный intent; receipt сохраняется отдельно.
+Неизвестный исход не разрешает повторный upload, редактирование или переутверждение.
+Миграция 0006, консервативный fingerprint и границы восстановления описаны в
+[publication-intents.md](publication-intents.md); условия отдельного включения — в
+[instagram-content-publishing.md](instagram-content-publishing.md).
+Наличие receipt не означает внешнюю проверку и не гарантирует exactly-once у Instagram.
+
+CSV-строка без `external_id` и без явного `occurred_at` отклоняется без изменения воронки.
+Только дата сохраняет прежний fallback-ключ с UTC timestamp; только ID использует время
+первого импорта. Повтор ID (в пределах типа события) или fallback-ключа пропускается.
+Разные платежи на одно время требуют разных ID; уже созданные дубли не удаляются.
+
+Выручка и выплаты группируются по нормализованной валюте события, без FX-конвертации.
+Неизвестная валюта — отдельная неподтверждённая группа. Старые скалярные суммы равны `null`
+при нескольких валютах или группе без валюты; при отсутствии сумм — `0.0`. Выплаты включают
+registration и payment, выручка — только payment. API и dashboard обновляются совместно.
+Полный контракт: [api.md](api.md).
+
+## Основание и границы проверки
+
+Последняя локальная проверка: 438 backend-тестов и Ruff прошли; TypeScript app/spec и ESLint
+прошли. Browser/Karma не запускались; последняя Angular build не подтверждена: сетевой
+доступ к npm registry не был разрешён. PostgreSQL-конкурентность и реальные каналы
+не проверены. Подробности: [operations.md](operations.md).
+
+Текущие исходники: [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/partner.py).

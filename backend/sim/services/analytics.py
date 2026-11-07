@@ -8,13 +8,14 @@ Definitions, for the half-open period [start, end):
                  (a real exchange, not a one-sided message);
 - by_stage       current stage of the contacts;
 - registrations  distinct clients with a partner registration event in the period;
-- payments       partner payment events in the period; revenue = sum of their amounts;
-- partner_payouts sum of `payout` over all partner events in the period;
+- payments       partner payment events in the period; revenue grouped by event currency;
+- partner_payouts sum of `payout` over all partner events, grouped by event currency;
 - conversion     registrations/contacts and distinct payers/registrations (0 when no base)."""
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
@@ -35,6 +36,29 @@ def days_between(start: datetime, end: datetime) -> list[date]:
         days.append(cur)
         cur += timedelta(days=1)
     return days
+
+
+def money_totals(events: list[PartnerEvent], field: str) -> tuple[float | None, list[dict[str, Any]]]:
+    """No FX conversion. Missing amounts contribute nothing; explicit zero creates a bucket.
+
+    Unknown currencies share an explicitly unverified bucket, not an assumed currency.
+    Legacy scalar totals are only meaningful for one known currency (or no amounts).
+    """
+    totals: dict[str | None, Decimal] = defaultdict(Decimal)
+    for event in events:
+        amount = getattr(event, field)
+        if amount is None:
+            continue
+        currency = (event.currency or "").strip().upper() or None
+        totals[currency] += Decimal(str(amount))
+    buckets = [
+        {"currency": currency, "total": float(round(total, 2))}
+        for currency, total in sorted(totals.items(), key=lambda item: (item[0] is None, item[0] or ""))
+    ]
+    scalar = 0.0 if not buckets else (
+        buckets[0]["total"] if len(buckets) == 1 and buckets[0]["currency"] is not None else None
+    )
+    return scalar, buckets
 
 
 class AnalyticsService:
@@ -87,6 +111,8 @@ class AnalyticsService:
             key = "registrations" if e.kind is PartnerEventKind.REGISTRATION else "payments"
             daily[e.occurred_at.date()][key] += 1
 
+        revenue, revenue_by_currency = money_totals(pay_events, "amount")
+        payouts, payouts_by_currency = money_totals(events, "payout")
         return {
             "contacts": len(contacts),
             "new_contacts": len(new_clients),
@@ -94,8 +120,10 @@ class AnalyticsService:
             "by_stage": by_stage,
             "registrations": len(reg_clients),
             "payments": len(pay_events),
-            "revenue": round(sum(e.amount or 0.0 for e in pay_events), 2),
-            "partner_payouts": round(sum(e.payout or 0.0 for e in events), 2),
+            "revenue": revenue,
+            "partner_payouts": payouts,
+            "revenue_by_currency": revenue_by_currency,
+            "partner_payouts_by_currency": payouts_by_currency,
             "conversion": {
                 "contact_to_registration": ratio(len(reg_clients), len(contacts)),
                 "registration_to_payment": ratio(len(pay_clients), len(reg_clients)),

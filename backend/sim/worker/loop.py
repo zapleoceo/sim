@@ -42,15 +42,42 @@ class Worker:
         # back the Telegram userbot, which polls every ~20 s.
         self.poll_tasks: dict[ChannelKind, asyncio.Task[None]] = {}
         self.last_poll: dict[ChannelKind, float] = {}
+        self.job_tasks: dict[int, asyncio.Task[None]] = {}
 
     # ---- jobs ----------------------------------------------------------------------------
-    async def tick(self) -> int:
-        """Claim due jobs and run them concurrently. Returns how many were run."""
+    async def claim_jobs(self, limit: int) -> list[tuple[int, str, dict]]:
         async with transaction(self.c.factory) as s:
             jobs = await JobRepo(s).claim(
-                self.c.clock(), lease_seconds(self.c.settings), CLAIM_BATCH
+                self.c.clock(), lease_seconds(self.c.settings), limit,
+                exclude_ids=tuple(self.job_tasks),
             )
-            snapshot = [(j.id, j.kind, dict(j.payload or {})) for j in jobs]
+            return [(j.id, j.kind, dict(j.payload or {})) for j in jobs]
+
+    def reap_jobs(self) -> None:
+        for job_id, task in list(self.job_tasks.items()):
+            if task.done():
+                del self.job_tasks[job_id]
+                if not task.cancelled():
+                    error = task.exception()
+                    if error is not None:
+                        log.error("job %s task crashed", job_id,
+                                  exc_info=(type(error), error, error.__traceback__))
+
+    async def dispatch(self) -> int:
+        """Fill free execution slots without waiting for slower jobs in the previous batch."""
+        self.reap_jobs()
+        capacity = CLAIM_BATCH - len(self.job_tasks)
+        if capacity <= 0 or self.stop.is_set():
+            return 0
+        snapshot = await self.claim_jobs(capacity)
+        # A stop received during claim still drains these already-leased jobs.
+        for item in snapshot:
+            self.job_tasks[item[0]] = asyncio.create_task(self.run_job(*item))
+        return len(snapshot)
+
+    async def tick(self) -> int:
+        """Claim due jobs and run them concurrently. Returns how many were run."""
+        snapshot = await self.claim_jobs(CLAIM_BATCH)
         if snapshot:
             await asyncio.gather(*(self.run_job(*item) for item in snapshot))
         return len(snapshot)
@@ -159,19 +186,25 @@ class Worker:
     async def run(self) -> None:
         self.install_signal_handlers()
         log.info("worker started")
-        while not self.stop.is_set():
-            try:
-                ran = await self.tick()
-                self.maybe_start_poll(asyncio.get_running_loop().time())
-            except Exception:
-                log.exception("worker tick failed")
-                ran = 0
-            if ran == 0:
+        stop_task = asyncio.create_task(self.stop.wait())
+        try:
+            while not self.stop.is_set():
                 try:
-                    await asyncio.wait_for(self.stop.wait(), self.c.settings.worker_tick_s)
-                except TimeoutError:
-                    pass
-        for task in self.poll_tasks.values():
-            if not task.done():
-                await task
+                    await self.dispatch()
+                    self.maybe_start_poll(asyncio.get_running_loop().time())
+                except Exception:
+                    log.exception("worker tick failed")
+                # A completion immediately frees a slot. The timeout also checks newly due
+                # work and polling schedules even when every running job is slow.
+                await asyncio.wait(
+                    [stop_task, *self.job_tasks.values()],
+                    timeout=self.c.settings.worker_tick_s,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+        finally:
+            stop_task.cancel()
+            await asyncio.gather(stop_task, return_exceptions=True)
+            await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(),
+                                 return_exceptions=True)
+            self.reap_jobs()
         log.info("worker stopped")

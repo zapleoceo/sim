@@ -28,6 +28,7 @@ from sim.services.content import ContentPublisher, ContentService
 from sim.services.conversation import ConversationService
 from sim.services.followup import FollowupService
 from sim.services.ingest import IngestService
+from sim.services.instagram_content import InstagramContentPublisher
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
@@ -134,7 +135,12 @@ class Container:
         return ChannelService(s, self.registry, self.box, clock=self.clock)
 
     def content(self, s: AsyncSession) -> ContentService:
-        return ContentService(s, self.audited(), publisher=self.publisher, clock=self.clock)
+        publisher = self.publisher
+        if publisher is None and self.settings.ig_content_enabled:
+            publisher = InstagramContentPublisher(
+                s, self.registry, self.box, self.media, self.settings.ig_content_post_ids, self.factory,
+            )
+        return ContentService(s, self.audited(), publisher=publisher, clock=self.clock)
 
     def partner(self, s: AsyncSession) -> PartnerService:
         return PartnerService(s, clock=self.clock)

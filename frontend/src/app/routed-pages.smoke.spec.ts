@@ -24,7 +24,8 @@ import { ShellComponent } from './shell/shell.component';
 
 const SUMMARY = {
   contacts: 10, new_contacts: 4, replied: 6, by_stage: { engaged: 3 }, registrations: 2, payments: 1, revenue: 1500,
-  partner_payouts: 300, conversion: { contact_to_registration: 0.2, registration_to_payment: 0.5 },
+  partner_payouts: 300, revenue_by_currency: [{ currency: 'USD', total: 1500 }],
+  partner_payouts_by_currency: [{ currency: 'USD', total: 300 }], conversion: { contact_to_registration: 0.2, registration_to_payment: 0.5 },
   llm: { calls: 5, cost_usd: 0.12, tokens_in: 100, tokens_out: 50 }, guard: { ok: 3, rewritten: 1, blocked: 0 },
   by_channel: [{ kind: 'telegram', contacts: 10, registrations: 2, payments: 1 }],
   daily: [{ date: '2026-11-01', contacts: 3, registrations: 1, payments: 0 }, { date: '2026-11-02', contacts: 7, registrations: 1, payments: 1 }],

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # Address Evolution uses to call us back inside the docker network.
     evolution_webhook_base: str = "http://api:8000"
 
+    # Both switches are required: enabling the feature alone never releases a backlog.
+    ig_content_enabled: bool = False
+    ig_content_post_ids: tuple[int, ...] = ()  # JSON array in SIM_IG_CONTENT_POST_IDS
+
     ig_proxy: str = ""
     ig_poll_interval_s: int = 120
 

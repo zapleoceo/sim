@@ -13,6 +13,12 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 
 Воронка: first_contact → engaged → needs_identified → interested → handed_to_partner → registered → paid. Отдельные статусы: active, paused, no_response, refused. ИИ не подтверждает оплату: последние два этапа устанавливаются по данным партнёра.
 
+## База текущего состояния
+
+Срез main `747af2f75f10f38648e869ee2efd7d109b4249d1`, после PR #2–#8. Статусы ниже описывают код,
+не факт выкладки или работы внешних каналов. Публикации Instagram по умолчанию выключены;
+в этой работе флаги и production не менялись.
+
 ## Матрица возможностей
 | Область | Статус | Что подтверждено |
 |---|---|---|
@@ -21,19 +27,31 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 | Индивидуальные голоса | Заглушка по документации | voice_id предусмотрен; исходящий ElevenLabs и видео Vivix не подтверждены рабочими |
 | Входящие голосовые | Реализовано в коде | Загрузка и транскрипция через Broker; внешнее выполнение не проверено |
 | Instagram диалоги | Реализовано в коде | instagrapi, polling, входящие запросы и личные сообщения |
-| Instagram публикации | Не завершено | UI и очередь есть, стандартный Container не подключает publisher |
+| Instagram публикации | Ограниченный выключенный пилот | Один локальный JPEG, два gate, явный post ID; долговечный intent/receipt, без автоматического retry неизвестного исхода; полноценный upload/UI и live-проверка отсутствуют |
 | WhatsApp | Реализовано в коде | Evolution API, linked-device QR; неофициальный транспорт с риском блокировки |
 | Telegram | Реализовано в коде | Bot API и Telethon user account; реальные сессии не проверены |
-| Воронка и партнёр | Реализовано в коде | Этапы, HMAC webhook, CSV; есть риск повторного импорта без устойчивого ID |
+| Воронка и партнёр | Реализовано в коде | Этапы, HMAC webhook, CSV; строки без ID и даты отклоняются, повтор ключа пропускается; прежние дубли не исправляются |
 | Админка | Реализовано в коде | Angular Material, inbox, клиенты, аналитика, настройки; UX не проверялся в браузере |
-| Контролер ответов | Реализовано с ограничением | Проверка, rewrite/block; fallback не гарантирует другую модель |
+| Контролер ответов | Реализовано с ограничением | Проверка, rewrite/block; известная одинаковая fallback-модель блокируется, но missing ID, aliases и self-rewrite остаются ограничениями |
 | Симуляции | Реализовано в коде | Отдельные ветки в боте входа и read-only просмотр owner+ |
+| История ИИ и очередь | Исправлено в коде | Только доставленные исходящие в истории; rolling pool до четырёх job, без distributed fencing |
+| Финансовая аналитика | Исправлено в коде | Отдельные суммы по валютам, без FX; legacy scalar nullable. `replied` всё ещё учитывает неотправленные исходящие |
 | Production | Не проверено | URL и схема деплоя описаны; фактическая версия и состояние не подтверждены |
 
 ## Что ещё требует решения владельца
 1. Подтвердить актуальные предложение RCIPM, цены и регистрационную ссылку. В docs/personas.md они отмечены как требующие уточнения.
 2. Определить критерии готовности голосов, аватаров и публикаций Instagram.
 3. Выбрать ожидаемые задержки ответа и минимальный объём одновременных диалогов для нагрузочной проверки.
-4. Определить валютную политику аналитики и источник уникальных ID платёжных событий.
 
-Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/b27a89ba5c7dae31ed48da78d2eefef6db681100/backend/sim/wiring.py).
+Валютная политика и приём CSV уже определены в [API](api.md); повторное решение владельца
+для них не требуется. Следующий технический приоритет — доставленные исходящие в `replied`,
+не повторная переделка истории ИИ. Остальные ограничения: [ревью](review-2026-11-07.md).
+
+## Последняя локальная проверка
+438 backend-тестов и Ruff прошли; TypeScript app/spec и ESLint прошли. Spec только
+скомпилированы, browser/Karma не запускались. Последняя Angular build не подтверждена:
+сетевой доступ к npm registry не был разрешён. Проверки production и фактического релиза нет.
+Для пилота Instagram см. [условия включения](instagram-content-publishing.md) и
+[intent/receipt](publication-intents.md).
+
+Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/wiring.py).

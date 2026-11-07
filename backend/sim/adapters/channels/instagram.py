@@ -168,7 +168,7 @@ class InstagrapiTransport:
     async def upload_photo(self, path: Path, caption: str) -> str:
         client = self._ensure_client()
         media = await asyncio.to_thread(client.photo_upload, Path(path), caption)
-        return str(getattr(media, "pk", "") or getattr(media, "id", ""))
+        return str(getattr(media, "pk", "") or getattr(media, "id", "") or "")
 
     async def download_media(self, url: str) -> bytes:
         return await download_bounded(url)

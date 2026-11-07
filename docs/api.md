@@ -114,6 +114,15 @@ rules: string[], followup_hours: number[], reply_delay_s: [min, max], created_at
 last_message: {text, direction, at}, unread: number, ai_paused}`.
 `Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed"|"cancelled", model?, error?, guard}`. `cancelled` — ответ ИИ не отправлен, потому что диалог перешёл к человеку (оператор/владелец написал, пауза ИИ), клиент отказался или контролер заблокировал черновик (тогда `error` = причина). `guard` — только у сообщений ИИ, иначе `null`: `{verdict: "ok"|"rewritten"|"blocked", violations: string[], model, original_text}`; для `rewritten` `text` — отправленный исправленный текст, `original_text` — черновик генератора; для `blocked` `text` — заблокированный черновик.
 
+Контролер сравнивает ID своей модели с ID исходного генератора без учёта регистра и пробелов
+по краям. При совпадении выполняется один запрос через резервную capability; повторное
+совпадение вызывает `GuardError`, и сообщение не ставится на отправку. Это действует и при
+проверке исправленного ответа. Отсутствующий ID пока допускается; разные ID могут быть
+алиасами одной модели, поэтому эти случаи не доказывают независимость проверки. Исправленный
+ответ сверяется с моделью исходного генератора, а не с моделью, которая внесла исправление:
+контролер может повторно проверить собственную правку.
+
+
 ## Клиенты
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
@@ -133,15 +142,13 @@ needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.
 
 ## Контент Instagram
 
-Состояние реализации: CRUD, генерация подписи, согласование и планирование есть, но стандартная
-сборка приложения не подключает `ContentPublisher`. При выполнении publish job пост получает
-`failed` с сообщением `publishing to Instagram is not implemented yet`; наличие API не означает
-готовность фактической публикации. Метод загрузки фото в адаптере ещё не связан с этим сервисом.
+Публикация одного фото подготовлена, но по умолчанию отключена. Условия отдельного включения и ограничения повторных попыток: [Instagram content publishing](instagram-content-publishing.md). Это не готовность к производственному включению.
 
 | Метод | Путь | Ответ |
 |---|---|---|
 | GET/POST | `/api/content` | `{items: ContentPost[]}` / `ContentPost` |
 | PUT/DELETE | `/api/content/{id}` | `ContentPost` |
+| GET | `/api/content/{id}/publication` | Только owner/superadmin: `{post_id, state: "not_attempted"|"uncertain"|"receipt_known", attempted_at?, external_id?, published_at?}`; чтение сохранённой истории, без сброса попытки |
 | POST | `/api/content/{id}/approve` | `ContentPost` (только owner) |
 | POST | `/api/content/{id}/generate-caption` | `{caption}` — подпись в стиле персонажа через Broker |
 
@@ -155,6 +162,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 {"contacts": 0, "new_contacts": 0, "replied": 0,
  "by_stage": {"first_contact": 0, "...": 0},
  "registrations": 0, "payments": 0, "revenue": 0.0, "partner_payouts": 0.0,
+ "revenue_by_currency": [], "partner_payouts_by_currency": [],
  "conversion": {"contact_to_registration": 0.0, "registration_to_payment": 0.0},
  "llm": {"calls": 0, "cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0},
  "guard": {"ok": 0, "rewritten": 0, "blocked": 0},
@@ -162,11 +170,40 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
  "daily": [{"date": "2026-11-05", "contacts": 0, "registrations": 0, "payments": 0}]}
 ```
 
+`revenue_by_currency` и `partner_payouts_by_currency` — массивы `{currency, total}`.
+Выручка включает только `amount` событий payment; выплаты включают `payout` всех
+событий, включая registration. Валюта выплаты — `currency` того же события.
+Суммы группируются после удаления пробелов по краям и приведения валюты к верхнему
+регистру, без конвертации и без изменения исходных данных. Каждая сумма округляется
+до двух знаков после сложения. Отсутствующая/пустая валюта — отдельная группа
+`{"currency": null, "total": ...}`: её сумма не считается подтверждённой суммой в одной валюте.
+Порядок: валюты по алфавиту, затем неизвестная. Неизвестные непустые коды сохраняются
+как метки, без проверки ISO и без подмены USD/RUB.
+
+Прежние поля `revenue` и `partner_payouts` остаются числом только при одной
+указанной валюте соответствующего показателя. При нескольких валютах или группе
+без валюты они равны `null`; потребителям следует показывать группы с валютами.
+Если сумм нет, группы пустые, а старое поле равно `0.0` (без подразумеваемой валюты).
+Это изменение контракта для старых клиентов: необходимо обработать `null` и перейти
+на группы; обновление API и dashboard следует выкладывать совместно. Новый dashboard
+при ответе старого API без групп показывает «Сводка по валютам недоступна».
+`null` в amount/payout не создаёт группу, явный ноль создаёт. Дата и persona_id
+фильтруют события до группировки. Расходы `llm.cost_usd` по-прежнему отдельно в USD.
+
 ## Партнёр
 | POST | `/api/partner/import` | multipart CSV `client_ref,event,amount,currency,payout,occurred_at,external_id` | `{imported, skipped, errors[]}` |
 | POST | `/hooks/partner` | `{client_ref, event: "registration"|"payment", external_id, amount?, currency?, payout?, occurred_at}`; заголовки `X-Sim-Timestamp`, `X-Sim-Signature: hex(hmac_sha256(secret, ts + "." + body))` | `{ok: true}` |
 
 `client_ref` — ref-код клиента, который ИИ подставляет в ссылку регистрации (`?ref=<code>`).
+
+Для каждой строки CSV обязателен непустой `external_id` или явный `occurred_at`.
+Строка без обоих значений возвращает ошибку с номером строки и не меняет события или воронку;
+остальные корректные строки продолжают импортироваться. Рекомендуется ID события от партнёра.
+При наличии только даты сохраняется прежний ключ `csv:<client_ref>:<event>:<UTC timestamp>`;
+при наличии только ID дата первого импорта используется как время события. Повтор того же ID
+(в пределах типа события) или того же fallback-ключа учитывается в `skipped`, а не в выручке.
+Для разных платежей одного клиента с одинаковой датой нужны разные `external_id`.
+Исправление не удаляет и не объединяет уже созданные дубли; webhook-контракт не меняется.
 
 ## Webhooks каналов
 | POST | `/hooks/telegram/{channel_id}` | Update Bot API; заголовок `X-Telegram-Bot-Api-Secret-Token` |
@@ -180,3 +217,37 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
 `Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
+
+
+## Видимость истории для ИИ
+История реального диалога включает входящие сообщения и только отправленные (`sent`)
+исходящие сообщения ИИ или оператора. `queued`, `failed` и `cancelled` не считаются
+увиденными клиентом; guard-blocked черновики также исключаются. Фильтрация происходит
+до лимита последних сообщений, поэтому очередь неотправленных черновиков не вытесняет
+реальные реплики. После успешной повторной отправки сообщение снова доступно истории.
+Это правило не удаляет записи из inbox/админки и не меняет историю симуляций.
+Метрики аналитики и гарантии внешней доставки этим изменением не пересматриваются.
+
+## Выполнение очереди worker
+Рабочий цикл держит до четырёх job одновременно. Освободившийся слот заполняется без
+ожидания остальных job прежней пачки; проверки новых due job и каналов продолжаются
+с интервалом `worker_tick_s`, даже если генерация ответа ещё идёт. Порядок выбора
+остаётся `run_at, id`; порядок завершения параллельных job не гарантируется.
+Активные job текущего worker исключаются из повторного claim до применения лимита.
+При штатном SIGTERM/SIGINT новые claim прекращаются, уже взятые job и polling
+дожидаются завершения. Retry/backoff, lease duration и обработчики не изменены.
+Это не distributed fencing: истечение lease при слишком долгом обработчике всё ещё
+может позволить другому процессу повторное исполнение. Лимит относится к одному worker,
+а `tick()` остаётся отдельным ожидающим batch-вызовом для тестов/разовых запусков;
+его не следует запускать одновременно с `run()` того же экземпляра.
+
+## Срез и известные ограничения аналитики
+
+Контракт актуализирован по main `747af2f75f10f38648e869ee2efd7d109b4249d1`. Описанные возможности
+не подтверждают текущую production-версию. `replied` пока вычисляется по порядку
+`created_at` всех исходящих, включая неотправленные/заблокированные, перед входящим.
+Фильтр доставленной истории ИИ на этот показатель не распространяется. `sent_at`
+в модели сообщения нет: даже будущая фильтрация по `sent` сама по себе не даст точного
+времени доставки. Финансовая группировка валют не меняет этот показатель.
+Подробнее: [состояние проекта](project-status.md), [ревью](review-2026-11-07.md) и
+[durable publication intent/receipt](publication-intents.md).

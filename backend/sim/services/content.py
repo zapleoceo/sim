@@ -1,14 +1,13 @@
 """Instagram content: draft -> approval -> plan -> publish.
 
-Publishing itself belongs to a connector that is not built yet: without a `ContentPublisher` the
-post is marked failed with "not implemented" (visible in the admin, never silently dropped)."""
+Instagram publishing is opt-in. Without a publisher, posts fail visibly."""
 from __future__ import annotations
 
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import ContentPost, Persona
+from sim.adapters.db.models import ContentPost, ContentPublishIntent, Persona
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.repositories.records import ContentRepo
@@ -17,7 +16,7 @@ from sim.domain.enums import ContentStatus
 from sim.services import jobkinds
 from sim.services.llm_audit import AuditedLLM
 
-NOT_IMPLEMENTED = "publishing to Instagram is not implemented yet"
+NOT_IMPLEMENTED = "Instagram publishing is disabled or no publisher is configured"
 EDITABLE = (ContentStatus.DRAFT, ContentStatus.APPROVED, ContentStatus.SCHEDULED, ContentStatus.FAILED)
 
 
@@ -50,6 +49,7 @@ class ContentService:
         publisher: ContentPublisher | None = None,
         clock: Clock = utcnow,
     ) -> None:
+        self.session = session
         self.posts = ContentRepo(session)
         self.personas = PersonaRepo(session)
         self.jobs = JobRepo(session)
@@ -65,6 +65,9 @@ class ContentService:
     async def update(self, post: ContentPost, *, by_owner: bool, **fields: Any) -> ContentPost:
         """Only the owner approves. An operator's edit of an approved/scheduled post changes
         text nobody approved, so the post goes back to DRAFT and its publish job is cancelled."""
+        post = await self.lock_post(post)
+        if await self.session.get(ContentPublishIntent, post.id) is not None:
+            raise ContentError("Publication already attempted; reconciliation required")
         if post.status not in EDITABLE:
             raise ContentError(f"a {post.status.value} post cannot be edited")
         for key, value in self.normalise(fields).items():
@@ -79,7 +82,16 @@ class ContentService:
             post.status, post.error = ContentStatus.DRAFT, None
         return post
 
+    async def lock_post(self, post: ContentPost) -> ContentPost:
+        locked = await self.posts.for_publish(post.id)
+        if locked is None:
+            raise ContentError("post not found")
+        return locked
+
     async def approve(self, post: ContentPost) -> ContentPost:
+        post = await self.lock_post(post)
+        if await self.session.get(ContentPublishIntent, post.id) is not None:
+            raise ContentError("Publication already attempted; reconciliation required")
         if post.status not in (ContentStatus.DRAFT, ContentStatus.FAILED):
             raise ContentError(f"a {post.status.value} post cannot be approved")
         post.status, post.error = ContentStatus.APPROVED, None
@@ -112,18 +124,25 @@ class ContentService:
 
     async def publish(self, post_id: int) -> None:
         """Worker hook. Marks the post failed when no publisher is wired."""
-        post = await self.posts.get(post_id)
+        post = await self.posts.for_publish(post_id)
         if post is None or post.status not in (ContentStatus.APPROVED, ContentStatus.SCHEDULED):
+            return
+        if post.scheduled_at is not None and post.scheduled_at > to_naive_utc(self.clock()):
             return
         if self.publisher is None:
             post.status, post.error = ContentStatus.FAILED, NOT_IMPLEMENTED
             return
         try:
             await self.publisher.publish(post)
-        except Exception as exc:  # the connector decides what went wrong; keep it visible
-            post.status, post.error = ContentStatus.FAILED, f"{type(exc).__name__}: {exc}"[:500]
+        except ContentError as exc:
+            post.status, post.error = ContentStatus.FAILED, str(exc)[:500]
             return
-        post.status, post.published_at, post.error = ContentStatus.PUBLISHED, self.clock(), None
+        except Exception:
+            post.status, post.error = ContentStatus.FAILED, "Publication failed; reconcile before retrying"
+            return
+        post.status, post.published_at, post.error = (
+            ContentStatus.PUBLISHED, post.published_at or self.clock(), None
+        )
 
     @staticmethod
     def normalise(fields: dict[str, Any]) -> dict[str, Any]:

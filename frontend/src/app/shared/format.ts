@@ -60,7 +60,7 @@ export function formatInt(v: number): string {
 
 const moneyFmt = new Map<string, Intl.NumberFormat>();
 
-/** Деньги с валютой (по умолчанию USD — API не отдаёт валюту сводки). Форматтеры кешируются. */
+/** Деньги с валютой (по умолчанию USD; для партнёрских сумм нужна явная валюта). Форматтеры кешируются. */
 export function formatMoney(v: number, currency = 'USD', fractionDigits = 0): string {
   const key = `${currency}:${fractionDigits}`;
   let f = moneyFmt.get(key);

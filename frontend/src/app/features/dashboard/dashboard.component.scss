@@ -5,7 +5,7 @@
 .top-bar { position: sticky; top: 0; z-index: 5; height: 3px; }
 .kpi { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--sim-space-3) var(--sim-space-4); }
 .label { font-size: 12px; }
-.value { font-size: 24px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.value { overflow-wrap: anywhere; font-size: 24px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .sub { font-size: 12px; line-height: 1.3; }
 
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sim-space-4); }
@@ -19,7 +19,7 @@ table { width: 100%; background: transparent; --mat-table-background-color: tran
   .range { flex: 1 1 100%; width: 100%; }
   .presets { width: 100%; }
   .presets button { flex: 1; }
-  .value { font-size: 20px; }
+  .value { overflow-wrap: anywhere; font-size: 20px; }
   /* Таблица -> стопка строк-карточек */
   .stack .mat-mdc-header-row { display: none; }
   .stack .mat-mdc-row { display: grid; grid-template-columns: 1fr 1fr 1fr; padding: var(--sim-space-2) 0; height: auto; border-bottom: 1px solid var(--sim-border); }

@@ -298,6 +298,18 @@ class ContentPost(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class ContentPublishIntent(Base):
+    """Permanent upload fence. Deliberately no FK: independent commits must not lock posts."""
+
+    __tablename__ = "content_publish_intent"
+
+    post_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Job(Base):
     """Work queue. status: pending | running | done | failed | cancelled."""
 

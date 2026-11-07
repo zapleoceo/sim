@@ -4,6 +4,10 @@ is queued for sending.
 The guard runs on a DIFFERENT broker rotation than the generator (settings `guard_capability`,
 default "structured"). If the model that served the guard call is the same one that wrote the
 draft, the guard is re-run once on `guard_fallback_capability` (default "prefilter").
+If that fallback still reports the generator model, the review fails closed. Missing model
+metadata remains accepted; independence cannot be verified when either model is unknown
+or different IDs alias the same model. Rewrite checks compare against the original generator,
+not against the model that authored the rewrite.
 
 Flow: ok -> send the draft; rewrite -> use `fixed_reply`, which must itself pass the guard
 once more (anything but ok = block); block -> nothing is sent, an operator is called.
@@ -192,6 +196,8 @@ class Guard:
             log.info("guard served by the generator's model %s: re-running on %s",
                      result.model, self.fallback_capability)
             result = await self.call(messages, self.fallback_capability, dialog_id, workflow)
+            if same_model(result.model, generator_model):
+                raise GuardError("guard fallback returned the generator's model")
         verdict = parse_verdict(result)
         if verdict is None:
             raise GuardError(f"guard returned an unusable verdict (model={result.model})")

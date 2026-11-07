@@ -137,7 +137,7 @@ async def test_csv_import_missing_columns(container):
 
 async def test_import_endpoint_owner_only(api, container, world):
     ref = await client_ref(container, world)
-    csv_bytes = f"client_ref,event\n{ref},registration\n".encode()
+    csv_bytes = f"client_ref,event,external_id\n{ref},registration,owner-reg-1\n".encode()
     csrf = await login_owner(api)
     resp = await api.post("/api/partner/import", files={"file": ("p.csv", csv_bytes, "text/csv")},
                           headers={"X-CSRF-Token": csrf})
@@ -148,3 +148,55 @@ async def login_owner(api) -> str:
     from tests.conftest import OWNER, login
 
     return await login(api, *OWNER)
+
+
+@pytest.mark.parametrize("identity", ["", ",,", ",  ,  "])
+async def test_csv_missing_identity_never_creates_events(container, world, identity):
+    ref = await client_ref(container, world)
+    content = ("client_ref,event,occurred_at,external_id\n"
+               f"{ref},payment{identity}\n").encode()
+    for _ in range(2):
+        async with transaction(container.factory) as s:
+            result = await container.partner(s).import_csv(content)
+        assert (result.imported, result.skipped) == (0, 0)
+        assert result.errors == [
+            "line 2: external_id or occurred_at is required for repeatable CSV imports"
+        ]
+    async with container.factory() as s:
+        assert not (await s.scalars(select(PartnerEvent))).all()
+        assert (await s.scalars(select(Client))).one().stage is not Stage.PAID
+
+
+@pytest.mark.parametrize("identity", [
+    ",payment-123",
+    "2026-11-05T10:00:00Z,",
+    "2026-11-05T10:00:00Z,payment-123",
+])
+async def test_csv_repeat_with_stable_identity_does_not_double_revenue(
+    container, world, monkeypatch, identity,
+):
+    ref = await client_ref(container, world)
+    content = ("client_ref,event,amount,currency,payout,occurred_at,external_id\n"
+               f"{ref},payment,100,USD,20,{identity}\n").encode()
+    for day, expected in [(5, (1, 0)), (6, (0, 1))]:
+        monkeypatch.setattr("sim.services.partner.utcnow", lambda day=day: datetime(2026, 11, day))
+        async with transaction(container.factory) as s:
+            result = await container.partner(s).import_csv(content)
+        assert (result.imported, result.skipped) == expected
+        assert result.errors == []
+    async with container.factory() as s:
+        events = (await s.scalars(select(PartnerEvent))).all()
+        assert len(events) == 1
+        assert sum(e.amount for e in events) == 100
+        assert sum(e.payout for e in events) == 20
+
+
+async def test_csv_bad_identity_does_not_block_valid_rows(container, world):
+    ref = await client_ref(container, world)
+    content = ("client_ref,event,external_id\n"
+               f"{ref},registration,\n"
+               f"{ref},registration,valid-reg\n").encode()
+    async with transaction(container.factory) as s:
+        result = await container.partner(s).import_csv(content)
+    assert (result.imported, result.skipped, len(result.errors)) == (1, 0, 1)
+    assert result.errors[0].startswith("line 2:")
