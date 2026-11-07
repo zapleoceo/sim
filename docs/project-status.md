@@ -1,10 +1,10 @@
 # Цели и состояние SIM
 
-База main `349dc6648fb6808ff18c982260b40d138e3244e6`, PR #1–#12 слиты.
-Текущая ветка `codex/unified-client-admin` добавляет переписку и активность;
-результаты проверок ведутся в [задаче](ai-ui/tasks/unified-client-admin/task-context.md).
+База main `7ef50b1f2481f1ed9dde03c264075ea82ba86529`, PR #1–#13 слиты.
+Единая переписка и активность добавлены в PR #13; результаты проверок — в
+[задаче](ai-ui/tasks/unified-client-admin/task-context.md).
 Read-only проверка production 2026-11-07 показала `b27a89b` и миграцию `0005`.
-Изменения текущей ветки не развёрнуты.
+Выкладка PR #13 не подтверждена.
 
 ## Подтверждённый бриф
 Пользователь описал:
@@ -21,7 +21,7 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 
 ## База текущего состояния
 
-База main `349dc66`, после PR #1–#12, и текущая ветка админки. Статусы ниже описывают код,
+База main после PR #1–#13, включая админку. Статусы ниже описывают код,
 не факт выкладки или работы внешних каналов. Публикации Instagram по умолчанию выключены;
 в этой работе флаги и production не менялись.
 
@@ -60,10 +60,10 @@ PR #11, intent/receipt исходящих — в PR #12. Lease renewal и уни
 полностью вывести перед rollout. Подробности: [доставка](outbound-delivery.md).
 
 ## Последняя локальная проверка
-База PR #12: 534 backend-теста прошли, один Windows symlink тест недоступен (WinError1314);
-Ruff прошёл, полный mypy сохранял 18 прежних ошибок. До изменения админки: production build,
-ESLint, spec typecheck и 76 ChromeHeadless тестов прошли. Актуальные результаты текущей
-ветки — в [задаче](ai-ui/tasks/unified-client-admin/task-context.md).
+Для PR #13 в облаке прошли 573 backend-теста, Ruff, frontend build, lint и TypeScript
+app/spec. Полный mypy сохраняет 18 прежних ошибок в шести файлах. На Windows локально
+прошли 91/91 ChromeHeadless-тестов; облачный запуск Chromium заблокирован socket policy.
+Детали и границы — в [задаче](ai-ui/tasks/unified-client-admin/task-context.md).
 Для пилота Instagram см. [условия включения](instagram-content-publishing.md) и
 [intent/receipt](publication-intents.md).
 

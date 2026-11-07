@@ -352,7 +352,7 @@ registration и payment, выручка — только payment. API и dashboa
 
 ## Основание и границы проверки
 
-Проверки базы PR #12 и текущей ветки разделены в [README](../README.md) и
+Проверки PR #12 и слитого PR #13 разделены в [README](../README.md) и
 [задаче админки](ai-ui/tasks/unified-client-admin/task-context.md). PostgreSQL-конкурентность
 и реальные каналы в этой работе не проверены. Подробности: [operations.md](operations.md).
 
