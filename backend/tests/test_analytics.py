@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -16,6 +16,7 @@ from sim.adapters.db.session import transaction
 from sim.domain.enums import (
     Author,
     ChannelKind,
+    Delivery,
     Direction,
     PartnerEventKind,
     Stage,
@@ -39,8 +40,9 @@ async def add_client(s, world, n: int, created: datetime, stage=Stage.FIRST_CONT
     return client, dialog
 
 
-def msg(dialog, direction, at):
+def msg(dialog, direction, at, delivery=Delivery.SENT, guard_verdict=None):
     return Message(dialog_id=dialog.id, direction=direction, created_at=at, text="t",
+                   delivery=delivery, guard_verdict=guard_verdict,
                    author=Author.CLIENT if direction is Direction.IN else Author.AI)
 
 
@@ -261,3 +263,87 @@ def test_money_totals_adds_decimal_values_before_rounding():
               PartnerEvent(currency="USD", amount=0.2)]
     assert money_totals(events, "amount") == (0.3, [{"currency": "USD", "total": 0.3}])
     assert [event.currency for event in events] == [" usd ", "USD"]
+
+
+@pytest.mark.parametrize("delivery", list(Delivery))
+@pytest.mark.parametrize("guard_verdict", [None, "ok", "rewritten", "blocked"])
+async def test_exchange_requires_sent_nonblocked_outbound(container, world, delivery, guard_verdict):
+    async with transaction(container.factory) as s:
+        client, dialog = await add_client(s, world, 20, START)
+        s.add_all([
+            msg(dialog, Direction.OUT, START, delivery, guard_verdict),
+            msg(dialog, Direction.IN, START + timedelta(minutes=1)),
+            msg(dialog, Direction.IN, START + timedelta(minutes=2)),
+        ])
+        s.add(PartnerEvent(client_id=client.id, kind=PartnerEventKind.PAYMENT,
+                           currency="USD", amount=10, payout=2, occurred_at=START,
+                           external_id="exchange-payment"))
+    async with container.factory() as s:
+        out = await AnalyticsService(s).summary(START, END)
+    assert out["contacts"] == 1
+    assert out["replied"] == int(delivery is Delivery.SENT and guard_verdict != "blocked")
+    expected_guard = {"ok": 0, "rewritten": 0, "blocked": 0}
+    if guard_verdict:
+        expected_guard[guard_verdict] = 1
+    assert out["guard"] == expected_guard
+    assert out["payments"] == 1 and out["revenue"] == 10 and out["partner_payouts"] == 2
+    assert out["revenue_by_currency"] == [{"currency": "USD", "total": 10.0}]
+    assert out["partner_payouts_by_currency"] == [{"currency": "USD", "total": 2.0}]
+
+
+@pytest.mark.parametrize("delivery", list(Delivery))
+async def test_exchange_preserves_inbound_regardless_of_delivery_and_guard(container, world, delivery):
+    async with transaction(container.factory) as s:
+        _, dialog = await add_client(s, world, 21, START)
+        s.add_all([
+            msg(dialog, Direction.OUT, START),
+            msg(dialog, Direction.IN, START + timedelta(minutes=1), delivery, "blocked"),
+        ])
+    async with container.factory() as s:
+        out = await AnalyticsService(s).summary(START, END)
+    assert out["contacts"] == out["replied"] == 1
+    assert out["guard"]["blocked"] == 1
+
+
+@pytest.mark.parametrize(("out_at", "in_at", "contacts", "replied"), [
+    (START, START + timedelta(seconds=1), 1, 1),
+    (START - timedelta(seconds=1), START, 1, 0),
+    (END - timedelta(seconds=1), END, 0, 0),
+    (END, END - timedelta(seconds=1), 1, 0),
+    (START + timedelta(seconds=1), START, 1, 0),
+])
+async def test_exchange_half_open_created_at_window(container, world, out_at, in_at, contacts, replied):
+    async with transaction(container.factory) as s:
+        _, dialog = await add_client(s, world, 22, START)
+        s.add_all([msg(dialog, Direction.OUT, out_at), msg(dialog, Direction.IN, in_at)])
+    async with container.factory() as s:
+        out = await AnalyticsService(s).summary(START, END)
+    assert out["contacts"] == contacts and out["replied"] == replied
+
+
+async def test_exchange_persona_filter(container, world):
+    from sim.adapters.db.models import Persona
+
+    async with transaction(container.factory) as s:
+        _, selected_dialog = await add_client(s, world, 23, START)
+        other_client, other_dialog = await add_client(s, world, 24, START)
+        other_persona = Persona(name="Other exchange")
+        s.add(other_persona)
+        await s.flush()
+        other_client.persona_id = other_persona.id
+        s.add_all([
+            msg(selected_dialog, Direction.OUT, START, Delivery.QUEUED, "blocked"),
+            msg(selected_dialog, Direction.IN, START + timedelta(seconds=1)),
+            msg(other_dialog, Direction.OUT, START, Delivery.SENT, "ok"),
+            msg(other_dialog, Direction.IN, START + timedelta(seconds=1)),
+        ])
+    async with container.factory() as s:
+        selected = await AnalyticsService(s).summary(START, END, world.persona.id)
+        all_personas = await AnalyticsService(s).summary(START, END)
+        absent = await AnalyticsService(s).summary(START, END, 999)
+    assert selected["contacts"] == 1 and selected["replied"] == 0
+    assert selected["guard"] == {"ok": 0, "rewritten": 0, "blocked": 1}
+    assert all_personas["contacts"] == 2 and all_personas["replied"] == 1
+    assert all_personas["guard"] == {"ok": 1, "rewritten": 0, "blocked": 1}
+    assert absent["contacts"] == absent["replied"] == 0
+    assert absent["guard"] == {"ok": 0, "rewritten": 0, "blocked": 0}
