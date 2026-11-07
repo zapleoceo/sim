@@ -1,0 +1,10 @@
+{
+  "prototypeKind": "textual",
+  "exactPixelReferenceAvailable": false,
+  "requireMobile": true,
+  "mobileWidths": [360, 390, 767],
+  "matrixWidths": [360, 390, 767, 768, 1023, 1024, 1199, 1200, 1279, 1280, 1440, 1920],
+  "boundaryPairs": [[767, 768], [1023, 1024], [1199, 1200], [1279, 1280]],
+  "horizontalPageOverflowTolerancePx": 1,
+  "missingMajorStatesAllowed": 0
+}

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, inject, input, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -7,8 +7,10 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterLink } from '@angular/router';
-import { EMPTY, catchError, switchMap } from 'rxjs';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { EMPTY, catchError, combineLatest, switchMap, tap } from 'rxjs';
+import { ActivityFeedComponent } from '../activity/activity-feed.component';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ClientsApi } from '../../core/api/clients.api';
 import { ClientCard, ClientStatus, FunnelEvent, PartnerEvent, Stage } from '../../core/models';
 import { PARTNER_ONLY_HINT, STAGES, STATUSES, STATUS_LABELS, stageMeta } from '../../core/stages';
@@ -47,7 +49,7 @@ export function buildTimeline(events: FunnelEvent[], partner: PartnerEvent[]): T
 @Component({
   selector: 'sim-client-card',
   imports: [
-    ReactiveFormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, DatetimeFieldComponent,
+    ActivityFeedComponent, ReactiveFormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, DatetimeFieldComponent,
     MatSelectModule, MatTooltipModule, AvatarComponent, ChannelIconComponent, EmptyStateComponent, StatusBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,6 +60,9 @@ export class ClientCardComponent {
   readonly id = input.required<string>();
 
   private readonly api = inject(ClientsApi);
+  private readonly route = inject(ActivatedRoute);
+  private readonly injector = inject(Injector);
+  private readonly conversation = viewChild<ElementRef<HTMLElement>>('conversation');
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -75,6 +80,8 @@ export class ClientCardComponent {
 
   protected readonly card = signal<ClientCard | null>(null);
   protected readonly saving = signal(false);
+  protected readonly loadError = signal('');
+  private readonly reload = signal(0);
 
   protected readonly timeline = computed(() => {
     const c = this.card();
@@ -83,13 +90,19 @@ export class ClientCardComponent {
   protected readonly createdAt = computed(() => formatDateTime(this.card()?.created_at));
 
   constructor() {
-    toObservable(this.id)
+    combineLatest([toObservable(this.id), toObservable(this.reload)])
       .pipe(
-        switchMap((id) => this.api.get(Number(id)).pipe(catchError(() => EMPTY))),
+        tap(() => { this.card.set(null); this.loadError.set(''); }),
+        switchMap(([id]) => this.api.get(Number(id)).pipe(catchError((error: unknown) => {
+          this.loadError.set(error instanceof HttpErrorResponse && error.status === 404 ? 'Клиент не найден' : 'Не удалось загрузить клиента');
+          return EMPTY;
+        }))),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((c) => this.applyCard(c));
   }
+
+  protected retry(): void { this.reload.update((v) => v + 1); }
 
   protected save(): void {
     const c = this.card();
@@ -155,6 +168,9 @@ export class ClientCardComponent {
 
   private applyCard(c: ClientCard): void {
     this.card.set(c);
+    if (this.route.snapshot.fragment === 'conversation') {
+      afterNextRender(() => this.conversation()?.nativeElement.scrollIntoView({ block: 'start' }), { injector: this.injector });
+    }
     this.form.reset({
       display_name: c.display_name,
       next_step: c.next_step ?? '',

@@ -1,0 +1,9 @@
+:host { display: flex; flex-direction: column; gap: var(--sim-space-4); min-width: 0; }
+.toolbar, .llm-card header, .llm-card footer, .metrics { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sim-space-3); }
+.toolbar { justify-content: space-between; } .toolbar p { flex: 1 1 240px; }
+.entries, .llm-card { display: flex; flex-direction: column; gap: var(--sim-space-3); }
+.llm-card { overflow-wrap: anywhere; } .llm-card header { justify-content: space-between; }
+time, .metrics { font-size: 12px; } .day { text-align: center; color: var(--sim-text-muted); }
+.total, .page-note { margin-bottom: var(--sim-space-3); } .page-note { margin-top: var(--sim-space-3); }
+.error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sim-space-3); }
+@media (max-width: 767px) { .toolbar button { width: 100%; } }

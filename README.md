@@ -1,17 +1,17 @@
 # Sim
 
-Срез main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`, PR #1–#10 слиты.
-Подтверждено состояние Git; production-версия и deployment не подтверждены.
-
-Дополнительно описан локальный кандидат fencing состояния job: он ещё не слит.
-Кандидат: 502 backend-теста прошли (16 существующих предупреждений, 47,78 с),
-63 focused-теста и Ruff прошли. Историческая база PR #10: 470 тестов и Ruff.
+База разработки: main `349dc6648fb6808ff18c982260b40d138e3244e6`, PR #1–#12 слиты.
+Ветка `codex/unified-client-admin` добавляет единую переписку клиента и журнал активности;
+состояние проверок — в [задаче](docs/ai-ui/tasks/unified-client-admin/task-context.md).
+Последняя read-only проверка production 2026-11-07 показала ревизию `b27a89b` и миграцию
+`0005`; изменения этой ветки не развёрнуты.
 
 ИИ-персонажи (виртуальные представители): Instagram — привлечение, WhatsApp и Telegram — личное
 общение, воронка до регистрации и первой оплаты у партнёра. Документированный URL: https://sim.zapleo.com (текущий релиз и доступность не проверены).
 
 - Архитектура и решения: [docs/architecture.md](docs/architecture.md)
 - HTTP API: [docs/api.md](docs/api.md)
+- Переписка, активность и подключение каналов: [docs/admin-activity.md](docs/admin-activity.md)
 - Персонажи и стратегия: [docs/personas.md](docs/personas.md)
 - Цели и состояние возможностей: [docs/project-status.md](docs/project-status.md)
 - Запуск, проверки и эксплуатация: [docs/operations.md](docs/operations.md)
@@ -63,15 +63,12 @@ Frontend build и health smoke не заменяют frontend tests, UX-пров
 
 ## Проверенная база
 
-Документация подготовлена на базе main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`
-(PR #1–#10), включая `replied` из PR #9 и nginx login routes из PR #10.
-Последний локальный backend-прогон кандидата: 502 backend-теста и Ruff прошли.
-TypeScript app/spec и ESLint ранее прошли на неизменённом frontend.
-Компиляция spec не означает их выполнение. Последняя Angular build не подтверждена:
-проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было.
-Браузерные тесты не запускались. Production и включение публикаций Instagram не проверялись и не менялись.
-Открытые ограничения и дальнейшие проверки: [ревью](docs/review-2026-11-07.md).
+Для слитого PR #12: 534 backend-теста прошли; один тест symlink не выполнился из-за
+Windows WinError1314. Ruff прошёл; полный mypy сохранял 18 ранее существовавших ошибок.
+До изменений админки frontend production build, ESLint, spec typecheck и 76 ChromeHeadless
+тестов прошли. Эти числа относятся к базе, не заменяют проверки текущей ветки.
 
-Локальный кандидат защиты состояния job ещё не слит; 502 backend-теста и Ruff прошли.
-Он не обещает exactly-once внешних действий; смешанный rollout со старыми worker небезопасен.
-См. [контракт и ограничения](docs/api.md#локальный-кандидат-fencing-состояния-очереди).
+Generation/CAS fencing очереди и долговечный intent/receipt исходящих сообщений слиты.
+Они не обещают exactly-once внешних действий; смешанный rollout со старыми worker
+небезопасен. См. [контракт доставки](docs/outbound-delivery.md) и
+[ограничения проекта](docs/project-status.md).

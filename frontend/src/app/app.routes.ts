@@ -29,6 +29,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/clients/client-card.component').then((m) => m.ClientCardComponent),
       },
       {
+        path: 'activity',
+        title: 'Активность — Sim',
+        loadComponent: () => import('./features/activity.component').then((m) => m.ActivityComponent),
+      },
+      {
         path: 'funnel',
         title: 'Воронка — Sim',
         loadComponent: () => import('./features/funnel/funnel.component').then((m) => m.FunnelComponent),

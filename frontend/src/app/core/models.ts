@@ -123,6 +123,12 @@ export interface Message {
   created_at: string;
   delivery: Delivery;
   model?: string | null;
+  provider?: string | null;
+  operator_id?: number | null;
+  operator_name?: string | null;
+  tokens_in?: number | null;
+  tokens_out?: number | null;
+  cost_usd?: number | null;
   error?: string | null;
   /** Результат контролера; только у сообщений ИИ. */
   guard?: GuardInfo | null;

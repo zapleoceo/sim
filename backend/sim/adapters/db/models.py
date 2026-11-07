@@ -226,12 +226,18 @@ class Message(Base):
     __table_args__ = (
         UniqueConstraint("dialog_id", "external_id"),
         Index("ix_message_dialog_id_id", "dialog_id", "id"),
+        Index("ix_message_created_at_id", "created_at", "id"),
+        Index("ix_message_dialog_created_at_id", "dialog_id", "created_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     dialog_id: Mapped[int] = mapped_column(ForeignKey("dialog.id", ondelete="CASCADE"))
     direction: Mapped[Direction] = mapped_column(enum_col(Direction))
     author: Mapped[Author] = mapped_column(enum_col(Author))
+    operator_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True,
+    )
+    operator_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     text: Mapped[str] = mapped_column(Text, default="")
     media_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     media_url: Mapped[str | None] = mapped_column(Text, nullable=True)

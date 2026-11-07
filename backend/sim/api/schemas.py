@@ -235,6 +235,9 @@ def message_out(m: Message) -> dict[str, Any]:
         "id": m.id, "direction": m.direction.value, "author": m.author.value, "text": m.text,
         "media_kind": m.media_kind, "media_url": m.media_url, "created_at": dt(m.created_at),
         "delivery": m.delivery.value, "model": m.model, "error": m.error,
+        "operator_id": m.operator_id, "operator_name": m.operator_name,
+        "provider": m.provider, "tokens_in": m.tokens_in, "tokens_out": m.tokens_out,
+        "cost_usd": m.cost_usd,
         "guard": guard_out(m.guard_verdict, m.guard_violations, m.guard_model, m.original_text),
     }
 

@@ -1,0 +1,119 @@
+{
+  "version": 2,
+  "task": "unified-client-admin",
+  "page": { "path": "/activity", "requiresToken": true },
+  "additionalPages": [{ "path": "/clients/:id", "requiresToken": true }, { "path": "/channels", "requiresToken": true }],
+  "buckets": { "mobile-s": [360], "mobile": [390, 767], "tablet": [768, 1024], "desktop": [1280, 1440] },
+  "evidence": {
+    "source": "owner textual specification and existing repository at 349dc66",
+    "referenceImages": "UNAVAILABLE: no visual prototype supplied; implementation captures must not be represented as independent references",
+    "expectationSource": "Exact source CSS values in frontend/src/styles.scss and shared/page-header.component.ts; no measured new-layout geometry",
+    "selectors": "Proposed selectors must be re-keyed against implementation before probe execution",
+    "assessment": "Structural, token and responsive validation; pixel-fidelity comparison unavailable"
+  },
+  "blocks": [
+    {
+      "id": "activity-page", "selector": "sim-activity .sim-page",
+      "reference": { "status": "unavailable-text-only" },
+      "elements": [
+        { "selector": "sim-activity .sim-page", "expect": { "desktop": { "padding": "24px", "gap": "16px" }, "mobile": { "padding": "16px", "gap": "16px" } } },
+        { "selector": "sim-activity sim-page-header h1", "expect": { "desktop": { "fontSize": "22px", "fontWeight": 600 }, "mobile": { "fontSize": "20px", "fontWeight": 600 } }, "contentAuthority": "i18n" }
+      ],
+      "layout": { "desktop": { "flexDirection": "column" }, "mobile": { "flexDirection": "column" } },
+      "states": [
+        { "name": "messages-default", "description": "Authenticated message list, newest first" },
+        { "name": "llm-owner", "trigger": "Select Вызовы LLM as owner", "description": "Operational calls, separate filter/query state" },
+        { "name": "operator", "description": "No LLM tab; direct backend request denied by role enforcement" }
+      ]
+    },
+    {
+      "id": "client-identity-and-workflow", "selector": "sim-client-card",
+      "reference": { "status": "unavailable-text-only", "source": "frontend/src/app/features/clients/client-card.component.html" },
+      "elements": [
+        { "selector": "sim-client-card .sim-card", "expect": { "desktop": { "borderRadius": "12px", "padding": "16px" }, "mobile": { "borderRadius": "12px", "padding": "16px" } } },
+        { "selector": "sim-client-card h1", "expect": { "desktop": { "fontSize": "22px", "fontWeight": 600 }, "mobile": { "fontSize": "22px", "fontWeight": 600 } }, "contentAuthority": "db" }
+      ],
+      "states": [
+        { "name": "loaded", "description": "Identity, linked channels, funnel, editing and event history preserved" },
+        { "name": "loading" }, { "name": "not-found" }, { "name": "error-retry" },
+        { "name": "dirty-form", "description": "Existing save and validation semantics" },
+        { "name": "partner-only-stage", "description": "Registered/paid remain non-editable by operator" },
+        { "name": "long-name", "description": "No document overflow or inaccessible identity" }
+      ]
+    },
+    {
+      "id": "conversation-toolbar", "selector": "sim-client-card .client-conversation",
+      "reference": { "status": "unavailable-text-only" },
+      "elements": [
+        { "selector": "sim-client-card .client-conversation h2", "expect": { "desktop": { "fontSize": "17px", "fontWeight": 600 }, "mobile": { "fontSize": "17px", "fontWeight": 600 } }, "contentAuthority": "i18n" }
+      ],
+      "states": [
+        { "name": "default", "description": "Bound to one existing client and linked dialogs" },
+        { "name": "combined-filters", "description": "Search/channel/direction/author/delivery intersection and total" },
+        { "name": "mobile-sheet", "trigger": "Click Фильтры", "description": "Shared bottom sheet, controls and done/reset actions" },
+        { "name": "reset", "trigger": "Click Сбросить", "description": "Clear filters and reset latest page" }
+      ]
+    },
+    {
+      "id": "rich-message-card", "selector": "sim-message-card",
+      "reference": { "status": "unavailable-text-only", "source": "existing inbox bubble/guard/media rendering" },
+      "elements": [],
+      "states": [
+        { "name": "incoming", "description": "Source, client name, time, body, delivery provenance" },
+        { "name": "ai", "description": "Generator model/provider/input-output tokens; guard separate" },
+        { "name": "operator-known", "description": "Per-message captured name, never current dialog operator" },
+        { "name": "operator-unknown", "description": "Explicit historical unknown" },
+        { "name": "null-metrics", "description": "Missing values distinct from zero and N/A" },
+        { "name": "queued" }, { "name": "failed-uncertain" }, { "name": "cancelled" }, { "name": "sent" },
+        { "name": "guard-expanded", "trigger": "Open guard disclosure", "description": "Violations/original draft and guard model" },
+        { "name": "image" }, { "name": "audio" }, { "name": "other-media" },
+        { "name": "long-text-model-url", "description": "Pre-wrap body and safe wrapping, no horizontal overflow" },
+        { "name": "dialog-link", "trigger": "Click Открыть диалог", "description": "Exact channel dialog, no broadcast composer" }
+      ]
+    },
+    {
+      "id": "message-feed", "selector": ".message-feed",
+      "reference": { "status": "unavailable-text-only" }, "elements": [],
+      "states": [
+        { "name": "initial-loading" }, { "name": "refreshing" }, { "name": "empty" },
+        { "name": "filtered-empty" }, { "name": "error-retry" }, { "name": "older-page" },
+        { "name": "latest-page", "description": "Client segment chronological; activity newest-first" },
+        { "name": "stale-request", "description": "Late old response cannot overwrite new filters" },
+        { "name": "new-arrival", "description": "Do not move operator reading older history" }
+      ]
+    },
+    {
+      "id": "activity-filters", "selector": "sim-activity sim-filter-bar",
+      "reference": { "status": "unavailable-text-only", "source": "frontend/src/app/shared/filter-bar.component.ts" },
+      "elements": [],
+      "states": [
+        { "name": "desktop-inline" }, { "name": "mobile-sheet", "trigger": "Click Фильтры" },
+        { "name": "search" }, { "name": "persona" }, { "name": "channel" }, { "name": "direction" },
+        { "name": "author" }, { "name": "delivery" }, { "name": "date-range" }, { "name": "invalid-date-range" },
+        { "name": "channel-deeplink", "description": "Channel navigation preselects actual filter" },
+        { "name": "reset", "description": "All filters and pagination reset coherently" }
+      ]
+    },
+    {
+      "id": "llm-activity", "selector": "sim-activity .llm-activity",
+      "reference": { "status": "unavailable-text-only" }, "elements": [],
+      "states": [
+        { "name": "owner-only" }, { "name": "loading" }, { "name": "error-retry" },
+        { "name": "empty" }, { "name": "filtered-empty" }, { "name": "success" }, { "name": "error" },
+        { "name": "missing-model-tokens", "description": "Unknown not inferred" },
+        { "name": "linked-dialog" }, { "name": "no-dialog", "description": "No fabricated client link" },
+        { "name": "pagination" }, { "name": "safe-error", "description": "No raw prompt/credential/request/error payload" }
+      ]
+    },
+    {
+      "id": "channel-readiness-navigation", "selector": "sim-channels",
+      "reference": { "status": "unavailable-text-only", "source": "frontend/src/app/features/channels/channels.component.ts" },
+      "elements": [],
+      "states": [
+        { "name": "no-persona" }, { "name": "no-channels" }, { "name": "active" },
+        { "name": "not-connected" }, { "name": "challenge" }, { "name": "safe-error" },
+        { "name": "activity-link", "trigger": "Click Активность канала", "description": "Read-only filtered log; no real channel connection" }
+      ]
+    }
+  ]
+}

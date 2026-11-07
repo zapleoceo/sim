@@ -8,6 +8,7 @@ export const NAV: readonly NavItem[] = [
   { path: '/clients', label: 'Клиенты', icon: 'groups' },
   { path: '/funnel', label: 'Воронка', icon: 'filter_alt' },
   { path: '/dashboard', label: 'Аналитика', icon: 'insights' },
+  { path: '/activity', label: 'Активность', icon: 'history' },
   { path: '/personas', label: 'Персонажи', icon: 'face', access: 'owner' },
   { path: '/strategies', label: 'Стратегии', icon: 'route', access: 'owner' },
   { path: '/simulations', label: 'Симуляции', icon: 'science', access: 'owner' },
