@@ -47,6 +47,13 @@ class LlmCallRepo(Repository[LlmCall]):
 class ContentRepo(Repository[ContentPost]):
     model = ContentPost
 
+    async def for_publish(self, post_id: int) -> ContentPost | None:
+        """Serialize publishers on PostgreSQL and refresh a previously loaded ORM row."""
+        return await self.session.scalar(
+            select(ContentPost).where(ContentPost.id == post_id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
     async def listing(self) -> Sequence[ContentPost]:
         return (
             await self.session.scalars(select(ContentPost).order_by(ContentPost.id.desc()))
