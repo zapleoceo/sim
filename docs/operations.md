@@ -1,9 +1,13 @@
 # Запуск, тесты и деплой SIM
 
-Кандидат: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b` + [PR #9](https://github.com/zapleoceo/sim/pull/9).
-Слияние PR #9 и deployment не подтверждены; это описание подготовленного изменения.
+Срез main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`, PR #1–#10 слиты.
+Подтверждено состояние Git; production-версия и deployment не подтверждены.
 
-База документации: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b`. Фактическая production-версия неизвестна.
+Дополнительно описан локальный кандидат fencing состояния job: он ещё не слит.
+Кандидат: 502 backend-теста прошли (16 существующих предупреждений, 47,78 с),
+63 focused-теста и Ruff прошли. Историческая база PR #10: 470 тестов и Ruff.
+
+База документации: main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`. Фактическая production-версия неизвестна.
 
 ## Безопасная локальная подготовка
 Нужен полный checkout конкретного commit, Python 3.12+, uv, Node/npm. Версию Node следует согласовать с Angular 19 и lockfile; в package.json отдельный engines-контракт не задан. Не запускайте приложение из неполного набора файлов.
@@ -29,17 +33,16 @@ API/worker могут обращаться к внешним каналам и B
 - Прогнать сценарии CSV duplicate, одинаковой fallback-модели guard, delivery failure, отменённой истории, смешанных валют и зависшего LLM job.
 
 Команды выше — инструкция для будущего разрешённого полного прогона, не список всего
-выполненного. Для кандидата PR #9 локально: 464 backend-теста прошли (16 существующих
+выполненного. Последний локальный backend-прогон кандидата: 502 backend-теста прошли (16 существующих
 предупреждений Alembic), Ruff прошёл; TypeScript app/spec и ESLint ранее прошли на неизменённом frontend. Компиляция spec
-не означает выполнение unit tests. Последняя Angular build не подтверждена: сетевой доступ к npm registry не был разрешён.
+не означает выполнение unit tests. Последняя Angular build не подтверждена: проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было.
 Browser/Karma не запускались (известное ограничение среды на сокеты). PostgreSQL locking,
-реальные каналы, production health и release commit не проверены. Исторический статический
+реальные каналы, production health и commit фактического релиза не проверены. Исторический статический
 аудит b27a89b не следует выдавать за эти более поздние результаты.
 
 ## Проверка nginx login routes
 
-Отдельный локальный кандидат на базе main `ea6e238956001862e4880f01793af975c5413c6e`
-переносит прежний `sim_login` с удалённого `/api/auth/login` на две exact locations:
+Слитый PR #10 переносит прежний `sim_login` с удалённого `/api/auth/login` на две exact locations:
 `/api/auth/telegram` и `/api/auth/link`. Они делят budget `10r/m`, `burst=5`, `nodelay`
 по `$binary_remote_addr`; application limiter остаётся отдельной защитой от неудачных
 попыток. `/api/auth/config`, `/api/auth/me`, `/api/auth/logout`, UI и другие API используют
@@ -47,7 +50,7 @@ Browser/Karma не запускались (известное ограничен
 
 `uv run pytest tests/test_nginx_config.py tests/test_auth.py -q` проверяет source-контракт
 конфигурации и приложение. Эти тесты не запускают nginx и не доказывают runtime-поведение.
-Локальный offline-прогон кандидата: 36 focused-тестов и все 470 backend-тестов прошли
+Локальный offline-прогон PR #10: 36 focused-тестов и все 470 backend-тестов прошли
 (16 существующих предупреждений Alembic); Ruff по `sim` и `tests` прошёл.
 До отдельно разрешённой установки/reload конфигурации нужны изолированные проверки:
 - `nginx -t` с конфигурацией и используемым `proxy_params`.
@@ -59,7 +62,7 @@ Browser/Karma не запускались (известное ограничен
 В этой работе nginx не запускался, системная конфигурация, TLS и trusted proxy ranges
 не менялись. Штатный deploy-скрипт архивирует исходники, но не устанавливает этот файл
 в `/etc/nginx/sites-enabled` и не делает nginx reload. Ни публикация кода, ни его deploy
-сами по себе не доказывают применение nginx-кандидата.
+сами по себе не доказывают применение новой nginx-конфигурации.
 
 ## Документированный production-путь
 URL: https://sim.zapleo.com. В репозитории: Cloudflare → nginx → Docker Compose. API публикуется на loopback:8010. Compose поднимает postgres, evolution, migrate, api и worker.
@@ -99,4 +102,31 @@ Receipt может восстановить статус только при с�
 Production, SSH и секретные файлы в рамках обновления документации не читались.
 Наличие backup/restore и фактический TLS не подтверждены. Независимые локальные проверки остаются отдельной задачей.
 
-Источники: [README](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/README.md), [backend config](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/pyproject.toml), [frontend scripts](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/frontend/package.json), [deploy](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/infra/deploy.sh), [compose](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/infra/docker-compose.yml).
+Источники: [README](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/README.md), [backend config](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/pyproject.toml), [frontend scripts](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/frontend/package.json), [deploy](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/infra/deploy.sh), [compose](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/infra/docker-compose.yml).
+
+## Блокеры подтверждения релиза
+
+- Production SSH ранее был отклонён; повторных попыток не было. Live-версия, состояние
+  миграций и наличие проверенного backup/restore не подтверждены.
+- Последняя frontend build не подтверждена: проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было. TypeScript app/spec и ESLint — прежние проверки неизменённого frontend;
+  browser/Karma не запускались.
+- В доступной среде нет бинарника nginx: `nginx -t` и runtime-проверки не выполнены.
+  Source-тесты не заменяют проверку nginx с реальным `proxy_params`.
+- `infra/deploy.sh` не устанавливает и не перезагружает nginx-конфигурацию. Слияние кода
+  и даже запуск этого скрипта сами по себе не доказывают применение PR #10 на сервере.
+- PostgreSQL-конкурентность, origin TLS и реальные каналы не проверены. Публикации
+  Instagram выключены по умолчанию; включение не выполнялось.
+
+Эти ограничения нельзя закрыть повторением отклонённых действий через другой маршрут.
+
+## Локальный кандидат job fencing: ограничение rollout
+
+Кандидат ещё не слит; 502 backend-теста, 63 focused-теста и Ruff прошли.
+470 тестов/Ruff относятся к исторической базе PR #10.
+Схема БД и HTTP API не меняются. Но смешивать старые и новые worker нельзя: старый код
+не проверяет поколение claim в complete/fail. До запуска новых процессов нужно прекратить
+claim у старых и полностью дождаться завершения либо остановить их текущие job.
+Этот порядок требует отдельной разрешённой rollout-операции; здесь ничего не выкладывалось.
+Кандидат защищает только состояние очереди, не handler/external side effects и не продлевает
+lease. Даже после него неизвестные исходы внешней отправки нельзя считать безопасными для
+повторной отправки. Подробности: [контракт кандидата](api.md#локальный-кандидат-fencing-состояния-очереди).

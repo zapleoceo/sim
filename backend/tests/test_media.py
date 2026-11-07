@@ -99,9 +99,9 @@ async def test_reply_job_does_not_run_the_model_while_media_is_open(container, w
     async with transaction(container.factory) as s:                    # lease like the worker (the media job is leased too: still open)
         claimed = await JobRepo(s).claim(utcnow(), 900)
         reply = next(j for j in claimed if j.kind == jobkinds.REPLY)
-        reply_id, payload = reply.id, dict(reply.payload)
+        reply_id, payload, attempt = reply.id, dict(reply.payload), reply.attempts
     worker = Worker(container)
-    await worker.run_job(reply_id, jobkinds.REPLY, payload)
+    await worker.run_job(reply_id, jobkinds.REPLY, payload, attempt)
     assert fake_llm.calls == []
     pending = [j for j in await jobs_of(container, jobkinds.REPLY) if j.status == "pending"]
     assert len(pending) == 1                                            # re-queued, not lost
