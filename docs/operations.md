@@ -36,6 +36,31 @@ Browser/Karma не запускались (известное ограничен
 реальные каналы, production health и release commit не проверены. Исторический статический
 аудит b27a89b не следует выдавать за эти более поздние результаты.
 
+## Проверка nginx login routes
+
+Отдельный локальный кандидат на базе main `ea6e238956001862e4880f01793af975c5413c6e`
+переносит прежний `sim_login` с удалённого `/api/auth/login` на две exact locations:
+`/api/auth/telegram` и `/api/auth/link`. Они делят budget `10r/m`, `burst=5`, `nodelay`
+по `$binary_remote_addr`; application limiter остаётся отдельной защитой от неудачных
+попыток. `/api/auth/config`, `/api/auth/me`, `/api/auth/logout`, UI и другие API используют
+общий `sim_api` без изменения rate/burst. Proxy headers и timeout сохранены.
+
+`uv run pytest tests/test_nginx_config.py tests/test_auth.py -q` проверяет source-контракт
+конфигурации и приложение. Эти тесты не запускают nginx и не доказывают runtime-поведение.
+Локальный offline-прогон кандидата: 36 focused-тестов и все 470 backend-тестов прошли
+(16 существующих предупреждений Alembic); Ruff по `sim` и `tests` прошёл.
+До отдельно разрешённой установки/reload конфигурации нужны изолированные проверки:
+- `nginx -t` с конфигурацией и используемым `proxy_params`.
+- Вход через Telegram и link с query string, forwarding headers и session cookie/redirect.
+- Общий budget двух login routes, превышение burst, восстановление после паузы и разные IP.
+- Обычные config/me/logout и read-запросы не попадают в меньший login budget;
+  `/hooks/evolution/` по-прежнему закрыт извне.
+
+В этой работе nginx не запускался, системная конфигурация, TLS и trusted proxy ranges
+не менялись. Штатный deploy-скрипт архивирует исходники, но не устанавливает этот файл
+в `/etc/nginx/sites-enabled` и не делает nginx reload. Ни публикация кода, ни его deploy
+сами по себе не доказывают применение nginx-кандидата.
+
 ## Документированный production-путь
 URL: https://sim.zapleo.com. В репозитории: Cloudflare → nginx → Docker Compose. API публикуется на loopback:8010. Compose поднимает postgres, evolution, migrate, api и worker.
 
