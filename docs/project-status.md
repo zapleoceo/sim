@@ -1,5 +1,8 @@
 # Цели и состояние SIM
 
+Кандидат: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b` + [PR #9](https://github.com/zapleoceo/sim/pull/9).
+Слияние PR #9 и deployment не подтверждены; это описание подготовленного изменения.
+
 ## Подтверждённый бриф
 Пользователь описал:
 > Будут разные персонажи в инстаграм с разными характерами и персонами. Голосами и аватарами
@@ -15,7 +18,7 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 
 ## База текущего состояния
 
-Срез main `747af2f75f10f38648e869ee2efd7d109b4249d1`, после PR #2–#8. Статусы ниже описывают код,
+База main `a7736bcb3d493f25be340f064b92f46e9c2bb14b`, после PR #2–#8. Статусы ниже описывают код,
 не факт выкладки или работы внешних каналов. Публикации Instagram по умолчанию выключены;
 в этой работе флаги и production не менялись.
 
@@ -35,7 +38,7 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 | Контролер ответов | Реализовано с ограничением | Проверка, rewrite/block; известная одинаковая fallback-модель блокируется, но missing ID, aliases и self-rewrite остаются ограничениями |
 | Симуляции | Реализовано в коде | Отдельные ветки в боте входа и read-only просмотр owner+ |
 | История ИИ и очередь | Исправлено в коде | Только доставленные исходящие в истории; rolling pool до четырёх job, без distributed fencing |
-| Финансовая аналитика | Исправлено в коде | Отдельные суммы по валютам, без FX; legacy scalar nullable. `replied` всё ещё учитывает неотправленные исходящие |
+| Финансовая аналитика | Исправлено в коде | Отдельные суммы по валютам, без FX; legacy scalar nullable. Кандидат PR #9 исключает из `replied` неотправленные/blocked исходящие; порядок остаётся по `created_at` |
 | Production | Не проверено | URL и схема деплоя описаны; фактическая версия и состояние не подтверждены |
 
 ## Что ещё требует решения владельца
@@ -44,14 +47,15 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 3. Выбрать ожидаемые задержки ответа и минимальный объём одновременных диалогов для нагрузочной проверки.
 
 Валютная политика и приём CSV уже определены в [API](api.md); повторное решение владельца
-для них не требуется. Следующий технический приоритет — доставленные исходящие в `replied`,
-не повторная переделка истории ИИ. Остальные ограничения: [ревью](review-2026-11-07.md).
+для них не требуется. Доставленные исходящие в `replied` исправлены в кандидате PR #9; слияние и deployment
+не подтверждены. Следующие открытые направления: nginx login route, job fencing и
+ограничения независимости guard. Остальные ограничения: [ревью](review-2026-11-07.md).
 
 ## Последняя локальная проверка
-438 backend-тестов и Ruff прошли; TypeScript app/spec и ESLint прошли. Spec только
+464 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли на неизменённом frontend. Spec только
 скомпилированы, browser/Karma не запускались. Последняя Angular build не подтверждена:
 сетевой доступ к npm registry не был разрешён. Проверки production и фактического релиза нет.
 Для пилота Instagram см. [условия включения](instagram-content-publishing.md) и
 [intent/receipt](publication-intents.md).
 
-Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/wiring.py).
+Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/wiring.py).

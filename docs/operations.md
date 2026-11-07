@@ -1,6 +1,9 @@
 # Запуск, тесты и деплой SIM
 
-Документация для main `747af2f75f10f38648e869ee2efd7d109b4249d1`. Фактическая production-версия неизвестна.
+Кандидат: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b` + [PR #9](https://github.com/zapleoceo/sim/pull/9).
+Слияние PR #9 и deployment не подтверждены; это описание подготовленного изменения.
+
+База документации: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b`. Фактическая production-версия неизвестна.
 
 ## Безопасная локальная подготовка
 Нужен полный checkout конкретного commit, Python 3.12+, uv, Node/npm. Версию Node следует согласовать с Angular 19 и lockfile; в package.json отдельный engines-контракт не задан. Не запускайте приложение из неполного набора файлов.
@@ -26,8 +29,8 @@ API/worker могут обращаться к внешним каналам и B
 - Прогнать сценарии CSV duplicate, одинаковой fallback-модели guard, delivery failure, отменённой истории, смешанных валют и зависшего LLM job.
 
 Команды выше — инструкция для будущего разрешённого полного прогона, не список всего
-выполненного. На текущем срезе локально: 438 backend-тестов прошли (16 существующих
-предупреждений Alembic), Ruff прошёл; TypeScript app/spec и ESLint прошли. Компиляция spec
+выполненного. Для кандидата PR #9 локально: 464 backend-теста прошли (16 существующих
+предупреждений Alembic), Ruff прошёл; TypeScript app/spec и ESLint ранее прошли на неизменённом frontend. Компиляция spec
 не означает выполнение unit tests. Последняя Angular build не подтверждена: сетевой доступ к npm registry не был разрешён.
 Browser/Karma не запускались (известное ограничение среды на сокеты). PostgreSQL locking,
 реальные каналы, production health и release commit не проверены. Исторический статический
@@ -71,4 +74,4 @@ Receipt может восстановить статус только при с�
 Production, SSH и секретные файлы в рамках обновления документации не читались.
 Наличие backup/restore и фактический TLS не подтверждены. Независимые локальные проверки остаются отдельной задачей.
 
-Источники: [README](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/README.md), [backend config](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/pyproject.toml), [frontend scripts](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/frontend/package.json), [deploy](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/infra/deploy.sh), [compose](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/infra/docker-compose.yml).
+Источники: [README](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/README.md), [backend config](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/pyproject.toml), [frontend scripts](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/frontend/package.json), [deploy](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/infra/deploy.sh), [compose](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/infra/docker-compose.yml).

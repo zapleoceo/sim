@@ -1,6 +1,9 @@
 # Sim — архитектура MVP
 
-Срез кода: `747af2f75f10f38648e869ee2efd7d109b4249d1`. Описание кода и репозиторной конфигурации,
+Кандидат: main `a7736bcb3d493f25be340f064b92f46e9c2bb14b` + [PR #9](https://github.com/zapleoceo/sim/pull/9).
+Слияние PR #9 и deployment не подтверждены; это описание подготовленного изменения.
+
+База кода: `a7736bcb3d493f25be340f064b92f46e9c2bb14b`. Описание кода и репозиторной конфигурации,
 не подтверждение текущего production. Контекст брифа: [состояние проекта](project-status.md).
 
 Платформа ИИ-персонажей: привлечение в Instagram, личное общение в WhatsApp и Telegram,
@@ -113,8 +116,10 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 История реального диалога включает входящие и только `sent` исходящие сообщения.
 Фильтрация происходит до лимита истории; `queued`, `failed`, `cancelled` и guard-blocked
 черновики не воспринимаются как увиденные клиентом. Inbox сохраняет все записи.
-Это исправление не меняет аналитический `replied`, который пока учитывает неотправленные
-исходящие (см. [открытые риски](review-2026-11-07.md)).
+В кандидате PR #9 аналитический `replied` также учитывает только `sent` исходящие без
+`guard_verdict=blocked`, сохраняя все входящие. Период и порядок по-прежнему определяются
+по `created_at`, отдельного `sent_at` нет; это приближение хронологии доставки. Счётчики
+`guard` не изменены (см. [ревью](review-2026-11-07.md)).
 
 Правки сообщений Telegram (`edited_message`) сохраняются с пометкой «[изменено]», но нового
 ответа ИИ не вызывают. Правка approved/scheduled поста оператором (не owner) возвращает его в `draft`.
@@ -318,9 +323,9 @@ registration и payment, выручка — только payment. API и dashboa
 
 ## Основание и границы проверки
 
-Последняя локальная проверка: 438 backend-тестов и Ruff прошли; TypeScript app/spec и ESLint
-прошли. Browser/Karma не запускались; последняя Angular build не подтверждена: сетевой
+Последняя локальная проверка: 464 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли
+на неизменённом frontend. Browser/Karma не запускались; последняя Angular build не подтверждена: сетевой
 доступ к npm registry не был разрешён. PostgreSQL-конкурентность и реальные каналы
 не проверены. Подробности: [operations.md](operations.md).
 
-Текущие исходники: [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/747af2f75f10f38648e869ee2efd7d109b4249d1/backend/sim/services/partner.py).
+Исходники базы main (изменение аналитики — в PR #9): [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/a7736bcb3d493f25be340f064b92f46e9c2bb14b/backend/sim/services/partner.py).

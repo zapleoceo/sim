@@ -4,8 +4,8 @@ MVP volumes, and the same code runs on Postgres and SQLite.
 Definitions, for the half-open period [start, end):
 - contacts       distinct clients who wrote to us in the period;
 - new_contacts   clients created in the period;
-- replied        contacts with an outgoing message followed by an incoming one in the period
-                 (a real exchange, not a one-sided message);
+- replied        contacts with a SENT, non-blocked outgoing message followed by an incoming
+                 one in the period, ordered/windowed by created_at (send-time approximation);
 - by_stage       current stage of the contacts;
 - registrations  distinct clients with a partner registration event in the period;
 - payments       partner payment events in the period; revenue grouped by event currency;
@@ -18,11 +18,11 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Channel, Client, Dialog, LlmCall, Message, PartnerEvent
-from sim.domain.enums import ChannelKind, Direction, PartnerEventKind, Stage
+from sim.domain.enums import ChannelKind, Delivery, Direction, PartnerEventKind, Stage
 
 
 def ratio(num: int, den: int) -> float:
@@ -152,7 +152,17 @@ class AnalyticsService:
             .join(Dialog, Dialog.id == Message.dialog_id)
             .join(Channel, Channel.id == Dialog.channel_id)
             .join(Client, Client.id == Dialog.client_id)
-            .where(Message.created_at >= start, Message.created_at < end)
+            .where(
+                Message.created_at >= start, Message.created_at < end,
+                or_(
+                    Message.direction == Direction.IN,
+                    and_(
+                        Message.direction == Direction.OUT,
+                        Message.delivery == Delivery.SENT,
+                        or_(Message.guard_verdict.is_(None), Message.guard_verdict != "blocked"),
+                    ),
+                ),
+            )
         )
         if persona_id:
             stmt = stmt.where(Client.persona_id == persona_id)
