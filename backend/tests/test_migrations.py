@@ -132,3 +132,26 @@ def test_0005_adds_strategy_prompt_and_simulation_tables_and_roundtrips(tmp_path
     command.downgrade(cfg, "0004")
     assert "prompt" not in columns(db, "strategy") and not columns(db, "sim_branch")
     command.upgrade(cfg, "head")
+
+
+def test_0006_intent_roundtrip_and_preserves_nonempty_history(tmp_path):
+    import pytest
+
+    db = tmp_path / "intent.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "head")
+    assert {"post_id", "fingerprint", "external_id", "published_at"} <= columns(db, "content_publish_intent")
+    command.downgrade(cfg, "0005")
+    assert not columns(db, "content_publish_intent")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        assert not list(con.execute("PRAGMA foreign_key_list(content_publish_intent)"))
+        con.execute("INSERT INTO content_publish_intent (post_id, fingerprint, created_at) "
+                    "VALUES (123, 'fingerprint', '2026-11-01')")
+        with pytest.raises(sqlite3.IntegrityError):
+            con.execute("INSERT INTO content_publish_intent (post_id, fingerprint, created_at) "
+                        "VALUES (123, 'other', '2026-11-01')")
+    with pytest.raises(RuntimeError, match="Cannot discard"):
+        command.downgrade(cfg, "0005")
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT post_id FROM content_publish_intent").fetchall() == [(123,)]

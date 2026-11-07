@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from sim.adapters.db.models import ContentPost
+from sim.adapters.db.models import ContentPost, ContentPublishIntent
 from sim.adapters.db.repositories.records import ContentRepo
 from sim.api.deps import App, Authed, Db, authed, owner_only
-from sim.api.schemas import ContentIn, content_out
+from sim.api.schemas import ContentIn, content_out, dt
 from sim.ports.llm import LLMError
 from sim.services.content import ContentError
 
@@ -68,3 +68,19 @@ async def generate_caption(post_id: int, c: App, s: Db):
         raise HTTPException(422, str(exc)) from exc
     except LLMError as exc:
         raise HTTPException(502, f"Broker error: {exc}") from exc
+
+
+@router.get("/{post_id}/publication", dependencies=[Depends(owner_only)])
+async def publication_state(post_id: int, s: Db):
+    """Read-only history, including retained intents for deleted posts. Never resets a fence."""
+    intent = await s.get(ContentPublishIntent, post_id)
+    if intent is None:
+        await post_or_404(s, post_id)
+        return {"post_id": post_id, "state": "not_attempted"}
+    return {
+        "post_id": post_id,
+        "state": "receipt_known" if intent.external_id else "uncertain",
+        "attempted_at": dt(intent.created_at),
+        "external_id": intent.external_id,
+        "published_at": dt(intent.published_at),
+    }

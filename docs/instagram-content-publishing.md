@@ -28,24 +28,26 @@ replacing a file during upload.
 
 ## Uncertain outcomes and recovery
 
-Caught upload exceptions and missing media IDs become FAILED with a sanitized uncertain-outcome
-message. There is no automatic retry after that failure is committed. Check the actual account
-before any manual reapproval or reschedule. FAILED does not prove that nothing was published.
-Existing owner reapproval remains possible; this patch adds no durable external ID, idempotency
-key, or reconciliation workflow. Adapter error text and session details are not exposed.
+A permanent independently committed intent now fences each post before the upload adapter is
+called. Exceptions, missing IDs, cancellation, process loss, caller rollback and repeated jobs
+cannot authorize another upload for that post. A separately committed external receipt can
+restore local publication status after caller rollback when the payload/account fingerprint
+still matches. Editing and owner reapproval of attempted posts are blocked.
 
-PostgreSQL row locks plus ORM refresh serialize publishers and update/approval checks. SQLite
-ignores row locks: use it only for local single-worker testing. The offline suite checks stale
-ORM refresh but does not prove PostgreSQL concurrency. The remote request remains inside the
-DB transaction. A crash, cancellation, or commit failure after remote success may roll back
-local state and allow a later duplicate. Exactly-once and crash-safe retry are NOT guaranteed.
-Production activation requires durable intent/reconciliation or an operator-controlled recovery
-process preventing automatic replay after uncertain transaction outcomes. Pilot use must be
-supervised and separately authorized.
+Owners can inspect `/api/content/{id}/publication` without changing state. Unknown outcomes
+require actual-account inspection; there is no reset/retry endpoint or manual-resolution action
+in this patch. FAILED does not prove nothing was published. Session refresh, changed media or
+changed caption can prevent receipt attribution, never permit a new upload.
+
+See [Publication intents and reconciliation](publication-intents.md) for migration 0006,
+retained history, downgrade restrictions, fingerprint details and recovery limits. This is
+protection against repeated adapter invocation, not external exactly-once delivery. PostgreSQL
+locking and live Instagram remain untested; activation must still be separately authorized.
 
 ## Offline verification
 
 Fake-port tests cover both gates, success, invalid media, account/persona mismatch and inactivity,
 missing capabilities, future schedules, stale ORM refresh, null response IDs, sanitized exceptions
-and no repeat after committed failure. All checks use offline_run.py with network sockets blocked.
+and no repeat after committed failure. Durable-intent tests additionally cover caller rollback,
+commit failures, cancellation, concurrent SQLite claims, retained receipts and migration rollback. All checks use offline_run.py with network sockets blocked.
 No real publication, paid API call or production access was used.

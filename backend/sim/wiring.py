@@ -138,7 +138,7 @@ class Container:
         publisher = self.publisher
         if publisher is None and self.settings.ig_content_enabled:
             publisher = InstagramContentPublisher(
-                s, self.registry, self.box, self.media, self.settings.ig_content_post_ids,
+                s, self.registry, self.box, self.media, self.settings.ig_content_post_ids, self.factory,
             )
         return ContentService(s, self.audited(), publisher=publisher, clock=self.clock)
 
