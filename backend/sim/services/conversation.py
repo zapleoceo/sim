@@ -16,7 +16,7 @@ from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo, Strat
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
-from sim.domain.enums import Author, ClientStatus, Direction, Stage
+from sim.domain.enums import Author, ClientStatus, Delivery, Direction, Stage
 from sim.domain.funnel import Actor, FunnelRuleError
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
@@ -118,7 +118,11 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
 
 def history_turns(messages: list[Message]) -> list[Turn]:
     """Client -> user turn; AI and operator -> assistant turn."""
-    return visible_turns((m.author is Author.CLIENT, m.text, m.guard_verdict) for m in messages)
+    return visible_turns(
+        (m.author is Author.CLIENT, m.text, m.guard_verdict)
+        for m in messages
+        if m.direction is Direction.IN or m.delivery is Delivery.SENT
+    )
 
 
 class ConversationService:
@@ -275,7 +279,7 @@ class ConversationService:
             return ReplyOutcome("skipped")
         strategy = await self.strategy_for(persona.id)
 
-        recent = await self.messages.recent(dialog_id, HISTORY_LIMIT)
+        recent = await self.messages.recent_visible(dialog_id, HISTORY_LIMIT)
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
         ctx = DialogContext(
