@@ -22,6 +22,29 @@ def columns(db: Path, table: str) -> set[str]:
         return {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
 
 
+def test_0007_send_intent_roundtrip_and_retention(tmp_path):
+    import pytest
+
+    db = tmp_path / "send-intent.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "head")
+    assert {"message_id", "fingerprint", "created_at", "external_id", "sent_at"} == columns(db, "outbound_send_intent")
+    command.downgrade(cfg, "0006")
+    assert not columns(db, "outbound_send_intent")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        assert not list(con.execute("PRAGMA foreign_key_list(outbound_send_intent)"))
+        con.execute("INSERT INTO outbound_send_intent (message_id, fingerprint, created_at) "
+                    "VALUES (123, 'first', '2026-11-07')")
+        with pytest.raises(sqlite3.IntegrityError):
+            con.execute("INSERT INTO outbound_send_intent (message_id, fingerprint, created_at) "
+                        "VALUES (123, 'second', '2026-11-07')")
+    with pytest.raises(RuntimeError, match="Cannot discard outbound"):
+        command.downgrade(cfg, "0006")
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT fingerprint FROM outbound_send_intent").fetchone() == ("first",)
+
+
 def test_0003_drops_password_admins_and_adds_telegram_columns(tmp_path):
     db = tmp_path / "mig.db"
     cfg = alembic_config(db)

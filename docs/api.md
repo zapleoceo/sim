@@ -229,7 +229,9 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 | POST | `/hooks/admin-bot` | Update Bot API бота входа (`message`, `callback_query`); заголовок `X-Telegram-Bot-Api-Secret-Token` = `hex(hmac_sha256(SIM_SECRET_KEY, "admin-bot:" + токен бота))`, неверный — 401. После верного секрета всегда `200 {ok: true}` (ответ модели считает job, не запрос) |
 
 ## Служебное
-| GET | `/api/health` | `{ok, db, broker, version}` |
+| GET | `/api/live` | `200 {ok:true}` — жив процесс API; без обращения к зависимостям |
+| GET | `/api/ready` | `{ok, db, version}`; `200` при доступной БД, `503` при ошибке/таймауте БД (3 с) |
+| GET | `/api/health` | `{ok, db, broker, version}`; статус readiness (`200`/`503`), Broker — дополнительная диагностическая проверка |
 
 ## Дополнения реализации (аддитивные поля)
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
@@ -259,6 +261,14 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 а `tick()` остаётся отдельным ожидающим batch-вызовом для тестов/разовых запусков;
 его не следует запускать одновременно с `run()` того же экземпляра.
 
+### Постоянная попытка исходящей отправки
+
+Job `send` использует независимые intent/receipt из миграции `0007`.
+При откате после подтверждённой отправки повтор восстанавливает `sent` без нового вызова
+канала. Неизвестный результат останавливает автоматические повторы: `delivery=failed`,
+`needs_operator=true`; это не доказательство отсутствия доставки. Нового retry/reset API нет.
+Контракт, ограничения и требования rollout: [исходящие сообщения](outbound-delivery.md).
+
 ### Локальный кандидат: fencing состояния очереди
 
 Кандидат ещё не слит; схема БД и HTTP API не меняются. Существующий `attempts`, который
@@ -277,7 +287,8 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 Истечение lease разрешает новый claim, но само по себе не отменяет результат прежнего
 владельца: если никто не перехватил job, он ещё может завершить её. Lease renewal нет.
 Это защита состояния очереди, не fencing handler-транзакций или внешних эффектов:
-два обработчика и внешние отправки всё ещё могут выполниться после истечения lease.
+два обработчика всё ещё могут выполняться после истечения lease. Для job `send` повторный
+вызов транспорта ограничен отдельным [постоянным intent](outbound-delivery.md).
 Гарантии distributed exactly-once нет. Durable intent Instagram остаётся отдельной
 защитой конкретного upload.
 

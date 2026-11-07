@@ -14,6 +14,7 @@ from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
 from sim.services.conversation import ConversationError
+from sim.services.send_receipts import SendUncertain
 from sim.wiring import Container
 from sim.worker.handlers import HANDLERS, Handler
 
@@ -93,7 +94,7 @@ class Worker:
             try:
                 async with transaction(self.c.factory) as s:
                     await handler.run(self.c, s, payload)
-            except ConversationError as exc:
+            except (ConversationError, SendUncertain) as exc:
                 error, retry = str(exc), False
             except Exception as exc:  # any failure is retried with backoff
                 log.warning("job %s (%s) failed: %s", job_id, kind, type(exc).__name__)

@@ -66,7 +66,10 @@ async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> No
 
 
 async def giveup_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
-    await c.outbound(s).mark_failed(int(payload["message_id"]), "delivery failed after retries")
+    await c.outbound(s).mark_failed(
+        int(payload["message_id"]),
+        "Delivery failed or uncertain; reconcile the channel before resending",
+    )
 
 
 async def run_content_publish(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
