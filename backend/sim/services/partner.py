@@ -158,6 +158,8 @@ class PartnerService:
             raise PartnerDataError(f"unknown event {cell('event')!r}")
         if not cell("client_ref"):
             raise PartnerDataError("empty client_ref")
+        if not cell("external_id") and not cell("occurred_at"):
+            raise PartnerDataError("external_id or occurred_at is required for repeatable CSV imports")
         occurred = to_naive_utc(datetime.fromisoformat(cell("occurred_at").replace("Z", "+00:00"))) \
             if cell("occurred_at") else utcnow()
         external_id = cell("external_id") or (
