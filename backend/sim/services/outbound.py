@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.crypto import SecretBox
-from sim.adapters.db.models import Channel, Dialog, Message
+from sim.adapters.db.models import AdminUser, Channel, Dialog, Message
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
@@ -166,11 +166,14 @@ class OutboundService:
     async def send_manual(self, dialog: Dialog, operator_id: int, text: str) -> Message:
         """An operator writes in the dialog: the AI steps back on this dialog."""
         now = self.clock()
+        operator = await self.session.get(AdminUser, operator_id)
         await cancel_queued_ai(self.session, dialog.id, "cancelled: an operator took over")
         message = Message(
             dialog_id=dialog.id,
             direction=Direction.OUT,
             author=Author.OPERATOR,
+            operator_id=operator.id if operator is not None else None,
+            operator_name=operator.display_name[:120] if operator is not None else None,
             text=text,
             delivery=Delivery.QUEUED,
             created_at=now,

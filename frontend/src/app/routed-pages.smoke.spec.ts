@@ -5,6 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { provideRouter } from '@angular/router';
+import { ActivityComponent } from './features/activity.component';
 import { AdminsComponent } from './features/admins/admins.component';
 import { ChannelsComponent } from './features/channels/channels.component';
 import { ClientCardComponent } from './features/clients/client-card.component';
@@ -32,6 +33,7 @@ const SUMMARY = {
 };
 
 function bodyFor(url: string): object | null {
+  if (url === '/api/activity/messages') return { items: [], total: 0, limit: 25, offset: 0 };
   if (url === '/api/analytics/summary') return SUMMARY;
   if (url === '/api/funnel') return { stages: [], statuses: { active: 0, paused: 0, no_response: 0, refused: 0 } };
   if (url === '/api/auth/config') return { bot_username: '' };
@@ -45,6 +47,7 @@ const PAGES: [string, Type<unknown>, Record<string, unknown>?][] = [
   ['shell', ShellComponent],
   ['login', LoginComponent],
   ['inbox', InboxComponent],
+  ['activity', ActivityComponent],
   ['clients', ClientsComponent],
   ['client card', ClientCardComponent, { id: '1' }],
   ['funnel', FunnelComponent],

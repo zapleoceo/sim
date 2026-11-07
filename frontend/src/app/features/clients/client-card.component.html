@@ -10,6 +10,7 @@
       <div class="sim-grow">
         <h1>{{ c.display_name }}</h1>
         <p class="sim-muted">В базе с {{ createdAt() }}</p>
+        <button mat-button type="button" (click)="conversation.scrollIntoView({ block: 'start' })">Перейти к переписке</button>
         <div class="channels">
           @for (ch of c.channels; track ch.dialog_id) {
             <a class="ch" [routerLink]="['/inbox']" [queryParams]="{ d: ch.dialog_id }">
@@ -107,6 +108,14 @@
         <sim-empty-state icon="history" title="Событий пока нет" />
       }
     </section>
+    <section #conversation id="conversation" class="client-conversation" aria-labelledby="conversation-h">
+      <h2 id="conversation-h">Лента общения</h2>
+      <p class="sim-muted">Все связанные каналы этого клиента. Ответить можно в конкретном диалоге.</p>
+      <sim-activity-feed [clientId]="c.id" />
+    </section>
+
+  } @else if (loadError()) {
+    <div role="alert"><sim-empty-state icon="error_outline" [title]="loadError()"><button mat-stroked-button type="button" (click)="retry()">Повторить</button></sim-empty-state></div>
   } @else {
     <sim-empty-state icon="hourglass_empty" title="Загружаем клиента…" />
   }

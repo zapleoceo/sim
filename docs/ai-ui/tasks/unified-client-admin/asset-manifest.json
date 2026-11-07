@@ -1,0 +1,18 @@
+{
+  "task": "unified-client-admin",
+  "referenceStatus": "Text-only input; no design exports available or required. Existing UI assets/components are authoritative.",
+  "assets": [
+    { "id": "page-surfaces", "block": "activity-page", "class": "css-background", "reason": "Existing neutral admin page/card surfaces", "export": "none", "tokens": ["--sim-bg", "--sim-surface", "--sim-border", "--sim-radius"] },
+    { "id": "client-identity-surface", "block": "client-identity-and-workflow", "class": "css-background", "reason": "Existing sim-card layout", "export": "none", "tokens": ["--sim-surface", "--sim-border"] },
+    { "id": "message-surfaces", "block": "rich-message-card", "class": "css-background", "reason": "Role-based message backgrounds already exist as tokens", "export": "none", "tokens": ["--sim-bubble-client", "--sim-bubble-ai", "--sim-bubble-operator", "--sim-surface"] },
+    { "id": "filter-surfaces", "block": "activity-filters", "class": "css-background", "reason": "Material fields and shared bottom sheet", "export": "none", "tokens": ["--sim-surface", "--sim-space-2", "--sim-space-4"] },
+    { "id": "llm-row-surfaces", "block": "llm-activity", "class": "css-background", "reason": "Standard neutral card/table rows and status colors", "export": "none", "tokens": ["--sim-surface", "--sim-border", "--sim-ok", "--sim-danger"] },
+    { "id": "channel-card-surfaces", "block": "channel-readiness-navigation", "class": "css-background", "reason": "Existing channel cards preserved", "export": "none", "tokens": ["--sim-surface", "--sim-border", "--sim-radius"] },
+    { "id": "channel-icons", "block": "rich-message-card", "class": "separate", "reason": "Independent existing ChannelIconComponent mapped by kind/label", "export": "none", "files": [], "placement": "Reuse sim-channel-icon, no raster recreation or absolute placement" },
+    { "id": "client-avatar", "block": "client-identity-and-workflow", "class": "separate", "reason": "DB-backed avatar with existing initials fallback", "export": "none", "files": [], "placement": "Reuse sim-avatar; do not generate customer images" },
+    { "id": "attachment-media", "block": "rich-message-card", "class": "separate", "reason": "Independent authenticated media references from API", "export": "none", "files": [], "placement": "Existing safe image/audio/link patterns; responsive intrinsic media" },
+    { "id": "material-icons", "block": "activity-page", "class": "separate", "reason": "Existing Material outlined icon font", "export": "none", "files": [], "placement": "Map by semantic action/label, retain aria-labels" }
+  ],
+  "summary": { "composite": 0, "separate": 4, "css-background": 6, "ask-user": 0 },
+  "assetsToRequest": []
+}

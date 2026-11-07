@@ -32,3 +32,6 @@ section h2, form h2 { margin-bottom: var(--sim-space-3); }
   .step { height: 40px; }
   .status { max-width: none; }
 }
+
+.client-conversation { display: flex; flex-direction: column; gap: var(--sim-space-3); min-width: 0; }
+h1 { overflow-wrap: anywhere; }

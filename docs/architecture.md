@@ -1,20 +1,17 @@
 # Sim — архитектура MVP
 
-Срез main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`, PR #1–#10 слиты.
-Подтверждено состояние Git; production-версия и deployment не подтверждены.
-
-Дополнительно описан локальный кандидат fencing состояния job: он ещё не слит.
-Кандидат: 502 backend-теста прошли (16 существующих предупреждений, 47,78 с),
-63 focused-теста и Ruff прошли. Историческая база PR #10: 470 тестов и Ruff.
-
-База кода: `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`. Описание кода и репозиторной конфигурации,
-не подтверждение текущего production. Контекст брифа: [состояние проекта](project-status.md).
+База main `349dc6648fb6808ff18c982260b40d138e3244e6`, PR #1–#12 слиты.
+Текущая ветка добавляет модуль активности и объединённую историю клиента.
+Описание относится к коду, не к развёрнутой версии. Контекст брифа:
+[состояние проекта](project-status.md); результаты проверок — в
+[задаче админки](ai-ui/tasks/unified-client-admin/task-context.md).
 
 Платформа ИИ-персонажей: привлечение в Instagram, личное общение в WhatsApp и Telegram,
 сопровождение клиента по воронке до регистрации и первой оплаты у партнёра.
 
 Документированная схема: `https://sim.zapleo.com` → Cloudflare → nginx :80 → docker compose.
-Фактический origin TLS и версия production не проверены.
+Фактический origin TLS не проверен. Read-only проверка 2026-11-07 показала production
+на `b27a89b` / миграции `0005`; текущие изменения не развёрнуты.
 Репозиторная конфигурация LLM: только через AIbroker (`https://aib.zapleo.com`, проект `sim`, id 21, лимиты $0 — бесплатные
 провайдеры + подписочные `claude-sub/*`, `codex-sub/*`).
 
@@ -299,17 +296,37 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 проверки due job и polling продолжаются с `worker_tick_s`. Активные job этого worker
 исключаются до лимита claim. При SIGTERM/SIGINT новые claim прекращаются, уже взятые
 job/polling завершаются. `tick()` остаётся batch-вызовом для тестов/разовых запусков,
-не для одновременной работы с `run()`. Это локальная конкурентность, не distributed
-fencing: на слитой базе PR #10 истёкший lease позволяет другому worker повторно взять
-долгую job, а complete/fail не защищены поколением владения. Порядок завершения не гарантируется.
+не для одновременной работы с `run()`. Истёкший lease позволяет другому worker повторно
+взять долгую job. Порядок завершения не гарантируется.
 
-Локальный кандидат переносит claim-time `attempts` через Worker и защищает complete/fail
+Слитый PR #11 переносит claim-time `attempts` через Worker и защищает complete/fail
 условием `running` + то же поколение; claim повторно проверяет due/expired и attempts.
 Terminal giveup выполняется только после применённого terminal-failure CAS. Схема и HTTP
-не меняются. Это ещё не слито; 502 backend-теста и Ruff прошли. Lease renewal и fencing побочных
+не меняются. Lease renewal и универсальный fencing побочных
 эффектов не добавлены; старый владелец может завершить истёкший lease, если нового claim нет.
 Старые worker нужно полностью вывести из работы перед запуском новых. Подробный контракт
 и пределы: [API, очередь](api.md#локальный-кандидат-fencing-состояния-очереди).
+
+PR #12 добавляет отдельный долговечный intent/receipt для исходящих сообщений. При
+неизвестном исходе повторный вызов транспорта блокируется и требуется оператор;
+см. [границы доставки](outbound-delivery.md).
+
+## Объединённая переписка и активность
+
+`ActivityRepo` выполняет фильтрацию, count и ограниченную пагинацию в SQL с порядком
+`created_at DESC, id DESC`. Контекст клиента/канала/персонажа загружается соединениями,
+без отдельного запроса на каждое сообщение. Общие границы дат вынесены в `api/date_bounds.py`.
+Роуты активности возвращают безопасные проекции, журнал LLM ограничен owner/superadmin.
+Клиентская история объединяет диалоги по существующему `client_id`; разные персоны и
+совпадающие имена не объединяются автоматически.
+
+Миграция `0008` добавляет nullable `message.operator_id` и исторический `operator_name`,
+а также индексы для страниц сообщений. Имя фиксируется при ручном ответе; старые записи
+остаются неизвестными. Время отправки берётся только из receipt. Angular использует
+общие компоненты содержимого/метаданных сообщения и ленты для карточки клиента и
+журнала. [Руководство администратора](admin-activity.md).
+
+## Публикации и финансовые события
 
 Один JPEG Instagram поддерживается только при `SIM_IG_CONTENT_ENABLED=true` и явном
 `SIM_IG_CONTENT_POST_IDS`; значения по умолчанию false и пустой список. Нужны утверждённый
@@ -335,8 +352,8 @@ registration и payment, выручка — только payment. API и dashboa
 
 ## Основание и границы проверки
 
-Последняя локальная проверка кандидата: 502 backend-теста и Ruff прошли; TypeScript app/spec и ESLint ранее прошли
-на неизменённом frontend. Browser/Karma не запускались; последняя Angular build не подтверждена: проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было. PostgreSQL-конкурентность и реальные каналы
-не проверены. Подробности: [operations.md](operations.md).
+Проверки базы PR #12 и текущей ветки разделены в [README](../README.md) и
+[задаче админки](ai-ui/tasks/unified-client-admin/task-context.md). PostgreSQL-конкурентность
+и реальные каналы в этой работе не проверены. Подробности: [operations.md](operations.md).
 
 Исходники main (изменение аналитики слито в PR #9): [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/partner.py).

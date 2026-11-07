@@ -19,7 +19,8 @@ import { DialogsApi } from '../../core/api/dialogs.api';
 import { PersonasApi } from '../../core/api/personas.api';
 import { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona } from '../../core/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS, STAGES, STATUSES, STATUS_LABELS } from '../../core/stages';
-import { GuardBadgeComponent } from '../../shared/guard-badge.component';
+import { MessageContentComponent } from '../../shared/message-content.component';
+import { MessageMetadataComponent } from '../../shared/message-metadata.component';
 import { AvatarComponent } from '../../shared/avatar.component';
 import { ChannelIconComponent } from '../../shared/channel-icon.component';
 import { SINGLE_PANE_QUERY, WIDE_QUERY, injectMediaQuery } from '../../shared/breakpoints';
@@ -36,15 +37,6 @@ const PAGE_SIZE = 50;
 /** За сколько px до конца списка подгружаем следующую страницу. */
 const LOAD_MORE_THRESHOLD = 240;
 
-const MEDIA_LABELS: Record<string, { icon: string; label: string }> = {
-  image: { icon: 'image', label: 'Фото' },
-  photo: { icon: 'image', label: 'Фото' },
-  video: { icon: 'videocam', label: 'Видео' },
-  voice: { icon: 'mic', label: 'Голосовое' },
-  audio: { icon: 'mic', label: 'Аудио' },
-  document: { icon: 'description', label: 'Файл' },
-};
-
 interface RowVm {
   row: DialogRow;
   time: string;
@@ -56,7 +48,6 @@ interface MessageVm {
   time: string;
   side: 'left' | 'right';
   authorLabel: string;
-  media: { icon: string; label: string; isImage: boolean; isAudio: boolean } | null;
 }
 
 interface DayGroup { key: string; label: string; items: MessageVm[] }
@@ -67,7 +58,7 @@ interface DayGroup { key: string; label: string; items: MessageVm[] }
     ReactiveFormsModule, TextFieldModule, RouterLink, MatFormFieldModule, MatInputModule, MatSelectModule, MatIconModule, MatButtonModule,
     FilterBarComponent, FiltersTemplateDirective,
     MatSlideToggleModule, MatTooltipModule, AvatarComponent, ChannelIconComponent, EmptyStateComponent,
-    StageChipComponent, StatusBadgeComponent, NeedsOperatorBadgeComponent, GuardBadgeComponent,
+    StageChipComponent, StatusBadgeComponent, NeedsOperatorBadgeComponent, MessageContentComponent, MessageMetadataComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './inbox.component.html',
@@ -339,13 +330,11 @@ export class InboxComponent {
   }
 
   private toVm(msg: Message): MessageVm {
-    const m = msg.media_kind ? (MEDIA_LABELS[msg.media_kind] ?? { icon: 'attach_file', label: 'Вложение' }) : null;
     return {
       msg,
       time: formatTime(msg.created_at),
       side: msg.author === 'client' ? 'left' : 'right',
-      authorLabel: msg.author === 'ai' ? `ИИ${msg.model ? ' · ' + msg.model : ''}` : msg.author === 'operator' ? 'Оператор' : '',
-      media: m ? { ...m, isImage: m.icon === 'image', isAudio: m.icon === 'mic' } : null,
+      authorLabel: msg.author === 'ai' ? 'ИИ' : msg.author === 'operator' ? 'Оператор' : '',
     };
   }
 }

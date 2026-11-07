@@ -1,0 +1,51 @@
+@if (allowed()) {
+  <sim-activity-filters [llm]="llm()" [clientScoped]="clientId() !== undefined" [channelId]="channelId()" (changed)="setFilters($event)" />
+  <div class="toolbar">
+    <p class="sim-muted">
+      @if (clientId() !== undefined) { {{ pageIndex() === 0 ? 'Последние сообщения' : 'Более ранние сообщения' }} · внутри страницы от старых к новым. }
+      @else { Сначала новые записи. }
+      Время: {{ timezone }}.
+    </p>
+    <button mat-stroked-button type="button" (click)="refresh()" [disabled]="state().loading || filters() === null">Обновить</button>
+  </div>
+  <section [attr.aria-busy]="state().loading" aria-label="Результаты журнала">
+    @if (filters() === null) {
+      <p role="alert">Исправьте фильтры, чтобы загрузить записи.</p>
+    } @else if (state().loading) {
+      <p role="status">Загружаем записи…</p>
+    } @else if (state().error) {
+      <div class="sim-card error" role="alert"><p>Не удалось загрузить записи. Проверьте соединение и повторите попытку.</p><button mat-stroked-button type="button" (click)="retry()">Повторить</button></div>
+    } @else {
+      <p class="sim-muted total" role="status">Найдено: {{ state().total }}</p>
+      @if (llm()) {
+        <div class="entries">
+          @for (vm of calls(); track vm.call.id) {
+            <article class="sim-card llm-card">
+              <header><strong>Вызов № {{ vm.call.id }} · {{ vm.call.has_error ? 'Ошибка' : 'Успешно' }}</strong><time [attr.datetime]="vm.call.created_at">{{ vm.at }}</time></header>
+              <p>{{ vm.call.workflow }} · {{ vm.call.capability }}</p>
+              <p>Модель: {{ vm.call.model || '—' }} · Провайдер: {{ vm.call.provider || '—' }}</p>
+              <div class="metrics sim-num"><span>Вход: {{ vm.tokensIn }}</span><span>Выход: {{ vm.tokensOut }}</span><span>Из кеша: {{ vm.cached }}</span><span>{{ vm.cost }}</span><span>{{ vm.call.latency_ms }} мс</span></div>
+              <p class="sim-muted">Завершение: {{ vm.call.finish_reason || '—' }}</p>
+              @if (vm.call.channel; as channel) { <p>Канал: {{ channel.name }} · {{ channel.account_label || '—' }}</p> }
+              @if (vm.call.persona; as persona) { <p>Персонаж: {{ persona.name }}</p> }
+              <footer>
+                @if (vm.call.client; as client) { <a [routerLink]="['/clients', client.id]">{{ client.display_name }}</a> }
+                @if (vm.call.dialog_id !== null) { <a mat-button routerLink="/inbox" [queryParams]="{ d: vm.call.dialog_id }">Открыть диалог</a> }
+                @else { <span class="sim-muted">Без привязки к диалогу</span> }
+              </footer>
+            </article>
+          } @empty { <sim-empty-state icon="manage_search" title="Вызовов не найдено" hint="Измените фильтры или дождитесь новых обращений к модели." /> }
+        </div>
+      } @else {
+        <div class="entries">
+          @for (vm of messages(); track vm.message.id) {
+            @if (vm.day) { <p class="day">{{ vm.day }}</p> }
+            <sim-message-card [message]="vm.message" />
+          } @empty { <sim-empty-state icon="chat_bubble_outline" title="Сообщений не найдено" hint="Измените фильтры. Новые сообщения появятся после общения в подключённых каналах." /> }
+        </div>
+      }
+      @if (clientId() !== undefined && state().total > page().limit) { <p class="sim-muted page-note">Следующая страница — более ранние сообщения; первая — последние.</p> }
+      <mat-paginator [length]="state().total" [pageSize]="page().limit" [pageIndex]="pageIndex()" [pageSizeOptions]="[25, 50, 100]" showFirstLastButtons (page)="paginate($event)" aria-label="Страницы записей" />
+    }
+  </section>
+} @else { <p role="alert">Журнал вызовов доступен только владельцу.</p> }

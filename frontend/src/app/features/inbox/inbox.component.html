@@ -152,6 +152,7 @@
             </a>
           }
         </header>
+        <a mat-button class="conversation-link" [routerLink]="['/clients', d.client.id]" fragment="conversation">Лента клиента — все каналы</a>
 
         <div class="messages" #scroller tabindex="0" role="log" aria-live="polite" aria-label="Сообщения">
           @for (g of groups(); track g.key) {
@@ -162,31 +163,8 @@
                   @if (m.authorLabel) {
                     <span class="author">{{ m.authorLabel }}</span>
                   }
-                  @if (m.media; as media) {
-                    @if (media.isImage && m.msg.media_url) {
-                      <a [href]="m.msg.media_url" target="_blank" rel="noopener"><img class="media-img" [src]="m.msg.media_url" [alt]="media.label" loading="lazy" /></a>
-                    } @else if (media.isAudio && m.msg.media_url) {
-                      <audio controls preload="none" [src]="m.msg.media_url"></audio>
-                    } @else {
-                      <span class="media-chip">
-                        <mat-icon class="material-icons-outlined">{{ media.icon }}</mat-icon>
-                        @if (m.msg.media_url) {
-                          <a [href]="m.msg.media_url" target="_blank" rel="noopener">{{ media.label }}</a>
-                        } @else {
-                          {{ media.label }}
-                        }
-                      </span>
-                    }
-                  }
-                  @if (m.msg.text) {
-                    <p class="text">{{ m.msg.text }}</p>
-                  }
-                  @if (m.msg.author === 'ai' && m.msg.guard) {
-                    <sim-guard-badge [guard]="m.msg.guard" />
-                  }
-                  @if (m.msg.guard?.verdict === 'blocked' && m.msg.error) {
-                    <span class="blocked-note">{{ m.msg.error }}</span>
-                  }
+                  <sim-message-content [message]="m.msg" />
+                  <sim-message-metadata [message]="m.msg" />
                   <span class="foot">
                     {{ m.time }}
                     @if (m.msg.direction === 'out') {
@@ -198,7 +176,7 @@
                           <mat-icon class="material-icons-outlined" matTooltip="Отправлено">done</mat-icon>
                         }
                         @case ('failed') {
-                          <mat-icon class="material-icons-outlined failed" matTooltip="Не доставлено">error_outline</mat-icon>
+                          <mat-icon class="material-icons-outlined failed" matTooltip="Ошибка отправки — требуется сверка с каналом">error_outline</mat-icon>
                         }
                         @case ('cancelled') {
                           <mat-icon class="material-icons-outlined" [matTooltip]="m.msg.guard?.verdict === 'blocked' ? 'Не отправлено: заблокировано контролером' : 'Отменено: диалог перешёл к человеку'">block</mat-icon>

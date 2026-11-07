@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
+import { RouterLink } from '@angular/router';
 import { EMPTY, catchError, forkJoin, of, switchMap } from 'rxjs';
 import { ChannelsApi } from '../../core/api/channels.api';
 import { PersonasApi } from '../../core/api/personas.api';
@@ -27,7 +28,7 @@ const STATUS_VIEW: Record<ChannelStatus, { label: string; tone: 'ok' | 'warn' | 
 
 @Component({
   selector: 'sim-channels',
-  imports: [MatButtonModule, MatIconModule, PageHeaderComponent, ChannelIconComponent, EmptyStateComponent],
+  imports: [RouterLink, MatButtonModule, MatIconModule, PageHeaderComponent, ChannelIconComponent, EmptyStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sim-page">
@@ -65,6 +66,7 @@ const STATUS_VIEW: Record<ChannelStatus, { label: string; tone: 'ok' | 'warn' | 
               <p class="err" role="alert">{{ vm.error }}</p>
             }
             <footer>
+              <a mat-button routerLink="/activity" [queryParams]="{ channel_id: vm.channel.id }">Активность канала</a>
               @if (vm.channel.status !== 'active') {
                 <button mat-stroked-button type="button" (click)="openWizard(vm.channel)">Подключить</button>
               }
@@ -81,10 +83,10 @@ const STATUS_VIEW: Record<ChannelStatus, { label: string; tone: 'ok' | 'warn' | 
     </div>
   `,
   styles: `
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sim-space-4); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--sim-space-4); }
     .ch { display: flex; flex-direction: column; gap: var(--sim-space-3); }
     header, footer { display: flex; align-items: center; gap: var(--sim-space-2); }
-    footer { margin-top: auto; }
+    footer { margin-top: auto; flex-wrap: wrap; }
     .titles { display: flex; flex-direction: column; min-width: 0; }
     .persona { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
     h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

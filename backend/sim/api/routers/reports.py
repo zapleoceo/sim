@@ -1,13 +1,14 @@
 """Analytics and partner CSV import."""
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
+from sim.api.date_bounds import parse_bound
 from sim.api.deps import App, Db, authed, owner_only
-from sim.clock import to_naive_utc, utcnow
+from sim.clock import utcnow
 
 analytics = APIRouter(prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(authed)])
 partner = APIRouter(prefix="/api/partner", tags=["partner"], dependencies=[Depends(owner_only)])
@@ -15,17 +16,6 @@ partner = APIRouter(prefix="/api/partner", tags=["partner"], dependencies=[Depen
 MAX_CSV_BYTES = 2 * 1024 * 1024
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 400
-
-
-def parse_bound(value: str, *, end: bool) -> datetime:
-    """`2026-11-05` (a whole day; as `to` it is inclusive) or a full ISO datetime."""
-    try:
-        if len(value) <= 10:
-            day = date.fromisoformat(value)
-            return datetime.combine(day + timedelta(days=1 if end else 0), time.min)
-        return to_naive_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
-    except ValueError as exc:
-        raise HTTPException(422, f"bad date: {value!r}") from exc
 
 
 @analytics.get("/summary")
