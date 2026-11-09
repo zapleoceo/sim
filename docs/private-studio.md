@@ -49,3 +49,26 @@ or text generation. Required next steps:
 Per AGENTS.md, no local lint, tests, build or typecheck. Backend fake-Broker tests
 and frontend HTTP/access tests run only in the existing SIM CI workflow on the
 published exact commit. Never report a queued workflow as passed.
+
+## Runtime evidence, 2026-11-09 14:13 UTC
+
+Read-only inspection of the existing `https://aib.zapleo.com` runtime:
+
+- `GET /healthz`: 200, service `aibroker`.
+- `GET /openapi.json`: 200. Published generation routes are `/v1/chat`,
+  `/v1/embed`, `/v1/transcribe`, `/v1/deep`, `/v1/jobs`, transcription jobs and
+  `/v1/agent/runs`. No published speech/video/Interactions route was found.
+- Live `ChatRequest` properties: messages, model, max_tokens, temperature,
+  response_format, workflow, tools, tool_choice, terminal_tools, stream,
+  no_shell, trace_id, labels, priority. Exact model selection already exists.
+- `GET /v1/models` without a project key: 401, **not an empty model catalog**.
+  The configured SIM project key exists only on its server. Its model coverage
+  and worker revision are not yet verified by this reader.
+- The existing SSH deployment alias rejected its private key because its local
+  ACL is too open. No permission changes, key copying or workaround was attempted.
+  The existing Claude received a read-only runtime/worker and project-catalog
+  evidence request through Room main #6893; receipt is not confirmed.
+
+This is partial runtime evidence, not a paid model probe and not proof that a
+Google model is unavailable to the owner's account. Do not implement an invented
+Broker media endpoint or use its project key as a direct Google credential.
