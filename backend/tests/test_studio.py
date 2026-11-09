@@ -1,7 +1,7 @@
 """Owner studio uses fake Broker only; CI exercises auth and fail-closed routing."""
 import pytest
+from conftest import OPERATOR, OWNER, login
 
-from conftest import OWNER, login
 from sim.ports.llm import LLMError
 
 MODEL = "claude-sub/claude-sonnet-5-5"
@@ -86,3 +86,28 @@ async def test_asset_requires_containment(studio, container, tmp_path):
     container.settings.studio_photo_filename = str(outside)
     assert (await studio.get("/api/studio/assets/photo")).status_code == 404
     assert (await studio.get("/api/studio")).json()["photo_url"] is None
+
+
+async def test_operator_cannot_access_studio(api, container, fake_llm):
+    container.settings.studio_owner_telegram_id = OPERATOR[0]
+    token = await login(api, OPERATOR[0])
+    assert (await api.get("/api/studio")).status_code == 403
+    assert (await api.get("/api/studio/assets/photo")).status_code == 403
+    response = await api.post("/api/studio/chat", headers={"X-CSRF-Token": token}, json={
+        "model": MODEL, "messages": [{"role": "user", "content": "Hi"}],
+    })
+    assert response.status_code == 403
+    assert not fake_llm.calls
+
+
+async def test_untested_model_is_not_usable(studio, fake_llm):
+    async def models():
+        return [{"id": MODEL, "available": True, "tested": False,
+                 "billing_type": "subscription"}]
+    fake_llm.list_models = models
+    assert (await studio.get("/api/studio")).json()["models"] == []
+    response = await studio.post("/api/studio/chat", json={
+        "model": MODEL, "messages": [{"role": "user", "content": "Hi"}],
+    })
+    assert response.status_code == 409
+    assert not fake_llm.calls
