@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { landingGuard } from './core/landing.guard';
 import { authGuard, ownerGuard, superadminGuard } from './core/guards';
 
 export const routes: Routes = [
@@ -12,7 +13,8 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./shell/shell.component').then((m) => m.ShellComponent),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'inbox' },
+      { path: '', pathMatch: 'full', canActivate: [landingGuard], loadComponent: () => import('./features/studio/studio.component').then((m) => m.StudioComponent) },
+      { path: 'studio', canActivate: [ownerGuard], title: 'Studio - Sim', loadComponent: () => import('./features/studio/studio.component').then((m) => m.StudioComponent) },
       {
         path: 'inbox',
         title: 'Диалоги — Sim',

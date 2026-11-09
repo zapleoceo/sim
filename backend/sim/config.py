@@ -57,7 +57,11 @@ class Settings(BaseSettings):
     worker_tick_s: float = 2.0
 
     static_dir: str = "../frontend/dist/sim/browser"   # built Angular app (prod: /app/static)
-    media_dir: str = "./media"                         # downloaded voice/images (prod: /app/media)
+    media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)
+    # Private subscription studio: explicit account binding, disabled by default.
+    studio_owner_telegram_id: int = 0
+    studio_photo_filename: str = ""
+    studio_video_filename: str = ""
 
 
 def parse_telegram_ids(spec: str) -> list[int]:

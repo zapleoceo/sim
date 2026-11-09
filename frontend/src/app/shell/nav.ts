@@ -4,6 +4,7 @@ export type NavAccess = 'owner' | 'superadmin';
 export interface NavItem { path: string; label: string; icon: string; access?: NavAccess }
 
 export const NAV: readonly NavItem[] = [
+  { path: '/studio', label: 'Студия', icon: 'movie', access: 'owner' },
   { path: '/inbox', label: 'Диалоги', icon: 'forum' },
   { path: '/clients', label: 'Клиенты', icon: 'groups' },
   { path: '/funnel', label: 'Воронка', icon: 'filter_alt' },
