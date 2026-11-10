@@ -53,7 +53,7 @@ interface PreviewMsg { role: 'user' | 'assistant'; text: string; meta?: string; 
       }
     </div>
 
-    <form class="row" (ngSubmit)="send()">
+    <form class="row" (submit)="$event.preventDefault(); send()">
       <mat-form-field appearance="outline" subscriptSizing="dynamic" class="sim-grow">
         <mat-label>Сообщение</mat-label>
         <input matInput [formControl]="text" autocomplete="off" />

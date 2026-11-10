@@ -15,3 +15,17 @@ The frontend job builds the browser UI, runs lint, TypeScript and browser tests,
 `infra/build_release_artifact.py` checks the exact commit, rejects symlinks, special files, test paths, common secret names and private-key markers, and enforces file/count/size limits. It writes a tar and `manifest.json` only in the temporary CI runner, reopens the tar, verifies every member against the manifest, then prints the source SHA, Git tree SHA, member count, tar SHA256 and manifest SHA256. The manifest also records both lockfile SHA256 values and each member's SHA256. CI logs print hashes and counts, never archive contents. The temporary files are not published or retained after the job.
 
 Successful bundle validation is a CI check, not a downloadable release artifact or evidence that SIM was released. A later release workflow still needs authorized artifact storage and staging transport. Staging rollout also needs a backup, worker shutdown before migration 0007 and readiness checks. No staging credentials or deployment command are present.
+
+## Production deploy job
+
+`deploy` in `.github/workflows/ci.yml` runs only on pushes to `main` after the `backend` and `frontend` jobs pass. It is the only CI job that touches production. It:
+
+1. Takes a fresh database and secrets backup on the server with `/usr/local/bin/sim-backup.sh` (the backup tree under `/var/backups/vera` is pulled by the NAS).
+2. Syncs the committed tree and the CI-built admin bundle to `/var/www/sim`, keeping `infra/.env` and `broker-project.json`, and writes `REVISION`.
+3. Stops `sim-worker` before migrations, so an old worker never runs with new migrations.
+4. Runs `docker compose build && up -d`. Migrations run in the `migrate` service before API and worker start.
+5. Runs the readiness smoke and prints the Alembic head and `REVISION`.
+
+Secrets: `SIM_DEPLOY_SSH_KEY`, `SIM_DEPLOY_KNOWN_HOSTS`, `SIM_DEPLOY_HOST`, `SIM_DEPLOY_PORT`. The key is dedicated to this job and pinned to the server host key. Rotate it by replacing the key in `authorized_keys` on the server and updating the secret.
+
+Rollback: restore the database from the backup in `/var/backups/vera/sim/daily/<date>/sim.dump` (`pg_restore -c`), then redeploy the previous commit. The job does not roll back by itself.

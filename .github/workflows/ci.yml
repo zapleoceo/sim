@@ -100,3 +100,74 @@ jobs:
         env:
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python infra/build_release_artifact.py
+
+  # Production deploy: only for pushes to main after backend and frontend pass.
+  # Gates: fresh DB backup, old worker stopped before migrations, readiness smoke.
+  deploy:
+    name: Deploy production
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: sim-production-deploy
+      cancel-in-progress: false
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend from the same SHA
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.SIM_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SIM_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Backup database before deploy
+        env:
+          HOST: ${{ secrets.SIM_DEPLOY_HOST }}
+          PORT: ${{ secrets.SIM_DEPLOY_PORT }}
+        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" '/usr/local/bin/sim-backup.sh'
+      - name: Sync committed tree and built admin
+        env:
+          HOST: ${{ secrets.SIM_DEPLOY_HOST }}
+          PORT: ${{ secrets.SIM_DEPLOY_PORT }}
+        run: |
+          SSH="ssh -p $PORT -i $HOME/.ssh/id_ed25519 root@$HOST"
+          $SSH 'mkdir -p /var/www/sim && cd /var/www/sim && find . -mindepth 1 -maxdepth 1 ! -name infra ! -name broker-project.json -exec rm -rf {} + && find infra -mindepth 1 ! -name .env -delete 2>/dev/null || true'
+          git archive --format=tar HEAD | $SSH 'tar -x -C /var/www/sim'
+          tar -cf - frontend/dist/sim/browser | $SSH 'tar -x -C /var/www/sim'
+          $SSH "echo ${GITHUB_SHA} > /var/www/sim/REVISION"
+      - name: Stop old worker before migrations
+        env:
+          HOST: ${{ secrets.SIM_DEPLOY_HOST }}
+          PORT: ${{ secrets.SIM_DEPLOY_PORT }}
+        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'cd /var/www/sim/infra && docker compose stop worker'
+      - name: Build and start stack (migrations run first)
+        env:
+          HOST: ${{ secrets.SIM_DEPLOY_HOST }}
+          PORT: ${{ secrets.SIM_DEPLOY_PORT }}
+        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'cd /var/www/sim/infra && docker compose build && docker compose up -d --remove-orphans && docker compose ps'
+      - name: Readiness smoke
+        env:
+          HOST: ${{ secrets.SIM_DEPLOY_HOST }}
+          PORT: ${{ secrets.SIM_DEPLOY_PORT }}
+        run: |
+          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'for i in $(seq 1 30); do docker exec sim-api python -m sim.readiness && curl -fsS --max-time 5 http://127.0.0.1:8010/api/ready && exit 0; sleep 2; done; exit 1'
+          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'docker exec sim-postgres psql -U sim -d sim -tAc "select version_num from alembic_version"; cat /var/www/sim/REVISION'
+      - name: Remove key material
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
