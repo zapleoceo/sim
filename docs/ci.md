@@ -29,3 +29,19 @@ Successful bundle validation is a CI check, not a downloadable release artifact 
 Secrets: `SIM_DEPLOY_SSH_KEY`, `SIM_DEPLOY_KNOWN_HOSTS`, `SIM_DEPLOY_HOST`, `SIM_DEPLOY_PORT`. The key is dedicated to this job and pinned to the server host key. Rotate it by replacing the key in `authorized_keys` on the server and updating the secret.
 
 Rollback: restore the database from the backup in `/var/backups/vera/sim/daily/<date>/sim.dump` (`pg_restore -c`), then redeploy the previous commit. The job does not roll back by itself.
+
+## Tests and docs gate
+
+Job `change-gate` ("Tests and docs required") runs on every pull request to `main`
+(`backend/scripts/change_gate.py`, unit tests in `backend/tests/test_change_gate.py`). For the
+files changed between the PR base and head:
+
+- product code changed (`backend/sim/**`, `frontend/src/**` except `*.test.ts(x)` and
+  `frontend/src/test/**`) without a changed test file (`backend/tests/**`, `*.test.ts(x)`,
+  `frontend/src/test/**`) fails the job;
+- product code changed without a change in `docs/**` or `README.md` fails the job.
+
+A purely cosmetic change may opt out with `tests-not-needed` or `docs-not-needed` in a commit
+message of the PR; reviewers see it. To make the gate blocking for merges, add "Tests and docs
+required" to the required status checks of the `main` branch protection. Coverage thresholds are
+not enforced yet.
