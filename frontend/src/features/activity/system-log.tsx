@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { RefreshCw, SearchX, TriangleAlert, X } from 'lucide-react';
+import { RefreshCw, SearchX, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { EmptyState, ErrorState, InlineError } from '@/components/empty-state';
 import { SearchInput } from '@/components/filter-bar';
@@ -7,6 +7,7 @@ import { Pager } from '@/components/pager';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
@@ -116,6 +117,27 @@ export function SystemLog({ channelId, onOpenTrace }: { channelId: number | null
           <TriangleAlert />
           Только ошибки
         </Button>
+        {/* Columns hidden on narrow screens keep their filters here. */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="lg:hidden">
+              <SlidersHorizontal />
+              Ещё фильтры
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="flex flex-col gap-2 text-sm" aria-label="Ещё фильтры">
+            {number('min_attempt', 'Попытка, не меньше')}
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Кто
+              <Input value={filters.actor} maxLength={120} onChange={(e) => set('actor', e.target.value)} />
+            </label>
+            {number('http_status', 'HTTP-код')}
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Трейс (начало id)
+              <Input value={filters.trace_id} maxLength={32} onChange={(e) => set('trace_id', e.target.value)} />
+            </label>
+          </PopoverContent>
+        </Popover>
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={live} onCheckedChange={setLive} aria-label="Живой режим" />
           Живой режим
