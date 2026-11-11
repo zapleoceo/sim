@@ -15,7 +15,6 @@ export type PersonaForm = FormGroup<{
   voice_id: FormControl<string>;
   strategy_id: FormControl<number | null>;
   is_active: FormControl<boolean>;
-  disclosure_text: FormControl<string>;
 }>;
 
 export const EMPTY_PERSONA: PersonaIn = {
@@ -30,15 +29,13 @@ export const EMPTY_PERSONA: PersonaIn = {
   voice_id: '',
   strategy_id: null,
   is_active: true,
-  disclosure_text: '',
 };
 
 const text = (value: string, validators = [Validators.maxLength(4000)]): FormControl<string> =>
   new FormControl(value, { nonNullable: true, validators });
 
 /**
- * Форма персонажа. Обязательны: имя, описание, язык и текст раскрытия
- * («я виртуальный ассистент») — без него ИИ нечем честно ответить на прямой вопрос.
+ * Форма персонажа. Обязательны: имя, описание и язык.
  */
 export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaForm {
   return new FormGroup({
@@ -48,12 +45,11 @@ export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaFo
     avatar_url: text(initial.avatar_url, [Validators.pattern(AVATAR_URL_PATTERN), Validators.maxLength(500)]),
     description: text(initial.description, [Validators.required, Validators.maxLength(20000)]),
     prohibitions: text(initial.prohibitions, [Validators.maxLength(10000)]),
-    language: text(initial.language, [Validators.required, Validators.maxLength(16)]),
+    language: text(initial.language, [Validators.required, Validators.maxLength(200)]),
     model: text(initial.model, [Validators.maxLength(200)]),
     voice_id: text(initial.voice_id, [Validators.maxLength(200)]),
     strategy_id: new FormControl<number | null>(initial.strategy_id),
     is_active: new FormControl(initial.is_active, { nonNullable: true }),
-    disclosure_text: text(initial.disclosure_text, [Validators.maxLength(1000)]),
   });
 }
 
@@ -75,6 +71,5 @@ export function personaToInput(p: Persona): PersonaIn {
     voice_id: p.voice_id,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
-    disclosure_text: p.disclosure_text,
   };
 }

@@ -26,7 +26,6 @@ PERSONA = PersonaProfile(
     name="Марина", age=45, language="ru",
     description="Характер: тёплая. Биография: 20 лет в проектах.",
     prohibitions="- не обещать доход\n2. не просить пароли\n\nбез мата",
-    disclosure_text="Я виртуальная помощница проекта.",
 )
 STRATEGY = StrategyProfile(
     name="S", goal="регистрация", offer="курс", partner_name="RCIPM",
@@ -64,7 +63,6 @@ def test_voice_and_honesty_rules_present():
     assert "Never volunteer that you are an AI" in system and "no disclaimers" in system
     # ...but never claims to be human on a direct question
     assert "directly and sincerely asks" in system and "never claim to be human" in system
-    assert "Я виртуальная помощница проекта." in system   # optional per-persona hint still works
 
 
 def test_voice_and_style_aim_at_a_human_messenger_voice():

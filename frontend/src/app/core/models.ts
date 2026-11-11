@@ -50,7 +50,6 @@ export interface Persona {
   voice_id: string;
   strategy_id: number | null;
   is_active: boolean;
-  disclosure_text: string;
   created_at: string;
 }
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
@@ -84,7 +83,6 @@ export interface Strategy {
   stage_playbook: Record<string, string>;
   rules: string[];
   followup_hours: number[];
-  reply_delay_s: [number, number];
   created_at: string;
 }
 export type StrategyIn = Omit<Strategy, 'id' | 'created_at'>;
@@ -275,4 +273,20 @@ export interface SimBranchDetail extends SimBranchRow {
   next_step: string;
   notes: string;
   messages: SimMessage[];
+}
+
+/** Владельческая настройка из БД (/api/settings): тексты промптов и параметры. */
+export interface AppSettingItem {
+  key: string;
+  group: string;
+  label: string;
+  help: string;
+  kind: 'text' | 'int' | 'capability';
+  min: number | null;
+  max: number | null;
+  value: string | number;
+  default: string | number;
+  is_default: boolean;
+  updated_at: string | null;
+  updated_by_id: number | null;
 }

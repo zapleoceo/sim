@@ -95,20 +95,7 @@
               <mat-error>Только положительные числа через запятую</mat-error>
             }
           </mat-form-field>
-          <div class="delay sim-row">
-            <mat-form-field appearance="outline">
-              <mat-label>Задержка ответа от, с</mat-label>
-              <input matInput type="number" min="0" formControlName="delay_min" />
-            </mat-form-field>
-            <mat-form-field appearance="outline">
-              <mat-label>до, с</mat-label>
-              <input matInput type="number" min="0" formControlName="delay_max" />
-            </mat-form-field>
-          </div>
         </div>
-        @if (form.hasError('delayRange')) {
-          <p class="err" role="alert">Минимальная задержка не может быть больше максимальной.</p>
-        }
 
         <div class="sim-save-bar actions">
           @if (strategy()) {

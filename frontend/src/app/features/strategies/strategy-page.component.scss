@@ -5,7 +5,5 @@
 .rules { display: flex; flex-direction: column; gap: var(--sim-space-2); }
 .add { align-self: flex-start; }
 mat-expansion-panel { box-shadow: none; border: 1px solid var(--sim-border); background: var(--sim-surface); }
-.delay { align-items: flex-start; }
-.err { color: var(--sim-danger); }
 .danger { color: var(--sim-danger); }
 .prompt { font-family: var(--sim-font-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.45; }

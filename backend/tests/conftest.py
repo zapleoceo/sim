@@ -243,7 +243,7 @@ async def make_world(c: Container, *, persona_name: str = "Марина", model:
             name="S", goal="Привести к регистрации", offer="Курс RCIPM", partner_name="RCIPM",
             registration_url="https://rcipm.com/?ref={ref}",
             stage_playbook={"engaged": "узнай о человеке", "first_contact": "поздоровайся"},
-            rules=["Не дави"], followup_hours=[24, 72, 168], reply_delay_s=[20, 90],
+            rules=["Не дави"], followup_hours=[24, 72, 168],
         )
         s.add(strategy)
         await s.flush()
@@ -251,7 +251,6 @@ async def make_world(c: Container, *, persona_name: str = "Марина", model:
             name=persona_name, age=45,
             description="Характер: тёплая. Биография: 20 лет в проектах. Стиль общения: коротко.",
             prohibitions="не обещать доход\nне просить пароли", language="ru", strategy_id=strategy.id, model=model,
-            disclosure_text="Я виртуальный ассистент.",
         )
         s.add(persona)
         await s.flush()

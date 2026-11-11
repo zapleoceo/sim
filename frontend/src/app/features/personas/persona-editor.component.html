@@ -106,21 +106,10 @@
       <mat-hint>Одно правило на строку. Этим же руководствуется контролер ответов.</mat-hint>
     </mat-form-field>
 
-    <details class="more">
-      <summary>Дополнительно</summary>
-      <div class="more-body">
-        <mat-form-field appearance="outline" class="block">
-          <mat-label>Ответ на «ты бот?» (необязательно)</mat-label>
-          <textarea matInput rows="2" formControlName="disclosure_text"></textarea>
-          <mat-hint>Пусто: персонаж ответит своими словами, не называя себя человеком</mat-hint>
-        </mat-form-field>
-
-        <mat-form-field appearance="outline" class="block">
-          <mat-label>ID голоса (ElevenLabs)</mat-label>
-          <input matInput formControlName="voice_id" />
-        </mat-form-field>
-      </div>
-    </details>
+    <mat-form-field appearance="outline" class="block">
+      <mat-label>ID голоса</mat-label>
+      <input matInput formControlName="voice_id" />
+    </mat-form-field>
 
     <div class="sim-save-bar actions">
       @if (persona()) {

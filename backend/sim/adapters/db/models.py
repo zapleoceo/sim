@@ -105,7 +105,6 @@ class Strategy(Base):
     stage_playbook: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     rules: Mapped[list[str]] = mapped_column(JSON, default=list)
     followup_hours: Mapped[list[float]] = mapped_column(JSON, default=list)
-    reply_delay_s: Mapped[list[float]] = mapped_column(JSON, default=lambda: [20, 90])
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -129,8 +128,6 @@ class Persona(Base):
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_virtual_disclosed: Mapped[bool] = mapped_column(Boolean, default=True)
-    disclosure_text: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -409,6 +406,20 @@ class SimMessage(Base):
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # generator draft if rewritten
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AppSetting(Base):
+    """An owner-edited value that overrides a code default (prompt texts, tunables). Only keys
+    from `sim.services.app_settings.SPECS` are accepted; a missing row means "use the default"."""
+
+    __tablename__ = "app_setting"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class SimAdminPref(Base):

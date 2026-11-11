@@ -79,7 +79,7 @@ async def test_own_message_pauses_ai_and_echo_is_ignored(container, world):
     await ingest(container, world.channel.id, inbound("a", ext="1"))
     async with transaction(container.factory) as s:
         dialog = (await s.scalars(select(Dialog))).unique().one()
-        await container.outbound(s).queue_ai(dialog, "Здравствуйте!", None, [0, 0])
+        await container.outbound(s).queue_ai(dialog, "Здравствуйте!", None)
     echo = inbound("Здравствуйте!", ext="echo-1", from_me=True)
     res = await ingest(container, world.channel.id, echo)
     assert res.duplicate
