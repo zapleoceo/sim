@@ -91,6 +91,9 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("caption_rules", "Контент", "Правила подписей",
                 "Требования к подписи поста в Instagram.",
                 "text", CAPTION_RULES),
+    SettingSpec("trace_retention_days", "Журнал", "Хранить журнал, дней",
+                "Сколько дней хранить записи журнала системы (Активность → Журнал). 0 — не удалять.",
+                "int", None, 0, 365),
 )
 BY_KEY: Mapping[str, SettingSpec] = {spec.key: spec for spec in SPECS}
 
@@ -101,11 +104,12 @@ def env_defaults(settings: Settings) -> dict[str, Any]:
         "guard_capability": settings.guard_capability,
         "guard_fallback_capability": settings.guard_fallback_capability,
         "reply_debounce_s": settings.reply_debounce_s,
+        "trace_retention_days": settings.trace_retention_days,
     }
 
 
 FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "prefilter",
-                "reply_debounce_s": 8}
+                "reply_debounce_s": 8, "trace_retention_days": 30}
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,7 @@ class AppSettings:
     guard_fallback_capability: str
     reply_debounce_s: int
     caption_rules: str
+    trace_retention_days: int
 
     def prompt_texts(self) -> PromptTexts:
         return PromptTexts(voice=self.voice_rule, style=self.style_rule, safety=self.safety_rule)
@@ -187,3 +192,9 @@ class AppSettingsService:
         except SettingError as exc:
             log.warning("app_setting %s ignored, default used: %s", spec.key, exc)
             return None
+
+
+async def trace_retention_days(session: AsyncSession, settings: Settings) -> int:
+    """How long the system log is kept: the owner setting, else SIM_TRACE_RETENTION_DAYS."""
+    item = await AppSettingsService(session, env_defaults(settings)).item("trace_retention_days")
+    return int(item.value)

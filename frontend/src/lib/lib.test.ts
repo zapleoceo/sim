@@ -138,6 +138,8 @@ describe('search params', () => {
     expect(parseInboxSearch({ d: '-1' })).toEqual({});
     expect(parseActivitySearch({ tab: 'llm', channel_id: 4 })).toEqual({ tab: 'llm', channel_id: 4 });
     expect(parseActivitySearch({ tab: 'x', channel_id: 'abc' })).toEqual({});
+    expect(parseActivitySearch({ tab: 'messages', trace: 'a'.repeat(32) })).toEqual({ tab: 'messages', trace: 'a'.repeat(32) });
+    expect(parseActivitySearch({ trace: 'not-a-trace' })).toEqual({});
   });
 });
 

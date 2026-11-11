@@ -19,8 +19,10 @@ from sim.adapters.db.repositories.records import PartnerEventRepo
 from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import PartnerEventKind, Stage
 from sim.domain.funnel import Actor
+from sim.services import tracing
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
+from sim.services.tracing import Tracer
 
 REPLAY_WINDOW_S = 300
 CSV_COLUMNS = ("client_ref", "event", "amount", "currency", "payout", "occurred_at", "external_id")
@@ -89,9 +91,12 @@ class ImportResult:
 
 
 class PartnerService:
-    def __init__(self, session: AsyncSession, *, clock: Clock = utcnow) -> None:
+    def __init__(
+        self, session: AsyncSession, *, clock: Clock = utcnow, tracer: Tracer | None = None
+    ) -> None:
         self.session = session
         self.clock = clock
+        self.tracer = tracer
         self.clients = ClientRepo(session)
         self.events = PartnerEventRepo(session)
         self.dialogs = DialogRepo(session)
@@ -99,7 +104,20 @@ class PartnerService:
         self.followups = FollowupService(session, clock=clock)
 
     async def record(self, event: PartnerEventIn) -> bool:
-        """Store the event and move the client. False = already seen (idempotent)."""
+        """Store the event and move the client. False = already seen (idempotent).
+        Each event is a `partner` step of the trace log (an unknown client is an error step)."""
+        if self.tracer is None:
+            return await self.store(event)
+        async with self.tracer.step(tracing.PARTNER, f"partner {event.kind.value}") as step:
+            step.detail = {"source": event.source, "amount": event.amount, "currency": event.currency}
+            stored = await self.store(event)
+            step.status = tracing.OK if stored else tracing.SKIPPED
+            step.detail["duplicate"] = not stored
+            client = await self.clients.by_ref(event.client_ref)
+            step.links["client_id"] = client.id if client else None
+        return stored
+
+    async def store(self, event: PartnerEventIn) -> bool:
         client = await self.clients.by_ref(event.client_ref)
         if client is None:
             raise PartnerDataError(f"unknown client_ref {event.client_ref!r}")

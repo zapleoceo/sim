@@ -25,6 +25,7 @@ from sim.api.routers import (
     system,
 )
 from sim.api.routers import settings as settings_api
+from sim.api.tracing import install_request_tracing
 from sim.config import Settings, parse_telegram_ids
 from sim.config import settings as get_settings
 from sim.services.admin_bot import admin_bot_secret, register_webhook
@@ -108,6 +109,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         settings_api.router,
     ):
         app.include_router(router)
+    install_request_tracing(app)
     if (static := resolve_static_dir(cfg.static_dir)) is not None:
         mount_spa(app, static)
     return app

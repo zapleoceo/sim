@@ -1,5 +1,52 @@
 # Sim — HTTP API (контракт админки)
 
+## Журнал системы (трейсы)
+
+Схема `0011` (`trace_event`, `job.trace_id`, `llm_call.trace_id`). Только owner/superadmin;
+operator получает 403.
+
+Каждый ответ `/api/*` и `/hooks/*` несёт заголовок `X-Trace-Id` (32 hex). Этот id проходит
+через всю обработку: вебхук → входящее → задача `reply` → вызовы модели и контролёра →
+задача `send` → отправка.
+
+- `GET /api/activity/log` — шаги журнала. Ответ: `{items, total, page, size, retention_days, kinds, statuses}`.
+  - Пагинация: `page` от 1, `size` 1–200 (по умолчанию 50).
+  - Сортировка: `sort` = `started_at` | `kind` | `name` | `status` | `duration_ms` | `attempt` |
+    `http_status` | `actor` | `client` | `trace_id`; `order` = `asc` | `desc` (по умолчанию
+    `started_at desc`). Пустые значения идут в конце.
+  - Фильтры (все в SQL):
+    - `kind`, `status` — списки через запятую. Kinds: `http`, `webhook`, `inbound`, `poll`,
+      `job`, `llm`, `guard`, `send`, `partner`. Statuses: `ok`, `error`, `retry`, `skipped`.
+    - Подстрока без учёта регистра: `name`, `actor`, `client` (имя клиента).
+    - `trace_id` — префикс.
+    - Точное совпадение: `client_id`, `dialog_id`, `channel_id`, `job_id`, `http_status`.
+    - Диапазоны: `min_ms`/`max_ms`, `min_attempt`.
+    - `has_error`; `from`/`to` (как в activity).
+    - `q` ищет сразу в шаге, ошибке, исполнителе, трейсе и имени клиента.
+  - Неизвестный kind/status/sort или `min_ms > max_ms` → 422.
+- `GET /api/activity/traces/{trace_id}` — один запрос целиком, от старых шагов к новым. Возвращает
+  `{trace_id, started_at, finished_at, duration_ms, status, cost_usd, steps}`.
+  - У шага: `offset_ms` от начала трейса, `in_trace` и `llm` (модель, токены, стоимость), если это
+    вызов модели.
+  - Попытки задачи, которую создал другой запрос (несколько сообщений подряд склеены в один
+    ответ), тоже включаются с `in_trace=false`.
+  - `status` — худший итог по последним попыткам задач: ошибка, которую исправил повтор,
+    не делает трейс ошибочным.
+  - Неизвестный id → 404, неверный формат → 422.
+
+Шаг (`TraceStep`):
+
+- `id, trace_id, kind, name, status, started_at, duration_ms, attempt, http_status`
+- `actor` — админ, `worker` или тип канала
+- `error` — маскированная
+- `detail` — небольшой словарь, например `queue_ms`, `outcome`, `guard`, `max_attempts`, `gave_up`, `query`
+- `client: {id, display_name} | null`
+- `admin_id, dialog_id, channel_id, job_id, message_id, llm_call_id`
+
+В журнал не пишутся тела запросов, cookies, заголовки и тексты сообщений. Токены, ключи,
+пароли и `user:pass@` в ошибках и query string маскируются. GET-запросы самого журнала и
+health-проверки не логируются.
+
 ## Единая админка: сообщения и журнал LLM
 
 Код слит в PR #13, схема `0008`; выкладка не подтверждена.

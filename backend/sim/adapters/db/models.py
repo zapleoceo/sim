@@ -346,6 +346,8 @@ class Job(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     dedup_key: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    # The trace (trace_event.trace_id) that enqueued this job; the worker continues it.
+    trace_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -369,7 +371,42 @@ class LlmCall(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class TraceEvent(Base):
+    """System log: one step of one traced request (HTTP call, webhook, inbound message, job
+    attempt, LLM/guard call, send...). Link columns are plain ids without FKs: the log outlives
+    deleted rows and never locks them. Purged after `trace_retention_days`."""
+
+    __tablename__ = "trace_event"
+    __table_args__ = (
+        Index("ix_trace_event_started_at_id", "started_at", "id"),
+        Index("ix_trace_event_trace_started", "trace_id", "started_at"),
+        Index("ix_trace_event_kind_started", "kind", "started_at"),
+        Index("ix_trace_event_status_started", "status", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[str] = mapped_column(String(16), default="ok")
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actor: Mapped[str] = mapped_column(String(120), default="")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    client_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    dialog_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_call_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class SimBranch(Base):

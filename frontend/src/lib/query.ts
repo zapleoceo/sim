@@ -32,7 +32,8 @@ export const qk = {
   client: (id: number) => ['client', id] as const,
   funnel: (personaId: number | null) => ['funnel', personaId] as const,
   analytics: (from: string, to: string, personaId: number | null) => ['analytics', from, to, personaId] as const,
-  activity: (kind: 'messages' | 'llm', args: unknown) => ['activity', kind, args] as const,
+  activity: (kind: 'messages' | 'llm' | 'log', args: unknown) => ['activity', kind, args] as const,
+  trace: (id: string) => ['trace', id] as const,
   simulations: ['simulations'] as const,
   simulation: (id: number) => ['simulation', id] as const,
 };

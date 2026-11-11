@@ -1,4 +1,5 @@
 import type { ActivityPage, LlmActivity, LlmActivityFilter, MessageActivity, MessageActivityFilter } from '../activity-models';
+import type { TraceDetail, TraceLogPage } from '../trace-models';
 import { DEFAULT_PAGE, http, type PageRequest, type QueryValue } from './http';
 
 export const activityApi = {
@@ -14,4 +15,11 @@ export const activityApi = {
     if (filter.has_error === false) params.has_error = 'false';
     return http.get<ActivityPage<LlmActivity>>('/api/activity/llm', { params, silent: true });
   },
+};
+
+/** System trace log (owner only): server-side filters, sort and page; one trace end to end. */
+export const traceApi = {
+  log: (params: Record<string, QueryValue>) =>
+    http.get<TraceLogPage>('/api/activity/log', { params, silent: true }),
+  trace: (traceId: string) => http.get<TraceDetail>(`/api/activity/traces/${encodeURIComponent(traceId)}`, { silent: true }),
 };
