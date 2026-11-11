@@ -31,9 +31,10 @@ const GEMINI_VOICE_IDS = new Set(GEMINI_VOICES.map((v) => v.id));
 const notBlank = (v: string): boolean => v.trim() !== '';
 
 /**
- * Persona form. Required: name, description, language (free text up to 200 characters, e.g.
- * «русский, с клиентом из Украины — по-украински»). There is no «are you a bot?» field: the API
- * dropped `disclosure_text`; shared prompts live on /settings. Age is text in the form, converted on save.
+ * Persona form. The editor shows only name, model, strategy, avatar, description and voice: age,
+ * gender, language and prohibitions are not edited here (age and origin live in the description,
+ * restrictions are set later in the simulator). Their saved values pass through unchanged; empty
+ * gender/language fall back to female/ru. Required: name and description.
  */
 export const personaSchema = z.object({
   name: z.string().refine(notBlank, 'Укажите имя').refine((v) => v.length <= 80, 'Не длиннее 80 символов'),
@@ -42,14 +43,14 @@ export const personaSchema = z.object({
     const n = Number(v);
     return Number.isInteger(n) && n >= 18 && n <= 100;
   }, '18–100'),
-  gender: z.string().refine(notBlank, 'Укажите пол'),
+  gender: z.string(),
   avatar_url: z
     .string()
     .max(500, 'Не длиннее 500 символов')
     .refine((v) => v === '' || AVATAR_URL_PATTERN.test(v), 'Нужна ссылка вида https://…'),
   description: z.string().refine(notBlank, 'Опишите персонажа').refine((v) => v.length <= 20000, 'Слишком длинно'),
   prohibitions: z.string().max(10000, 'Слишком длинно'),
-  language: z.string().refine(notBlank, 'Укажите язык').refine((v) => v.length <= 200, 'Не длиннее 200 символов'),
+  language: z.string().max(200, 'Не длиннее 200 символов'),
   model: z.string().max(200),
   voice_id: z.string().refine((v) => v === '' || GEMINI_VOICE_IDS.has(v), 'Выберите голос из списка'),
   voice_mode: z.enum(['off', 'mirror', 'always']),
@@ -98,11 +99,11 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
   return {
     name: v.name.trim(),
     age: v.age.trim() === '' ? null : Number(v.age),
-    gender: v.gender,
+    gender: v.gender || 'female',
     avatar_url: v.avatar_url.trim(),
     description: v.description,
     prohibitions: v.prohibitions,
-    language: v.language.trim(),
+    language: v.language.trim() || 'ru',
     model: v.model,
     voice_id: v.voice_id,
     voice_mode: v.voice_mode,
@@ -128,9 +129,4 @@ export function personaToInput(p: Persona): PersonaIn {
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
-}
-
-/** Non-empty rules in «Чего нельзя» (one rule per line). */
-export function countRules(value: string): number {
-  return value.split(/\r?\n/).filter((line) => line.trim() !== '').length;
 }

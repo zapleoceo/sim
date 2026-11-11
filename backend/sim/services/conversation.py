@@ -199,7 +199,6 @@ class ConversationService:
 
     async def review(  # noqa: PLR0913
         self,
-        persona: Persona,
         strategy: Strategy,
         history: list[Turn],
         decision: Decision,
@@ -216,8 +215,6 @@ class ConversationService:
             if link
         ]
         return await (await self.guard()).review(
-            persona=persona_profile(persona),
-            strategy=strategy_profile(strategy),
             history=history,
             draft=decision.reply,
             stage=ctx.stage,
@@ -328,7 +325,7 @@ class ConversationService:
         if decision is not None and decision.reply and (stale is None or stale.id <= cutoff):
             # (A draft already overtaken by a newer client message is not worth a guard call;
             # the locked re-check below drops it.) Fail closed: a guard error propagates, the job retries; nothing goes out unchecked.
-            guard = await self.review(persona, strategy, history, decision, result, ctx, dialog_id)
+            guard = await self.review(strategy, history, decision, result, ctx, dialog_id)
         # The model call took a while. From here on, hold the dialog lock (ingest takes it to
         # insert a client message) and re-read the world before anything is queued.
         await lock(self.session, NS_DIALOG, dialog_id)
@@ -432,7 +429,7 @@ class ConversationService:
         guard: GuardOutcome | None = None
         if decision is not None and decision.reply:
             guard = await self.review(
-                persona, strategy, history, decision, result, ctx, dialog_id, guard_workflow
+                strategy, history, decision, result, ctx, dialog_id, guard_workflow
             )
         return Draft(decision, result, guard)
 

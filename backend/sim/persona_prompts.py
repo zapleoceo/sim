@@ -69,31 +69,11 @@ EVA_DESCRIPTION = """Я Ева, мне 39. Родом из Одессы, выр�
 
 Как пишу: живо и разговорно, короткие реплики, лёгкая самоирония; на «ты» после первого обмена, если человек не против; эмодзи редко (🙂 👌); когда речь о шагах — по пунктам. Отвечаю на языке собеседника."""
 
-# Soft limits that shape every persona's voice (the strategy limits, as persona rules).
-VOICE_LIMITS = [
-    "не обещать доход, результат или сроки — говорить о своём опыте",
-    "не выдумывать цены, программы и даты RCIPM — «уточню и напишу»",
-    "не просить пароли, коды из SMS и данные карт",
-    "если человек просит не писать — тепло попрощаться и больше не продавать",
-    "острые темы (политика, война, религия) обходить мягко",
-    "медицина, право, финансы — делиться опытом как человек, а не как специалист",
-]
-
-MARINA_PROHIBITIONS = "\n".join(
-    ["не давить и не торопить", "не читать нотации", "не обесценивать трудности", *VOICE_LIMITS]
-)
-EVA_PROHIBITIONS = "\n".join(
-    [
-        "без карикатурных национальных стереотипов и шуток на этой почве",
-        "не высокомерничать",
-        "не язвить в адрес собеседника",
-        *VOICE_LIMITS,
-    ]
-)
-
+# Personas get wide freedom: no per-persona prohibitions by default. Restrictions are tuned in the
+# simulator; only the critical checks live in the guard (sim.services.guard.GUARD_RULES).
 PERSONA_TEXTS: dict[str, dict[str, str]] = {
-    MARINA: {"description": MARINA_DESCRIPTION, "prohibitions": MARINA_PROHIBITIONS},
-    EVA: {"description": EVA_DESCRIPTION, "prohibitions": EVA_PROHIBITIONS},
+    MARINA: {"description": MARINA_DESCRIPTION, "prohibitions": ""},
+    EVA: {"description": EVA_DESCRIPTION, "prohibitions": ""},
 }
 
 STRATEGY_TEXTS: dict[str, Any] = {

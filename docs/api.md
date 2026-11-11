@@ -108,14 +108,14 @@ language, model, voice_id, voice_mode, voice_style, strategy_id, is_active, crea
 `voice_id` — голос Google Gemini TTS (`Kore`, `Aoede`, …) или `""`; `voice_mode` — `off` | `mirror` | `always`;
 `voice_style` — подсказка манеры речи (≤300). Неизвестный голос или `voice_mode ≠ off` без голоса → `422` ([voice.md](voice.md)).
 `description` — один свободный текст (кто она, характер, биография, как пишет); `prohibitions` — «чего нельзя», по правилу на строку
-(попадают в системный промпт, раздел «Чего нельзя никогда», и в промпт контролера). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
+(попадают в системный промпт, раздел «Чего нельзя никогда»; охраннику не передаются; по умолчанию пусто, в админке поля нет: ограничения настраиваются в симуляторе). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).
 
 ## Промпты и настройки (`/api/settings`)
 
 Общие для всех персонажей тексты промптов и параметры хранятся в таблице `app_setting`;
 нет строки — действует значение по умолчанию из кода. Деплой их не сбрасывает.
-Читать может любой вошедший, менять — `owner`+ (с CSRF). Страница админки: «Промпты».
+Читать может любой вошедший, менять `owner`+ (с CSRF). Страницы админки: «Общие правила» (всё, кроме группы «Охранник») и «Охранник» (группа «Охранник»).
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
@@ -127,7 +127,7 @@ language, model, voice_id, voice_mode, voice_style, strategy_id, is_active, crea
 is_default, updated_at, updated_by_id}`.
 
 Ключи: `voice_rule`, `style_rule`, `safety_rule`, `history_limit` (6–100) — промпт персонажа;
-`guard_rules`, `guard_capability`, `guard_fallback_capability` — контролер; `reply_debounce_s`
+`guard_rules`, `guard_capability`, `guard_fallback_capability` — охранник (группа «Охранник», только критичные проверки); `reply_debounce_s`
 (0–300) — пауза перед ответом; `caption_rules` — подписи постов. Значения по умолчанию для
 `guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
 `SIM_REPLY_DEBOUNCE_S`. Не редактируются намеренно: правило честности (в промпте и правило 1

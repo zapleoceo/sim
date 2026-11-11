@@ -1,6 +1,6 @@
 import type { Persona } from '@/lib/models';
 import {
-  EMPTY_PERSONA, countRules, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
+  EMPTY_PERSONA, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
 import { GEMINI_VOICES, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
@@ -27,9 +27,16 @@ describe('persona form validation', () => {
     expect(personaErrors(valid)).toEqual({});
   });
 
-  it('requires the language and rejects an over-long name', () => {
-    expect(personaErrors({ ...valid, language: '' }).language).toBe('Укажите язык');
+  it('does not block on hidden fields: empty language and gender fall back to ru and female', () => {
+    expect(personaErrors({ ...valid, language: '', gender: '' })).toEqual({});
+    const body = personaFromForm({ ...valid, language: ' ', gender: '' });
+    expect(body.language).toBe('ru');
+    expect(body.gender).toBe('female');
     expect(personaErrors({ ...valid, name: 'x'.repeat(81) }).name).toBeDefined();
+  });
+
+  it('passes hidden prohibitions through unchanged', () => {
+    expect(personaFromForm({ ...valid, prohibitions: 'старое правило' }).prohibitions).toBe('старое правило');
   });
 
   it('limits age to 18..100 but allows it to be empty', () => {
@@ -79,10 +86,5 @@ describe('persona form validation', () => {
     expect(new Set(GEMINI_VOICES.map((v) => v.id)).size).toBe(30);
     expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
     expect(VOICE_OPTIONS[0]).toEqual({ value: '', label: 'Без голоса' });
-  });
-
-  it('counts only non-empty prohibition lines', () => {
-    expect(countRules('')).toBe(0);
-    expect(countRules(['не обещать доход', '', '  ', 'не просить пароли', ''].join('\n'))).toBe(2);
   });
 });
