@@ -121,7 +121,7 @@ async def test_dynamic_context_lists_the_other_channels_with_the_ref_code(contai
     prompt = fake_llm.gen_calls[0][0]
     context = prompt[-1]["content"]
     assert "https://wa.me/380501234567?text=" in context and f"%23{client.ref_code}" in context
-    assert "instagram" not in context.split("continue the chat", 1)[1]    # no link for Instagram
+    assert "instagram" not in context.split("продолжить разговор", 1)[1]    # no link for Instagram
     assert client.ref_code not in prompt[0]["content"]                     # stable part stays clean
     # the guard allows exactly the registration link and the handoff link
     import json
