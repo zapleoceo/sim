@@ -58,10 +58,10 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
         await container.conversation(s).preview(world.persona, "Привет!")
     system = fake_llm.gen_calls[0][0][0]["content"]
     assert "ROLE FROM DB" in system and VOICE_RULE not in system
-    assert "never claim to be human" in system          # the honesty floor is not editable
+    assert "никогда не утверждай" in system          # the honesty floor is not editable
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
     assert "GUARD RULES FROM DB" in guard_messages[0]["content"]
-    assert "must not claim to be human" in guard_messages[0]["content"]
+    assert "не должен утверждать, что персонаж человек" in guard_messages[0]["content"]
     assert guard_kwargs["capability"] == "chat:smart"
 
 
