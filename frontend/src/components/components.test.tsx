@@ -8,7 +8,7 @@ import { ConfirmProvider, useConfirm } from './confirm';
 import { Field } from './field';
 import { GuardBadge } from './guard-badge';
 import { MessageContent, MessageMetadata } from './message-parts';
-import { decodeOption, type Option } from './option-select';
+import { OptionSelect, decodeOption, type Option } from './option-select';
 import { pagerState } from './pager';
 import { Input } from './ui/input';
 
@@ -114,5 +114,15 @@ describe('shared components', () => {
     await user.click(screen.getByText('go'));
     await user.click(await screen.findByRole('button', { name: 'Отмена' }));
     expect(results).toEqual([true, false]);
+  });
+});
+
+describe('OptionSelect layout', () => {
+  it('marks the value slot so long labels truncate instead of overflowing', () => {
+    const long = 'RCIPM — стратегическое мышление и очень длинное название стратегии';
+    render(<OptionSelect aria-label="Стратегия" value={1} options={[{ value: 1, label: long }]} onChange={() => undefined} />);
+    const trigger = screen.getByRole('combobox', { name: 'Стратегия' });
+    expect(trigger).toHaveClass('min-w-0');
+    expect(trigger.querySelector('[data-slot="select-value"]')).toHaveTextContent(long);
   });
 });
