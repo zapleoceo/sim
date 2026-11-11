@@ -7,6 +7,9 @@ import pytest
 
 from sim.domain.enums import Stage
 from sim.services.prompt import (
+    HONESTY_RULE,
+    STYLE_RULE,
+    VOICE_RULE,
     DialogContext,
     PersonaProfile,
     StrategyProfile,
@@ -61,7 +64,23 @@ def test_voice_and_honesty_rules_present():
     assert "Never volunteer that you are an AI" in system and "no disclaimers" in system
     # ...but never claims to be human on a direct question
     assert "directly and sincerely asks" in system and "never claim to be human" in system
-    assert "Я виртуальная помощница проекта." in system
+    assert "Я виртуальная помощница проекта." in system   # optional per-persona hint still works
+
+
+def test_voice_and_style_aim_at_a_human_messenger_voice():
+    system = stable_system_prompt(PERSONA, STRATEGY)
+    assert "answer such questions from the biography" in system
+    assert "millennial" in system and "Never use long dashes" in system
+    assert "small natural typo" in system and "never in names, links, numbers or prices" in system
+    assert "without set phrases" in system and "ONLY exception to VOICE" in system
+    # the rules practise what they preach: no long dashes or guillemets to imitate
+    for rule in (VOICE_RULE, STYLE_RULE, HONESTY_RULE):
+        assert not set(rule) & {"—", "–", "«", "»"}
+
+
+def test_parsed_reply_uses_plain_messenger_punctuation():
+    d = parse_decision('{"reply": "Слушай — это «важно»; правда…", "stage": "engaged"}')
+    assert d is not None and d.reply == 'Слушай - это "важно", правда...'
 
 
 def test_description_and_prohibitions_sections():

@@ -49,11 +49,11 @@ async def test_seed_is_idempotent_and_complete(container):
     assert strategy.followup_hours == [24, 72, 168] and strategy.reply_delay_s == [20, 90]
     assert "TO CONFIRM" in strategy.notes and "{ref}" in strategy.registration_url
     for p in personas:
-        assert p.disclosure_text and p.model == "" and p.strategy_id == strategy.id
+        assert p.disclosure_text == "" and p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
         assert p.name in system and "Never volunteer that you are an AI" in system
         assert p.description and p.prohibitions and "Чего нельзя никогда" in system
-        assert p.disclosure_text in system
+        assert "виртуальная помощница" not in system and "If asked directly what you are" not in system
 
 
 async def test_publish_without_publisher_marks_failed(container, world):
@@ -103,7 +103,7 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
         strategy = (await s.scalars(select(Strategy))).one()
     assert marina.description.startswith("Мне 45, я Марина") and strategy.prompt == STRATEGY_PROMPT
-    assert strategy.goal.startswith("Твоя цель — подружиться") and len(strategy.rules) == 7
+    assert strategy.goal.startswith("Твоя цель — подружиться") and len(strategy.rules) == 6
     async with transaction(container.factory) as s:
         again, _ = await apply_persona_prompts(s)
     assert again == []                                  # idempotent
@@ -116,6 +116,7 @@ def test_prompt_template_is_free_and_keeps_the_honesty_floor():
         PersonaProfile(name="Х", description="d"), StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"])
     )
     assert "guidance, not a script" in system and "Never volunteer that you are an AI" in system
-    assert "never claim to be human" in system and "виртуальная помощница проекта" in system
+    assert "never claim to be human" in system and "виртуальная помощница" not in system
+    assert "millennial" in system and "Never use long dashes" in system
     assert "STRATEGY GUIDANCE" in system and "Сначала человек, потом предложение" in system
     assert system.index("STRATEGY GUIDANCE") < system.index("RULES:")

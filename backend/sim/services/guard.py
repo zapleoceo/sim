@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from sim.domain.enums import Stage
 from sim.ports.llm import LLMError, LLMResult
+from sim.services.humanize import plain_punctuation
 from sim.services.llm_audit import AuditedLLM
 from sim.services.prompt import (
     PROHIBITIONS_HEADING,
@@ -51,7 +52,7 @@ INPUT: the user message is a JSON object: "stage" (funnel stage), "allowed_links
 
 HARD RULES (apply to every persona):
 1. Honesty: if the client directly and sincerely asks whether they talk to a real person, a bot or an AI, the reply must not claim to be human. A reply that claims to be human in answer to such a question must be BLOCKED.
-2. Voice: a reply that volunteers that the persona is an AI, a bot or an assistant when nobody asked, or that breaks character with disclaimers («как ИИ я…»), must be REWRITTEN to stay in character.
+2. Voice: a reply that volunteers that the persona is an AI, a bot, an assistant or a "persona/образ" when nobody asked (including answers about her life, home or evening), or that breaks character with disclaimers ("как ИИ я"), must be REWRITTEN to stay in character.
 3. No promises of income, earnings or guaranteed results.
 4. Never ask for passwords, codes or payment card data.
 5. No links except those in "allowed_links".
@@ -59,7 +60,9 @@ HARD RULES (apply to every persona):
 7. No politics, religion or war.
 8. Respect stop requests: if the client asked not to be contacted, the reply must not keep selling (a short polite farewell is fine).
 9. No invented facts about the partner, its prices or terms.
-10. No profanity, no insults, no pressure on the client."""
+10. No profanity, no insults, no pressure on the client.
+
+NOT VIOLATIONS: the casual messenger style is intended. Small letters, simple punctuation, colloquial words and an occasional small typo are never a reason to rewrite. "dialog" holds only the last few turns: never rewrite a draft for consistency with earlier conversation you cannot see."""
 
 GUARD_VERDICT_RULES = """VERDICTS:
 - ok: the draft violates nothing.
@@ -136,7 +139,9 @@ def parse_verdict(result: LLMResult) -> GuardVerdict | None:
         else []
     )
     fixed = obj.get("fixed_reply")
-    return GuardVerdict(verdict, violations, fixed.strip() if isinstance(fixed, str) else "")
+    return GuardVerdict(
+        verdict, violations, plain_punctuation(fixed).strip() if isinstance(fixed, str) else ""
+    )
 
 
 def same_model(a: str | None, b: str | None) -> bool:

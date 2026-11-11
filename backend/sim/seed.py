@@ -49,11 +49,9 @@ STRATEGY: dict[str, Any] = {
     ),
 }
 
-# Said only when the client directly asks what she is (the prompt tells her to stay in
-# character otherwise and never to volunteer it).
-DISCLOSURE = (
-    "Я виртуальная помощница проекта, но всё, что рассказываю, — по делу 🙂"
-)
+# Optional per-persona hint for a sincere "are you a bot?" question. Empty by default: the
+# honesty floor lives in sim.services.prompt and the model answers in its own voice.
+DISCLOSURE = ""
 OLD_DISCLOSURE = (
     "Я виртуальный ассистент проекта (ИИ), а не живой человек. Если вы хотите поговорить с "
     "человеком — скажите, и я передам диалог оператору."

@@ -19,6 +19,7 @@ from sim.services.guard import (
     GuardError,
     guard_system_prompt,
     guard_user_message,
+    parse_verdict,
 )
 from sim.services.prompt import PersonaProfile, StrategyProfile, Turn
 from sim.worker.loop import Worker
@@ -298,6 +299,15 @@ def test_guard_system_prompt_has_persona_prohibitions_strategy_rules_and_global_
     # honesty floor: BLOCK a human claim on a direct question; voice: REWRITE volunteered AI talk
     assert "must not claim to be human" in system and "must be BLOCKED" in system
     assert "volunteers that the persona is an AI" in system and "must be REWRITTEN" in system
+    # the messenger style is not a violation, and the truncated dialog is not a fact source
+    assert "occasional small typo are never a reason to rewrite" in system
+    assert "never rewrite a draft for consistency with earlier conversation" in system
+
+
+def test_guard_rewrite_gets_plain_messenger_punctuation():
+    raw = guard_json("rewrite", ["v"], fixed="Ну смотри — это «просто»; правда…")
+    verdict = parse_verdict(LLMResult(text=raw, model="m", latency_ms=1))
+    assert verdict is not None and verdict.fixed_reply == 'Ну смотри - это "просто", правда...'
 
 
 def test_guard_system_prompt_is_byte_stable_per_persona():
