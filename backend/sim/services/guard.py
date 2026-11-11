@@ -27,6 +27,7 @@ from sim.ports.llm import LLMError, LLMResult
 from sim.services.humanize import plain_punctuation
 from sim.services.llm_audit import AuditedLLM
 from sim.services.prompt import (
+    HISTORY_LIMIT,
     PROHIBITIONS_HEADING,
     PersonaProfile,
     StrategyProfile,
@@ -39,7 +40,7 @@ from sim.services.prompt import (
 log = logging.getLogger(__name__)
 
 GUARD_WORKFLOW = "guard"
-GUARD_HISTORY_TURNS = 6
+GUARD_HISTORY_TURNS = HISTORY_LIMIT  # the same turns the persona saw: no "fixes" from a partial view
 MAX_VIOLATIONS = 10
 VERDICTS = ("ok", "rewrite", "block")
 
@@ -62,7 +63,7 @@ HARD RULES (apply to every persona):
 9. No invented facts about the partner, its prices or terms.
 10. No profanity, no insults, no pressure on the client.
 
-NOT VIOLATIONS: the casual messenger style is intended. Small letters, simple punctuation, colloquial words and an occasional small typo are never a reason to rewrite. "dialog" holds only the last few turns: never rewrite a draft for consistency with earlier conversation you cannot see."""
+NOT VIOLATIONS: the casual messenger style is intended. Small letters, simple punctuation, colloquial words and an occasional small typo are never a reason to rewrite. Facts about the conversation itself (what the client asked or said earlier) are not your rules: never rewrite a draft for consistency with earlier conversation, and older turns may be missing from "dialog"."""
 
 GUARD_VERDICT_RULES = """VERDICTS:
 - ok: the draft violates nothing.
