@@ -1,17 +1,15 @@
-# Representative admin page patterns
+# Page patterns
 
-CONFIRMED source at349dc66; rendered feature evidence is recorded in
-`tasks/unified-client-admin/visual-validation.md`.
+React admin reference screens (`frontend/src/features`):
 
-| Pattern | Source | Reusable behavior |
+| Pattern | Reference | Notes |
 |---|---|---|
-| Filtered paginated list | features/clients/clients.component.ts | typed form, list API, filter/reset/page transitions, Material controls |
-| Rich operator workspace | features/inbox/inbox.component.* | source badges, message media/guard/delivery, per-dialog composer/pause/resolve, responsive single-pane cutoff1024px |
-| Client detail | features/clients/client-card.component.* | identity/header, channel links, stage/status, editable work fields, funnel/partner timeline |
-| Scoped metrics | features/dashboard/dashboard.component.* | page header, date/persona filters, loading signal, derived view models |
-| Connector setup cards | features/channels/channels.component.ts | persona prerequisite, safe status/error, add/connect wizard and disconnect confirmation |
-| Read-only simulation history | features/simulations/simulations.component.ts | typed read API and isolated test conversation viewing |
+| Filtered paginated table | clients/clients-page.tsx | FilterBar, DataTable, server Pager, filter change resets page |
+| Rich operator workspace | inbox/inbox-page.tsx (+ inbox-list, conversation, inbox-logic) | 5 s silent polling, source badges, media/guard/delivery, composer, AI pause/resolve, single pane below 1024px |
+| Client detail | clients/client-page.tsx | header + channel links, stage stepper/status, edit form, funnel/partner timeline, scoped activity feed |
+| Scoped metrics | dashboard/dashboard-page.tsx | presets and dates, persona filter, KPI cards, Recharts, by-channel table |
+| Editor page with schema | personas/persona-page.tsx, strategies/strategy-page.tsx | react-hook-form + zod schema module, confirm delete, `/new` → `/$id` after create |
+| Connector setup | channels/channels-page.tsx + channel-wizard.tsx | persona prerequisite, safe status/error, dialog wizard with step logic module |
+| Read-only history | simulations/simulations-page.tsx | load-more list and transcript panel |
 
-Layout uses `.sim-page`, `.sim-card`, `--sim-space-*`, Material controls and shared767px phone
-strategy. Existing error handlers often return EMPTY; new screens must distinguish error from
-empty/loading and provide retry rather than copying indefinite-loading patterns.
+Shared building blocks: see [component-catalog.md](component-catalog.md); tokens and layout: [design-dna.md](design-dna.md).

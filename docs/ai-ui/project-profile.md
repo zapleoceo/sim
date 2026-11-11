@@ -1,55 +1,28 @@
-# SIM UI project profile
+# Frontend project profile
 
-Verified 2026-11-07 on base `349dc6648fb6808ff18c982260b40d138e3244e6`, task `unified-client-admin`.
-Evidence paths are repository-relative. This is source discovery, not rendered acceptance.
+Current since the React rebuild (replaces the Angular 19 + Material profile). Details: [../admin-frontend.md](../admin-frontend.md).
 
-## Stack and boundaries
+## Stack
 
-- **CONFIRMED:** one Angular **19** application in `frontend/`; Angular CLI application builder, npm + `package-lock.json`, TypeScript 5.7; no Nx/workspace library boundary in `angular.json`. Manifest: `frontend/package.json:1`; builder/entry: `frontend/angular.json:18`.
-- **CONFIRMED:** Angular Material/CDK 19, M3 `mat.theme`, SCSS; Inter + Material Icons Outlined webfonts (`frontend/src/styles.scss:1`, `frontend/src/index.html:12`). Charts use ng2-charts 8/Chart.js 4.5.1 (`frontend/package.json`, `features/dashboard/charts.component.ts`). No `@front/*` dependency.
-- **CONFIRMED:** `core/` owns typed DTOs, HTTP clients, auth, guards and interceptors; `features/` owns routed screens; `shared/` owns presentation helpers/components; `shell/` owns navigation. `app.routes.ts` lazy-loads components; component input binding supplies route/query parameters (`app.config.ts:15`).
-- **DOMINANT:** 32 source files with `@Component` and 32 with OnPush; no NgModules, FormBuilder, ngModel, *ngIf or *ngFor found. Built-in control flow, `inject`, typed reactive forms and signals + RxJS coexist. Cleanup uses `takeUntilDestroyed` in 18 files. Representative: `features/clients/clients.component.ts`, `features/inbox/inbox.component.ts`.
-- **CONFIRMED:** strict TS and strict templates enabled; relative imports, no path aliases (`frontend/tsconfig.json:7`). ESLint enforces standalone/OnPush/no-explicit-any plus template accessibility (`frontend/eslint.config.js:8`).
-- **CONFIRMED:** Russian literal labels, `LOCALE_ID=ru`, native date locale `ru-RU`; no translation library in manifest (`app.config.ts:19`). Auth/CSRF interceptors centralize request preparation and errors (`core/interceptors.ts`); roles have matching UI guards and navigation access (`core/guards.ts`, `shell/nav.ts`).
+- One React 19 + TypeScript (strict, `verbatimModuleSyntax`) SPA in `frontend/`, built by Vite 7; npm + `package-lock.json`; Node 22 (`engines`).
+- UI: shadcn/ui components in `src/components/ui` (Radix UI primitives + Tailwind CSS 4, tokens in `src/index.css`), lucide-react icons, Inter Variable self-hosted via `@fontsource-variable/inter`.
+- Data: TanStack Query (query keys in `src/lib/query.ts`), typed API objects in `src/lib/api/*` over one fetch client (`src/lib/api/http.ts`).
+- Routing: TanStack Router, code-based route tree in `src/router.tsx`; every page is a lazy chunk; search params validated in `src/lib/search.ts`.
+- Forms: react-hook-form + zod schemas (`features/*/*-schema.ts`); tables: TanStack Table via `components/data-table.tsx`; charts: Recharts (dashboard only); drag and drop: dnd-kit (funnel).
 
-## Existing task surfaces
+## Product surfaces
 
-- **CONFIRMED:** `/inbox` is dialog-oriented, with list, selected conversation and optional client sidebar; current detail returns one dialog's messages. Its `role=log` renders media, guard/delivery status and author label (`features/inbox/inbox.component.html:156`).
-- **CONFIRMED:** `/clients/:id` shows metadata, linked channel/dialog links, funnel controls and funnel/partner event history; it does not yet consolidate message bodies (`features/clients/client-card.component.html:13,89`, `client-card.component.ts:28`).
-- **CONFIRMED:** baseline routes/nav have no activity-log route (`app.routes.ts`, `shell/nav.ts:6`). Existing `Message` DTO has optional model but no token fields/operator identity (`core/models.ts:116`); backend contract expansion is required.
-- **CONFIRMED:** channels screen and wizard already implement persona selection, Telegram token/user login, WhatsApp QR and Instagram verification states (`features/channels/channels.component.ts`, `channel-wizard.component.ts:25`). Preserve these rather than replacing with disconnected mock modules.
+Routes and roles are unchanged from the Angular admin: `/login`, `/studio`, `/inbox?d=`, `/clients`, `/clients/$id`,
+`/activity?tab=llm&channel_id=`, `/funnel`, `/dashboard`, `/personas[/new|/$id]`, `/settings` (Промпты), `/strategies[/new|/$id]`, `/simulations`,
+`/channels`, `/content`, `/partner`, `/admins`. Owner pages are guarded in `beforeLoad`; `/admins` is superadmin only.
 
-## Responsive strategy
+## Responsive
 
-**CONFIRMED: responsive**, including phone. Viewport meta is device-width (`src/index.html:7`); CDK queries and SCSS explicitly change navigation and pane layout (`shared/breakpoints.ts:7–16`, `shell/shell.component.ts`, `features/inbox/inbox.component.scss`).
+Phone first from 360px: bottom tab bar + «Ещё» sheet below 768px, collapsible sidebar above; inbox single pane below 1024px and
+client side card from 1280px (`src/hooks/use-media-query.ts`). Filters open in a bottom sheet on phones.
 
-| Boundary | Existing behavior |
-|---|---|
-| 767 / 768 | Phone uses bottom navigation/drawer, filter bottom-sheet, 16px page padding and touch-sized controls. Tablet enters icon rail. |
-| 1023 / 1024 | Inbox changes from one pane to list + conversation. |
-| 1199 / 1200 | Navigation rail changes to full sidebar. |
-| 1279 / 1280 | Inbox can show client detail as third pane. |
+## Tests and CI
 
-**UNKNOWN:** minimum supported width is not formally declared. **INFERRED validation minimum:** 360 CSS px; include 390 phone and 1920 desktop, not a new application breakpoint. For task fidelity thresholds use `requireMobile=true`, mobileWidths `[360,390,767]`, matrixWidths `[360,390,767,768,1023,1024,1199,1200,1279,1280,1440,1920]`, boundaryPairs `[[767,768],[1023,1024],[1199,1200],[1279,1280]]`. This recommendation is derived from source; no layout screenshots were captured in discovery.
-
-## Commands and validation
-
-From `frontend/`: `npm ci`; `npm start` (4200, proxy `/api` and `/hooks` to localhost:8000 in `proxy.conf.json`); `npm run build`; `npm exec -- ng lint`; `npm test -- --watch=false --browsers=ChromeHeadless`; `npm exec -- tsc -p tsconfig.spec.json --noEmit`.
-
-**CONFIRMED:** Karma/Jasmine runner and Chrome launcher, not Vitest; no project E2E/Playwright/Cypress config found. Unit specs and routed smoke specs exist. Build budgets: initial warning1MB/error2MB, component styles warning8kB/error16kB (`angular.json`). No format script declared.
-
-**Recommended runtime QA:** isolated local backend + synthetic test/demo records, never production identity mutation or channel calls; render new/changed routes at representative widths and all boundary pairs, light and dark; exercise loading/error/empty/data and filtering/paging/navigation. Check console, keyboard focus, long text/model names, null metadata and overflow. Actual screenshot review remains a later gate.
-
-Generated/do-not-edit: `node_modules`, `.angular`, `dist`, coverage output. `package-lock.json` is npm-managed; avoid manual edits. Source components can use external files or inline templates/styles; preserve local pattern.
-
-## Lightweight fingerprint
-
-SHA256 prefixes at discovery (refresh when changed):
-
-| Path | Bytes | SHA256 prefix |
-|---|---:|---|
-| frontend/package.json |1297|6a73e50e28df|
-| frontend/package-lock.json |632496|93c2ad360615|
-| frontend/angular.json |3243|acd054b3425c|
-| frontend/tsconfig.json |942|4f90851feaf3|
-| frontend/src/styles.scss |6233|cde0ce3ccd09|
+Vitest + Testing Library in jsdom (`npm test`); page tests render the whole app on a memory router with a fake backend
+(`src/test/render-app.tsx`, `src/test/fake-api.ts`). ESLint flat config, `tsc -b`. Everything runs only in CI (`AGENTS.md`).
+Generated/do-not-edit: `node_modules`, `dist`, `coverage`; `package-lock.json` is npm-managed.

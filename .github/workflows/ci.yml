@@ -78,24 +78,21 @@ jobs:
       - name: Install frontend from lockfile
         working-directory: frontend
         run: npm ci --no-audit --no-fund
+      - name: Lint (ESLint)
+        working-directory: frontend
+        run: npm run lint
+      - name: TypeScript (app, tests and config)
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Unit and component tests (Vitest, jsdom)
+        working-directory: frontend
+        run: npm test
       - name: Production build
         working-directory: frontend
         run: npm run build
-      - name: Lint
+      - name: Build output in the path the backend and deploy read
         working-directory: frontend
-        run: npx --no-install ng lint
-      - name: TypeScript app and spec
-        working-directory: frontend
-        run: |
-          npx --no-install tsc -p tsconfig.app.json --noEmit
-          npx --no-install tsc -p tsconfig.spec.json --noEmit
-      - name: Browser unit tests
-        working-directory: frontend
-        run: |
-          CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
-          test -n "$CHROME_BIN"
-          export CHROME_BIN
-          npm test -- --watch=false --browsers=ChromeHeadless
+        run: test -f dist/sim/browser/index.html
       - name: Package and verify SHA-pinned bundle
         env:
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

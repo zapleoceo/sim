@@ -14,6 +14,7 @@
 - Персонажи и стратегия: [docs/personas.md](docs/personas.md)
 - Цели и состояние возможностей: [docs/project-status.md](docs/project-status.md)
 - Запуск, проверки и эксплуатация: [docs/operations.md](docs/operations.md)
+- Админка (стек, структура, тесты, сборка): [docs/admin-frontend.md](docs/admin-frontend.md)
 - Статическое ревью и приоритеты: [docs/review-2026-11-07.md](docs/review-2026-11-07.md)
 
 ## Состояние реализации
@@ -38,12 +39,13 @@ uv run python scripts/demo_data.py                 # по желанию: дем
 uv run uvicorn sim.api.main:create_app --factory --port 8000
 uv run python -m sim.worker                       # отдельный терминал
 uv run pytest -q && uv run ruff check .
-cd ../frontend && npm ci && npm start             # http://localhost:4200, прокси на :8000
+cd ../frontend && npm ci && npm run dev         # http://localhost:4200 (Vite), прокси /api и /hooks на :8000
 ```
 
 Используйте изолированную локальную БД и тестовые настройки каналов. API и worker с действующими
-учётными данными могут обращаться к внешним сервисам. Сборка frontend — `npm run build`,
-unit tests — `npm test -- --watch=false` (требуется доступный браузер для Karma).
+учётными данными могут обращаться к внешним сервисам. Админка — React + Vite + TypeScript,
+shadcn/ui, TanStack Query/Router/Table: [docs/admin-frontend.md](docs/admin-frontend.md). Сборка, линт,
+типы и тесты (Vitest) запускаются только в CI (см. AGENTS.md).
 
 ## Деплой
 
