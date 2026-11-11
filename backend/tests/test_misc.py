@@ -120,3 +120,15 @@ def test_prompt_template_is_free_and_keeps_the_honesty_floor():
     assert "милениал" in system and "не используй длинные тире" in system
     assert "ОРИЕНТИРЫ СТРАТЕГИИ" in system and "Сначала человек, потом предложение" in system
     assert system.index("ОРИЕНТИРЫ СТРАТЕГИИ") < system.index("ПРАВИЛА:")
+
+
+def test_persona_legends_are_detailed_consistent_and_female():
+    from sim.persona_prompts import EVA_DESCRIPTION, MARINA_DESCRIPTION
+
+    for text, facts in (
+        (MARINA_DESCRIPTION, ("Днепр", "Андрей", "Максим", "Соня", "Бублик")),
+        (EVA_DESCRIPTION, ("Одесс", "Подол", "Лёва", "Миша", "форшмак")),
+    ):
+        assert "Легенда" in text and "в женском роде" in text
+        assert all(fact in text for fact in facts)
+        assert "паспорт" not in text.lower()                 # a character bible, not documents
