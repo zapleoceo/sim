@@ -7,6 +7,7 @@ whose name ends in `_sim_release_test`. Refuses existing application tables.
 import asyncio
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from alembic import command
@@ -22,6 +23,7 @@ from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
 from sim.adapters.db.session import make_session_factory, transaction  # noqa: E402
 from sim.clock import utcnow  # noqa: E402
 from sim.services.send_receipts import SendReceipts, SendUncertain  # noqa: E402
+from sim.services.tracing import Tracer  # noqa: E402
 
 
 def require_disposable():
@@ -156,7 +158,8 @@ def main():
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND / "migrations"))
     cfg.config_file_name = None
-    command.upgrade(cfg, "0008")
+    # The concurrency gate drives the current ORM (JobRepo), so it needs the head schema.
+    command.upgrade(cfg, "head")
     asyncio.run(schema_and_concurrency(url))
     # Disposable DB only: 0008 schema downgrade loses operator data. Production must not do this.
     command.downgrade(cfg, "0007")
@@ -169,10 +172,12 @@ def main():
     print("PostgreSQL migration 0007/0008 disposable smoke PASS")
     command.upgrade(cfg, "head")
     asyncio.run(require_app_setting_table(url, present=True))
+    asyncio.run(trace_log_roundtrip(url))
     command.downgrade(cfg, "0008")
     asyncio.run(require_app_setting_table(url, present=False))
     command.upgrade(cfg, "head")
     print("PostgreSQL migration 0009 app_setting round trip PASS")
+    print("PostgreSQL trace log migration and purge PASS")
 
 
 async def require_app_setting_table(url, *, present):
@@ -182,6 +187,25 @@ async def require_app_setting_table(url, *, present):
             found = (await conn.execute(text("SELECT to_regclass('public.app_setting')"))).scalar_one()
             if bool(found) != present:
                 raise AssertionError(f"app_setting present={bool(found)}, expected {present}")
+    finally:
+        await engine.dispose()
+
+
+async def trace_log_roundtrip(url):
+    """The trace log on real PostgreSQL: BIGINT ids, JSON detail, batched retention purge."""
+    engine = create_async_engine(url)
+    try:
+        now = datetime(2026, 11, 11, 12)
+        async with engine.begin() as conn:
+            for days in (40, 31, 1):
+                await conn.execute(text(
+                    "INSERT INTO trace_event (trace_id, kind, name, status, started_at, actor, detail) "
+                    "VALUES ('t', 'http', 'GET /api/x', 'ok', :at, '', CAST(:detail AS JSON))"
+                ), {"at": now - timedelta(days=days), "detail": '{"path": "/api/x"}'})
+        tracer = Tracer(make_session_factory(engine), clock=lambda: now)
+        deleted = await tracer.purge(30, batch=1)
+        if deleted != 2:
+            raise AssertionError(f"trace purge deleted {deleted} rows, expected 2")
     finally:
         await engine.dispose()
 

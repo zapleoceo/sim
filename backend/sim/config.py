@@ -55,6 +55,9 @@ class Settings(BaseSettings):
 
     reply_debounce_s: int = 8          # wait for a burst of client messages before answering
     worker_tick_s: float = 2.0
+    # System log (trace_event): the worker deletes steps older than this; 0 keeps everything.
+    trace_retention_days: int = 30
+    trace_purge_interval_s: float = 3600.0
 
     static_dir: str = "../frontend/dist/sim/browser"   # built Angular app (prod: /app/static)
     media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)

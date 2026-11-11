@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -21,10 +22,11 @@ from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direct
 from sim.domain.voice import GEMINI_VOICES
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
-from sim.services import jobkinds
+from sim.services import jobkinds, tracing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
+from sim.services.tracing import Step, Tracer
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -86,8 +88,10 @@ class OutboundService:
         factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
         voice: VoiceRenderer | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         self.session = session
+        self.tracer = tracer
         self.registry = registry
         self.box = box
         self.clock = clock
@@ -227,24 +231,36 @@ class OutboundService:
 
         note = await self.voice_note(message, dialog, port)
         await self.receipts.claim(message.id, fingerprint)
-        try:
-            if note is not None:
-                result = await port.send_voice(  # type: ignore[attr-defined]
-                    dialog.external_thread_id, note.audio, note.duration_s,
+        async with self.send_step(channel, message, voice=note is not None) as step:
+            try:
+                if note is not None:
+                    result = await port.send_voice(  # type: ignore[attr-defined]
+                        dialog.external_thread_id, note.audio, note.duration_s,
+                    )
+                else:
+                    result = await port.send_text(dialog.external_thread_id, message.text)
+                if not result.ok:
+                    # The common transport contract cannot prove that a failed request had no effect.
+                    raise SendUncertain(UNCERTAIN_SEND)
+                receipt = await self.receipts.acknowledge(
+                    message.id, fingerprint, result.external_message_id,
                 )
-            else:
-                result = await port.send_text(dialog.external_thread_id, message.text)
-            if not result.ok:
-                # The common transport contract cannot prove that a failed request had no effect.
-                raise SendUncertain(UNCERTAIN_SEND)
-            receipt = await self.receipts.acknowledge(
-                message.id, fingerprint, result.external_message_id,
-            )
-        except Exception:
-            # Cancellation/crash also leaves the committed intent: recovery refuses a new send.
-            # Never persist a transport exception containing credentials or message text.
-            raise SendUncertain(UNCERTAIN_SEND) from None
+            except Exception:
+                # Cancellation/crash also leaves the committed intent: recovery refuses a new send.
+                # Never persist a transport exception containing credentials or message text.
+                raise SendUncertain(UNCERTAIN_SEND) from None
+            step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
+
+    def send_step(
+        self, channel: Channel, message: Message, *, voice: bool = False
+    ) -> AbstractAsyncContextManager[Step]:
+        """The transport call as a step of the trace log (timing, outcome; never the text)."""
+        name = f"send {'voice ' if voice else ''}{channel.kind.value}"
+        if self.tracer is None:
+            return nullcontext(Step(tracing.SEND, name))
+        return self.tracer.step(tracing.SEND, name, channel_id=channel.id,
+                                dialog_id=message.dialog_id, message_id=message.id)
 
     async def voice_note(self, message: Message, dialog: Dialog, port: object) -> VoiceNote | None:
         """The rendered note for a message queued as voice, or None = send it as text.

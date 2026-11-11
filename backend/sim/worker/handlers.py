@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.services import jobkinds
+from sim.services.conversation import ReplyOutcome
 from sim.wiring import Container
 
-Run = Callable[[Container, AsyncSession, dict[str, Any]], Awaitable[None]]
+# A handler may return a small dict about what it did; it lands in the job step of the trace log.
+Run = Callable[[Container, AsyncSession, dict[str, Any]], Awaitable[dict[str, Any] | None]]
 
 
 @dataclass(frozen=True)
@@ -21,8 +23,15 @@ class Handler:
     giveup: Run | None = None
 
 
-async def run_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
-    await c.conversation(s).run_reply(int(payload["dialog_id"]))
+async def run_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    return reply_detail(await c.conversation(s).run_reply(int(payload["dialog_id"])))
+
+
+def reply_detail(outcome: ReplyOutcome) -> dict[str, Any]:
+    """What the reply pipeline did (sent / blocked / superseded...) and the guard's verdict."""
+    message = outcome.message
+    return {"outcome": outcome.status, "message_id": message.id if message else None,
+            "guard": message.guard_verdict if message else None}
 
 
 async def giveup_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
@@ -52,13 +61,13 @@ async def giveup_media(c: Container, s: AsyncSession, payload: dict[str, Any]) -
     )
 
 
-async def run_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
-    await c.followup(s).run(
+async def run_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"outcome": await c.followup(s).run(
         int(payload["dialog_id"]),
         int(payload["step"]),
         int(payload["after_message_id"]),
         c.conversation(s),
-    )
+    )}
 
 
 async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
