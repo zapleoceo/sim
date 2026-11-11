@@ -60,7 +60,7 @@ describe('app shell and guards', () => {
     const { router } = await renderApp('/inbox', { user: testUser('operator') });
     const user = userEvent.setup();
     const aside = screen.getByRole('complementary', { name: 'Основная навигация' });
-    await user.click(within(aside).getByRole('button', { name: /меню/ }));
+    await user.click(within(aside).getByRole('button', { name: /: меню$/ }));
     await user.click(await screen.findByRole('menuitem', { name: /Выйти/ }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(log.some((r) => r.method === 'POST' && r.path === '/api/auth/logout')).toBe(true);

@@ -68,7 +68,8 @@ describe('SettingsPage', () => {
     expect(put?.body).toEqual({ value: 'очень коротко' });
     expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
 
-    await user.click(screen.getByRole('button', { name: /Вернуть по умолчанию/ }));
+    const guard = screen.getByLabelText('Промпт контролера').closest('div.flex.flex-col.gap-2') as HTMLElement;
+    await user.click(within(guard).getByRole('button', { name: /Вернуть по умолчанию/ }));
     await waitFor(() => expect(screen.getByLabelText('Промпт контролера')).toHaveValue('исходный'));
   });
 
