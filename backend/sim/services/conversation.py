@@ -166,6 +166,7 @@ class ConversationService:
                 fallback_capability=cfg.guard_fallback_capability,
                 rules_text=cfg.guard_rules,
                 history_limit=cfg.history_limit,
+                model=cfg.guard_model,
             )
         return self.guard_instance
 

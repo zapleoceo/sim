@@ -153,12 +153,14 @@ class Guard:
         fallback_capability: str,
         rules_text: str = GUARD_RULES,
         history_limit: int = GUARD_HISTORY_TURNS,
+        model: str = "",
     ) -> None:
         self.llm = llm
         self.capability = capability
         self.fallback_capability = fallback_capability
         self.rules_text = rules_text
         self.history_limit = history_limit
+        self.model = model  # owner setting "guard_model": exact Broker model; "" = the route decides
 
     async def review(  # noqa: PLR0913
         self,
@@ -200,7 +202,7 @@ class Guard:
         dialog_id: int | None,
         workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
-        result = await self.call(messages, self.capability, dialog_id, workflow)
+        result = await self.call(messages, self.capability, dialog_id, workflow, self.model)
         if same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",
@@ -213,10 +215,16 @@ class Guard:
             raise GuardError(f"guard returned an unusable verdict (model={result.model})")
         return verdict, result.model
 
-    async def call(
-        self, messages: list[dict[str, str]], capability: str, dialog_id: int | None, workflow: str
+    async def call(  # noqa: PLR0913
+        self,
+        messages: list[dict[str, str]],
+        capability: str,
+        dialog_id: int | None,
+        workflow: str,
+        model: str = "",
     ) -> LLMResult:
+        """The fallback call never pins a model: it must land on another rotation."""
         return await self.llm.chat(
-            messages, capability=capability, json_mode=True,
+            messages, capability=capability, model=model or None, json_mode=True,
             workflow=workflow, dialog_id=dialog_id,
         )

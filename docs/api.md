@@ -174,7 +174,7 @@ language, model, voice_id, voice_mode, voice_style, strategy_id, is_active, crea
 is_default, updated_at, updated_by_id}`.
 
 Ключи: `voice_rule`, `style_rule`, `safety_rule`, `history_limit` (6–100) — промпт персонажа;
-`guard_rules`, `guard_capability`, `guard_fallback_capability` — охранник (группа «Охранник», только критичные проверки); `reply_debounce_s`
+`guard_rules`, `guard_model` (точная модель Broker, пусто: решает маршрут; запасной маршрут модель не закрепляет), `guard_capability`, `guard_fallback_capability` — охранник (группа «Охранник», только критичные проверки); `reply_debounce_s`
 (0–300) — пауза перед ответом; `caption_rules` — подписи постов. Значения по умолчанию для
 `guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
 `SIM_REPLY_DEBOUNCE_S`. Не редактируются намеренно: правило честности (в промпте и правило 1
