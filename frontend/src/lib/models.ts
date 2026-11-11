@@ -287,7 +287,7 @@ export interface AppSettingItem {
   group: string;
   label: string;
   help: string;
-  kind: 'text' | 'int' | 'capability';
+  kind: 'text' | 'int' | 'capability' | 'model';
   min: number | null;
   max: number | null;
   value: string | number;

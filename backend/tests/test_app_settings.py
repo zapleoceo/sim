@@ -97,3 +97,31 @@ async def test_api_operator_can_read_but_not_edit(api):
     assert (await api.get("/api/settings")).status_code == 200
     resp = await api.put("/api/settings/style_rule", json={"value": "x"}, headers={"X-CSRF-Token": csrf})
     assert resp.status_code == 403
+
+
+async def test_guard_model_pins_the_first_guard_call_but_not_the_fallback(container, world, fake_llm):
+    from sim.ports.llm import LLMResult
+
+    async with transaction(container.factory) as s:
+        svc = AppSettingsService(s)
+        with pytest.raises(SettingError):
+            await svc.set("guard_model", "not a model id!", None)
+        await svc.set("guard_model", "codex-sub/gpt-6.1-terra", None)
+    async with transaction(container.factory) as s:
+        await container.conversation(s).preview(world.persona, "Привет!")
+    assert fake_llm.guard_calls[0][1]["model"] == "codex-sub/gpt-6.1-terra"
+
+    # the same model as the generator: the fallback route never pins a model
+    fake_llm.calls.clear()
+    fake_llm.guard_replies = [LLMResult(text='{"verdict": "ok", "violations": [], "fixed_reply": ""}',
+                                        model="fake-model"), ]
+    async with transaction(container.factory) as s:
+        await container.conversation(s).preview(world.persona, "Ещё раз")
+    first, fallback = fake_llm.guard_calls[:2]
+    assert first[1]["model"] == "codex-sub/gpt-6.1-terra" and fallback[1]["model"] is None
+
+
+def test_empty_guard_model_means_the_route_decides():
+    from sim.services.app_settings import BY_KEY
+
+    assert BY_KEY["guard_model"].validate("  ") == ""

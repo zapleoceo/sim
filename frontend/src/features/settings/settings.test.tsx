@@ -14,7 +14,7 @@ function item(patch: Partial<AppSettingItem>): AppSettingItem {
 
 const STYLE = item({ key: 'style', group: 'Стиль', label: 'Манера письма', value: 'коротко', default: 'коротко' });
 const GUARD = item({
-  key: 'guard_prompt', group: 'Контролер', label: 'Промпт контролера', value: 'свой', default: 'исходный', is_default: false,
+  key: 'guard_prompt', group: 'Охранник', label: 'Промпт охранника', value: 'свой', default: 'исходный', is_default: false,
   updated_at: '2026-11-11T10:00:00Z',
 });
 const DELAY = item({ key: 'delay', group: 'Стиль', label: 'Пауза, с', kind: 'int', min: 0, max: 600, value: 30, default: 30 });
@@ -23,7 +23,7 @@ describe('settings logic', () => {
   it('groups in API order', () => {
     expect(groupSettings([STYLE, GUARD, DELAY]).map((g) => [g.name, g.items.map((i) => i.key)])).toEqual([
       ['Стиль', ['style', 'delay']],
-      ['Контролер', ['guard_prompt']],
+      ['Охранник', ['guard_prompt']],
     ]);
   });
 
@@ -48,13 +48,12 @@ describe('SettingsPage', () => {
     const log = fakeApi({
       'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
       'PUT /api/settings/style': (r) => ({ ...STYLE, value: (r.body as { value: string }).value, is_default: false }),
-      'DELETE /api/settings/guard_prompt': { ...GUARD, value: 'исходный', is_default: true, updated_at: null },
     });
     await renderApp('/settings');
     const user = userEvent.setup();
 
     const style = await screen.findByLabelText('Манера письма');
-    expect(screen.getByLabelText('Промпт контролера')).toHaveValue('свой');
+    expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();   // the guard has its own page
     expect(screen.getByRole('region', { name: 'Стиль' })).toBeInTheDocument();
 
     const styleBlock = style.closest('div.flex.flex-col.gap-2') as HTMLElement;
@@ -67,10 +66,21 @@ describe('SettingsPage', () => {
     const put = log.find((r) => r.method === 'PUT');
     expect(put?.body).toEqual({ value: 'очень коротко' });
     expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
+  });
 
-    const guard = screen.getByLabelText('Промпт контролера').closest('div.flex.flex-col.gap-2') as HTMLElement;
+  it('the guard has its own page with only its settings, and resets to default', async () => {
+    fakeApi({
+      'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
+      'DELETE /api/settings/guard_prompt': { ...GUARD, value: 'исходный', is_default: true, updated_at: null },
+    });
+    await renderApp('/guard');
+    const user = userEvent.setup();
+    const prompt = await screen.findByLabelText('Промпт охранника');
+    expect(prompt).toHaveValue('свой');
+    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
+    const guard = prompt.closest('div.flex.flex-col.gap-2') as HTMLElement;
     await user.click(within(guard).getByRole('button', { name: /Вернуть по умолчанию/ }));
-    await waitFor(() => expect(screen.getByLabelText('Промпт контролера')).toHaveValue('исходный'));
+    await waitFor(() => expect(screen.getByLabelText('Промпт охранника')).toHaveValue('исходный'));
   });
 
   it('rejects a non-integer before calling the API', async () => {
