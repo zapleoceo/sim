@@ -23,8 +23,8 @@ Successful bundle validation is a CI check, not a downloadable release artifact 
 1. Takes a fresh database and secrets backup on the server with `/usr/local/bin/sim-backup.sh` (the backup tree under `/var/backups/vera` is pulled by the NAS).
 2. Syncs the committed tree and the CI-built admin bundle to `/var/www/sim`, keeping `infra/.env` and `broker-project.json`, and writes `REVISION`.
 3. Stops `sim-worker` before migrations, so an old worker never runs with new migrations.
-4. Runs `docker compose build && up -d`. Migrations run in the `migrate` service before API and worker start.
-5. Runs the readiness smoke and prints the Alembic head and `REVISION`.
+4. Runs `docker compose build && up -d`, then force-recreates `api`. Migrations run in the `migrate` service before API and worker start. The recreate matters for frontend-only changes: step 2 replaces `frontend/dist`, and an `api` container that compose did not recreate would keep a bind mount to the deleted directory and return 500 for every admin page.
+5. Runs the readiness smoke (`/api/ready` and the admin `/login` page), and prints the Alembic head and `REVISION`.
 
 Secrets: `SIM_DEPLOY_SSH_KEY`, `SIM_DEPLOY_KNOWN_HOSTS`, `SIM_DEPLOY_HOST`, `SIM_DEPLOY_PORT`. The key is dedicated to this job and pinned to the server host key. Rotate it by replacing the key in `authorized_keys` on the server and updating the secret.
 

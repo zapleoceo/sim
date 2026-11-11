@@ -157,13 +157,15 @@ jobs:
         env:
           HOST: ${{ secrets.SIM_DEPLOY_HOST }}
           PORT: ${{ secrets.SIM_DEPLOY_PORT }}
-        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'cd /var/www/sim/infra && docker compose build && docker compose up -d --remove-orphans && docker compose ps'
+        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'cd /var/www/sim/infra && docker compose build && docker compose up -d --remove-orphans && docker compose up -d --no-deps --force-recreate api && docker compose ps'
       - name: Readiness smoke
         env:
           HOST: ${{ secrets.SIM_DEPLOY_HOST }}
           PORT: ${{ secrets.SIM_DEPLOY_PORT }}
         run: |
           ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'for i in $(seq 1 30); do docker exec sim-api python -m sim.readiness && curl -fsS --max-time 5 http://127.0.0.1:8010/api/ready && exit 0; sleep 2; done; exit 1'
+          # The admin bundle must be served too (a stale bind mount once returned 500 for every page).
+          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'curl -fsS --max-time 5 http://127.0.0.1:8010/login | grep -q "id=\"root\""'
           ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'docker exec sim-postgres psql -U sim -d sim -tAc "select version_num from alembic_version"; cat /var/www/sim/REVISION'
       - name: Remove key material
         if: always()
