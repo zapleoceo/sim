@@ -18,11 +18,11 @@ from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.media import MediaStore
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
+from sim.domain.voice import VOICE_KINDS
 from sim.ports.llm import LLMError, LLMPort
 
 log = logging.getLogger(__name__)
 
-VOICE_KINDS = ("audio", "voice")
 MEDIA_KINDS = (*VOICE_KINDS, "image")
 VOICE_FAILED = "[голосовое сообщение: не удалось распознать]"
 PLACEHOLDERS = {

@@ -161,3 +161,49 @@ async def test_finish_reason_is_read_from_body_meta_or_choices():
     assert (await make().chat(MSGS)).finish_reason == "length"
     poll.respond(200, json=DONE)
     assert (await make().chat(MSGS)).finish_reason is None
+
+
+# ---- SpeechPort (/v1/speech) ---------------------------------------------------------------
+
+SPEECH = {
+    "audio_base64": "UklGRgAAAABXQVZF", "mime_type": "audio/wav", "voice": "Kore",
+    "audio_s": 5.3, "provider": "gemini", "model": "gemini/gemini-3.8-flash-tts",
+    "tokens_in": 14, "tokens_out": 132, "cost_usd": 0.0012, "latency_ms": 900,
+    "key_label": "demoniwwwe", "request_id": 5,
+}
+
+
+@respx.mock
+async def test_synthesize_posts_voice_style_and_decodes_audio():
+    route = respx.post(f"{URL}/v1/speech").respond(200, json=SPEECH)
+    res = await make().synthesize("Привет!", voice="Kore", style=" тепло ", workflow="voice-reply")
+    assert res.audio.startswith(b"RIFF") and res.mime_type == "audio/wav"
+    assert res.duration_s == pytest.approx(5.3) and res.cost_usd == pytest.approx(0.0012)
+    assert res.model == "gemini/gemini-3.8-flash-tts"
+    req = route.calls.last.request
+    assert req.headers["X-Project-Key"] == "key-1"
+    assert json.loads(req.content) == {"text": "Привет!", "voice": "Kore", "style": "тепло",
+                                       "workflow": "voice-reply"}
+
+
+@respx.mock
+async def test_synthesize_omits_empty_style_and_workflow():
+    route = respx.post(f"{URL}/v1/speech").respond(200, json=SPEECH)
+    await make().synthesize("hi", voice="Aoede")
+    assert json.loads(route.calls.last.request.content) == {"text": "hi", "voice": "Aoede"}
+
+
+@pytest.mark.parametrize("status,body", [
+    (503, {"detail": "no paid gemini key carries llm:speech"}),
+    (403, {"detail": "project lacks scope: llm:speech"}),
+    (200, {"audio_base64": "", "mime_type": "audio/wav"}),
+    (200, {"audio_base64": "not base64!!", "mime_type": "audio/wav"}),
+    (200, {"mime_type": "audio/wav"}),
+])
+@respx.mock
+async def test_synthesize_failures_raise_speech_error(status, body):
+    from sim.ports.speech import SpeechError
+
+    respx.post(f"{URL}/v1/speech").respond(status, json=body)
+    with pytest.raises(SpeechError):
+        await make().synthesize("hi", voice="Kore")

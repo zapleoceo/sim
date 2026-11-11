@@ -471,3 +471,36 @@ async def test_download_media_bounded(conn, made):
         await port.download_media("https://x/y")
     with pytest.raises(ValueError, match="malformed"):
         await port.download_media(f"{MEDIA_PREFIX}x:y")
+
+
+class VoiceClient(FakeClient):
+    async def send_file(self, entity, file, voice_note=False, attributes=None):
+        self.fail("send")
+        self.sent.append((entity[1], ("voice", file.name, file.read(), voice_note,
+                                      attributes[0].duration, attributes[0].voice)))
+        return SimpleNamespace(id=900 + len(self.sent))
+
+
+async def test_send_voice_sends_a_voice_note_and_remembers_its_echo():
+    c = VoiceClient()
+    a, _ = adapter(c)
+    assert "send_voice" in a.capabilities
+    res = await a.send_voice("10", b"OggS-voice", 4.6)
+    assert res.ok and res.external_message_id == "10:901"
+    assert c.sent == [(10, ("voice", "voice.ogg", b"OggS-voice", True, 5, True))]
+    assert "10:901" in a.s.sent
+
+
+async def test_send_voice_is_throttled_with_text():
+    c = VoiceClient()
+    a, sleeps = adapter(c)
+    await a.send_text("10", "one")
+    await a.send_voice("10", b"OggS", None)
+    assert sleeps == [3.0]
+
+
+async def test_send_voice_flood_and_bad_thread_are_failed_results():
+    a, _ = adapter(VoiceClient(script={"send": flood(12)}))
+    res = await a.send_voice("10", b"OggS", 1.0)
+    assert not res.ok and res.error == "flood_wait:12"
+    assert (await a.send_voice("not-a-peer", b"OggS", 1.0)).error == "bad thread id"

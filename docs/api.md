@@ -104,7 +104,9 @@ superadmin нельзя удалить, понизить или деактиви
 | POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}]}` | `{reply, decision, guard, model, latency_ms}` — пробный ответ без отправки, **с прогоном через контролера**; `reply` — то, что ушло бы клиенту (после исправления; `""`, если контролер заблокировал); `decision` = разобранный JSON-ответ генератора `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался; тогда `guard = null`); `guard` = `{verdict: "ok"/"rewritten"/"blocked", violations: string[], model, original_text}` (`original_text` — черновик для `rewritten`/`blocked`, иначе `null`) |
 
 `Persona`: `{id, name, age, gender ("female"|"male"|"other"), avatar_url, description, prohibitions,
-language, model, voice_id, strategy_id, is_active, created_at}`. Поле `disclosure_text` удалено (миграция 0009).
+language, model, voice_id, voice_mode, voice_style, strategy_id, is_active, created_at}`. Поле `disclosure_text` удалено (миграция 0009).
+`voice_id` — голос Google Gemini TTS (`Kore`, `Aoede`, …) или `""`; `voice_mode` — `off` | `mirror` | `always`;
+`voice_style` — подсказка манеры речи (≤300). Неизвестный голос или `voice_mode ≠ off` без голоса → `422` ([voice.md](voice.md)).
 `description` — один свободный текст (кто она, характер, биография, как пишет); `prohibitions` — «чего нельзя», по правилу на строку
 (попадают в системный промпт, раздел «Чего нельзя никогда», и в промпт контролера). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).

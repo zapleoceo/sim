@@ -87,7 +87,7 @@ def create_payload(instance: str, url: str, secret: str) -> dict[str, Any]:
 
 class WhatsAppAdapter:
     kind: ChannelKind = ChannelKind.WHATSAPP
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
 
     def __init__(self, transport: EvolutionTransport, *, instance: str) -> None:
         self._t = transport
@@ -98,6 +98,22 @@ class WhatsAppAdapter:
             raw = await self._t.request(
                 "POST", f"/message/sendText/{self._instance}",
                 {"number": external_thread_id, "text": text},
+            )
+        except EvolutionError as exc:
+            return SendResult(ok=False, error=str(exc))
+        key = (raw or {}).get("key") or {}
+        return SendResult(ok=True, external_message_id=str(key.get("id") or "") or None)
+
+    async def send_voice(
+        self, external_thread_id: str, audio: bytes, duration_s: float | None
+    ) -> SendResult:
+        """Evolution v2 sendWhatsAppAudio: a push-to-talk note (`encoding` lets Evolution
+        normalise the OGG/Opus for WhatsApp)."""
+        try:
+            raw = await self._t.request(
+                "POST", f"/message/sendWhatsAppAudio/{self._instance}",
+                {"number": external_thread_id,
+                 "audio": base64.b64encode(audio).decode(), "encoding": True},
             )
         except EvolutionError as exc:
             return SendResult(ok=False, error=str(exc))

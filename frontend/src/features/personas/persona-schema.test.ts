@@ -2,6 +2,7 @@ import type { Persona } from '@/lib/models';
 import {
   EMPTY_PERSONA, countRules, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
+import { GEMINI_VOICES, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
 const valid: PersonaFormValues = personaToForm({ ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная' });
 
@@ -58,6 +59,26 @@ describe('persona form validation', () => {
   it('round-trips a saved persona', () => {
     const p: Persona = { ...EMPTY_PERSONA, id: 3, name: 'Анна', age: 28, description: 'd', created_at: '' };
     expect(personaFromForm(personaToForm(personaToInput(p)))).toEqual(personaToInput(p));
+  });
+
+  it('defaults to text-only replies without a voice', () => {
+    expect(valid.voice_mode).toBe('off');
+    expect(valid.voice_id).toBe('');
+    expect(personaFromForm(valid)).toMatchObject({ voice_id: '', voice_mode: 'off', voice_style: '' });
+  });
+
+  it('requires a Gemini voice once voice replies are on', () => {
+    expect(personaErrors({ ...valid, voice_mode: 'mirror' }).voice_id).toBe('Для голосовых ответов выберите голос');
+    expect(personaErrors({ ...valid, voice_mode: 'always', voice_id: 'Kore' })).toEqual({});
+    expect(personaErrors({ ...valid, voice_id: '21m00Tcm4TlvDq8ikWAM' }).voice_id).toBe('Выберите голос из списка');
+    expect(personaErrors({ ...valid, voice_style: 'x'.repeat(301) }).voice_style).toBe('Не длиннее 300 символов');
+  });
+
+  it('offers the 30 Gemini voices and three voice modes', () => {
+    expect(GEMINI_VOICES).toHaveLength(30);
+    expect(new Set(GEMINI_VOICES.map((v) => v.id)).size).toBe(30);
+    expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
+    expect(VOICE_OPTIONS[0]).toEqual({ value: '', label: 'Без голоса' });
   });
 
   it('counts only non-empty prohibition lines', () => {

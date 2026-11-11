@@ -12,6 +12,11 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
+# ffmpeg: Gemini TTS answers in WAV; persona voice notes are sent as OGG/Opus (sim.adapters.audio).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Dependencies first (cached until pyproject/uv.lock change).
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project

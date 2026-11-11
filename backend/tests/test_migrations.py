@@ -193,3 +193,26 @@ def test_0009_adds_app_setting_and_drops_persona_disclosure(tmp_path):
     with sqlite3.connect(db) as con:
         tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "app_setting" not in tables
+
+
+def test_0010_adds_voice_mode_and_clears_non_gemini_voice_ids(tmp_path):
+    db = tmp_path / "mig10.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0009")
+    with sqlite3.connect(db) as con:
+        for pid, voice in ((1, "21m00Tcm4TlvDq8ikWAM"), (2, "Kore"), (3, "")):
+            con.execute(
+                "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, "
+                "language, model, voice_id, is_active, created_at) "
+                "VALUES (?, ?, '', '', '', '', 'ru', '', ?, 1, "
+                "'2026-11-01 00:00:00')",
+                (pid, f"P{pid}", voice),
+            )
+    command.upgrade(cfg, "head")
+    assert {"voice_mode", "voice_style"} <= columns(db, "persona")
+    with sqlite3.connect(db) as con:
+        rows = list(con.execute("SELECT id, voice_id, voice_mode, voice_style FROM persona ORDER BY id"))
+    assert rows == [(1, "", "off", ""), (2, "Kore", "off", ""), (3, "", "off", "")]
+    command.downgrade(cfg, "0009")
+    assert "voice_mode" not in columns(db, "persona")
+    command.upgrade(cfg, "head")

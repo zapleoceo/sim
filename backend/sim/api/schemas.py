@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from sim.adapters.db.models import (
     AdminUser,
@@ -20,7 +20,8 @@ from sim.adapters.db.models import (
     Strategy,
 )
 from sim.adapters.db.models import Channel as ChannelRow
-from sim.domain.enums import ChannelKind, ClientStatus, ContentKind, Role, Stage
+from sim.domain.enums import ChannelKind, ClientStatus, ContentKind, Role, Stage, VoiceMode
+from sim.domain.voice import GEMINI_VOICES
 from sim.services.channels import ConnectState
 
 
@@ -70,9 +71,24 @@ class PersonaIn(Body):
     prohibitions: str = ""
     language: str = Field(default="ru", max_length=200)
     model: str = Field(default="", max_length=120)
-    voice_id: str = Field(default="", max_length=120)
+    voice_id: str = Field(default="", max_length=120)    # Gemini TTS voice name, "" = none
+    voice_mode: VoiceMode = VoiceMode.OFF
+    voice_style: str = Field(default="", max_length=300)
     strategy_id: int | None = None
     is_active: bool = True
+
+    @field_validator("voice_id")
+    @classmethod
+    def known_voice(cls, value: str) -> str:
+        if value and value not in GEMINI_VOICES:
+            raise ValueError("Unknown voice: pick one of the Google Gemini voices")
+        return value
+
+    @model_validator(mode="after")
+    def voice_needs_a_voice(self) -> PersonaIn:
+        if self.voice_mode is not VoiceMode.OFF and not self.voice_id:
+            raise ValueError("Voice replies need a voice")
+        return self
 
 
 class PreviewHistoryItem(Body):
@@ -180,8 +196,8 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "id": p.id, "name": p.name, "age": p.age, "gender": p.gender, "avatar_url": p.avatar_url,
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
-        "voice_id": p.voice_id, "strategy_id": p.strategy_id, "is_active": p.is_active,
-        "created_at": dt(p.created_at),
+        "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
+        "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
     }
 
 

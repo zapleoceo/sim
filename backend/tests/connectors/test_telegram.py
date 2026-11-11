@@ -172,3 +172,25 @@ def test_parse_marks_edits():
     [e] = c.parse_webhook({"edited_message": _update(text="fixed", edit_date=1_700_000_100)["message"]})
     [m] = c.parse_webhook(_update(text="hi"))
     assert e.is_edit is True and m.is_edit is False
+
+
+@respx.mock
+async def test_send_voice_uploads_an_ogg_voice_note():
+    route = respx.post(f"{API}/sendVoice").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {"message_id": 77}}))
+    port = TelegramConnector().build_port(1, SESSION)
+    assert "send_voice" in port.capabilities
+    res = await port.send_voice("42", b"OggS-voice", 5.4)
+    assert res.ok and res.external_message_id == "77"
+    body = route.calls[0].request.content
+    assert b'name="chat_id"' in body and b"42" in body
+    assert b'name="duration"' in body and b"\r\n5\r\n" in body
+    assert b'name="voice"; filename="voice.ogg"' in body and b"OggS-voice" in body
+
+
+@respx.mock
+async def test_send_voice_failure_is_result_without_token():
+    respx.post(f"{API}/sendVoice").mock(return_value=httpx.Response(
+        400, json={"ok": False, "error_code": 400, "description": "VOICE_MESSAGES_FORBIDDEN"}))
+    res = await TelegramConnector().build_port(1, SESSION).send_voice("42", b"OggS", None)
+    assert not res.ok and "VOICE_MESSAGES_FORBIDDEN" in res.error and "TOKEN" not in res.error

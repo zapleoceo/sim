@@ -46,7 +46,8 @@ describe('personas pages', () => {
     const name = await screen.findByLabelText('Имя');
     expect(screen.getByRole('heading', { name: 'Проверить персонажа' })).toBeInTheDocument();
     // All fields are open (no «Дополнительно»); the API no longer has disclosure_text.
-    expect(screen.getByLabelText('ID голоса')).toBeVisible();
+    expect(screen.getByText('Голосовые ответы')).toBeVisible();
+    expect(screen.getByText('Голос (Google Gemini)')).toBeVisible();
     expect(screen.queryByText('Дополнительно')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/ты бот/)).not.toBeInTheDocument();
 

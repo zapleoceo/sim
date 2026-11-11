@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Persona, PersonaIn } from '@/lib/models';
+import { GEMINI_VOICES } from './persona-voices';
 
 export const AVATAR_URL_PATTERN = /^(https?:\/\/|\/)\S+$/i;
 
@@ -13,6 +14,8 @@ export const EMPTY_PERSONA: PersonaIn = {
   language: 'ru',
   model: '',
   voice_id: '',
+  voice_mode: 'off',
+  voice_style: '',
   strategy_id: null,
   is_active: true,
 };
@@ -22,6 +25,8 @@ export const GENDERS = [
   { value: 'male', label: 'Мужской' },
   { value: 'other', label: 'Другое' },
 ] as const;
+
+const GEMINI_VOICE_IDS = new Set(GEMINI_VOICES.map((v) => v.id));
 
 const notBlank = (v: string): boolean => v.trim() !== '';
 
@@ -46,9 +51,14 @@ export const personaSchema = z.object({
   prohibitions: z.string().max(10000, 'Слишком длинно'),
   language: z.string().refine(notBlank, 'Укажите язык').refine((v) => v.length <= 200, 'Не длиннее 200 символов'),
   model: z.string().max(200),
-  voice_id: z.string().max(200, 'Не длиннее 200 символов'),
+  voice_id: z.string().refine((v) => v === '' || GEMINI_VOICE_IDS.has(v), 'Выберите голос из списка'),
+  voice_mode: z.enum(['off', 'mirror', 'always']),
+  voice_style: z.string().max(300, 'Не длиннее 300 символов'),
   strategy_id: z.number().nullable(),
   is_active: z.boolean(),
+}).refine((v) => v.voice_mode === 'off' || v.voice_id !== '', {
+  path: ['voice_id'],
+  message: 'Для голосовых ответов выберите голос',
 });
 
 export type PersonaFormValues = z.infer<typeof personaSchema>;
@@ -76,6 +86,8 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
     language: p.language,
     model: p.model ?? '',
     voice_id: p.voice_id ?? '',
+    voice_mode: p.voice_mode ?? 'off',
+    voice_style: p.voice_style ?? '',
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
@@ -92,7 +104,9 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
     prohibitions: v.prohibitions,
     language: v.language.trim(),
     model: v.model,
-    voice_id: v.voice_id.trim(),
+    voice_id: v.voice_id,
+    voice_mode: v.voice_mode,
+    voice_style: v.voice_style.trim(),
     strategy_id: v.strategy_id,
     is_active: v.is_active,
   };
@@ -109,6 +123,8 @@ export function personaToInput(p: Persona): PersonaIn {
     language: p.language,
     model: p.model,
     voice_id: p.voice_id,
+    voice_mode: p.voice_mode,
+    voice_style: p.voice_style,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
