@@ -106,10 +106,10 @@ async def chat(body: ChatIn, c: App, p: Owner):
             raise HTTPException(409, "Selected subscription model is unavailable or unverified")
         result = await c.llm.chat(
             [{"role": "system", "content": (
-                "You are a virtual character in a private owner's creative studio. "
-                "Reply conversationally in the user's language or help write media prompts. "
-                "Do not claim to have seen a photo, generated media or performed actions. "
-                "No image or video input is attached to this text conversation."
+                "Ты виртуальный персонаж в личной творческой студии владельца. "
+                "Отвечай разговорно на языке пользователя или помогай писать промпты для медиа. "
+                "Не утверждай, что видел фото, создал медиа или выполнил действия. "
+                "К этому текстовому разговору не приложены изображения или видео."
             )}, *[turn.model_dump() for turn in body.messages]],
             capability="chat:fast", model=body.model, workflow="studio",
         )

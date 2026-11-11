@@ -75,7 +75,7 @@ async def test_invalid_json_is_retried_once(container, world, fake_llm):
     await start(container, world)
     outcome = await run_reply(container)
     assert outcome.status == "sent" and len(fake_llm.gen_calls) == 2
-    assert "not a valid JSON" in fake_llm.gen_calls[1][0][-1]["content"]
+    assert "не был корректным JSON-объектом" in fake_llm.gen_calls[1][0][-1]["content"]
 
 
 async def test_truncated_output_is_a_retryable_failure_and_audited(container, world, fake_llm, caplog):

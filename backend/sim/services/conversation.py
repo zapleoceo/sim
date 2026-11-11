@@ -42,8 +42,8 @@ from sim.services.prompt import (
 log = logging.getLogger(__name__)
 
 RETRY_NUDGE = (
-    "Your previous output was not a valid JSON object. Reply again with ONLY the JSON object "
-    "described in OUTPUT FORMAT."
+    "Твой предыдущий ответ не был корректным JSON-объектом. Ответь ещё раз ТОЛЬКО JSON-объектом, "
+    "описанным в разделе ФОРМАТ ОТВЕТА."
 )
 
 

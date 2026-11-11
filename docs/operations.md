@@ -10,7 +10,7 @@
 База документации: main `42af69c0bdbb6ee9a24155b5feaca37c2b040b74`. Фактическая production-версия неизвестна.
 
 ## Безопасная локальная подготовка
-Нужен полный checkout конкретного commit, Python 3.12+, uv, Node/npm. Версию Node следует согласовать с Angular 19 и lockfile; в package.json отдельный engines-контракт не задан. Не запускайте приложение из неполного набора файлов.
+Нужен полный checkout конкретного commit, Python 3.12+, uv, Node/npm. Node 22 (`engines` в frontend/package.json; CI использует Node 22). Не запускайте приложение из неполного набора файлов.
 
 В полном изолированном checkout:
 1. В backend выполнить uv sync.
@@ -19,24 +19,22 @@
 4. Для локальной БД выполнить uv run alembic upgrade head и uv run python -m sim.seed.
 5. Запустить API: uv run uvicorn sim.api.main:create_app --factory --port 8000.
 6. Отдельно запустить uv run python -m sim.worker.
-7. В frontend выполнить npm ci и npm start; localhost:4200 проксирует backend :8000.
+7. В frontend выполнить npm ci и npm run dev; localhost:4200 (Vite) проксирует /api и /hooks на backend :8000.
 
 API/worker могут обращаться к внешним каналам и Broker при действующих настройках. Для UI smoke использовать только изолированные данные и отключённые реальные каналы. scripts/demo_data.py создаёт данные и одноразовый вход, поэтому это изменяющая операция, не read-only диагностика.
 
 ## Команды проверки
 - Backend: uv run pytest -q.
 - Статический анализ: uv run ruff check .
-- Frontend: npm run build.
-- Frontend unit tests: npm test -- --watch=false; доступность браузера для Karma нужно проверить отдельно.
+- Frontend (только в CI): npm run lint, npm run typecheck, npm test (Vitest + jsdom), npm run build -> frontend/dist/sim/browser.
 - Не считать build заменой unit tests или браузерного UX-теста.
 - Отдельный PostgreSQL suite должен проверять миграции, advisory locks, SKIP LOCKED и конкурентные webhook/jobs.
 - Прогнать сценарии CSV duplicate, одинаковой fallback-модели guard, delivery failure, отменённой истории, смешанных валют и зависшего LLM job.
 
 Команды выше — инструкция для будущего разрешённого полного прогона, не список всего
 выполненного. Последний локальный backend-прогон кандидата: 502 backend-теста прошли (16 существующих
-предупреждений Alembic), Ruff прошёл; TypeScript app/spec и ESLint ранее прошли на неизменённом frontend. Компиляция spec
-не означает выполнение unit tests. Последняя Angular build не подтверждена: проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было.
-Browser/Karma не запускались (известное ограничение среды на сокеты). PostgreSQL locking,
+предупреждений Alembic), Ruff прошёл. Frontend (React + Vite) проверяется только в CI: lint, typecheck,
+Vitest и build — см. [admin-frontend.md](admin-frontend.md) и [ci.md](ci.md). PostgreSQL locking,
 реальные каналы, production health и commit фактического релиза не проверены. Исторический статический
 аудит b27a89b не следует выдавать за эти более поздние результаты.
 
@@ -127,8 +125,7 @@ Production, SSH и секретные файлы в рамках обновле�
 
 - Production SSH ранее был отклонён; повторных попыток не было. Live-версия, состояние
   миграций и наличие проверенного backup/restore не подтверждены.
-- Последняя frontend build не подтверждена: проверка сборки была отклонена из-за риска обращения к npm registry; повторной попытки не было. TypeScript app/spec и ESLint — прежние проверки неизменённого frontend;
-  browser/Karma не запускались.
+- Frontend-проверки (lint, typecheck, Vitest, build) выполняются только в CI на точном SHA PR; локальных прогонов нет.
 - В доступной среде нет бинарника nginx: `nginx -t` и runtime-проверки не выполнены.
   Source-тесты не заменяют проверку nginx с реальным `proxy_params`.
 - `infra/deploy.sh` не устанавливает и не перезагружает nginx-конфигурацию. Слияние кода

@@ -61,5 +61,5 @@ $0.50 / 1M токенов, аудио на выходе $9.00 / 1M токено�
 
 Тесты без сети: `tests/test_voice.py` (правило, кодирование, рендер, доставка и откаты в текст,
 API), `tests/test_broker.py` (`synthesize`), тесты коннекторов (`send_voice`),
-`tests/test_migrations.py` (0010), `persona-form.spec.ts`. Реальный синтез через production
+`tests/test_migrations.py` (0010), `frontend/src/features/personas/persona-schema.test.ts`. Реальный синтез через production
 Broker и реальная отправка в каналы этим изменением не проверялись.
