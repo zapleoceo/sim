@@ -1,5 +1,5 @@
-import { FormControl, FormGroup, Validators } from '@angular/forms';
-import { Persona, PersonaIn } from '../../core/models';
+import { AbstractControl, FormControl, FormGroup, ValidationErrors, Validators } from '@angular/forms';
+import { Persona, PersonaIn, VoiceMode } from '../../core/models';
 
 export const AVATAR_URL_PATTERN = /^(https?:\/\/|\/)\S+$/i;
 
@@ -13,6 +13,8 @@ export type PersonaForm = FormGroup<{
   language: FormControl<string>;
   model: FormControl<string>;
   voice_id: FormControl<string>;
+  voice_mode: FormControl<VoiceMode>;
+  voice_style: FormControl<string>;
   strategy_id: FormControl<number | null>;
   is_active: FormControl<boolean>;
 }>;
@@ -27,9 +29,18 @@ export const EMPTY_PERSONA: PersonaIn = {
   language: 'ru',
   model: '',
   voice_id: '',
+  voice_mode: 'off',
+  voice_style: '',
   strategy_id: null,
   is_active: true,
 };
+
+/** Голосовые ответы включены — значит, голос должен быть выбран (так же проверяет backend). */
+export function voiceNeedsAVoice(group: AbstractControl): ValidationErrors | null {
+  const mode = group.get('voice_mode')?.value as VoiceMode | undefined;
+  const voice = group.get('voice_id')?.value as string | undefined;
+  return mode && mode !== 'off' && !voice ? { voiceRequired: true } : null;
+}
 
 const text = (value: string, validators = [Validators.maxLength(4000)]): FormControl<string> =>
   new FormControl(value, { nonNullable: true, validators });
@@ -47,10 +58,12 @@ export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaFo
     prohibitions: text(initial.prohibitions, [Validators.maxLength(10000)]),
     language: text(initial.language, [Validators.required, Validators.maxLength(200)]),
     model: text(initial.model, [Validators.maxLength(200)]),
-    voice_id: text(initial.voice_id, [Validators.maxLength(200)]),
+    voice_id: text(initial.voice_id, [Validators.maxLength(120)]),
+    voice_mode: new FormControl<VoiceMode>(initial.voice_mode, { nonNullable: true }),
+    voice_style: text(initial.voice_style, [Validators.maxLength(300)]),
     strategy_id: new FormControl<number | null>(initial.strategy_id),
     is_active: new FormControl(initial.is_active, { nonNullable: true }),
-  });
+  }, { validators: voiceNeedsAVoice });
 }
 
 /** Число непустых правил в поле «Чего нельзя» (одно правило на строку). */
@@ -69,6 +82,8 @@ export function personaToInput(p: Persona): PersonaIn {
     language: p.language,
     model: p.model,
     voice_id: p.voice_id,
+    voice_mode: p.voice_mode,
+    voice_style: p.voice_style,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };

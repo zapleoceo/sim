@@ -1,4 +1,5 @@
 import { EMPTY_PERSONA, countRules, createPersonaForm } from './persona-form';
+import { GEMINI_VOICES, VOICE_MODES } from './persona-voices';
 
 describe('persona form validation', () => {
   const valid = { ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная' };
@@ -61,6 +62,30 @@ describe('persona form validation', () => {
 
   it('getRawValue matches the PersonaIn contract keys', () => {
     expect(Object.keys(createPersonaForm(valid).getRawValue()).sort()).toEqual(Object.keys(EMPTY_PERSONA).sort());
+  });
+
+  it('defaults to text-only replies without a voice', () => {
+    const form = createPersonaForm(valid);
+    expect(form.controls.voice_mode.value).toBe('off');
+    expect(form.controls.voice_id.value).toBe('');
+    expect(form.valid).toBeTrue();
+  });
+
+  it('requires a Gemini voice once voice replies are on', () => {
+    const form = createPersonaForm(valid);
+    form.controls.voice_mode.setValue('mirror');
+    expect(form.hasError('voiceRequired')).toBeTrue();
+    expect(form.invalid).toBeTrue();
+    form.controls.voice_id.setValue('Kore');
+    expect(form.valid).toBeTrue();
+    form.controls.voice_style.setValue('x'.repeat(301));
+    expect(form.controls.voice_style.hasError('maxlength')).toBeTrue();
+  });
+
+  it('offers the 30 Gemini voices and three voice modes', () => {
+    expect(GEMINI_VOICES.length).toBe(30);
+    expect(new Set(GEMINI_VOICES.map((v) => v.id)).size).toBe(30);
+    expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
   });
 
   it('counts only non-empty prohibition lines', () => {

@@ -63,7 +63,7 @@ class TelegramUserConnector:
     label = "Telegram (аккаунт)"
     polling = True
     poll_interval_setting = "tg_user_poll_interval_s"
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
 
     def __init__(self, client_factory: ClientFactory = build_tg_client) -> None:
         self._factory = client_factory

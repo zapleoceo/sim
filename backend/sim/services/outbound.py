@@ -3,23 +3,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Mapping
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sim.adapters.audio import AudioError
+from sim.adapters.channels.capabilities import Capability
 from sim.adapters.crypto import SecretBox
-from sim.adapters.db.models import AdminUser, Channel, Dialog, Message
+from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
 from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction
+from sim.domain.voice import GEMINI_VOICES
 from sim.ports.llm import LLMResult
+from sim.ports.speech import SpeechError
 from sim.services import jobkinds
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
+from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
+
+log = logging.getLogger(__name__)
 
 
 class SendFailed(Exception):
@@ -77,11 +85,13 @@ class OutboundService:
         *,
         factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
+        voice: VoiceRenderer | None = None,
     ) -> None:
         self.session = session
         self.registry = registry
         self.box = box
         self.clock = clock
+        self.voice = voice
         self.messages = MessageRepo(session)
         self.dialogs = DialogRepo(session)
         self.jobs = JobRepo(session)
@@ -95,16 +105,19 @@ class OutboundService:
         *,
         final: bool = False,
         guard: GuardOutcome | None = None,
+        voice: bool = False,
     ) -> Message:
         """Queue an AI reply (`text` is the final, guard-approved text; `guard` is recorded). `final` = the last thing the AI says before stepping back (a
         refusal farewell, a hand-off note): it is still delivered although the dialog is
-        paused / the client refused by the time it is sent."""
+        paused / the client refused by the time it is sent. `voice` = deliver it as a voice
+        note (rendered by the SEND job; `text` stays as its transcript)."""
         now = self.clock()
         message = Message(
             dialog_id=dialog.id,
             direction=Direction.OUT,
             author=Author.AI,
             text=text,
+            media_kind=VOICE_NOTE if voice else None,
             delivery=Delivery.QUEUED,
             created_at=now,
             model=result.model if result else None,
@@ -196,6 +209,7 @@ class OutboundService:
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
             "thread": dialog.external_thread_id, "text": message.text,
+            "voice": message.media_kind == VOICE_NOTE,
             "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
         }, sort_keys=True).encode()).hexdigest()
         previous = await self.receipts.previous(message.id, fingerprint)
@@ -211,9 +225,15 @@ class OutboundService:
         except Exception as exc:  # connector errors are heterogeneous; the job retries
             raise SendFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
+        note = await self.voice_note(message, dialog, port)
         await self.receipts.claim(message.id, fingerprint)
         try:
-            result = await port.send_text(dialog.external_thread_id, message.text)
+            if note is not None:
+                result = await port.send_voice(  # type: ignore[attr-defined]
+                    dialog.external_thread_id, note.audio, note.duration_s,
+                )
+            else:
+                result = await port.send_text(dialog.external_thread_id, message.text)
             if not result.ok:
                 # The common transport contract cannot prove that a failed request had no effect.
                 raise SendUncertain(UNCERTAIN_SEND)
@@ -225,6 +245,38 @@ class OutboundService:
             # Never persist a transport exception containing credentials or message text.
             raise SendUncertain(UNCERTAIN_SEND) from None
         apply_receipt(message, channel, receipt)
+
+    async def voice_note(self, message: Message, dialog: Dialog, port: object) -> VoiceNote | None:
+        """The rendered note for a message queued as voice, or None = send it as text.
+
+        Voice is best-effort: when the channel cannot send voice, the persona has no valid
+        voice any more, or the broker / ffmpeg fails, the client still gets the reply as text
+        (the reason is logged; the message stops being marked as voice)."""
+        if message.media_kind != VOICE_NOTE or message.author is not Author.AI:
+            return None
+        persona = await self.session.get(Persona, dialog.client.persona_id)
+        reason = None
+        if self.voice is None:
+            reason = "voice rendering is not configured"
+        elif Capability.SEND_VOICE not in getattr(port, "capabilities", frozenset()):
+            reason = f"{dialog.channel.kind} cannot send voice"
+        elif persona is None or persona.voice_id not in GEMINI_VOICES:
+            reason = "persona has no Gemini voice"
+        else:
+            try:
+                note = await self.voice.render(
+                    message.text, voice=persona.voice_id, style=persona.voice_style,
+                )
+            except (SpeechError, AudioError) as exc:
+                reason = f"{type(exc).__name__}: {exc}"[:300]
+            else:
+                message.media_url = note.media_url
+                if note.cost_usd:
+                    message.cost_usd = (message.cost_usd or 0.0) + note.cost_usd
+                return note
+        log.warning("message %s goes out as text, not voice: %s", message.id, reason)
+        message.media_kind = None
+        return None
 
     async def mark_failed(self, message_id: int, error: str) -> None:
         message = await self.messages.get(message_id)

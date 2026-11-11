@@ -35,6 +35,7 @@ from sim.domain.enums import (
     Role,
     SessionStatus,
     Stage,
+    VoiceMode,
 )
 
 Money = Numeric(14, 2, asdecimal=False)
@@ -123,7 +124,11 @@ class Persona(Base):
     prohibitions: Mapped[str] = mapped_column(Text, default="")
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
+    # Google Gemini TTS prebuilt voice name (sim.domain.voice.GEMINI_VOICES), "" = no voice.
     voice_id: Mapped[str] = mapped_column(String(120), default="")
+    voice_mode: Mapped[VoiceMode] = mapped_column(enum_col(VoiceMode), default=VoiceMode.OFF)
+    # Delivery hint read by the TTS model before the text, e.g. "тепло, спокойно, с улыбкой".
+    voice_style: Mapped[str] = mapped_column(Text, default="")
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )

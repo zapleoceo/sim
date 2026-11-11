@@ -37,6 +37,28 @@ class TelegramTransport(Protocol):
 
     async def download_file(self, file_path: str, max_bytes: int) -> bytes: ...
 
+    async def upload(
+        self, method: str, params: dict[str, Any], field: str, filename: str, data: bytes,
+        mime: str,
+    ) -> Any: ...
+
+
+def parse_answer(method: str, r: Any) -> Any:
+    """Bot API envelope → result, or TelegramError with Telegram's own description."""
+    try:
+        body = r.json()
+    except ValueError:
+        raise TelegramError(f"{method}: non-JSON answer (HTTP {r.status_code})") from None
+    if not isinstance(body, dict) or not body.get("ok"):
+        body = body if isinstance(body, dict) else {}
+        retry = (body.get("parameters") or {}).get("retry_after")
+        raise TelegramError(
+            str(body.get("description") or f"{method} failed (HTTP {r.status_code})"),
+            code=body.get("error_code") or r.status_code,
+            retry_after=int(retry) if retry else None,
+        )
+    return body.get("result")
+
 
 class BotApiTransport:
     def __init__(self, bot_token: str, *, base_url: str = TG_API) -> None:
@@ -54,19 +76,25 @@ class BotApiTransport:
             raise TelegramError(
                 f"network error calling {method}: {type(exc).__name__}"
             ) from None
+        return parse_answer(method, r)
+
+    async def upload(
+        self, method: str, params: dict[str, Any], field: str, filename: str, data: bytes,
+        mime: str,
+    ) -> Any:
+        """multipart/form-data call (sendVoice & co.): the file goes in `field`."""
+        import httpx  # noqa: PLC0415
+
+        form = {k: str(v) for k, v in params.items()}
         try:
-            body = r.json()
-        except ValueError:
-            raise TelegramError(f"{method}: non-JSON answer (HTTP {r.status_code})") from None
-        if not isinstance(body, dict) or not body.get("ok"):
-            body = body if isinstance(body, dict) else {}
-            retry = (body.get("parameters") or {}).get("retry_after")
+            async with httpx.AsyncClient(timeout=API_TIMEOUT, follow_redirects=False) as c:
+                r = await c.post(f"{self._base}/bot{self._token}/{method}", data=form,
+                                 files={field: (filename, data, mime)})
+        except httpx.HTTPError as exc:
             raise TelegramError(
-                str(body.get("description") or f"{method} failed (HTTP {r.status_code})"),
-                code=body.get("error_code") or r.status_code,
-                retry_after=int(retry) if retry else None,
-            )
-        return body.get("result")
+                f"network error calling {method}: {type(exc).__name__}"
+            ) from None
+        return parse_answer(method, r)
 
     async def download_file(self, file_path: str, max_bytes: int) -> bytes:
         try:
@@ -101,7 +129,7 @@ def chunk_text(text: str, limit: int = TG_MAX_TEXT) -> list[str]:
 
 class TelegramAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
 
     def __init__(self, transport: TelegramTransport) -> None:
         self._t = transport
@@ -136,6 +164,21 @@ class TelegramAdapter:
                 break
             first_id = first_id or str((res or {}).get("message_id", "")) or None
         return SendResult(ok=True, external_message_id=first_id)
+
+    async def send_voice(
+        self, external_thread_id: str, audio: bytes, duration_s: float | None
+    ) -> SendResult:
+        """sendVoice with an OGG/Opus note (Telegram renders it as a voice bubble)."""
+        params: dict[str, Any] = {"chat_id": external_thread_id}
+        if duration_s:
+            params["duration"] = max(1, round(duration_s))
+        try:
+            res = await self._t.upload("sendVoice", params, "voice", "voice.ogg", audio,
+                                       "audio/ogg")
+        except TelegramError as exc:
+            return SendResult(ok=False, error=str(exc))
+        return SendResult(ok=True,
+                          external_message_id=str((res or {}).get("message_id", "")) or None)
 
     async def session_status(self) -> SessionStatus:
         try:

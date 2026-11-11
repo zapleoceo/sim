@@ -75,7 +75,7 @@ backend/sim/
 | Таблица | Назначение |
 |---|---|
 | `admin_user` | `telegram_id` (уникальный, пусто до первого входа по приглашению), `tg_username`, имя, фото, роль (`superadmin`/`owner`/`operator`), активность; `used_login_hash` (одноразовые hash виджета), `login_link` (break-glass) |
-| `persona` | имя, возраст, пол, аватар, язык, модель, голос (voice_id), `strategy_id`, `is_active`; **`description`** — один свободный текст (кто она, характер, биография, как пишет) и **`prohibitions`** — «чего нельзя», по правилу на строку |
+| `persona` | имя, возраст, пол, аватар, язык, модель, голос (`voice_id` — голос Google Gemini TTS, `voice_mode` off/mirror/always, `voice_style`; см. [voice.md](voice.md)), `strategy_id`, `is_active`; **`description`** — один свободный текст (кто она, характер, биография, как пишет) и **`prohibitions`** — «чего нельзя», по правилу на строку |
 | `strategy` | сценарий общения: цель (короткая формула), **`prompt`** (свободный текст: ориентиры разговора, не скрипт), подсказки по этапам, мягкие правила, оффер партнёра, ссылка регистрации |
 | `channel` | kind (`instagram`/`whatsapp`/`telegram`), persona_id, зашифрованные учётные данные, статус сессии |
 | `client` | человек; persona_id; этап воронки; статус (`active`/`paused`/`refused`/`no_response`); следующий шаг; заметки |
@@ -257,8 +257,9 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 чтобы не оставлять «призрачное» устройство в сессиях аккаунта. Новое значение `ChannelKind` миграции
 не требует: enum хранится как VARCHAR(32) без CHECK.
 
-Голос: входящие голосовые → Broker `/v1/transcribe/jobs`. Исходящий голос (ElevenLabs) и видео
-(Vivix) — `VoicePort`/`VideoPort` с заглушкой; подключаются после проверки API и цены.
+Голос: входящие голосовые → Broker `/v1/transcribe/jobs`. Исходящий голос персонажа — `SpeechPort`
+(Broker `POST /v1/speech`, Google Gemini TTS) → ffmpeg OGG/Opus → `send_voice` канала; подробно в
+[voice.md](voice.md). Видео (Vivix) не подключено.
 
 ## Безопасность
 

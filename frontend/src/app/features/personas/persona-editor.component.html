@@ -107,8 +107,32 @@
     </mat-form-field>
 
     <mat-form-field appearance="outline" class="block">
-      <mat-label>ID голоса</mat-label>
-      <input matInput formControlName="voice_id" />
+      <mat-label>Голосовые ответы</mat-label>
+      <mat-select formControlName="voice_mode">
+        @for (m of voiceModes; track m.id) {
+          <mat-option [value]="m.id">{{ m.label }}</mat-option>
+        }
+      </mat-select>
+      <mat-hint>Голос синтезирует Google Gemini TTS через AIbroker; текст ответа остаётся в диалоге</mat-hint>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="block">
+      <mat-label>Голос (Google Gemini)</mat-label>
+      <mat-select formControlName="voice_id">
+        <mat-option value="">Без голоса</mat-option>
+        @for (v of voices; track v.id) {
+          <mat-option [value]="v.id">{{ v.label }}</mat-option>
+        }
+      </mat-select>
+      @if (form.hasError('voiceRequired')) {
+        <mat-hint class="voice-warning">Для голосовых ответов выберите голос</mat-hint>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="block">
+      <mat-label>Манера речи (необязательно)</mat-label>
+      <input matInput formControlName="voice_style" placeholder="тепло, спокойно, с улыбкой" />
+      <mat-hint>Подсказка для синтеза: как произносить, а не что</mat-hint>
     </mat-form-field>
 
     <div class="sim-save-bar actions">

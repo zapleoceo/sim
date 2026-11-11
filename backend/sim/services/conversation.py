@@ -18,6 +18,7 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, Stage
 from sim.domain.funnel import Actor, FunnelRuleError
+from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
@@ -344,7 +345,11 @@ class ConversationService:
         if decision is None:
             dialog.needs_operator = True
             return ReplyOutcome("needs_operator")
-        return await self.apply(dialog, strategy, decision, result, guard, followup=followup)
+        # A follow-up answers no client message, so "mirror" never voices it.
+        voice = speaks(persona.voice_mode, persona.voice_id,
+                       None if followup or newer is None else newer.media_kind)
+        return await self.apply(dialog, strategy, decision, result, guard, followup=followup,
+                                voice=voice)
 
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
@@ -368,6 +373,7 @@ class ConversationService:
         guard: GuardOutcome | None,
         *,
         followup: bool,
+        voice: bool = False,
     ) -> ReplyOutcome:
         client = dialog.client
         if decision.needs:
@@ -400,7 +406,7 @@ class ConversationService:
         decision = replace(decision, reply=guard.text)
         message = await self.outbound.queue_ai(
             dialog, guard.text, result,
-            final=stop or decision.handoff_to_operator, guard=guard,
+            final=stop or decision.handoff_to_operator, guard=guard, voice=voice,
         )
         if not followup and not stop and not decision.handoff_to_operator:
             dialog.followup_step = 0

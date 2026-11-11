@@ -47,12 +47,18 @@ export interface Persona {
   prohibitions: string;
   language: string;
   model: string;
+  /** Голос Google Gemini TTS (имя, например «Kore»); пусто — без голоса. */
   voice_id: string;
+  /** Когда отвечать голосовым: off — никогда, mirror — на голосовое клиента, always — всегда. */
+  voice_mode: VoiceMode;
+  /** Подсказка манеры речи для синтеза, например «тепло, спокойно». */
+  voice_style: string;
   strategy_id: number | null;
   is_active: boolean;
   created_at: string;
 }
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
+export type VoiceMode = 'off' | 'mirror' | 'always';
 
 export interface PreviewTurn { role: 'user' | 'assistant'; text: string }
 export type GuardVerdict = 'ok' | 'rewritten' | 'blocked';

@@ -15,6 +15,7 @@ import { AvatarComponent } from '../../shared/avatar.component';
 import { ConfirmService } from '../../shared/confirm-dialog.component';
 import { EMPTY_PERSONA, countRules, createPersonaForm, personaToInput } from './persona-form';
 import { PersonaPreviewComponent } from './persona-preview.component';
+import { GEMINI_VOICES, VOICE_MODES } from './persona-voices';
 
 @Component({
   selector: 'sim-persona-editor',
@@ -43,6 +44,8 @@ export class PersonaEditorComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly form = createPersonaForm();
+  protected readonly voices = GEMINI_VOICES;
+  protected readonly voiceModes = VOICE_MODES;
   private readonly prohibitions = toSignal(
     this.form.controls.prohibitions.valueChanges.pipe(startWith(this.form.controls.prohibitions.value)),
     { initialValue: '' },
