@@ -1,14 +1,20 @@
 import { EMPTY_PERSONA, countRules, createPersonaForm } from './persona-form';
 
 describe('persona form validation', () => {
-  const valid = { ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная', disclosure_text: 'Я виртуальный ассистент проекта.' };
+  const valid = { ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная' };
 
   it('is invalid when empty', () => {
     const form = createPersonaForm();
     expect(form.invalid).toBeTrue();
     expect(form.controls.name.hasError('required')).toBeTrue();
     expect(form.controls.description.hasError('required')).toBeTrue();
-    expect(form.controls.disclosure_text.hasError('required')).toBeTrue();
+  });
+
+  it('allows an empty "are you a bot" answer but caps its length', () => {
+    const form = createPersonaForm(valid);
+    expect(form.controls.disclosure_text.valid).toBeTrue();
+    form.controls.disclosure_text.setValue('x'.repeat(1001));
+    expect(form.controls.disclosure_text.hasError('maxlength')).toBeTrue();
   });
 
   it('is valid with the required fields filled', () => {

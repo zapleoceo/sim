@@ -19,6 +19,7 @@ from sim.services.guard import (
     GuardError,
     guard_system_prompt,
     guard_user_message,
+    parse_verdict,
 )
 from sim.services.prompt import PersonaProfile, StrategyProfile, Turn
 from sim.worker.loop import Worker
@@ -298,6 +299,21 @@ def test_guard_system_prompt_has_persona_prohibitions_strategy_rules_and_global_
     # honesty floor: BLOCK a human claim on a direct question; voice: REWRITE volunteered AI talk
     assert "must not claim to be human" in system and "must be BLOCKED" in system
     assert "volunteers that the persona is an AI" in system and "must be REWRITTEN" in system
+    # the messenger style is not a violation, and the truncated dialog is not a fact source
+    assert "occasional small typo are never a reason to rewrite" in system
+    assert "never rewrite a draft for consistency with earlier conversation" in system
+
+
+def test_guard_sees_the_same_history_window_as_the_persona():
+    from sim.services.prompt import HISTORY_LIMIT
+
+    assert GUARD_HISTORY_TURNS == HISTORY_LIMIT
+
+
+def test_guard_rewrite_gets_plain_messenger_punctuation():
+    raw = guard_json("rewrite", ["v"], fixed="Ну смотри — это «просто»; правда…")
+    verdict = parse_verdict(LLMResult(text=raw, model="m", latency_ms=1))
+    assert verdict is not None and verdict.fixed_reply == 'Ну смотри - это "просто", правда...'
 
 
 def test_guard_system_prompt_is_byte_stable_per_persona():
@@ -311,11 +327,12 @@ def test_guard_system_prompt_is_byte_stable_per_persona():
 
 
 def test_guard_user_message_has_last_turns_draft_stage_and_links_only_here():
-    history = [Turn("user" if i % 2 == 0 else "assistant", f"turn {i}") for i in range(10)]
+    total = GUARD_HISTORY_TURNS + 4
+    history = [Turn("user" if i % 2 == 0 else "assistant", f"turn {i}") for i in range(total)]
     payload = json.loads(
         guard_user_message(history, "черновик", Stage.ENGAGED, ["https://rcipm.com/?ref=abc"])
     )
-    assert [t["text"] for t in payload["dialog"]] == [f"turn {i}" for i in range(4, 10)]
+    assert [t["text"] for t in payload["dialog"]] == [f"turn {i}" for i in range(4, total)]
     assert len(payload["dialog"]) == GUARD_HISTORY_TURNS
     assert {t["role"] for t in payload["dialog"]} == {"client", "persona"}
     assert payload["draft_reply"] == "черновик" and payload["stage"] == "engaged"
