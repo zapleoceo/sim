@@ -103,7 +103,8 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
         strategy = (await s.scalars(select(Strategy))).one()
     assert marina.description.startswith("Мне 45, я Марина") and strategy.prompt == STRATEGY_PROMPT
-    assert strategy.goal.startswith("Твоя цель — подружиться") and len(strategy.rules) == 6
+    assert strategy.goal == "" and strategy.rules == [] and strategy.stage_playbook == {}   # one text
+    assert strategy.prompt.startswith("Цель: подружиться")
     async with transaction(container.factory) as s:
         again, _ = await apply_persona_prompts(s)
     assert again == []                                  # idempotent

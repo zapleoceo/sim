@@ -17,23 +17,29 @@ describe('strategies pages', () => {
     expect(screen.getByText('Partner X')).toBeInTheDocument();
   });
 
-  it('edits rules and saves the payload', async () => {
+  it('shows three blocks and saves the scenario text and reminder days', async () => {
     const log = fakeApi({
       'GET /api/strategies': { items: [RCIPM] },
       'PUT /api/strategies/2': (r: { body: unknown }) => ({ ...RCIPM, ...(r.body as object) }),
     });
     await renderApp('/strategies/2');
-    expect(await screen.findByDisplayValue('не давить')).toBeInTheDocument();
+    for (const block of ['Что продаём', 'Как вести разговор', 'Напоминания']) {
+      expect(await screen.findByRole('region', { name: block })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: 'Добавить правило' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Через сколько дней')).toHaveValue('1, 3');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Добавить правило' }));
-    await userEvent.type(screen.getByLabelText('Правило 2'), 'быть вежливой');
+    await userEvent.type(screen.getByLabelText('Сценарий'), 'Сначала человек');
+    await userEvent.clear(screen.getByLabelText('Через сколько дней'));
+    await userEvent.type(screen.getByLabelText('Через сколько дней'), '1, 2, 5');
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
 
     await waitFor(() => expect(log.some((r) => r.method === 'PUT')).toBe(true));
     const body = log.find((r) => r.method === 'PUT')?.body as Strategy;
-    expect(body.rules).toEqual(['не давить', 'быть вежливой']);
+    expect(body.prompt).toBe('Сначала человек');
+    expect(body.followup_hours).toEqual([24, 48, 120]);
+    expect(body.rules).toEqual(['не давить']);                 // passed through, not edited here
     expect(body.stage_playbook['legacy']).toBe('keep');
-    expect(body.followup_hours).toEqual([24, 72]);
     expect(await screen.findByText('Стратегия сохранена')).toBeInTheDocument();
   });
 
