@@ -186,8 +186,10 @@ def test_0009_adds_app_setting_and_drops_persona_disclosure(tmp_path):
     command.upgrade(cfg, "head")
     assert {"key", "value", "updated_at", "updated_by_id"} <= columns(db, "app_setting")
     assert not {"disclosure_text", "is_virtual_disclosed"} & columns(db, "persona")
+    assert "reply_delay_s" not in columns(db, "strategy")
     command.downgrade(cfg, "0008")
     assert {"disclosure_text", "is_virtual_disclosed"} <= columns(db, "persona")
+    assert "reply_delay_s" in columns(db, "strategy")
     with sqlite3.connect(db) as con:
         tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "app_setting" not in tables

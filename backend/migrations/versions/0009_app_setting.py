@@ -1,5 +1,6 @@
 """Owner-editable settings (prompt texts, tunables) that override code defaults; the persona
-"are you a bot" disclosure fields are removed (the honesty floor lives in the prompt code)."""
+"are you a bot" disclosure fields are removed (the honesty floor lives in the prompt code) and
+so is the strategy's artificial reply delay."""
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -27,9 +28,15 @@ def upgrade() -> None:
     with op.batch_alter_table("persona") as batch:
         batch.drop_column("disclosure_text")
         batch.drop_column("is_virtual_disclosed")
+    with op.batch_alter_table("strategy") as batch:
+        batch.drop_column("reply_delay_s")  # replies go out right after generation
 
 
 def downgrade() -> None:
+    with op.batch_alter_table("strategy") as batch:
+        batch.add_column(
+            sa.Column("reply_delay_s", sa.JSON(), nullable=False, server_default="[20, 90]")
+        )
     with op.batch_alter_table("persona") as batch:
         batch.add_column(
             sa.Column("is_virtual_disclosed", sa.Boolean(), nullable=False, server_default=sa.true())

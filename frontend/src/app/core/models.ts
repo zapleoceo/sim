@@ -83,7 +83,6 @@ export interface Strategy {
   stage_playbook: Record<string, string>;
   rules: string[];
   followup_hours: number[];
-  reply_delay_s: [number, number];
   created_at: string;
 }
 export type StrategyIn = Omit<Strategy, 'id' | 'created_at'>;

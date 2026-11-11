@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import logging
-import random
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from cryptography.fernet import Fernet
@@ -71,7 +70,6 @@ class Container:
     media: MediaStore
     limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     clock: Clock = utcnow
-    rng: Callable[[float, float], float] = random.uniform
     publisher: ContentPublisher | None = None
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
 
@@ -99,7 +97,7 @@ class Container:
 
     def outbound(self, s: AsyncSession) -> OutboundService:
         return OutboundService(
-            s, self.registry, self.box, factory=self.factory, clock=self.clock, rng=self.rng,
+            s, self.registry, self.box, factory=self.factory, clock=self.clock,
         )
 
     def conversation(self, s: AsyncSession) -> ConversationService:

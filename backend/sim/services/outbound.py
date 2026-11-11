@@ -1,11 +1,9 @@
-"""Outbound messages: queue, human-like delay, delivery through the channel port, manual mode."""
+"""Outbound messages: queue, delivery through the channel port, manual mode."""
 from __future__ import annotations
 
 import hashlib
 import json
-import random
-from collections.abc import Callable, Mapping
-from datetime import timedelta
+from collections.abc import Mapping
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,19 +21,9 @@ from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 
-DEFAULT_DELAY_S = (20.0, 90.0)
-
 
 class SendFailed(Exception):
     """Delivery did not succeed; the worker retries with backoff."""
-
-
-def pick_delay(reply_delay_s: list[float] | None, rng: Callable[[float, float], float]) -> float:
-    lo, hi = DEFAULT_DELAY_S
-    if reply_delay_s and len(reply_delay_s) == 2:
-        lo, hi = float(reply_delay_s[0]), float(reply_delay_s[1])
-    lo, hi = max(lo, 0.0), max(hi, 0.0)
-    return rng(min(lo, hi), max(lo, hi))
 
 
 def send_key(message_id: int) -> str:
@@ -43,8 +31,8 @@ def send_key(message_id: int) -> str:
 
 
 async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -> int:
-    """A human took over (or the AI was paused): AI replies still waiting for their human-like
-    delay must not go out. Marks them cancelled and cancels their SEND jobs."""
+    """A human took over (or the AI was paused): AI replies still waiting for their
+    send must not go out. Marks them cancelled and cancels their SEND jobs."""
     rows = (
         await session.scalars(
             select(Message).where(
@@ -89,13 +77,11 @@ class OutboundService:
         *,
         factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
-        rng: Callable[[float, float], float] = random.uniform,
     ) -> None:
         self.session = session
         self.registry = registry
         self.box = box
         self.clock = clock
-        self.rng = rng
         self.messages = MessageRepo(session)
         self.dialogs = DialogRepo(session)
         self.jobs = JobRepo(session)
@@ -106,7 +92,6 @@ class OutboundService:
         dialog: Dialog,
         text: str,
         result: LLMResult | None,
-        reply_delay_s: list[float] | None,
         *,
         final: bool = False,
         guard: GuardOutcome | None = None,
@@ -131,11 +116,10 @@ class OutboundService:
         )
         await self.messages.add(message)
         apply_message(dialog, message)
-        delay = pick_delay(reply_delay_s, self.rng)
         await self.jobs.enqueue(
             jobkinds.SEND,
             {"message_id": message.id, "final": final},
-            now + timedelta(seconds=delay),
+            now,  # no artificial delay: generation already takes seconds
             dedup_key=send_key(message.id),
         )
         return message

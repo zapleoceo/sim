@@ -399,7 +399,7 @@ class ConversationService:
             return ReplyOutcome("blocked", decision)
         decision = replace(decision, reply=guard.text)
         message = await self.outbound.queue_ai(
-            dialog, guard.text, result, list(strategy.reply_delay_s or []),
+            dialog, guard.text, result,
             final=stop or decision.handoff_to_operator, guard=guard,
         )
         if not followup and not stop and not decision.handoff_to_operator:

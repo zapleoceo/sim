@@ -42,7 +42,6 @@ STRATEGY: dict[str, Any] = {
     "stage_playbook": STAGE_PLAYBOOK,
     "rules": STRATEGY_RULES,
     "followup_hours": [24, 72, 168],
-    "reply_delay_s": [20, 90],
     "notes": (
         "TO CONFIRM with the owner: точная ссылка регистрации (шаблон https://rcipm.com/?ref={ref} "
         "— предположение, сайт закрыт проверкой «я не робот»), описание продукта и цены."

@@ -105,7 +105,6 @@ class Strategy(Base):
     stage_playbook: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     rules: Mapped[list[str]] = mapped_column(JSON, default=list)
     followup_hours: Mapped[list[float]] = mapped_column(JSON, default=list)
-    reply_delay_s: Mapped[list[float]] = mapped_column(JSON, default=lambda: [20, 90])
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

@@ -95,15 +95,7 @@ class StrategyIn(Body):
     stage_playbook: dict[str, str] = Field(default_factory=dict)
     rules: list[str] = Field(default_factory=list)
     followup_hours: list[float] = Field(default_factory=list)
-    reply_delay_s: list[float] = Field(default_factory=lambda: [20.0, 90.0])
     notes: str = ""
-
-    @field_validator("reply_delay_s")
-    @classmethod
-    def two_ordered(cls, v: list[float]) -> list[float]:
-        if len(v) != 2 or v[0] < 0 or v[0] > v[1]:
-            raise ValueError("reply_delay_s must be [min, max] with 0 <= min <= max")
-        return v
 
     @field_validator("followup_hours")
     @classmethod
@@ -198,7 +190,7 @@ def strategy_out(s: Strategy) -> dict[str, Any]:
         "id": s.id, "name": s.name, "goal": s.goal, "prompt": s.prompt, "offer": s.offer,
         "partner_name": s.partner_name, "registration_url": s.registration_url,
         "stage_playbook": s.stage_playbook, "rules": s.rules, "followup_hours": s.followup_hours,
-        "reply_delay_s": s.reply_delay_s, "notes": s.notes, "created_at": dt(s.created_at),
+        "notes": s.notes, "created_at": dt(s.created_at),
     }
 
 

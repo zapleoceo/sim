@@ -138,7 +138,7 @@ is_default, updated_at, updated_by_id}`.
 | GET/PUT/DELETE | `/api/strategies/{id}` | `Strategy` |
 
 `Strategy`: `{id, name, goal, prompt, offer, partner_name, registration_url, stage_playbook: {<stage>: string},
-rules: string[], followup_hours: number[], reply_delay_s: [min, max], created_at}`.
+rules: string[], followup_hours: number[], created_at}`. Искусственной задержки ответа нет: `reply_delay_s` удалено (миграция 0009), ответ уходит сразу после генерации и проверки контролером.
 `prompt` — свободный текст стратегии (ориентиры разговора, не скрипт; миграция 0005), попадает в стабильный системный промпт. `PUT` обновляет только присланные поля: клиент, не знающий `prompt`/`notes`, их не затирает.
 
 ## Симуляции (только `owner`+, чтение)
@@ -252,7 +252,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 заблокированные исходящие не подтверждают обмен. Входящие учитываются независимо
 от delivery и guard_verdict. Фильтр `persona_id` применяется к клиенту.
 Период и порядок сообщений определяются по `created_at`, а не по фактическому
-времени отправки: отдельного `sent_at` нет. Для отправленных с задержкой сообщений
+времени отправки: отдельного `sent_at` нет. Для сообщений, отправленных позже создания (ретраи, очередь),
 это приближение, а не точная хронология доставки. `guard` по-прежнему считает
 сохранённые вердикты за период, включая неотправленные сообщения.
 
