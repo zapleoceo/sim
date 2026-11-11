@@ -12,6 +12,7 @@ from sim.adapters.db.session import transaction
 from sim.api.activity_schemas import trace_status
 from sim.ports.llm import LLMError
 from sim.services import jobkinds, tracing
+from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.tracing import Tracer, mask, trace_scope
 from sim.worker.handlers import Handler
 from sim.worker.loop import Worker
@@ -216,3 +217,23 @@ def test_0011_roundtrip(tmp_path):
     with sqlite3.connect(db) as con:
         indexes = {row[1] for row in con.execute("PRAGMA index_list(trace_event)")}
     assert {"ix_trace_event_started_at_id", "ix_trace_event_trace_started"} <= indexes
+
+
+async def test_owner_setting_sets_the_retention(api, container):
+    h = {"X-CSRF-Token": await login(api, *OWNER)}
+    assert (await api.get("/api/activity/log", headers=h)).json()["retention_days"] == 30
+    async with transaction(container.factory) as s:
+        await AppSettingsService(s, env_defaults(container.settings)).set("trace_retention_days", 7, None)
+    assert (await api.get("/api/activity/log", headers=h)).json()["retention_days"] == 7
+    old = container.clock() - timedelta(days=8)
+    async with transaction(container.factory) as s:
+        s.add(TraceEvent(trace_id="t", kind="http", name="old", started_at=old))
+    assert await Worker(container).purge_traces() == 1
+    assert not [e for e in await events(container) if e.name == "old"]
+
+
+async def test_admin_actions_link_the_client_from_the_route(api, container, world):
+    h = {"X-CSRF-Token": await login(api, *OWNER)}
+    await api.get(f"/api/channels/{world.channel.id}/state", headers=h)
+    step = next(e for e in await events(container) if e.name == f"GET /api/channels/{world.channel.id}/state")
+    assert step.channel_id == world.channel.id

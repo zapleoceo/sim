@@ -16,6 +16,7 @@ from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
 from sim.services import tracing
+from sim.services.app_settings import trace_retention_days
 from sim.services.conversation import ConversationError
 from sim.services.send_receipts import SendUncertain
 from sim.services.tracing import TraceContext, trace_scope
@@ -254,7 +255,9 @@ class Worker:
     # ---- system log retention ------------------------------------------------------------
     async def purge_traces(self) -> int:
         try:
-            deleted = await self.c.tracer().purge(self.c.settings.trace_retention_days)
+            async with self.c.factory() as s:
+                days = await trace_retention_days(s, self.c.settings)
+            deleted = await self.c.tracer().purge(days)
         except Exception:
             log.exception("trace log purge failed")
             return 0
