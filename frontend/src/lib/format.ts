@@ -95,3 +95,12 @@ export function formatDayMonth(isoDate: string): string {
   const [, m, d] = isoDate.split('-');
   return d && m ? `${d}.${m}` : isoDate;
 }
+
+const stampFmt = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+
+/** Журнал: «11.11, 14:05:07» (точность до секунды). */
+export function formatStamp(iso: string | null | undefined): string {
+  return iso ? stampFmt.format(parse(iso)) : '';
+}
