@@ -110,12 +110,9 @@
       <summary>Дополнительно</summary>
       <div class="more-body">
         <mat-form-field appearance="outline" class="block">
-          <mat-label>Раскрытие («я виртуальный ассистент»)</mat-label>
-          <textarea matInput rows="2" formControlName="disclosure_text" required></textarea>
-          <mat-hint>Персонаж честно скажет это на прямой вопрос «ты бот?»</mat-hint>
-          @if (form.controls.disclosure_text.hasError('required')) {
-            <mat-error>Обязательное поле</mat-error>
-          }
+          <mat-label>Ответ на «ты бот?» (необязательно)</mat-label>
+          <textarea matInput rows="2" formControlName="disclosure_text"></textarea>
+          <mat-hint>Пусто: персонаж ответит своими словами, не называя себя человеком</mat-hint>
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="block">

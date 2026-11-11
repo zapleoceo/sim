@@ -53,7 +53,7 @@ export function createPersonaForm(initial: PersonaIn = EMPTY_PERSONA): PersonaFo
     voice_id: text(initial.voice_id, [Validators.maxLength(200)]),
     strategy_id: new FormControl<number | null>(initial.strategy_id),
     is_active: new FormControl(initial.is_active, { nonNullable: true }),
-    disclosure_text: text(initial.disclosure_text, [Validators.required, Validators.maxLength(1000)]),
+    disclosure_text: text(initial.disclosure_text, [Validators.maxLength(1000)]),
   });
 }
 
