@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from alembic import command
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from sim.adapters.db.models import Job, LlmCall, TraceEvent
 from sim.adapters.db.session import transaction
@@ -122,7 +122,7 @@ async def test_api_requests_name_the_admin_and_log_reads_stay_quiet(api, contain
     await api.get("/api/health")
     http = [e for e in await events(container) if e.kind == "http"]
     personas = next(e for e in http if e.name == "GET /api/personas")
-    assert personas.actor == f"admin {OWNER[0]}" and personas.admin_id
+    assert personas.actor == "Test" and personas.admin_id  # the widget first_name
     assert "SECRET" not in personas.detail["query"] and "q=x" in personas.detail["query"]
     assert not [e for e in http if e.name.startswith(("GET /api/activity/log", "GET /api/health"))]
 
@@ -144,8 +144,10 @@ async def seed_log(container):
 
 
 async def test_log_filters_sorts_and_pages_on_the_server(api, container):
-    await seed_log(container)
     h = {"X-CSRF-Token": await login(api, *OWNER)}
+    async with transaction(container.factory) as s:  # drop the login request's own step
+        await s.execute(delete(TraceEvent))
+    await seed_log(container)
 
     async def get(**params):
         res = await api.get("/api/activity/log", headers=h, params=params)
