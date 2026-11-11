@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim import trace_context
 from sim.adapters.db.models import AdminUser, AuthSession
 from sim.adapters.db.session import transaction
 from sim.domain.enums import Role
@@ -43,7 +44,14 @@ async def current_principal(request: Request, c: App, s: Db) -> Principal:
     row = await c.auth(s).authenticate(request.cookies.get(COOKIE))
     if row is None:
         raise HTTPException(401, "Not authenticated")
+    if (trace := trace_context.current()) is not None:  # the system log names who acted
+        trace.actor = admin_label(row.user)
+        trace.link(admin_id=row.user.id)
     return Principal(row.user, row)
+
+
+def admin_label(user: AdminUser) -> str:
+    return user.display_name or (f"@{user.tg_username}" if user.tg_username else f"admin #{user.id}")
 
 
 async def authed(request: Request, p: Annotated[Principal, Depends(current_principal)]) -> Principal:

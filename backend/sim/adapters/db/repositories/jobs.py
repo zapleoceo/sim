@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.base import Repository
+from sim.trace_context import current_trace_id
 
 BACKOFF_BASE_S = 30
 BACKOFF_CAP_S = 3600
@@ -31,7 +32,8 @@ class JobRepo(Repository[Job]):
         max_attempts: int = 5,
     ) -> Job:
         job = Job(
-            kind=kind, payload=payload, run_at=run_at, dedup_key=dedup_key, max_attempts=max_attempts
+            kind=kind, payload=payload, run_at=run_at, dedup_key=dedup_key, max_attempts=max_attempts,
+            trace_id=current_trace_id(),
         )
         return await self.add(job)
 

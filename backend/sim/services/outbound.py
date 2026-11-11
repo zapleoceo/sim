@@ -5,6 +5,7 @@ import hashlib
 import json
 import random
 from collections.abc import Callable, Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -18,10 +19,11 @@ from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
 from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction
 from sim.ports.llm import LLMResult
-from sim.services import jobkinds
+from sim.services import jobkinds, tracing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
+from sim.services.tracing import Step, Tracer
 
 DEFAULT_DELAY_S = (20.0, 90.0)
 
@@ -90,8 +92,10 @@ class OutboundService:
         factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
         rng: Callable[[float, float], float] = random.uniform,
+        tracer: Tracer | None = None,
     ) -> None:
         self.session = session
+        self.tracer = tracer
         self.registry = registry
         self.box = box
         self.clock = clock
@@ -228,19 +232,29 @@ class OutboundService:
             raise SendFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
         await self.receipts.claim(message.id, fingerprint)
-        try:
-            result = await port.send_text(dialog.external_thread_id, message.text)
-            if not result.ok:
-                # The common transport contract cannot prove that a failed request had no effect.
-                raise SendUncertain(UNCERTAIN_SEND)
-            receipt = await self.receipts.acknowledge(
-                message.id, fingerprint, result.external_message_id,
-            )
-        except Exception:
-            # Cancellation/crash also leaves the committed intent: recovery refuses a new send.
-            # Never persist a transport exception containing credentials or message text.
-            raise SendUncertain(UNCERTAIN_SEND) from None
+        async with self.send_step(channel, message) as step:
+            try:
+                result = await port.send_text(dialog.external_thread_id, message.text)
+                if not result.ok:
+                    # The common transport contract cannot prove that a failed request had no effect.
+                    raise SendUncertain(UNCERTAIN_SEND)
+                receipt = await self.receipts.acknowledge(
+                    message.id, fingerprint, result.external_message_id,
+                )
+            except Exception:
+                # Cancellation/crash also leaves the committed intent: recovery refuses a new send.
+                # Never persist a transport exception containing credentials or message text.
+                raise SendUncertain(UNCERTAIN_SEND) from None
+            step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
+
+    def send_step(self, channel: Channel, message: Message) -> AbstractAsyncContextManager[Step]:
+        """The transport call as a step of the trace log (timing, outcome; never the text)."""
+        name = f"send {channel.kind.value}"
+        if self.tracer is None:
+            return nullcontext(Step(tracing.SEND, name))
+        return self.tracer.step(tracing.SEND, name, channel_id=channel.id,
+                                dialog_id=message.dialog_id, message_id=message.id)
 
     async def mark_failed(self, message_id: int, error: str) -> None:
         message = await self.messages.get(message_id)

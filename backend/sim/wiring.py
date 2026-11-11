@@ -34,6 +34,7 @@ from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 from sim.services.simulation import SimulationService
+from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
 
@@ -81,8 +82,11 @@ class Container:
         await self.engine.dispose()
 
     # ---- per-unit-of-work services -------------------------------------------------------
+    def tracer(self, s: AsyncSession | None = None) -> Tracer:
+        return Tracer(self.factory, self.clock, s)
+
     def audited(self) -> AuditedLLM:
-        return AuditedLLM(self.llm, self.factory, self.clock)
+        return AuditedLLM(self.llm, self.factory, self.clock, tracer=self.tracer())
 
     def auth(self, s: AsyncSession) -> AuthService:
         return AuthService(
@@ -99,6 +103,7 @@ class Container:
     def outbound(self, s: AsyncSession) -> OutboundService:
         return OutboundService(
             s, self.registry, self.box, factory=self.factory, clock=self.clock, rng=self.rng,
+            tracer=self.tracer(s),
         )
 
     def conversation(self, s: AsyncSession) -> ConversationService:
@@ -128,7 +133,9 @@ class Container:
         return FollowupService(s, clock=self.clock)
 
     def ingest(self, s: AsyncSession) -> IngestService:
-        return IngestService(s, debounce_s=self.settings.reply_debounce_s, clock=self.clock)
+        return IngestService(
+            s, debounce_s=self.settings.reply_debounce_s, clock=self.clock, tracer=self.tracer(s)
+        )
 
     def media_service(self, s: AsyncSession) -> MediaService:
         return MediaService(s, self.registry, self.box, self.llm, self.media)
@@ -145,7 +152,7 @@ class Container:
         return ContentService(s, self.audited(), publisher=publisher, clock=self.clock)
 
     def partner(self, s: AsyncSession) -> PartnerService:
-        return PartnerService(s, clock=self.clock)
+        return PartnerService(s, clock=self.clock, tracer=self.tracer(s))
 
     def analytics(self, s: AsyncSession) -> AnalyticsService:
         return AnalyticsService(s)

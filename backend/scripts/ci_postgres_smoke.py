@@ -7,6 +7,7 @@ whose name ends in `_sim_release_test`. Refuses existing application tables.
 import asyncio
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from alembic import command
@@ -22,6 +23,7 @@ from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
 from sim.adapters.db.session import make_session_factory, transaction  # noqa: E402
 from sim.clock import utcnow  # noqa: E402
 from sim.services.send_receipts import SendReceipts, SendUncertain  # noqa: E402
+from sim.services.tracing import Tracer  # noqa: E402
 
 
 def require_disposable():
@@ -167,6 +169,30 @@ def main():
     # A partial downgrade or missing intent is a failed gate, even with the right error.
     asyncio.run(check_state(url, "0008"))
     print("PostgreSQL migration 0007/0008 disposable smoke PASS")
+    command.upgrade(cfg, "head")
+    asyncio.run(trace_log_roundtrip(url))
+    command.downgrade(cfg, "0008")
+    command.upgrade(cfg, "head")
+    print("PostgreSQL trace log migration and purge PASS")
+
+
+async def trace_log_roundtrip(url):
+    """The trace log on real PostgreSQL: BIGINT ids, JSON detail, batched retention purge."""
+    engine = create_async_engine(url)
+    try:
+        now = datetime(2026, 11, 11, 12)
+        async with engine.begin() as conn:
+            for days in (40, 31, 1):
+                await conn.execute(text(
+                    "INSERT INTO trace_event (trace_id, kind, name, status, started_at, actor, detail) "
+                    "VALUES ('t', 'http', 'GET /api/x', 'ok', :at, '', CAST(:detail AS JSON))"
+                ), {"at": now - timedelta(days=days), "detail": '{"path": "/api/x"}'})
+        tracer = Tracer(make_session_factory(engine), clock=lambda: now)
+        deleted = await tracer.purge(30, batch=1)
+        if deleted != 2:
+            raise AssertionError(f"trace purge deleted {deleted} rows, expected 2")
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":

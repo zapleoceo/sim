@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from typing import cast
+import time
+from datetime import datetime
+from typing import Any, NamedTuple, cast
 
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.catalog import ChannelRepo
@@ -14,7 +16,9 @@ from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
 from sim.services.conversation import ConversationError
+from sim.services import tracing
 from sim.services.send_receipts import SendUncertain
+from sim.services.tracing import TraceContext, trace_scope
 from sim.wiring import Container
 from sim.worker.handlers import HANDLERS, Handler
 
@@ -34,6 +38,24 @@ def lease_seconds(settings: Settings) -> int:
     return int(2 * longest + 4 * settings.broker_poll_budget_s) + LEASE_MARGIN_S
 
 
+class Claim(NamedTuple):
+    """One leased job attempt; unpacks into Worker.run_job(*claim)."""
+
+    job_id: int
+    kind: str
+    payload: dict[str, Any]
+    attempt: int
+    trace_id: str | None = None
+    run_at: datetime | None = None
+
+
+def int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class Worker:
     def __init__(self, container: Container, handlers: dict[str, Handler] | None = None) -> None:
         self.c = container
@@ -44,16 +66,19 @@ class Worker:
         self.poll_tasks: dict[ChannelKind, asyncio.Task[None]] = {}
         self.last_poll: dict[ChannelKind, float] = {}
         self.job_tasks: dict[int, asyncio.Task[None]] = {}
+        self.purge_task: asyncio.Task[int] | None = None
+        self.last_purge = float("-inf")
 
     # ---- jobs ----------------------------------------------------------------------------
-    async def claim_jobs(self, limit: int) -> list[tuple[int, str, dict, int]]:
+    async def claim_jobs(self, limit: int) -> list[Claim]:
         async with transaction(self.c.factory) as s:
             jobs = await JobRepo(s).claim(
                 self.c.clock(), lease_seconds(self.c.settings), limit,
                 exclude_ids=tuple(self.job_tasks),
             )
             # attempts increases on every claim: keep our generation across handler I/O.
-            return [(j.id, j.kind, dict(j.payload or {}), j.attempts) for j in jobs]
+            return [Claim(j.id, j.kind, dict(j.payload or {}), j.attempts, j.trace_id, j.run_at)
+                    for j in jobs]
 
     def reap_jobs(self) -> None:
         for job_id, task in list(self.job_tasks.items()):
@@ -84,16 +109,38 @@ class Worker:
             await asyncio.gather(*(self.run_job(*item) for item in snapshot))
         return len(snapshot)
 
-    async def run_job(self, job_id: int, kind: str, payload: dict, claim_attempt: int) -> None:
+    async def run_job(  # noqa: PLR0913
+        self, job_id: int, kind: str, payload: dict, claim_attempt: int,
+        trace_id: str | None = None, run_at: datetime | None = None,
+    ) -> None:
+        """Run one claimed attempt inside the trace that enqueued the job (a new one if none)."""
+        tracer = self.c.tracer()
+        async with tracer.scope(trace_id, actor="worker", job_id=job_id,
+                                dialog_id=int_or_none(payload.get("dialog_id")),
+                                message_id=int_or_none(payload.get("message_id"))):
+            started_at, start = self.c.clock(), time.perf_counter()
+            status, error, detail = await self.attempt(job_id, kind, payload, claim_attempt)
+            if run_at is not None:
+                detail["queue_ms"] = max(int((started_at - run_at).total_seconds() * 1000), 0)
+            await tracer.record(
+                tracing.JOB, kind, status=status, started_at=started_at,
+                duration_ms=tracing.elapsed_ms(start), attempt=claim_attempt, error=error, detail=detail,
+            )
+
+    async def attempt(
+        self, job_id: int, kind: str, payload: dict, claim_attempt: int
+    ) -> tuple[str, str | None, dict[str, Any]]:
+        """Run the handler and settle the claim. Returns the step's (status, error, detail)."""
         handler = self.handlers.get(kind)
         error: str | None = None
         retry = True
+        detail: dict[str, Any] = {}
         if handler is None:
             error, retry = f"unknown job kind {kind!r}", False
         else:
             try:
                 async with transaction(self.c.factory) as s:
-                    await handler.run(self.c, s, payload)
+                    detail.update(await handler.run(self.c, s, payload) or {})
             except (ConversationError, SendUncertain) as exc:
                 error, retry = str(exc), False
             except Exception as exc:  # any failure is retried with backoff
@@ -102,20 +149,25 @@ class Worker:
         async with transaction(self.c.factory) as s:
             repo = JobRepo(s)
             if error is None:
-                await repo.complete(job_id, self.c.clock(), claim_attempt=claim_attempt)
-                return
+                done = await repo.complete(job_id, self.c.clock(), claim_attempt=claim_attempt)
+                if not done:
+                    detail["fenced"] = True  # a newer claim or a terminal state won
+                return (tracing.OK if done else tracing.SKIPPED), None, detail
             job = await s.get(Job, job_id)
             if job is None:
-                return
+                return tracing.ERROR, error, detail
             exhausted = await repo.fail(
                 job, error, self.c.clock(), claim_attempt=claim_attempt, retry=retry
             )
+            detail["max_attempts"] = job.max_attempts
         if exhausted and handler is not None and handler.giveup is not None:
+            detail["gave_up"] = True
             try:
                 async with transaction(self.c.factory) as s:
                     await handler.giveup(self.c, s, payload)
             except Exception:
                 log.exception("giveup of job %s failed", job_id)
+        return (tracing.ERROR if exhausted or not retry else tracing.RETRY), error, detail
 
     # ---- polling channels (Instagram, Telegram userbot) ----------------------------------
     def poll_interval(self, kind: ChannelKind) -> float:
@@ -128,14 +180,25 @@ class Worker:
         if not kinds:
             return 0
         async with self.c.factory() as s:
-            ids = [ch.id for ch in await ChannelRepo(s).pollable(kinds)]
+            channels = [(ch.id, ch.kind) for ch in await ChannelRepo(s).pollable(kinds)]
         total = 0
-        for channel_id in ids:
+        tracer = self.c.tracer()
+        for channel_id, kind in channels:
+            started_at, start = self.c.clock(), time.perf_counter()
             try:
-                total += await self.poll_one(channel_id)
+                count = await self.poll_one(channel_id)
             except Exception as exc:
                 log.warning("poll of channel %s failed: %s", channel_id, type(exc).__name__)
                 await self.record_poll_error(channel_id, f"{type(exc).__name__}: {exc}"[:300])
+                await tracer.record(tracing.POLL, f"poll {kind.value}", status=tracing.ERROR,
+                                    started_at=started_at, duration_ms=tracing.elapsed_ms(start),
+                                    error=tracing.error_text(exc), channel_id=channel_id)
+                continue
+            total += count
+            if count:  # an empty sweep every few seconds would only be noise in the log
+                await tracer.record(tracing.POLL, f"poll {kind.value}", started_at=started_at,
+                                    duration_ms=tracing.elapsed_ms(start), detail={"messages": count},
+                                    channel_id=channel_id)
         return total
 
     async def poll_one(self, channel_id: int) -> int:
@@ -147,15 +210,25 @@ class Worker:
             kind, session = channel.kind, self.c.box.decrypt_json(channel.session_enc)
         port = cast(PollingChannelPort, self.c.registry[kind].build_port(channel_id, session))
         inbound = await port.fetch_inbound()
-        async with transaction(self.c.factory) as s:
-            channel = await ChannelRepo(s).get(channel_id)
-            if channel is None:   # deleted while we were fetching
-                return 0
-            ingest = self.c.ingest(s)
-            for msg in inbound:
-                await ingest.ingest(channel, msg)
-            channel.last_error = None
-            return len(inbound)
+        # Every polled message starts its own trace (its reply job continues it); the steps
+        # are written once the ingest transaction is over.
+        traces: list[TraceContext] = []
+        try:
+            async with transaction(self.c.factory) as s:
+                channel = await ChannelRepo(s).get(channel_id)
+                if channel is None:   # deleted while we were fetching
+                    return 0
+                ingest = self.c.ingest(s)
+                for msg in inbound:
+                    with trace_scope(actor=kind.value, channel_id=channel_id) as ctx:
+                        traces.append(ctx)
+                        await ingest.ingest(channel, msg)
+                channel.last_error = None
+                return len(inbound)
+        finally:
+            tracer = self.c.tracer()
+            for ctx in traces:
+                await tracer.flush(ctx)
 
     async def record_poll_error(self, channel_id: int, message: str) -> None:
         async with transaction(self.c.factory) as s:
@@ -178,6 +251,23 @@ class Worker:
                 self.last_poll[kind] = now
                 self.poll_tasks[kind] = asyncio.create_task(self.poll_in_background(kind))
 
+    # ---- system log retention ------------------------------------------------------------
+    async def purge_traces(self) -> int:
+        try:
+            deleted = await self.c.tracer().purge(self.c.settings.trace_retention_days)
+        except Exception:
+            log.exception("trace log purge failed")
+            return 0
+        if deleted:
+            log.info("trace log purge: %d old steps deleted", deleted)
+        return deleted
+
+    def maybe_start_purge(self, now: float) -> None:
+        busy = self.purge_task is not None and not self.purge_task.done()
+        if not busy and now - self.last_purge >= self.c.settings.trace_purge_interval_s:
+            self.last_purge = now
+            self.purge_task = asyncio.create_task(self.purge_traces())
+
     # ---- lifecycle -----------------------------------------------------------------------
     def install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
@@ -196,6 +286,7 @@ class Worker:
                 try:
                     await self.dispatch()
                     self.maybe_start_poll(asyncio.get_running_loop().time())
+                    self.maybe_start_purge(asyncio.get_running_loop().time())
                 except Exception:
                     log.exception("worker tick failed")
                 # A completion immediately frees a slot. The timeout also checks newly due
@@ -208,7 +299,8 @@ class Worker:
         finally:
             stop_task.cancel()
             await asyncio.gather(stop_task, return_exceptions=True)
-            await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(),
+            purge = [self.purge_task] if self.purge_task is not None else []
+            await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(), *purge,
                                  return_exceptions=True)
             self.reap_jobs()
         log.info("worker stopped")

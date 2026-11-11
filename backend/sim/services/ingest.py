@@ -18,12 +18,13 @@ from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction
 from sim.domain.funnel import Actor, status_on_inbound
 from sim.ports.channel import InboundMessage
-from sim.services import jobkinds
+from sim.services import jobkinds, tracing
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.media import MEDIA_KINDS, MEDIA_MAX_ATTEMPTS, VOICE_KINDS, placeholder_for
 from sim.services.outbound import cancel_queued_ai
+from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +67,10 @@ class IngestService:
         *,
         debounce_s: int,
         clock: Clock = utcnow,
+        tracer: Tracer | None = None,
     ) -> None:
         self.session = session
+        self.tracer = tracer
         self.debounce = timedelta(seconds=debounce_s)
         self.clock = clock
         self.clients = ClientRepo(session)
@@ -78,6 +81,23 @@ class IngestService:
         self.followups = FollowupService(session, clock=clock)
 
     async def ingest(self, channel: Channel, msg: InboundMessage) -> IngestResult:
+        """Accept one inbound message, as an `inbound` step of the trace log (no text logged)."""
+        if self.tracer is None:
+            return await self.accept(channel, msg)
+        async with self.tracer.step(tracing.INBOUND, f"inbound {channel.kind.value}",
+                                    channel_id=channel.id) as step:
+            result = await self.accept(channel, msg)
+            step.status = tracing.OK if result.message is not None else tracing.SKIPPED
+            step.links.update(
+                dialog_id=result.dialog.id if result.dialog else None,
+                client_id=result.client.id if result.client else None,
+                message_id=result.message.id if result.message else None,
+            )
+            step.detail = {"duplicate": result.duplicate, "reply_queued": result.reply_queued,
+                           "own": msg.from_me, "edit": msg.is_edit, "media": msg.media_kind}
+        return result
+
+    async def accept(self, channel: Channel, msg: InboundMessage) -> IngestResult:
         dialog = await self.dialogs.by_thread(channel.id, msg.external_thread_id)
         if dialog and msg.external_id and await self.messages.by_external(dialog.id, msg.external_id):
             return IngestResult(duplicate=True, dialog=dialog, client=dialog.client)
