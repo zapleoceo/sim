@@ -21,10 +21,7 @@ function validHours(value: string): boolean {
     .every((p) => Number.isFinite(Number(p)) && Number(p) > 0);
 }
 
-const nonNegative = (v: string): boolean => v.trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
-
-export const strategySchema = z
-  .object({
+export const strategySchema = z.object({
     name: z
       .string()
       .refine((v) => v.trim() !== '', 'Укажите название')
@@ -37,12 +34,6 @@ export const strategySchema = z
     playbook: z.record(z.string(), z.string()),
     rules: z.array(z.object({ text: z.string() })),
     followup: z.string().refine(validHours, 'Только положительные числа через запятую'),
-    delay_min: z.string().refine(nonNegative, 'Число от 0'),
-    delay_max: z.string().refine(nonNegative, 'Число от 0'),
-  })
-  .refine((v) => !nonNegative(v.delay_min) || !nonNegative(v.delay_max) || Number(v.delay_min) <= Number(v.delay_max), {
-    message: 'Минимальная задержка не может быть больше максимальной.',
-    path: ['delay_max'],
   });
 
 export type StrategyFormValues = z.infer<typeof strategySchema>;
@@ -59,8 +50,6 @@ export function strategyToForm(s: Strategy | null): StrategyFormValues {
     playbook,
     rules: (s?.rules ?? []).map((text) => ({ text })),
     followup: (s?.followup_hours ?? [24, 72, 168]).join(', '),
-    delay_min: String(s?.reply_delay_s[0] ?? 20),
-    delay_max: String(s?.reply_delay_s[1] ?? 90),
   };
 }
 
@@ -76,7 +65,6 @@ export function strategyFromForm(v: StrategyFormValues, original: Strategy | nul
     stage_playbook: { ...(original?.stage_playbook ?? {}), ...v.playbook },
     rules: v.rules.map((r) => r.text.trim()).filter(Boolean),
     followup_hours: parseHours(v.followup),
-    reply_delay_s: [Number(v.delay_min), Number(v.delay_max)],
   };
 }
 

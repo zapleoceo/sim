@@ -6,7 +6,7 @@ import { renderApp } from '@/test/render-app';
 
 const RCIPM: Strategy = {
   id: 2, name: 'RCIPM', goal: 'Регистрация', prompt: '', offer: '', partner_name: 'Partner X', registration_url: '',
-  stage_playbook: { legacy: 'keep' }, rules: ['не давить'], followup_hours: [24, 72], reply_delay_s: [20, 90], created_at: '',
+  stage_playbook: { legacy: 'keep' }, rules: ['не давить'], followup_hours: [24, 72], created_at: '',
 };
 
 describe('strategies pages', () => {
@@ -35,17 +35,6 @@ describe('strategies pages', () => {
     expect(body.stage_playbook['legacy']).toBe('keep');
     expect(body.followup_hours).toEqual([24, 72]);
     expect(await screen.findByText('Стратегия сохранена')).toBeInTheDocument();
-  });
-
-  it('shows the delay range error and does not save', async () => {
-    const log = fakeApi({ 'GET /api/strategies': { items: [RCIPM] } });
-    await renderApp('/strategies/2');
-    const min = await screen.findByLabelText('Задержка ответа от, с');
-    await userEvent.clear(min);
-    await userEvent.type(min, '500');
-    await userEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
-    expect(await screen.findByText('Минимальная задержка не может быть больше максимальной.')).toBeInTheDocument();
-    expect(log.some((r) => r.method === 'PUT')).toBe(false);
   });
 
   it('says when the strategy does not exist', async () => {
