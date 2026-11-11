@@ -52,6 +52,12 @@ export const routes: Routes = [
         loadComponent: () => import('./features/personas/personas.component').then((m) => m.PersonasComponent),
       },
       {
+        path: 'settings',
+        canActivate: [ownerGuard],
+        title: 'Промпты и настройки — Sim',
+        loadComponent: () => import('./features/settings/settings.component').then((m) => m.SettingsComponent),
+      },
+      {
         path: 'personas/new',
         canActivate: [ownerGuard],
         title: 'Новый персонаж — Sim',

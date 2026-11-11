@@ -11,6 +11,7 @@ export const NAV: readonly NavItem[] = [
   { path: '/dashboard', label: 'Аналитика', icon: 'insights' },
   { path: '/activity', label: 'Активность', icon: 'history' },
   { path: '/personas', label: 'Персонажи', icon: 'face', access: 'owner' },
+  { path: '/settings', label: 'Промпты', icon: 'tune', access: 'owner' },
   { path: '/strategies', label: 'Стратегии', icon: 'route', access: 'owner' },
   { path: '/simulations', label: 'Симуляции', icon: 'science', access: 'owner' },
   { path: '/channels', label: 'Каналы', icon: 'cable', access: 'owner' },

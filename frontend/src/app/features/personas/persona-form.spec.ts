@@ -10,11 +10,16 @@ describe('persona form validation', () => {
     expect(form.controls.description.hasError('required')).toBeTrue();
   });
 
-  it('allows an empty "are you a bot" answer but caps its length', () => {
+  it('accepts a descriptive language up to the API limit', () => {
     const form = createPersonaForm(valid);
-    expect(form.controls.disclosure_text.valid).toBeTrue();
-    form.controls.disclosure_text.setValue('x'.repeat(1001));
-    expect(form.controls.disclosure_text.hasError('maxlength')).toBeTrue();
+    form.controls.language.setValue('русский (переходит на украинский, если клиент пишет по-украински)');
+    expect(form.controls.language.valid).toBeTrue();
+    form.controls.language.setValue('x'.repeat(201));
+    expect(form.controls.language.hasError('maxlength')).toBeTrue();
+  });
+
+  it('has no "are you a bot" field any more', () => {
+    expect(Object.keys(createPersonaForm(valid).controls)).not.toContain('disclosure_text');
   });
 
   it('is valid with the required fields filled', () => {

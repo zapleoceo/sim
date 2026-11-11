@@ -104,10 +104,32 @@ superadmin нельзя удалить, понизить или деактиви
 | POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}]}` | `{reply, decision, guard, model, latency_ms}` — пробный ответ без отправки, **с прогоном через контролера**; `reply` — то, что ушло бы клиенту (после исправления; `""`, если контролер заблокировал); `decision` = разобранный JSON-ответ генератора `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался; тогда `guard = null`); `guard` = `{verdict: "ok"/"rewritten"/"blocked", violations: string[], model, original_text}` (`original_text` — черновик для `rewritten`/`blocked`, иначе `null`) |
 
 `Persona`: `{id, name, age, gender ("female"|"male"|"other"), avatar_url, description, prohibitions,
-language, model, voice_id, strategy_id, is_active, disclosure_text, created_at}`.
+language, model, voice_id, strategy_id, is_active, created_at}`. Поле `disclosure_text` удалено (миграция 0009).
 `description` — один свободный текст (кто она, характер, биография, как пишет); `prohibitions` — «чего нельзя», по правилу на строку
 (попадают в системный промпт, раздел «Чего нельзя никогда», и в промпт контролера). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).
+
+## Промпты и настройки (`/api/settings`)
+
+Общие для всех персонажей тексты промптов и параметры хранятся в таблице `app_setting`;
+нет строки — действует значение по умолчанию из кода. Деплой их не сбрасывает.
+Читать может любой вошедший, менять — `owner`+ (с CSRF). Страница админки: «Промпты».
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/api/settings` | — | `{items: Setting[]}` в фиксированном порядке |
+| PUT | `/api/settings/{key}` | `{value}` | `Setting`; `404` неизвестный ключ, `422` неверное значение |
+| DELETE | `/api/settings/{key}` | — | `Setting` со значением по умолчанию |
+
+`Setting`: `{key, group, label, help, kind ("text"|"int"|"capability"), min, max, value, default,
+is_default, updated_at, updated_by_id}`.
+
+Ключи: `voice_rule`, `style_rule`, `safety_rule`, `history_limit` (6–100) — промпт персонажа;
+`guard_rules`, `guard_capability`, `guard_fallback_capability` — контролер; `reply_debounce_s`
+(0–300) — пауза перед ответом; `caption_rules` — подписи постов. Значения по умолчанию для
+`guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
+`SIM_REPLY_DEBOUNCE_S`. Не редактируются намеренно: правило честности (в промпте и правило 1
+контролера) и форматы ответа, от которых зависят парсеры.
 
 ## Стратегии (сценарии общения)
 | Метод | Путь | Ответ |

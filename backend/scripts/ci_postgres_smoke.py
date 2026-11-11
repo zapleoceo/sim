@@ -167,6 +167,23 @@ def main():
     # A partial downgrade or missing intent is a failed gate, even with the right error.
     asyncio.run(check_state(url, "0008"))
     print("PostgreSQL migration 0007/0008 disposable smoke PASS")
+    command.upgrade(cfg, "head")
+    asyncio.run(require_app_setting_table(url, present=True))
+    command.downgrade(cfg, "0008")
+    asyncio.run(require_app_setting_table(url, present=False))
+    command.upgrade(cfg, "head")
+    print("PostgreSQL migration 0009 app_setting round trip PASS")
+
+
+async def require_app_setting_table(url, *, present):
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as conn:
+            found = (await conn.execute(text("SELECT to_regclass('public.app_setting')"))).scalar_one()
+            if bool(found) != present:
+                raise AssertionError(f"app_setting present={bool(found)}, expected {present}")
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":

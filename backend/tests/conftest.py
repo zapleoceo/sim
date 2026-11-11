@@ -251,7 +251,6 @@ async def make_world(c: Container, *, persona_name: str = "Марина", model:
             name=persona_name, age=45,
             description="Характер: тёплая. Биография: 20 лет в проектах. Стиль общения: коротко.",
             prohibitions="не обещать доход\nне просить пароли", language="ru", strategy_id=strategy.id, model=model,
-            disclosure_text="Я виртуальный ассистент.",
         )
         s.add(persona)
         await s.flush()

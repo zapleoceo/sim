@@ -49,7 +49,7 @@ async def test_seed_is_idempotent_and_complete(container):
     assert strategy.followup_hours == [24, 72, 168] and strategy.reply_delay_s == [20, 90]
     assert "TO CONFIRM" in strategy.notes and "{ref}" in strategy.registration_url
     for p in personas:
-        assert p.disclosure_text == "" and p.model == "" and p.strategy_id == strategy.id
+        assert p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
         assert p.name in system and "Never volunteer that you are an AI" in system
         assert p.description and p.prohibitions and "Чего нельзя никогда" in system

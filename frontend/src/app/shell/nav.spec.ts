@@ -14,6 +14,7 @@ describe('visibleNav', () => {
     expect(labels('owner')).toContain('Персонажи');
     expect(labels('superadmin')).toContain('Персонажи');
     expect(labels('owner')).toContain('Симуляции');
+    expect(labels('owner')).toContain('Промпты');
     expect(labels('operator')).not.toContain('Симуляции');
     expect(labels('operator')).toEqual(['Диалоги', 'Клиенты', 'Воронка', 'Аналитика', 'Активность']);
   });

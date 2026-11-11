@@ -22,6 +22,7 @@ from sim.ports.llm import LLMPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
+from sim.services.app_settings import env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
@@ -104,8 +105,7 @@ class Container:
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(
             s, self.audited(), self.outbound(s), clock=self.clock,
-            guard_capability=self.settings.guard_capability,
-            guard_fallback_capability=self.settings.guard_fallback_capability,
+            settings_env=env_defaults(self.settings),
         )
 
     def simulation(self, s: AsyncSession) -> SimulationService:

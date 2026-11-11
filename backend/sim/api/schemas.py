@@ -68,12 +68,11 @@ class PersonaIn(Body):
     avatar_url: str = Field(default="", max_length=500)
     description: str = ""
     prohibitions: str = ""
-    language: str = Field(default="ru", max_length=64)
+    language: str = Field(default="ru", max_length=200)
     model: str = Field(default="", max_length=120)
     voice_id: str = Field(default="", max_length=120)
     strategy_id: int | None = None
     is_active: bool = True
-    disclosure_text: str = ""
 
 
 class PreviewHistoryItem(Body):
@@ -190,7 +189,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "strategy_id": p.strategy_id, "is_active": p.is_active,
-        "disclosure_text": p.disclosure_text, "created_at": dt(p.created_at),
+        "created_at": dt(p.created_at),
     }
 
 
