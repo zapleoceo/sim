@@ -42,7 +42,7 @@ def resolve_static_dir(configured: str) -> Path | None:
 
 
 def mount_spa(app: FastAPI, static_dir: Path) -> None:
-    """Serve the built Angular app; unknown non-API paths fall back to index.html."""
+    """Serve the built admin SPA; unknown non-API paths fall back to index.html."""
     root = static_dir.resolve()
 
     @app.get("/{path:path}", include_in_schema=False)

@@ -9,5 +9,5 @@ __pycache__/
 *.db
 node_modules/
 frontend/dist/
-frontend/.angular/
+frontend/coverage/
 docs/tasks/*.agent-metrics.tsv

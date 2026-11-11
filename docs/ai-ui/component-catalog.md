@@ -1,23 +1,24 @@
 # UI component catalog
 
-CONFIRMED at349dc66, Angular19 standalone Material. Source base `frontend/src/app/`.
+React admin (`frontend/src`). shadcn/ui primitives live in `components/ui` (button, input, textarea, label, badge, card,
+select, switch, dialog, sheet, alert-dialog, dropdown-menu, tabs, tooltip `Tip`, table, skeleton). App components:
 
 | Component | Path | Contract / reuse |
 |---|---|---|
-| PageHeader | shared/page-header.component.ts | required title, optional subtitle, projected actions; wraps below768px |
-| FilterBar/FiltersTemplateDirective | shared/filter-bar.component.ts | activeCount, resettable, alwaysSheet, stackOnPhone, cleared; projects search + shared filter template |
-| FilterSheet | same file | Material bottom sheet with reset/done, reused form controls |
-| Avatar | shared/avatar.component.ts | name/url/size; client/persona identity |
-| ChannelIcon | shared/channel-icon.component.ts | required ChannelKind; four kinds, accessible label |
-| GuardBadge | shared/guard-badge.component.ts | GuardInfo; native details exposes violations/original text/guard model |
-| StageChip | shared/stage-chip.component.ts | funnel stage presentation |
-| StatusBadge | shared/status-badge.component.ts | client status, not message delivery |
-| NeedsOperatorBadge | shared/needs-operator-badge.component.ts | consistent human-attention marker |
-| EmptyState | shared/empty-state.component.ts | icon/title/hint; reusable no-data presentation |
-| DatetimeField | shared/datetime-field.component.ts | typed date/time form control |
-| ConfirmDialog/ConfirmService | shared/confirm-dialog.component.ts | shared destructive-action confirmation |
-| Russian paginator | shared/paginator-intl.ts | MatPaginator labels/range text |
+| Page, PageHeader, BackLink | components/page.tsx | page width (narrow/default/wide), title/subtitle/actions, «← Все …» link |
+| EmptyState, ErrorState, InlineError | components/empty-state.tsx | no-data vs load error with «Повторить»; inline `role=alert` text |
+| Avatar | components/avatar.tsx | name/url/size; photo or initials |
+| ChannelIcon, StageChip, StatusBadge, NeedsOperatorBadge | components/badges.tsx | channel kind, funnel stage colour, client status, human-attention marker |
+| GuardBadge | components/guard-badge.tsx | guard verdict, violations, original draft, guard model |
+| MessageContent, MessageMetadata | components/message-parts.tsx | media/text/guard/delivery failure; operator name or generator, tokens, cost |
+| MessageCard | components/message-card.tsx | one stored message in activity/client feeds |
+| Field, FormGrid | components/field.tsx | label + control + hint/error with aria wiring; two-column form grid |
+| OptionSelect | components/option-select.tsx | typed select over number/string/null values (Radix forbids empty values) |
+| FilterBar, SearchInput, FilterField | components/filter-bar.tsx | search + filters inline on desktop, bottom sheet on phones, active count and reset |
+| DataTable | components/data-table.tsx | TanStack Table rendering, skeleton, empty state, per-column `meta.className` |
+| Pager | components/pager.tsx | server pagination for `{limit, offset}` lists, 25/50/100 |
+| ConfirmProvider/useConfirm | components/confirm.tsx | `await confirm({...})` for destructive actions |
+| RoutePending, RouteError | components/route-states.tsx | lazy chunk progress line; crashed page with reload |
+| AppShell | layouts/app-shell.tsx | sidebar (collapsible rail), bottom bar + «Ещё», theme and logout menu |
 
-No standalone rich-message component existed at discovery: inbox embeds media,guard,bubble,
-author and delivery rendering. A focused extraction is justified for client feed and activity.
-No activity-list page existed at discovery. Do not duplicate shell/filter-sheet/identity widgets.
+Feature-local components stay in `features/<screen>/`. Do not duplicate the shell, filter sheet, identity badges or HTTP error handling.
