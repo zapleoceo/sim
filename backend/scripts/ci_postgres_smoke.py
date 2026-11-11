@@ -158,7 +158,8 @@ def main():
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND / "migrations"))
     cfg.config_file_name = None
-    command.upgrade(cfg, "0008")
+    # The concurrency gate drives the current ORM (JobRepo), so it needs the head schema.
+    command.upgrade(cfg, "head")
     asyncio.run(schema_and_concurrency(url))
     # Disposable DB only: 0008 schema downgrade loses operator data. Production must not do this.
     command.downgrade(cfg, "0007")
