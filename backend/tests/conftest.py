@@ -125,6 +125,7 @@ class FakePort:
     media: bytes = b"audio-bytes"
     media_error: Exception | None = None
     downloads: list[str] = field(default_factory=list)
+    voices: list[tuple[str, bytes, float | None]] = field(default_factory=list)
 
     async def download_media(self, ref: str) -> bytes:
         """Like the real adapters: a marker (tg-file:/wa-msg:), never a fetchable URL."""
@@ -138,6 +139,15 @@ class FakePort:
             return SendResult(ok=False, error="boom")
         self.sent.append((external_thread_id, text))
         return SendResult(ok=True, external_message_id=f"out-{len(self.sent)}")
+
+    async def send_voice(
+        self, external_thread_id: str, audio: bytes, duration_s: float | None
+    ) -> SendResult:
+        """Used only when a test grants Capability.SEND_VOICE."""
+        if not self.ok:
+            return SendResult(ok=False, error="boom")
+        self.voices.append((external_thread_id, audio, duration_s))
+        return SendResult(ok=True, external_message_id=f"voice-{len(self.voices)}")
 
     async def session_status(self) -> SessionStatus:
         return SessionStatus.ACTIVE
@@ -218,6 +228,7 @@ def connector() -> FakeConnector:
 async def container(tmp_path, fake_llm, connector) -> AsyncIterator[Container]:
     c = build_container(make_settings(tmp_path), registry={ChannelKind.TELEGRAM: connector})
     c.llm = fake_llm
+    c.speech = None   # never the real Broker; voice tests inject a fake SpeechPort
 
     await create_all(c.engine)
     yield c
@@ -243,7 +254,7 @@ async def make_world(c: Container, *, persona_name: str = "Марина", model:
             name="S", goal="Привести к регистрации", offer="Курс RCIPM", partner_name="RCIPM",
             registration_url="https://rcipm.com/?ref={ref}",
             stage_playbook={"engaged": "узнай о человеке", "first_contact": "поздоровайся"},
-            rules=["Не дави"], followup_hours=[24, 72, 168], reply_delay_s=[20, 90],
+            rules=["Не дави"], followup_hours=[24, 72, 168],
         )
         s.add(strategy)
         await s.flush()
@@ -251,7 +262,6 @@ async def make_world(c: Container, *, persona_name: str = "Марина", model:
             name=persona_name, age=45,
             description="Характер: тёплая. Биография: 20 лет в проектах. Стиль общения: коротко.",
             prohibitions="не обещать доход\nне просить пароли", language="ru", strategy_id=strategy.id, model=model,
-            disclosure_text="Я виртуальный ассистент.",
         )
         s.add(persona)
         await s.flush()

@@ -38,7 +38,7 @@ class WhatsAppConnector:
     kind = ChannelKind.WHATSAPP
     label = "WhatsApp"
     polling = False
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
 
     def __init__(self, transport_factory: Callable[[], EvolutionTransport] = default_transport):
         self._factory = transport_factory

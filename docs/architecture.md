@@ -59,7 +59,7 @@ backend/sim/
     auth.py            админы, сессии, Telegram-вход, роли (superadmin / owner / operator)
     ingest.py          входящее сообщение → клиент/диалог/сообщение, дедуп по external_id
     conversation.py    сборка промпта (персона + стратегия + этап + история) → Broker → JSON-решение
-    outbound.py        отправка через канал, «человеческая» задержка, ручной режим оператора
+    outbound.py        отправка через канал (сразу после генерации), ручной режим оператора
     funnel.py          смена этапов, отказ/пауза/нет ответа/возврат, журнал событий
     followup.py        повторный контакт при отсутствии ответа (по сценарию)
     partner.py         подтверждения регистраций и оплат от партнёра
@@ -75,7 +75,7 @@ backend/sim/
 | Таблица | Назначение |
 |---|---|
 | `admin_user` | `telegram_id` (уникальный, пусто до первого входа по приглашению), `tg_username`, имя, фото, роль (`superadmin`/`owner`/`operator`), активность; `used_login_hash` (одноразовые hash виджета), `login_link` (break-glass) |
-| `persona` | имя, возраст, пол, аватар, язык, модель, голос (ElevenLabs voice_id), `strategy_id`, `is_active`, `disclosure_text`; **`description`** — один свободный текст (кто она, характер, биография, как пишет) и **`prohibitions`** — «чего нельзя», по правилу на строку |
+| `persona` | имя, возраст, пол, аватар, язык, модель, голос (`voice_id` — голос Google Gemini TTS, `voice_mode` off/mirror/always, `voice_style`; см. [voice.md](voice.md)), `strategy_id`, `is_active`; **`description`** — один свободный текст (кто она, характер, биография, как пишет) и **`prohibitions`** — «чего нельзя», по правилу на строку |
 | `strategy` | сценарий общения: цель (короткая формула), **`prompt`** (свободный текст: ориентиры разговора, не скрипт), подсказки по этапам, мягкие правила, оффер партнёра, ссылка регистрации |
 | `channel` | kind (`instagram`/`whatsapp`/`telegram`), persona_id, зашифрованные учётные данные, статус сессии |
 | `client` | человек; persona_id; этап воронки; статус (`active`/`paused`/`refused`/`no_response`); следующий шаг; заметки |
@@ -90,6 +90,7 @@ backend/sim/
 | `job` | очередь: kind (`reply`, `send`, `followup`, `media`, `content_publish`, `sim_reply`), payload, run_at, attempts, locked_until |
 | `trace_event` | журнал системы: один шаг одного запроса (kind, name, status, started_at, duration_ms, attempt, http_status, actor, маскированная error, detail) и id связей без FK; хранится `trace_retention_days` |
 | `llm_call` | аудит каждого вызова Broker (модель, токены, cost, latency, ошибка, `trace_id`); вызовы контролера — `workflow = "guard"`; симуляции — `sim` и `sim_guard` (в сводку расходов аналитики не входят) |
+| `app_setting` | общие промпты и параметры, которые правит владелец (страница «Промпты», `/api/settings`): `key`, `value` (JSON), кто и когда менял; нет строки — значение по умолчанию из кода |
 
 ## Воронка
 
@@ -257,8 +258,9 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 чтобы не оставлять «призрачное» устройство в сессиях аккаунта. Новое значение `ChannelKind` миграции
 не требует: enum хранится как VARCHAR(32) без CHECK.
 
-Голос: входящие голосовые → Broker `/v1/transcribe/jobs`. Исходящий голос (ElevenLabs) и видео
-(Vivix) — `VoicePort`/`VideoPort` с заглушкой; подключаются после проверки API и цены.
+Голос: входящие голосовые → Broker `/v1/transcribe/jobs`. Исходящий голос персонажа — `SpeechPort`
+(Broker `POST /v1/speech`, Google Gemini TTS) → ffmpeg OGG/Opus → `send_voice` канала; подробно в
+[voice.md](voice.md). Видео (Vivix) не подключено.
 
 ## Безопасность
 

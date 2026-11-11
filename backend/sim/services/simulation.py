@@ -20,7 +20,7 @@ from sim.domain.enums import ClientStatus, Stage
 from sim.domain.funnel import advance_by_ai
 from sim.services.conversation import ConversationService, visible_turns
 from sim.services.guard import BLOCKED, REWRITTEN
-from sim.services.prompt import HISTORY_LIMIT, MAX_NEEDS, Decision, DialogContext
+from sim.services.prompt import MAX_NEEDS, Decision, DialogContext
 
 SIM_WORKFLOW = "sim"
 SIM_GUARD_WORKFLOW = "sim_guard"
@@ -106,7 +106,7 @@ class SimulationService:
         if not persona.is_active:
             return SimReply("skipped", note="персонаж выключен")
         strategy = await self.conversation.strategy_for(persona.id)
-        rows = await self.messages.recent(branch.id, HISTORY_LIMIT)
+        rows = await self.messages.recent(branch.id, (await self.conversation.config()).history_limit)
         history = visible_turns((m.role == CLIENT, m.text, m.guard_verdict) for m in rows)
         ref = sim_ref(branch.id)
         ctx = DialogContext(

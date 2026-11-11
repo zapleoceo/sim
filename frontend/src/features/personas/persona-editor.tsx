@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
 import { SelectControl } from './select-control';
+import { VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
 import {
   EMPTY_PERSONA, GENDERS, countRules, personaFromForm, personaSchema, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
@@ -132,8 +133,17 @@ export function PersonaEditor({
         />
       </Field>
 
-      <Field label="ID голоса" error={errors.voice_id?.message}>
-        <Input {...register('voice_id')} autoComplete="off" />
+      <FormGrid className="lg:grid-cols-2">
+        <Field label="Голосовые ответы" hint="Голос синтезирует Google Gemini TTS через AIbroker; текст ответа остаётся в диалоге">
+          <SelectControl control={control} name="voice_mode" options={VOICE_MODE_OPTIONS} />
+        </Field>
+        <Field label="Голос (Google Gemini)" error={errors.voice_id?.message}>
+          <SelectControl control={control} name="voice_id" options={VOICE_OPTIONS} />
+        </Field>
+      </FormGrid>
+
+      <Field label="Манера речи (необязательно)" hint="Подсказка для синтеза: как произносить, а не что" error={errors.voice_style?.message}>
+        <Input {...register('voice_style')} placeholder="тепло, спокойно, с улыбкой" autoComplete="off" />
       </Field>
 
       <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">

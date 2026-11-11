@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import logging
-import random
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from sim.adapters.audio import OggOpusEncoder
 from sim.adapters.channels.telegram import BotApiTransport, TelegramTransport
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.session import make_engine, make_session_factory
@@ -19,9 +19,11 @@ from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
 from sim.ports.llm import LLMPort
+from sim.ports.speech import SpeechPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
+from sim.services.app_settings import env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
@@ -35,6 +37,7 @@ from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
+from sim.services.voice import VoiceEncoder, VoiceRenderer
 
 log = logging.getLogger(__name__)
 
@@ -71,9 +74,10 @@ class Container:
     media: MediaStore
     limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     clock: Clock = utcnow
-    rng: Callable[[float, float], float] = random.uniform
     publisher: ContentPublisher | None = None
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
+    speech: SpeechPort | None = None                       # persona voice notes (Broker TTS)
+    encoder: VoiceEncoder = field(default_factory=OggOpusEncoder)
 
     async def aclose(self) -> None:
         """Shutdown: release the LLM adapter's pooled HTTP client and the DB engine."""
@@ -102,15 +106,19 @@ class Container:
 
     def outbound(self, s: AsyncSession) -> OutboundService:
         return OutboundService(
-            s, self.registry, self.box, factory=self.factory, clock=self.clock, rng=self.rng,
-            tracer=self.tracer(s),
+            s, self.registry, self.box, factory=self.factory, clock=self.clock,
+            voice=self.voice_renderer(), tracer=self.tracer(s),
         )
+
+    def voice_renderer(self) -> VoiceRenderer | None:
+        if self.speech is None:
+            return None
+        return VoiceRenderer(self.speech, self.encoder, self.media)
 
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(
             s, self.audited(), self.outbound(s), clock=self.clock,
-            guard_capability=self.settings.guard_capability,
-            guard_fallback_capability=self.settings.guard_fallback_capability,
+            settings_env=env_defaults(self.settings),
         )
 
     def simulation(self, s: AsyncSession) -> SimulationService:
@@ -160,17 +168,19 @@ class Container:
 
 def build_container(settings: Settings, *, registry: Registry | None = None) -> Container:
     engine = make_engine(settings.database_url)
+    broker = BrokerLLM(
+        settings.broker_url,
+        settings.broker_project_key,
+        poll_budget_s=settings.broker_poll_budget_s,
+        subscription_budget_s=settings.broker_subscription_budget_s,
+    )
     return Container(
         settings=settings,
         engine=engine,
         factory=make_session_factory(engine),
-        llm=BrokerLLM(
-            settings.broker_url,
-            settings.broker_project_key,
-            poll_budget_s=settings.broker_poll_budget_s,
-            subscription_budget_s=settings.broker_subscription_budget_s,
-        ),
+        llm=broker,
         registry=registry if registry is not None else default_registry(),
         box=make_box(settings),
         media=MediaStore(settings.media_dir),
+        speech=broker,   # the same Broker client serves LLMPort and SpeechPort
     )

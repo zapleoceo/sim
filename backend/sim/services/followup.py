@@ -32,13 +32,13 @@ def step_delay_h(hours: list[float], step: int) -> float:
 def followup_instruction(hours: list[float], step: int) -> str:
     last = step + 1 >= len(hours)
     text = (
-        f"FOLLOW-UP TASK: the client has not answered for about {hours[step]:g} hours. "
-        f"This is follow-up {step + 1} of {len(hours)}. Write ONE short, friendly, non-pushy "
-        "message that reopens the conversation and refers to something from the dialog. Do "
-        "not repeat your previous message and do not pressure."
+        f"ЗАДАЧА НАПОМИНАНИЯ: клиент не отвечает примерно {hours[step]:g} ч. "
+        f"Это напоминание {step + 1} из {len(hours)}. Напиши ОДНО короткое, дружелюбное, "
+        "ненавязчивое сообщение, которое снова открывает разговор и цепляется за что-то из "
+        "диалога. Не повторяй своё прошлое сообщение и не дави."
     )
     if last:
-        text += " This is the last follow-up: close politely and leave the door open."
+        text += " Это последнее напоминание: вежливо заверши и оставь дверь открытой."
     return text
 
 

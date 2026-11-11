@@ -27,8 +27,8 @@ async def test_persona_and_strategy_crud(api):
     h = await owner(api)
     strat = (await api.post("/api/strategies", json={"name": "S", "rules": ["r"],
                                                       "followup_hours": [24, 72]}, headers=h)).json()
-    assert strat["reply_delay_s"] == [20.0, 90.0]
-    bad = await api.post("/api/strategies", json={"name": "S2", "reply_delay_s": [90, 20]}, headers=h)
+    assert "reply_delay_s" not in strat                 # no artificial reply delay any more
+    bad = await api.post("/api/strategies", json={"name": "S2", "followup_hours": [72, 24]}, headers=h)
     assert bad.status_code == 422
     persona = (await api.post("/api/personas", json={"name": "Марина", "strategy_id": strat["id"]},
                               headers=h)).json()

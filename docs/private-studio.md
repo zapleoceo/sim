@@ -5,6 +5,10 @@ then subscription chat. Missing assets are explicit; no placeholder is represent
 as a user reference or generated result. This change is NOT a completed Google
 speech/video integration and does not authorize deployment or paid generation.
 
+> 2026-11-11: persona voice replies now use Google Gemini TTS through the Broker route
+> `POST /v1/speech` (see [voice.md](voice.md)). The studio screen itself still has no
+> speech or video generation.
+
 ## Private subscription routing
 
 `SIM_STUDIO_OWNER_TELEGRAM_ID` defaults to zero (disabled). Configure the verified

@@ -45,8 +45,11 @@ describe('personas pages', () => {
     await renderApp('/personas/1');
     const name = await screen.findByLabelText('Имя');
     expect(screen.getByRole('heading', { name: 'Проверить персонажа' })).toBeInTheDocument();
-    // PR #19: the «are you a bot» answer is optional
-    expect(screen.getByLabelText('Ответ на «ты бот?» (необязательно)')).not.toBeRequired();
+    // All fields are open (no «Дополнительно»); the API no longer has disclosure_text.
+    expect(screen.getByText('Голосовые ответы')).toBeVisible();
+    expect(screen.getByText('Голос (Google Gemini)')).toBeVisible();
+    expect(screen.queryByText('Дополнительно')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/ты бот/)).not.toBeInTheDocument();
 
     await userEvent.clear(name);
     await userEvent.type(name, 'Марина Светлова');

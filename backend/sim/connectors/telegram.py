@@ -30,7 +30,7 @@ class TelegramConnector:
     kind = ChannelKind.TELEGRAM
     label = "Telegram"
     polling = False
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
 
     def __init__(
         self, transport_factory: Callable[[str], TelegramTransport] = BotApiTransport

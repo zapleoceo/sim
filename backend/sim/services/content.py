@@ -28,15 +28,23 @@ class ContentPublisher(Protocol):
     async def publish(self, post: ContentPost) -> None: ...
 
 
-def caption_prompt(persona: Persona, kind: str, idea: str) -> list[dict[str, Any]]:
+# Owner-editable (app_setting "caption_rules").
+CAPTION_RULES = (
+    "Не выдавай персонажа за реального человека. Верни ТОЛЬКО текст подписи: без кавычек и "
+    "пояснений, не больше 1500 символов, в конце 3-6 подходящих хештегов."
+)
+
+
+def caption_prompt(
+    persona: Persona, kind: str, idea: str, rules: str = CAPTION_RULES
+) -> list[dict[str, Any]]:
     system = (
-        f"You write Instagram captions for the virtual persona {persona.name}.\n"
-        f"Persona description:\n{persona.description}\n"
-        f"Language: {persona.language}\n"
-        "Never present the persona as a real human. Output ONLY the caption text: no quotes, "
-        "no explanations, at most 1500 characters, then 3-6 relevant hashtags."
+        f"Ты пишешь подписи к постам в Instagram для виртуального персонажа {persona.name}.\n"
+        f"Описание персонажа:\n{persona.description}\n"
+        f"Язык: {persona.language}\n"
+        f"{rules.strip()}"
     )
-    user = f"Post type: {kind}.\nIdea or draft: {idea or 'free choice about strategic thinking'}"
+    user = f"Тип поста: {kind}.\nИдея или черновик: {idea or 'на твой выбор, про стратегическое мышление'}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -114,8 +122,11 @@ class ContentService:
         persona = await self.personas.get(post.persona_id)
         if persona is None:
             raise ContentError("persona not found")
+        from sim.services.app_settings import AppSettingsService  # local: it imports CAPTION_RULES
+
+        cfg = await AppSettingsService(self.session).load()
         result = await self.llm.chat(
-            caption_prompt(persona, post.kind.value, post.caption),
+            caption_prompt(persona, post.kind.value, post.caption, cfg.caption_rules),
             capability="chat:sales",
             model=persona.model or None,
             workflow="content",

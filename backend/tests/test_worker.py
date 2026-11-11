@@ -123,7 +123,7 @@ async def test_send_failure_marks_message_failed_after_retries(container, world,
     connector.port.ok = False
     async with transaction(container.factory) as s:
         dialog = (await s.scalars(select(Dialog))).unique().one()
-        msg = await container.outbound(s).queue_ai(dialog, "hello", None, [0, 0])
+        msg = await container.outbound(s).queue_ai(dialog, "hello", None)
         msg_id = msg.id
     worker = Worker(container)
     for _ in range(5):

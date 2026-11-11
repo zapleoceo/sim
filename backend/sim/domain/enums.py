@@ -11,6 +11,14 @@ class ChannelKind(StrEnum):
     TELEGRAM_USER = "telegram_user"     # a personal account over MTProto (userbot)
 
 
+class VoiceMode(StrEnum):
+    """When a persona answers with a voice message instead of text."""
+
+    OFF = "off"            # text only
+    MIRROR = "mirror"      # voice when the client's latest message was a voice note
+    ALWAYS = "always"      # every AI message (replies and follow-ups) is a voice note
+
+
 class SessionStatus(StrEnum):
     NEW = "new"
     PENDING = "pending"        # waiting for QR scan / login in progress

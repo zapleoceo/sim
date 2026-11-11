@@ -1,16 +1,11 @@
-"""System trace log: trace_event table, trace_id on job and llm_call. Additive and reversible.
-
-Ordering: PR #20 adds 0009 (app_setting). This branch was cut before it merged, so it chains
-on 0008; when #20 (and the renumbered Google voice migration of #21) land first, set
-`down_revision` to the latest of them before merging (`alembic heads` must show one head).
-"""
+"""System trace log: trace_event table, trace_id on job and llm_call. Additive and reversible."""
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0010"
-down_revision: str | None = "0008"
+revision: str = "0011"
+down_revision: str | None = "0010"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

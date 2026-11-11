@@ -109,22 +109,15 @@ export function StrategyEditor({
         </div>
       </Section>
 
-      <Section title="Тайминги">
-        <FormGrid className="sm:grid-cols-3">
-          <Field
-            label="Фоллоу-апы, часы"
-            hint="Через сколько часов без ответа писать снова: 24, 72, 168"
-            error={errors.followup?.message}
-          >
-            <Input {...register('followup')} />
-          </Field>
-          <Field label="Задержка ответа от, с" error={errors.delay_min?.message}>
-            <Input {...register('delay_min')} inputMode="numeric" />
-          </Field>
-          <Field label="до, с" error={errors.delay_max?.message}>
-            <Input {...register('delay_max')} inputMode="numeric" />
-          </Field>
-        </FormGrid>
+      <Section title="Фоллоу-апы">
+        <Field
+          label="Через сколько часов без ответа писать снова"
+          hint="Числа через запятую: 24, 72, 168"
+          error={errors.followup?.message}
+          className="sm:max-w-sm"
+        >
+          <Input {...register('followup')} />
+        </Field>
       </Section>
 
       <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">

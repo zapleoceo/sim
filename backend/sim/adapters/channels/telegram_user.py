@@ -10,6 +10,7 @@ service account (777000)."""
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import time
 from collections import OrderedDict
@@ -174,6 +175,20 @@ class TelethonTransport:
         sent = await client.send_message(await self.entity(client, peer_id), text)
         return int(sent.id)
 
+    async def send_voice(self, peer_id: int, audio: bytes, duration_s: float | None) -> int:
+        """An OGG/Opus voice note (voice_note=True: shown as a voice bubble, not a file)."""
+        from telethon.tl.types import DocumentAttributeAudio  # noqa: PLC0415
+
+        client = await self.ready()
+        file = io.BytesIO(audio)
+        file.name = "voice.ogg"
+        sent = await client.send_file(
+            await self.entity(client, peer_id), file, voice_note=True,
+            attributes=[DocumentAttributeAudio(duration=max(1, round(duration_s or 1)),
+                                               voice=True)],
+        )
+        return int(sent.id)
+
     async def download(self, peer_id: int, message_id: int, max_bytes: int) -> bytes:
         client = await self.ready()
         entity = await self.entity(client, peer_id)
@@ -205,7 +220,7 @@ class TelethonTransport:
 
 class TelegramUserAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM_USER
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
 
     def __init__(
         self,
@@ -318,7 +333,29 @@ class TelegramUserAdapter:
             break
         return SendResult(ok=True, external_message_id=first)
 
+    async def send_voice(
+        self, external_thread_id: str, audio: bytes, duration_s: float | None
+    ) -> SendResult:
+        """One voice note, throttled like text; FloodWait is `flood_wait:<seconds>`."""
+        try:
+            peer = int(external_thread_id)
+        except ValueError:
+            return SendResult(ok=False, error="bad thread id")
+        try:
+            mid = await self.throttled(lambda: self.t.send_voice(peer, audio, duration_s))
+        except tg_errors.FloodWaitError as exc:
+            return SendResult(ok=False,
+                              error=f"flood_wait:{int(getattr(exc, 'seconds', 0) or 0)}")
+        except Exception as exc:
+            return SendResult(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        ext = f"{peer}:{mid}"
+        self.s.remember_sent(ext)                # its echo is not a human turn
+        return SendResult(ok=True, external_message_id=ext)
+
     async def send_throttled(self, peer: int, text: str) -> int:
+        return await self.throttled(lambda: self.t.send(peer, text))
+
+    async def throttled(self, send: Callable[[], Awaitable[int]]) -> int:
         """At most one send per account per `min_send_interval_s`, serialized."""
         async with self.s.lock:
             if self.s.last_send is not None:
@@ -326,7 +363,7 @@ class TelegramUserAdapter:
                 if wait > 0:
                     await self.sleep(wait)
             try:
-                return await self.t.send(peer, text)
+                return await send()
             finally:
                 self.s.last_send = self.mono()
 

@@ -292,16 +292,16 @@ STRATEGY = StrategyProfile(rules=["не дави"], registration_url="https://rc
 def test_guard_system_prompt_has_persona_prohibitions_strategy_rules_and_global_rules():
     system = guard_system_prompt(PERSONA, STRATEGY)
     assert "- не обещать доход" in system and "- без мата" in system and "- не дави" in system
-    for rule in ("passwords, codes or payment card data", "No links except", "income",
-                 "medical, legal or financial", "politics, religion or war", "stop requests",
-                 "invented facts about the partner"):
+    for rule in ("пароли, коды и данные карт", "Никаких ссылок, кроме", "дохода",
+                 "медицинских, юридических и финансовых", "политики, религии и войны", "просьбу не писать",
+                 "выдуманных фактов о партнёре"):
         assert rule in system
     # honesty floor: BLOCK a human claim on a direct question; voice: REWRITE volunteered AI talk
-    assert "must not claim to be human" in system and "must be BLOCKED" in system
-    assert "volunteers that the persona is an AI" in system and "must be REWRITTEN" in system
+    assert "не должен утверждать, что персонаж человек" in system and "ЗАБЛОКИРОВАТЬ" in system
+    assert "без вопроса сам говорит, что он ИИ" in system and "ИСПРАВИТЬ" in system
     # the messenger style is not a violation, and the truncated dialog is not a fact source
-    assert "occasional small typo are never a reason to rewrite" in system
-    assert "never rewrite a draft for consistency with earlier conversation" in system
+    assert "редкая мелкая опечатка никогда не повод исправлять" in system
+    assert "никогда не исправляй черновик ради согласованности с прошлыми репликами" in system
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():

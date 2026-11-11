@@ -3,12 +3,15 @@
 chat():       POST {url}/v1/jobs?capability=X  ->  poll GET /v1/jobs/{id} until done / error.
 transcribe(): POST {url}/v1/transcribe/jobs (multipart file) -> same poll.
 list_models():GET  {url}/v1/models.
+synthesize(): POST {url}/v1/speech (SpeechPort; synchronous, base64 audio in the answer).
 
 Subscription models (claude-sub/*, codex-sub/*) reject non-default max_tokens/temperature, so
 those fields are never sent for them."""
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -17,11 +20,14 @@ from typing import Any
 import httpx
 
 from sim.ports.llm import LLMError, LLMResult
+from sim.ports.speech import SpeechError, SpeechResult
 
 log = logging.getLogger(__name__)
 
 SUBSCRIPTION_PREFIXES = ("claude-sub/", "codex-sub/")
 JOB_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+# /v1/speech is synchronous: the broker's own Gemini TTS ceiling is 60 s per key attempt.
+SPEECH_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
 # Without max_tokens the broker applies its own default (1024), which truncates JSON decisions.
 DEFAULT_MAX_TOKENS = 2048
 POLL_MAX_ERRORS = 5  # consecutive transient poll failures tolerated per job
@@ -185,6 +191,36 @@ class BrokerLLM:
         except (httpx.HTTPError, ValueError, KeyError, TimeoutError) as exc:
             raise LLMError(f"audio: {err_text(exc)}") from exc
         return to_result(data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id") or ""))
+
+    # ---- SpeechPort ----------------------------------------------------------------------
+    async def synthesize(
+        self, text: str, *, voice: str, style: str = "", workflow: str | None = None
+    ) -> SpeechResult:
+        """Synchronous `POST /v1/speech` (the broker answers in seconds with base64 audio)."""
+        body: dict[str, Any] = {"text": text, "voice": voice}
+        if style.strip():
+            body["style"] = style.strip()
+        if workflow:
+            body["workflow"] = workflow
+        try:
+            resp = await self.client.post(
+                f"{self.url}/v1/speech", headers=self.headers, json=body,
+                timeout=SPEECH_HTTP_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            audio = base64.b64decode(data["audio_base64"], validate=True)
+        except (httpx.HTTPError, ValueError, KeyError, binascii.Error) as exc:
+            raise SpeechError(f"speech: {err_text(exc)}") from exc
+        if not audio:
+            raise SpeechError("speech: broker returned no audio")
+        cost = data.get("cost_usd")
+        duration = data.get("audio_s")
+        return SpeechResult(
+            audio=audio, mime_type=str(data.get("mime_type") or "audio/wav"),
+            duration_s=float(duration) if duration is not None else None,
+            model=data.get("model"), cost_usd=float(cost) if cost is not None else None,
+        )
 
     async def list_models(self) -> list[dict[str, Any]]:
         try:

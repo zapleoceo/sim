@@ -24,6 +24,7 @@ from sim.api.routers import (
     studio,
     system,
 )
+from sim.api.routers import settings as settings_api
 from sim.api.tracing import install_request_tracing
 from sim.config import Settings, parse_telegram_ids
 from sim.config import settings as get_settings
@@ -105,6 +106,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
         channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
         reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
+        settings_api.router,
     ):
         app.include_router(router)
     install_request_tracing(app)

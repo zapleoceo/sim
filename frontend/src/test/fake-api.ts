@@ -9,7 +9,7 @@ export interface FakeRequest {
 }
 
 /** Reply: a JSON body (200), or `{ status, body }` via `reply()`. */
-export type FakeReply = unknown | ((req: FakeRequest) => unknown);
+export type FakeReply = ((req: FakeRequest) => unknown) | object | string | number | boolean | null | undefined;
 
 const STATUS = Symbol('status');
 interface StatusReply { [STATUS]: true; status: number; body: unknown }

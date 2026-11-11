@@ -43,13 +43,15 @@ describe('LoginPage', () => {
       'GET /api/auth/config': { bot_username: 'b' },
       'POST /api/auth/telegram': reply(403, { detail: 'denied', telegram_id: 4242 }),
     });
+    // user-event installs its own clipboard stub on setup(), so ours goes in afterwards.
+    const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     await renderApp('/login', { user: null });
     await waitFor(() => expect(document.querySelector('script[data-telegram-login]')).not.toBeNull());
     await act(async () => widgetCallback()(TG_USER));
     expect(await screen.findByText('4242')).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole('button', { name: /Скопировать ID/ }));
+    await user.click(screen.getByRole('button', { name: /Скопировать ID/ }));
     expect(writeText).toHaveBeenCalledWith('4242');
   });
 

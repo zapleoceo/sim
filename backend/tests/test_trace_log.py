@@ -201,14 +201,14 @@ async def test_purge_keeps_the_retention_window(container):
     assert sorted((now - e.started_at).days for e in await events(container)) == [1, 29]
 
 
-def test_0010_roundtrip(tmp_path):
+def test_0011_roundtrip(tmp_path):
     db = tmp_path / "trace.db"
     cfg = alembic_config(db)
     cfg.config_file_name = None
     command.upgrade(cfg, "head")
     assert {"trace_id", "kind", "status", "duration_ms", "attempt", "detail", "llm_call_id"} <= columns(db, "trace_event")
     assert "trace_id" in columns(db, "job") and "trace_id" in columns(db, "llm_call")
-    command.downgrade(cfg, "0008")
+    command.downgrade(cfg, "0010")
     assert not columns(db, "trace_event") and "trace_id" not in columns(db, "job")
     command.upgrade(cfg, "head")
     with sqlite3.connect(db) as con:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -18,15 +18,16 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, Stage
 from sim.domain.funnel import Actor, FunnelRuleError
+from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
+from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.prompt import (
-    HISTORY_LIMIT,
     Decision,
     DialogContext,
     PersonaProfile,
@@ -41,8 +42,8 @@ from sim.services.prompt import (
 log = logging.getLogger(__name__)
 
 RETRY_NUDGE = (
-    "Your previous output was not a valid JSON object. Reply again with ONLY the JSON object "
-    "described in OUTPUT FORMAT."
+    "Твой предыдущий ответ не был корректным JSON-объектом. Ответь ещё раз ТОЛЬКО JSON-объектом, "
+    "описанным в разделе ФОРМАТ ОТВЕТА."
 )
 
 
@@ -88,7 +89,6 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
-        disclosure_text=p.disclosure_text,
     )
 
 
@@ -133,14 +133,13 @@ class ConversationService:
         outbound: OutboundService,
         *,
         clock: Clock = utcnow,
-        guard_capability: str = "structured",
-        guard_fallback_capability: str = "prefilter",
+        settings_env: Mapping[str, Any] | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
-        self.guard = Guard(
-            llm, capability=guard_capability, fallback_capability=guard_fallback_capability
-        )
+        self.app_settings = AppSettingsService(session, settings_env)
+        self.cfg: AppSettings | None = None
+        self.guard_instance: Guard | None = None
         self.outbound = outbound
         self.clock = clock
         self.dialogs = DialogRepo(session)
@@ -152,6 +151,33 @@ class ConversationService:
         self.followups = FollowupService(session, clock=clock)
 
     # ---- shared pieces -------------------------------------------------------------------
+    async def config(self) -> AppSettings:
+        """Owner settings, read once per unit of work (a request or a job)."""
+        if self.cfg is None:
+            self.cfg = await self.app_settings.load()
+        return self.cfg
+
+    async def guard(self) -> Guard:
+        if self.guard_instance is None:
+            cfg = await self.config()
+            self.guard_instance = Guard(
+                self.llm,
+                capability=cfg.guard_capability,
+                fallback_capability=cfg.guard_fallback_capability,
+                rules_text=cfg.guard_rules,
+                history_limit=cfg.history_limit,
+            )
+        return self.guard_instance
+
+    async def prompt(
+        self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
+    ) -> list[dict[str, Any]]:
+        cfg = await self.config()
+        return build_messages(
+            persona_profile(persona), strategy_profile(strategy), history, ctx,
+            texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
+        )
+
     async def strategy_for(self, persona_id: int) -> Strategy:
         persona = await self.personas.get(persona_id)
         strategy = None
@@ -189,7 +215,7 @@ class ConversationService:
                          *(url for _, url in ctx.handoff_links))
             if link
         ]
-        return await self.guard.review(
+        return await (await self.guard()).review(
             persona=persona_profile(persona),
             strategy=strategy_profile(strategy),
             history=history,
@@ -279,7 +305,7 @@ class ConversationService:
             return ReplyOutcome("skipped")
         strategy = await self.strategy_for(persona.id)
 
-        recent = await self.messages.recent_visible(dialog_id, HISTORY_LIMIT)
+        recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
         ctx = DialogContext(
@@ -295,7 +321,7 @@ class ConversationService:
             instruction=instruction,
             handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
         )
-        prompt = build_messages(persona_profile(persona), strategy_profile(strategy), history, ctx)
+        prompt = await self.prompt(persona, strategy, history, ctx)
         decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
         guard: GuardOutcome | None = None
         stale = await self.messages.last(dialog_id, Direction.IN)
@@ -319,7 +345,11 @@ class ConversationService:
         if decision is None:
             dialog.needs_operator = True
             return ReplyOutcome("needs_operator")
-        return await self.apply(dialog, strategy, decision, result, guard, followup=followup)
+        # A follow-up answers no client message, so "mirror" never voices it.
+        voice = speaks(persona.voice_mode, persona.voice_id,
+                       None if followup or newer is None else newer.media_kind)
+        return await self.apply(dialog, strategy, decision, result, guard, followup=followup,
+                                voice=voice)
 
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
@@ -343,6 +373,7 @@ class ConversationService:
         guard: GuardOutcome | None,
         *,
         followup: bool,
+        voice: bool = False,
     ) -> ReplyOutcome:
         client = dialog.client
         if decision.needs:
@@ -374,8 +405,8 @@ class ConversationService:
             return ReplyOutcome("blocked", decision)
         decision = replace(decision, reply=guard.text)
         message = await self.outbound.queue_ai(
-            dialog, guard.text, result, list(strategy.reply_delay_s or []),
-            final=stop or decision.handoff_to_operator, guard=guard,
+            dialog, guard.text, result,
+            final=stop or decision.handoff_to_operator, guard=guard, voice=voice,
         )
         if not followup and not stop and not decision.handoff_to_operator:
             dialog.followup_step = 0
@@ -396,7 +427,7 @@ class ConversationService:
     ) -> Draft:
         """The same builder, model call and pre-send guard as production, without any dialog
         bookkeeping. `history` ends with the client's latest message."""
-        prompt = build_messages(persona_profile(persona), strategy_profile(strategy), history, ctx)
+        prompt = await self.prompt(persona, strategy, history, ctx)
         decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
         guard: GuardOutcome | None = None
         if decision is not None and decision.reply:

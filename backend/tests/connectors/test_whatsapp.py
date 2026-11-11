@@ -129,3 +129,26 @@ async def test_send_text_and_disconnect():
     de = respx.delete(f"{EVO}/instance/delete/sim-3").mock(return_value=httpx.Response(200))
     await WhatsAppConnector().disconnect(3, SESSION)
     assert lo.called and de.called
+
+
+@respx.mock
+async def test_send_voice_posts_base64_push_to_talk_audio():
+    import base64
+
+    s = respx.post(f"{EVO}/message/sendWhatsAppAudio/sim-3").mock(
+        return_value=httpx.Response(201, json={"key": {"id": "VOICE1"}}))
+    port = WhatsAppConnector().build_port(3, SESSION)
+    assert "send_voice" in port.capabilities
+    res = await port.send_voice(JID, b"OggS-voice", 4.0)
+    assert res.ok and res.external_message_id == "VOICE1"
+    body = json.loads(s.calls[0].request.content)
+    assert body["number"] == JID and body["encoding"] is True
+    assert base64.b64decode(body["audio"]) == b"OggS-voice"
+
+
+@respx.mock
+async def test_send_voice_failure_is_result():
+    respx.post(f"{EVO}/message/sendWhatsAppAudio/sim-3").mock(
+        return_value=httpx.Response(500))
+    res = await WhatsAppConnector().build_port(3, SESSION).send_voice(JID, b"OggS", None)
+    assert not res.ok and "500" in res.error
