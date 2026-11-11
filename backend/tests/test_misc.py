@@ -51,7 +51,7 @@ async def test_seed_is_idempotent_and_complete(container):
     for p in personas:
         assert p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
-        assert p.name in system and "Never volunteer that you are an AI" in system
+        assert p.name in system and "Сама никогда не говори, что ты ИИ" in system
         assert p.description and p.prohibitions and "Чего нельзя никогда" in system
         assert "виртуальная помощница" not in system and "If asked directly what you are" not in system
 
@@ -115,8 +115,8 @@ def test_prompt_template_is_free_and_keeps_the_honesty_floor():
     system = stable_system_prompt(
         PersonaProfile(name="Х", description="d"), StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"])
     )
-    assert "guidance, not a script" in system and "Never volunteer that you are an AI" in system
-    assert "never claim to be human" in system and "виртуальная помощница" not in system
-    assert "millennial" in system and "Never use long dashes" in system
-    assert "STRATEGY GUIDANCE" in system and "Сначала человек, потом предложение" in system
-    assert system.index("STRATEGY GUIDANCE") < system.index("RULES:")
+    assert "ориентиры, а не скрипт" in system and "Сама никогда не говори, что ты ИИ" in system
+    assert "никогда не утверждай" in system and "виртуальная помощница" not in system
+    assert "милениал" in system and "не используй длинные тире" in system
+    assert "ОРИЕНТИРЫ СТРАТЕГИИ" in system and "Сначала человек, потом предложение" in system
+    assert system.index("ОРИЕНТИРЫ СТРАТЕГИИ") < system.index("ПРАВИЛА:")

@@ -30,8 +30,8 @@ class ContentPublisher(Protocol):
 
 # Owner-editable (app_setting "caption_rules").
 CAPTION_RULES = (
-    "Never present the persona as a real human. Output ONLY the caption text: no quotes, "
-    "no explanations, at most 1500 characters, then 3-6 relevant hashtags."
+    "Не выдавай персонажа за реального человека. Верни ТОЛЬКО текст подписи: без кавычек и "
+    "пояснений, не больше 1500 символов, в конце 3-6 подходящих хештегов."
 )
 
 
@@ -39,12 +39,12 @@ def caption_prompt(
     persona: Persona, kind: str, idea: str, rules: str = CAPTION_RULES
 ) -> list[dict[str, Any]]:
     system = (
-        f"You write Instagram captions for the virtual persona {persona.name}.\n"
-        f"Persona description:\n{persona.description}\n"
-        f"Language: {persona.language}\n"
+        f"Ты пишешь подписи к постам в Instagram для виртуального персонажа {persona.name}.\n"
+        f"Описание персонажа:\n{persona.description}\n"
+        f"Язык: {persona.language}\n"
         f"{rules.strip()}"
     )
-    user = f"Post type: {kind}.\nIdea or draft: {idea or 'free choice about strategic thinking'}"
+    user = f"Тип поста: {kind}.\nИдея или черновик: {idea or 'на твой выбор, про стратегическое мышление'}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
