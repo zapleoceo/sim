@@ -19,6 +19,7 @@ from sim.domain.enums import Author, ClientStatus, Delivery, Direction
 from sim.domain.funnel import Actor, status_on_inbound
 from sim.ports.channel import InboundMessage
 from sim.services import jobkinds
+from sim.services.app_settings import AppSettingsService
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
@@ -68,7 +69,7 @@ class IngestService:
         clock: Clock = utcnow,
     ) -> None:
         self.session = session
-        self.debounce = timedelta(seconds=debounce_s)
+        self.debounce_s = debounce_s  # default; the owner setting "reply_debounce_s" wins
         self.clock = clock
         self.clients = ClientRepo(session)
         self.dialogs = DialogRepo(session)
@@ -229,7 +230,8 @@ class IngestService:
         """One reply job per dialog; a burst of messages pushes it back (debounce)."""
         if dialog.ai_paused or client.status is ClientStatus.REFUSED:
             return False
-        run_at = self.clock() + self.debounce
+        settings = AppSettingsService(self.session, {"reply_debounce_s": self.debounce_s})
+        run_at = self.clock() + timedelta(seconds=(await settings.load()).reply_debounce_s)
         key = jobkinds.reply_key(dialog.id)
         await self.jobs.upsert_pending(jobkinds.REPLY, {"dialog_id": dialog.id}, run_at, key)
         return True

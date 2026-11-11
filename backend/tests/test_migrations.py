@@ -178,3 +178,18 @@ def test_0006_intent_roundtrip_and_preserves_nonempty_history(tmp_path):
         command.downgrade(cfg, "0005")
     with sqlite3.connect(db) as con:
         assert con.execute("SELECT post_id FROM content_publish_intent").fetchall() == [(123,)]
+
+
+def test_0009_adds_app_setting_and_drops_persona_disclosure(tmp_path):
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "head")
+    assert {"key", "value", "updated_at", "updated_by_id"} <= columns(db, "app_setting")
+    assert not {"disclosure_text", "is_virtual_disclosed"} & columns(db, "persona")
+    assert "reply_delay_s" not in columns(db, "strategy")
+    command.downgrade(cfg, "0008")
+    assert {"disclosure_text", "is_virtual_disclosed"} <= columns(db, "persona")
+    assert "reply_delay_s" in columns(db, "strategy")
+    with sqlite3.connect(db) as con:
+        tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "app_setting" not in tables

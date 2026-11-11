@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import logging
-import random
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from cryptography.fernet import Fernet
@@ -22,6 +21,7 @@ from sim.ports.llm import LLMPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
+from sim.services.app_settings import env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
@@ -70,7 +70,6 @@ class Container:
     media: MediaStore
     limiter: LoginRateLimiter = field(default_factory=LoginRateLimiter)
     clock: Clock = utcnow
-    rng: Callable[[float, float], float] = random.uniform
     publisher: ContentPublisher | None = None
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
 
@@ -98,14 +97,13 @@ class Container:
 
     def outbound(self, s: AsyncSession) -> OutboundService:
         return OutboundService(
-            s, self.registry, self.box, factory=self.factory, clock=self.clock, rng=self.rng,
+            s, self.registry, self.box, factory=self.factory, clock=self.clock,
         )
 
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(
             s, self.audited(), self.outbound(s), clock=self.clock,
-            guard_capability=self.settings.guard_capability,
-            guard_fallback_capability=self.settings.guard_fallback_capability,
+            settings_env=env_defaults(self.settings),
         )
 
     def simulation(self, s: AsyncSession) -> SimulationService:

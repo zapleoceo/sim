@@ -89,7 +89,6 @@ class PersonaProfile:
     description: str = ""     # who she is, character, biography, how she writes
     prohibitions: str = ""    # one rule per line
     language: str = "ru"
-    disclosure_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -148,7 +147,23 @@ def prohibition_rules(text: str) -> list[str]:
     return [rule for rule in rules if rule]
 
 
-def stable_system_prompt(persona: PersonaProfile, strategy: StrategyProfile) -> str:
+@dataclass(frozen=True)
+class PromptTexts:
+    """The owner-editable parts of the persona prompt (stored in `app_setting`, defaults here).
+    HONESTY_RULE and OUTPUT_CONTRACT are not editable: the honesty floor is a fixed product
+    rule and the decision parser depends on the output format."""
+
+    voice: str = VOICE_RULE
+    style: str = STYLE_RULE
+    safety: str = SAFETY_RULES
+
+
+DEFAULT_TEXTS = PromptTexts()
+
+
+def stable_system_prompt(
+    persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
+) -> str:
     lines: list[str] = [f"You are {persona.name}, the project's representative in this chat."]
     profile = [("Age", persona.age), ("Gender", persona.gender), ("Language", persona.language)]
     lines.append("\nPERSONA")
@@ -156,10 +171,8 @@ def stable_system_prompt(persona: PersonaProfile, strategy: StrategyProfile) -> 
     if persona.description.strip():
         lines += ["", "DESCRIPTION (who you are, your character, biography and way of writing):",
                   persona.description.strip()]
-    lines += ["", VOICE_RULE, "", STYLE_RULE, "", HONESTY_RULE]
-    if persona.disclosure_text:
-        lines.append(f"If asked directly what you are, answer along these lines: {persona.disclosure_text}")
-    lines += ["", SAFETY_RULES]
+    lines += ["", texts.voice.strip(), "", texts.style.strip(), "", HONESTY_RULE]
+    lines += ["", texts.safety.strip()]
     rules = prohibition_rules(persona.prohibitions)
     if rules:
         lines += ["", f"{PROHIBITIONS_HEADING}:"] + [f"- {rule}" for rule in rules]
@@ -269,10 +282,13 @@ def build_messages(
     strategy: StrategyProfile,
     history: list[Turn],
     ctx: DialogContext,
+    *,
+    texts: PromptTexts = DEFAULT_TEXTS,
+    history_limit: int = HISTORY_LIMIT,
 ) -> list[dict[str, Any]]:
     return [
-        {"role": "system", "content": stable_system_prompt(persona, strategy)},
-        *merge_turns(history[-HISTORY_LIMIT:]),
+        {"role": "system", "content": stable_system_prompt(persona, strategy, texts)},
+        *merge_turns(history[-history_limit:]),
         {"role": "system", "content": dynamic_context(ctx, strategy)},
     ]
 

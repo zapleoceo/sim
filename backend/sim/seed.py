@@ -1,7 +1,7 @@
 """`python -m sim.seed`: idempotent initial data (docs/persona-prompts.md) and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
 
-Existing rows are matched by name; only an EMPTY persona description / prohibitions (and the
-untouched old disclosure default) are filled in, so edits made in the admin survive a re-run."""
+Existing rows are matched by name; only an EMPTY persona description / prohibitions are filled
+in, so edits made in the admin survive a re-run."""
 from __future__ import annotations
 
 import asyncio
@@ -42,20 +42,11 @@ STRATEGY: dict[str, Any] = {
     "stage_playbook": STAGE_PLAYBOOK,
     "rules": STRATEGY_RULES,
     "followup_hours": [24, 72, 168],
-    "reply_delay_s": [20, 90],
     "notes": (
         "TO CONFIRM with the owner: точная ссылка регистрации (шаблон https://rcipm.com/?ref={ref} "
         "— предположение, сайт закрыт проверкой «я не робот»), описание продукта и цены."
     ),
 }
-
-# Optional per-persona hint for a sincere "are you a bot?" question. Empty by default: the
-# honesty floor lives in sim.services.prompt and the model answers in its own voice.
-DISCLOSURE = ""
-OLD_DISCLOSURE = (
-    "Я виртуальный ассистент проекта (ИИ), а не живой человек. Если вы хотите поговорить с "
-    "человеком — скажите, и я передам диалог оператору."
-)
 
 PERSONAS: list[dict[str, Any]] = [
     {
@@ -87,20 +78,16 @@ async def seed_catalog(session: AsyncSession) -> dict[str, int]:
     for data in PERSONAS:
         existing = await personas.by_name(data["name"])
         if existing is not None:
-            # Owner edits win: only fill what is still empty (or the untouched old default).
+            # Owner edits win: only fill what is still empty.
             for column in ("description", "prohibitions"):
                 if not getattr(existing, column).strip():
                     setattr(existing, column, data[column])
-            if existing.disclosure_text.strip() == OLD_DISCLOSURE:
-                existing.disclosure_text = DISCLOSURE
         else:
             await personas.add(
                 Persona(
                     **data,
                     model="",  # empty = Broker chain chat:sales
                     strategy_id=strategy.id,
-                    disclosure_text=DISCLOSURE,
-                    is_virtual_disclosed=True,
                     is_active=True,
                 )
             )

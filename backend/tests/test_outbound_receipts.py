@@ -22,7 +22,7 @@ async def queued(container, world):
     await ingest(container, world.channel.id, inbound())
     async with transaction(container.factory) as s:
         dialog = (await s.scalars(select(Dialog))).unique().one()
-        msg = await container.outbound(s).queue_ai(dialog, "hello", None, [0, 0])
+        msg = await container.outbound(s).queue_ai(dialog, "hello", None)
         # Only exercise this send; leave the inbound reply out of this test.
         for job in (await s.scalars(select(Job))).all():
             if job.kind != "send":
@@ -216,3 +216,11 @@ async def test_success_without_external_id_still_has_recoverable_receipt(contain
     await deliver(container, mid)
     assert (await rows(container, mid))[0].delivery is Delivery.SENT
     assert len(calls) == 1
+
+
+async def test_ai_reply_is_sent_right_away_without_an_artificial_delay(container, world):
+    message_id = await queued(container, world)
+    async with container.factory() as s:
+        message = await s.get(Message, message_id)
+        job = (await s.scalars(select(Job).where(Job.kind == "send"))).one()
+    assert job.run_at == message.created_at
