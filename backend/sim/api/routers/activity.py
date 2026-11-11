@@ -7,7 +7,12 @@ from pydantic import BaseModel, Field
 from sim.adapters.db.models import Client
 from sim.adapters.db.repositories.activity import ActivityFilter, ActivityRepo
 from sim.adapters.db.repositories.traces import SortField, TraceFilter, TraceRepo, TraceSort
-from sim.api.activity_schemas import llm_activity_out, message_activity_out, trace_out, trace_step_out
+from sim.api.activity_schemas import (
+    llm_activity_out,
+    message_activity_out,
+    trace_out,
+    trace_step_out,
+)
 from sim.api.date_bounds import optional_bounds
 from sim.api.deps import App, Db, authed, owner_only
 from sim.domain.enums import Author, ChannelKind, Delivery, Direction

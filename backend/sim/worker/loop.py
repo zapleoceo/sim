@@ -15,8 +15,8 @@ from sim.adapters.db.session import transaction
 from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
-from sim.services.conversation import ConversationError
 from sim.services import tracing
+from sim.services.conversation import ConversationError
 from sim.services.send_receipts import SendUncertain
 from sim.services.tracing import TraceContext, trace_scope
 from sim.wiring import Container
