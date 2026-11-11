@@ -28,7 +28,7 @@ tar -C "$ROOT" -cf - frontend/dist/sim/browser | ssh "$HOST" "tar -x -C $DEST"
 ssh "$HOST" "echo $REV > $DEST/REVISION"
 
 echo "== up"
-ssh "$HOST" "cd $DEST/infra && docker compose build && docker compose up -d --remove-orphans && docker compose ps"
+ssh "$HOST" "cd $DEST/infra && docker compose build && docker compose up -d --remove-orphans && docker compose up -d --no-deps --force-recreate api && docker compose ps"
 
 echo "== smoke"
 ssh "$HOST" 'for i in $(seq 1 30); do docker exec sim-api python -m sim.readiness && curl -fsS --max-time 5 http://127.0.0.1:8010/api/ready && exit 0; sleep 2; done; exit 1'
