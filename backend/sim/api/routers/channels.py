@@ -69,3 +69,11 @@ async def channel_state(channel_id: int, c: App, s: Db):
     except ChannelError as exc:
         raise HTTPException(422, str(exc)) from exc
     return connect_state_out(state)
+
+
+@router.get("/{channel_id}/credentials", dependencies=[Depends(owner_only)])
+async def channel_credentials(channel_id: int, c: App, s: Db):
+    """The saved connect credentials (decrypted for the owner), so the connect form is prefilled.
+    Owner-only and never logged; `{}` when nothing is saved."""
+    channel = await channel_or_404(s, channel_id)
+    return c.channels(s).saved(channel)

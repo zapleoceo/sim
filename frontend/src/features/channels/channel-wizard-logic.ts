@@ -104,3 +104,13 @@ export function verifyValue(step: WizardStep, raw: string): string {
   const code = raw.trim();
   return code.length >= 4 ? code : '';
 }
+
+/** Saved credentials → form values: only the known fields, everything as text. */
+export function prefillConnect(saved: Partial<Record<string, string>>): ConnectValues {
+  const out = { ...EMPTY_CONNECT };
+  for (const key of Object.keys(EMPTY_CONNECT) as (keyof ConnectValues)[]) {
+    const value = saved[key];
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}

@@ -13,7 +13,7 @@ import type { Channel, ChannelKind, ConnectState, Persona } from '@/lib/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS } from '@/lib/stages';
 import { cn } from '@/lib/utils';
 import {
-  EMPTY_CONNECT, QR_POLL_MS, connectBody, nextStep, pollingDone, validateConnect, verifyValue,
+  EMPTY_CONNECT, QR_POLL_MS, connectBody, nextStep, pollingDone, prefillConnect, validateConnect, verifyValue,
   type ConnectErrors, type ConnectValues, type WizardStep,
 } from './channel-wizard-logic';
 
@@ -57,6 +57,20 @@ export function ChannelWizard({
   const [setupTried, setSetupTried] = useState(false);
 
   const [creds, setCreds] = useState<ConnectValues>(EMPTY_CONNECT);
+  // A reconnect starts with the credentials saved at the last connect (encrypted on the server).
+  useEffect(() => {
+    if (!existing?.has_saved_credentials) return;
+    let live = true;
+    channelsApi
+      .credentials(existing.id)
+      .then((saved) => {
+        if (live) setCreds((c) => (Object.values(c).some((x) => x !== '') ? c : prefillConnect(saved)));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [existing]);
   const [credErrors, setCredErrors] = useState<ConnectErrors>({});
   const [code, setCode] = useState('');
   const [codeError, setCodeError] = useState('');
@@ -206,7 +220,7 @@ export function ChannelWizard({
 
         {step === 'connect' && channel?.has_saved_credentials && (
           <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm" role="status">
-            Данные прошлого подключения сохранены (зашифрованы). Оставьте поля пустыми, чтобы подключить с ними, или введите новые.
+            Данные прошлого подключения сохранены (зашифрованы) и подставлены в форму. Проверьте их, особенно номер, и нажмите «Подключить».
           </p>
         )}
         {step === 'connect' && kind === 'telegram' && (

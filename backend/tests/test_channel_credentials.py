@@ -36,3 +36,16 @@ async def test_reconnect_with_empty_fields_reuses_the_encrypted_credentials(api,
     async with container.factory() as s:
         row = await s.get(Channel, ch["id"])
         assert container.box.decrypt_json(row.session_enc)["token"] == "123:abc"   # reused
+
+
+async def test_owner_reads_the_saved_credentials_to_prefill_the_form(api, world):
+    from tests.conftest import OPERATOR, login
+
+    h = await owner(api)
+    ch = (await api.post("/api/channels", json={"kind": "telegram", "persona_id": world.persona.id,
+                                                "name": "bot"}, headers=h)).json()
+    assert (await api.get(f"/api/channels/{ch['id']}/credentials")).json() == {}
+    await api.post(f"/api/channels/{ch['id']}/connect", json={"bot_token": "123:abc"}, headers=h)
+    assert (await api.get(f"/api/channels/{ch['id']}/credentials")).json() == {"bot_token": "123:abc"}
+    await login(api, OPERATOR[0])
+    assert (await api.get(f"/api/channels/{ch['id']}/credentials")).status_code == 403

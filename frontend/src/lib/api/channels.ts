@@ -17,5 +17,7 @@ export const channelsApi = {
   remove: (id: number) => http.delete(`/api/channels/${id}`),
   connect: (id: number, body: ConnectBody) => http.post<ConnectState>(`/api/channels/${id}/connect`, body),
   verify: (id: number, code: string) => http.post<ConnectState>(`/api/channels/${id}/verify`, { code }),
+  /** Saved connect credentials (owner-only), to prefill the connect form. */
+  credentials: (id: number) => http.get<Partial<Record<string, string>>>(`/api/channels/${id}/credentials`, { silent: true }),
   state: (id: number) => http.get<ConnectState>(`/api/channels/${id}/state`, { silent: true }),
 };
