@@ -1,5 +1,5 @@
 import type { Option } from '@/components/option-select';
-import type { VoiceMode } from '@/lib/models';
+import type { VoiceAmbience, VoiceMode } from '@/lib/models';
 
 /**
  * Женские голоса Google Gemini TTS (синтез идёт через AIbroker), проверенные на русском и
@@ -34,3 +34,12 @@ export const VOICE_OPTIONS: Option<string>[] = [
   ...GEMINI_VOICES.map((v) => ({ value: v.id, label: v.label })),
 ];
 export const VOICE_MODE_OPTIONS: Option<VoiceMode>[] = VOICE_MODES.map((m) => ({ value: m.id, label: m.label }));
+
+/** «Запись на смартфон»: фон и микрофон телефона; произношение не меняется (backend `sim.adapters.ambience`). */
+export const VOICE_AMBIENCE_OPTIONS: Option<VoiceAmbience>[] = [
+  { value: 'off', label: 'Без шума — чистый звук' },
+  { value: 'room', label: 'Дома — комната' },
+  { value: 'street', label: 'На улице' },
+  { value: 'cafe', label: 'В кафе' },
+  { value: 'random', label: 'Случайно: дом, улица или кафе' },
+];

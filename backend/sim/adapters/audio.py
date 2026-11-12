@@ -6,7 +6,11 @@ with ffmpeg (installed in the backend image) before it is stored and sent."""
 from __future__ import annotations
 
 import asyncio
+import random
 from collections.abc import Awaitable, Callable, Sequence
+
+from sim.adapters.ambience import ffmpeg_args, resolve
+from sim.domain.enums import VoiceAmbience
 
 OGG_MIME = "audio/ogg"
 FFMPEG_TIMEOUT_S = 60.0
@@ -42,16 +46,22 @@ async def run_process(args: Sequence[str], data: bytes, limit_s: float) -> tuple
 
 
 class OggOpusEncoder:
-    """Any audio ffmpeg reads → OGG/Opus voice note."""
+    """Any audio ffmpeg reads → OGG/Opus voice note, optionally "recorded on a phone" in a room,
+    on the street or in a cafe (`sim.adapters.ambience`)."""
 
-    def __init__(self, runner: Runner = run_process, timeout_s: float = FFMPEG_TIMEOUT_S) -> None:
+    def __init__(
+        self, runner: Runner = run_process, timeout_s: float = FFMPEG_TIMEOUT_S,
+        rng: random.Random | None = None,
+    ) -> None:
         self.runner = runner
         self.timeout_s = timeout_s
+        self.rng = rng or random.Random()  # noqa: S311 — background noise, not security
 
-    async def to_voice_note(self, audio: bytes) -> bytes:
+    async def to_voice_note(self, audio: bytes, ambience: str = VoiceAmbience.OFF) -> bytes:
         if not audio:
             raise AudioError("empty audio")
-        code, out, err = await self.runner(OGG_OPUS_ARGS, audio, self.timeout_s)
+        args = ffmpeg_args(resolve(ambience, self.rng), self.rng) or OGG_OPUS_ARGS
+        code, out, err = await self.runner(args, audio, self.timeout_s)
         if code != 0 or not out:
             detail = err.decode("utf-8", "replace").strip()[:200]
             raise AudioError(f"ffmpeg exited {code}: {detail or 'no output'}")

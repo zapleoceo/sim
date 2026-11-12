@@ -17,7 +17,7 @@ VOICE_WORKFLOW = "voice-reply"
 
 
 class VoiceEncoder(Protocol):
-    async def to_voice_note(self, audio: bytes) -> bytes: ...
+    async def to_voice_note(self, audio: bytes, ambience: str = ...) -> bytes: ...
 
 
 @dataclass(frozen=True)
@@ -34,12 +34,14 @@ class VoiceRenderer:
         self.encoder = encoder
         self.store = store
 
-    async def render(self, text: str, *, voice: str, style: str = "") -> VoiceNote:
+    async def render(
+        self, text: str, *, voice: str, style: str = "", ambience: str = "off"
+    ) -> VoiceNote:
         """Raises SpeechError (broker) or AudioError (transcoding); the caller decides the
         fallback."""
         speech = await self.speech.synthesize(text, voice=voice, style=style,
                                               workflow=VOICE_WORKFLOW)
-        audio = await self.encoder.to_voice_note(speech.audio)
+        audio = await self.encoder.to_voice_note(speech.audio, ambience)
         name = self.store.save(audio, OGG_MIME.split("/", 1)[1])
         return VoiceNote(audio=audio, duration_s=speech.duration_s, cost_usd=speech.cost_usd,
                          media_url=f"/api/media/{name}")

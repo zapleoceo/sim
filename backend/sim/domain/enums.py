@@ -19,6 +19,16 @@ class VoiceMode(StrEnum):
     ALWAYS = "always"      # every AI message (replies and follow-ups) is a voice note
 
 
+class VoiceAmbience(StrEnum):
+    """How a persona voice note sounds: studio-clean, or "recorded on a phone" somewhere."""
+
+    OFF = "off"            # clean TTS
+    ROOM = "room"          # at home: ventilation, fridge hum, wall reflections
+    STREET = "street"      # outside: passing traffic, city rumble, wind
+    CAFE = "cafe"          # in a cafe: distant chatter, hall noise
+    RANDOM = "random"      # one of room / street / cafe per note
+
+
 class SessionStatus(StrEnum):
     NEW = "new"
     PENDING = "pending"        # waiting for QR scan / login in progress

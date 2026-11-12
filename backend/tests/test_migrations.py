@@ -252,3 +252,21 @@ def test_0012_merges_goal_stage_hints_and_rules_into_the_strategy_prompt(tmp_pat
     assert untouched == "Только текст"
     command.downgrade(cfg, "0011")                 # no-op: the schema did not change
     command.upgrade(cfg, "head")
+
+
+def test_0013_adds_a_clean_voice_ambience_to_every_persona(tmp_path):
+    db = tmp_path / "mig13.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0012")
+    with sqlite3.connect(db) as con:
+        con.execute(
+            "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
+            "voice_id, voice_mode, voice_style, is_active, created_at) "
+            "VALUES (1, 'P', '', '', '', '', 'ru', '', 'Kore', 'always', '', 1, '2026-11-01 00:00:00')"
+        )
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT voice_ambience FROM persona").fetchall() == [("off",)]
+    command.downgrade(cfg, "0012")
+    assert "voice_ambience" not in columns(db, "persona")
+    command.upgrade(cfg, "head")

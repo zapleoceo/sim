@@ -53,12 +53,15 @@ export interface Persona {
   voice_mode: VoiceMode;
   /** Подсказка манеры речи для синтеза, например «тепло, спокойно». */
   voice_style: string;
+  /** Обстановка голосовых: off — чистый звук, room/street/cafe — «запись на смартфон» там, random — случайно. */
+  voice_ambience: VoiceAmbience;
   strategy_id: number | null;
   is_active: boolean;
   created_at: string;
 }
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
 export type VoiceMode = 'off' | 'mirror' | 'always';
+export type VoiceAmbience = 'off' | 'room' | 'street' | 'cafe' | 'random';
 
 export interface PreviewTurn { role: 'user' | 'assistant'; text: string }
 export type GuardVerdict = 'ok' | 'rewritten' | 'blocked';

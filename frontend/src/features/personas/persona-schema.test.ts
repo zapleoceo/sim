@@ -2,7 +2,7 @@ import type { Persona } from '@/lib/models';
 import {
   EMPTY_PERSONA, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
-import { GEMINI_VOICES, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
+import { GEMINI_VOICES, VOICE_AMBIENCE_OPTIONS, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
 const valid: PersonaFormValues = personaToForm({ ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная' });
 
@@ -72,6 +72,12 @@ describe('persona form validation', () => {
     expect(valid.voice_mode).toBe('off');
     expect(valid.voice_id).toBe('');
     expect(personaFromForm(valid)).toMatchObject({ voice_id: '', voice_mode: 'off', voice_style: '' });
+  });
+
+  it('voice notes are clean by default and offer room, street, cafe and random ambience', () => {
+    expect(valid.voice_ambience).toBe('off');
+    expect(personaFromForm({ ...valid, voice_ambience: 'street' }).voice_ambience).toBe('street');
+    expect(VOICE_AMBIENCE_OPTIONS.map((o) => o.value)).toEqual(['off', 'room', 'street', 'cafe', 'random']);
   });
 
   it('requires a Gemini voice once voice replies are on', () => {

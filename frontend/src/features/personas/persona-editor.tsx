@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
 import { SelectControl } from './select-control';
-import { VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
+import { VOICE_AMBIENCE_OPTIONS, VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
 import {
   EMPTY_PERSONA, personaFromForm, personaSchema, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
@@ -103,9 +103,14 @@ export function PersonaEditor({
         </Field>
       </FormGrid>
 
-      <Field label="Манера речи (необязательно)" hint="Подсказка для синтеза: как произносить, а не что" error={errors.voice_style?.message}>
-        <Input {...register('voice_style')} placeholder="тепло, спокойно, с улыбкой" autoComplete="off" />
-      </Field>
+      <FormGrid className="lg:grid-cols-2">
+        <Field label="Манера речи (необязательно)" hint="Подсказка для синтеза: как произносить, а не что" error={errors.voice_style?.message}>
+          <Input {...register('voice_style')} placeholder="тепло, спокойно, с улыбкой" autoComplete="off" />
+        </Field>
+        <Field label="Шум записи" hint="Как будто голосовое записано на смартфон в этом месте; голос и произношение те же">
+          <SelectControl control={control} name="voice_ambience" options={VOICE_AMBIENCE_OPTIONS} />
+        </Field>
+      </FormGrid>
 
       <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">
         {onRemove && (
