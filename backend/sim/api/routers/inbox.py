@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +47,7 @@ Limit = Annotated[int, Query(ge=1, le=200)]
 Offset = Annotated[int, Query(ge=0)]
 FUNNEL_CLIENTS_PER_STAGE = 50
 MAX_OPERATOR_AUDIO_BYTES = 8 * 1024 * 1024
+ATTACHMENT_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".pdf", ".txt"}
 
 
 async def dialog_or_404(s: Db, dialog_id: int) -> Dialog:
@@ -112,6 +114,70 @@ async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    return message_out(message)
+
+
+@dialogs.post("/{dialog_id}/attachments", status_code=201)
+async def send_operator_attachment(
+    dialog_id: int, c: App, s: Db, p: Authed,
+    file: UploadFile = File(...), caption: str = Form(default=""),
+    request_id: str | None = Form(default=None),
+):
+    if request_id is not None and not (1 <= len(request_id) <= 64):
+        raise HTTPException(422, "Invalid request id")
+    if len(caption) > 1000:
+        raise HTTPException(422, "Caption exceeds 1000 characters")
+    dialog = await dialog_or_404(s, dialog_id)
+    if dialog.channel.status is not SessionStatus.ACTIVE:
+        raise HTTPException(409, "Channel is not connected")
+    connector = c.registry.get(dialog.channel.kind)
+    if connector is None:
+        raise HTTPException(422, "This channel cannot send attachments")
+    try:
+        port = connector.build_port(
+            dialog.channel_id, c.box.decrypt_json(dialog.channel.session_enc)
+        )
+    except Exception as exc:
+        raise HTTPException(409, "Channel session is unavailable") from exc
+    if Capability.SEND_ATTACHMENT not in getattr(port, "capabilities", frozenset()):
+        raise HTTPException(422, "This channel cannot send attachments")
+    if request_id:
+        from sqlalchemy import select  # noqa: PLC0415
+        from sim.adapters.db.models import Message  # noqa: PLC0415
+        existing = await s.scalar(
+            select(Message).where(Message.dialog_id == dialog_id,
+                                  Message.client_request_id == request_id)
+        )
+        if existing is not None:
+            return message_out(existing)
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ATTACHMENT_SUFFIXES:
+        raise HTTPException(422, "Unsupported attachment type")
+    data = await file.read(MAX_OPERATOR_AUDIO_BYTES + 1)
+    await file.close()
+    if not data or len(data) > MAX_OPERATOR_AUDIO_BYTES:
+        raise HTTPException(413, "Attachment exceeds the 8 MiB limit")
+    if suffix in {".jpg", ".jpeg"} and not data.startswith(b"\\xff\\xd8\\xff"):
+        raise HTTPException(422, "Invalid JPEG")
+    if suffix == ".png" and not data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+        raise HTTPException(422, "Invalid PNG")
+    if suffix == ".webp" and not (data.startswith(b"RIFF") and data[8:12] == b"WEBP"):
+        raise HTTPException(422, "Invalid WebP")
+    if suffix == ".pdf" and not data.startswith(b"%PDF-"):
+        raise HTTPException(422, "Invalid PDF")
+    if suffix == ".txt":
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(422, "Text attachment must be UTF-8") from exc
+    name = c.media.save(data, suffix.lstrip("."))
+    await lock(s, NS_DIALOG, dialog_id)
+    dialog = await dialog_or_404(s, dialog_id)
+    message = await c.outbound(s).send_manual(
+        dialog, p.user.id, caption or "[вложение]", request_id=request_id,
+        media_kind="image" if suffix in {".jpg", ".jpeg", ".png", ".webp"} else "file",
+        media_url=f"/api/media/{name}",
+    )
     return message_out(message)
 
 
