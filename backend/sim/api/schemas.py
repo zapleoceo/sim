@@ -223,11 +223,12 @@ def strategy_out(s: Strategy) -> dict[str, Any]:
     }
 
 
-def channel_out(c: ChannelRow) -> dict[str, Any]:
+def channel_out(c: ChannelRow, *, saved_credentials: bool = False) -> dict[str, Any]:
+    """`has_saved_credentials`: a reconnect may leave the credential fields empty."""
     return {
         "id": c.id, "kind": c.kind.value, "name": c.name, "persona_id": c.persona_id,
         "status": c.status.value, "account_label": c.account_label, "last_error": c.last_error,
-        "last_activity_at": dt(c.last_activity_at),
+        "last_activity_at": dt(c.last_activity_at), "has_saved_credentials": saved_credentials,
     }
 
 

@@ -215,10 +215,10 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 ## Каналы
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/api/channels` | — | `{items: Channel[]}` |
+| GET | `/api/channels` | — | `{items: Channel[]}`; у канала `has_saved_credentials`: прошлое подключение сохранило данные, переподключить можно без ввода |
 | POST | `/api/channels` | `{kind, persona_id, name}` | `Channel` |
 | DELETE | `/api/channels/{id}` | — | `204` (отвязывает сессию) |
-| POST | `/api/channels/{id}/connect` | по kind: telegram `{bot_token}`; telegram_user `{api_id, api_hash, phone, proxy?}` (все значения строками); instagram `{username, password, proxy?}`; whatsapp `{}` | `ConnectState` |
+| POST | `/api/channels/{id}/connect` | по kind: telegram `{bot_token}`; telegram_user `{api_id, api_hash, phone, proxy?}` (все значения строками); instagram `{username, password, proxy?}`; whatsapp `{}` | `ConnectState`. Введённые данные сохраняются зашифрованно (`SIM_SECRET_KEY`, в той же `channel.session_enc` под `saved_credentials`): при повторном подключении пустое поле берётся из сохранённого, введённое заменяет его. У каналов, где вход прервался до этой версии, данные берутся из незавершённого входа (`pending`) |
 | POST | `/api/channels/{id}/verify` | telegram_user `{code}` (код входа, затем пароль 2FA тем же полем); instagram `{code}` (2FA / challenge) | `ConnectState` |
 | GET | `/api/channels/{id}/state` | — | `ConnectState` |
 

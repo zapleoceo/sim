@@ -58,3 +58,12 @@ describe('channel credentials', () => {
     expect(verifyValue('code', '12')).toBe('');
   });
 });
+
+describe('saved credentials', () => {
+  it('allows empty fields when the last connect saved them, but checks what was typed', () => {
+    expect(validateConnect('telegram_user', EMPTY_CONNECT)).toHaveProperty('api_id');
+    expect(validateConnect('telegram_user', EMPTY_CONNECT, true)).toEqual({});
+    expect(validateConnect('telegram_user', { ...EMPTY_CONNECT, phone: '12' }, true)).toEqual({ phone: 'Формат: +380501234567' });
+    expect(validateConnect('telegram', EMPTY_CONNECT, true)).toEqual({});
+  });
+});

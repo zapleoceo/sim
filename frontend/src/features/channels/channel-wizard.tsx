@@ -108,7 +108,7 @@ export function ChannelWizard({
   const connect = (ch: Channel | null = channel): void => {
     if (!ch) return;
     if (ch.kind !== 'whatsapp') {
-      const errors = validateConnect(ch.kind, creds);
+      const errors = validateConnect(ch.kind, creds, Boolean(ch.has_saved_credentials));
       setCredErrors(errors);
       if (Object.keys(errors).length) return;
     }
@@ -204,6 +204,11 @@ export function ChannelWizard({
           </form>
         )}
 
+        {step === 'connect' && channel?.has_saved_credentials && (
+          <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm" role="status">
+            Данные прошлого подключения сохранены (зашифрованы). Оставьте поля пустыми, чтобы подключить с ними, или введите новые.
+          </p>
+        )}
         {step === 'connect' && kind === 'telegram' && (
           <form id="wizard-form" onSubmit={submitConnect} noValidate className="flex flex-col gap-4">
             <HowTo>

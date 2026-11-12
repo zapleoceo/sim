@@ -254,6 +254,10 @@ worker ──▶ job(sim_reply): try_lock(NS_SIM, branch) → «печатает
 | WhatsApp | Evolution API v2 (Baileys, self-hosted) | QR-код в админке | webhook Evolution → `/hooks/evolution/{channel_id}` (внутренняя сеть, apikey) | неофициальный клиент, риск бана номера |
 | Instagram | instagrapi (private API) | логин/пароль (+2FA/challenge код) в админке | опрос раз в ~2 мин в worker | риск checkpoint/бана; прокси с geo как у логина |
 
+Данные подключения любого канала (токен бота, api_id / api_hash / телефон, логин, прокси) сохраняются
+зашифрованно в `channel.session_enc` под `saved_credentials` (`ChannelService.connect`), поэтому повторное подключение
+не требует ввода заново.
+
 Telegram-аккаунт (`telegram_user`): StringSession (api_id, api_hash, string_session, прокси) хранится
 зашифрованно в `channel.session_enc`; код входа и пароль 2FA нигде не сохраняются. Незавершённый
 вход лежит в сессии под `pending` (с `phone_code_hash`), поэтому переживает рестарт. Куда Telegram отправил код

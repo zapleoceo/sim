@@ -53,8 +53,18 @@ export const EMPTY_CONNECT: ConnectValues = {
 
 export type ConnectErrors = Partial<Record<keyof ConnectValues, string>>;
 
-/** Per-kind validation of the credentials step (same rules as the backend expects). */
-export function validateConnect(kind: ChannelKind, v: ConnectValues): ConnectErrors {
+/**
+ * Per-kind validation of the credentials step (same rules as the backend expects). With `saved`
+ * credentials an empty field is allowed: the backend reuses the saved value.
+ */
+export function validateConnect(kind: ChannelKind, v: ConnectValues, saved = false): ConnectErrors {
+  if (saved) {
+    // only what was typed is checked; empty fields fall back to the saved values
+    const full = validateConnect(kind, v);
+    return Object.fromEntries(
+      Object.entries(full).filter(([k]) => v[k as keyof ConnectValues].trim() !== ''),
+    ) as ConnectErrors;
+  }
   const e: ConnectErrors = {};
   const proxyBad = v.proxy.trim() !== '' && !PROXY_RE.test(v.proxy.trim());
   if (kind === 'telegram') {
