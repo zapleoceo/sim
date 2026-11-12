@@ -65,7 +65,7 @@ export function InboxFilters({
                 { value: "without", label: "Без аватара" }]}
             />
           </FilterField>
-          <FilterField label="Аватар / аккаунт">
+          <FilterField label="Аккаунт канала">
             <OptionSelect<number | null>
               value={filter.channel_id}
               onChange={(v) => set("channel_id", v)}
