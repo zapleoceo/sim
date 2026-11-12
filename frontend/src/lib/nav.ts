@@ -1,6 +1,6 @@
 import {
   Activity, BarChart3, Cable, Clapperboard, Filter, FlaskConical, Handshake, Images, MessagesSquare, Route as RouteIcon,
-  ShieldCheck, SlidersHorizontal, Smile, Users, type LucideIcon,
+  ShieldAlert, ShieldCheck, SlidersHorizontal, Smile, Users, type LucideIcon,
 } from 'lucide-react';
 import type { LinkProps } from '@tanstack/react-router';
 import type { Role } from './models';
@@ -16,7 +16,8 @@ export const NAV: readonly NavItem[] = [
   { path: '/dashboard', label: 'Аналитика', icon: BarChart3, group: 'work' },
   { path: '/activity', label: 'Активность', icon: Activity, group: 'work' },
   { path: '/personas', label: 'Персонажи', icon: Smile, access: 'owner', group: 'setup' },
-  { path: '/settings', label: 'Промпты', icon: SlidersHorizontal, access: 'owner', group: 'setup' },
+  { path: '/settings', label: 'Общие правила', icon: SlidersHorizontal, access: 'owner', group: 'setup' },
+  { path: '/guard', label: 'Охранник', icon: ShieldAlert, access: 'owner', group: 'setup' },
   { path: '/strategies', label: 'Стратегии', icon: RouteIcon, access: 'owner', group: 'setup' },
   { path: '/simulations', label: 'Симуляции', icon: FlaskConical, access: 'owner', group: 'setup' },
   { path: '/channels', label: 'Каналы', icon: Cable, access: 'owner', group: 'setup' },

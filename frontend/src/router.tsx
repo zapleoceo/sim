@@ -121,6 +121,13 @@ const settingsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'SettingsPage'),
 });
 
+const guardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/guard',
+  beforeLoad: ownerOnly,
+  component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'GuardPage'),
+});
+
 const strategiesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/strategies',
@@ -190,7 +197,7 @@ export const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
     indexRoute, studioRoute, inboxRoute, clientsRoute, clientRoute, activityRoute, funnelRoute, dashboardRoute,
-    personasRoute, personaNewRoute, personaRoute, settingsRoute, strategiesRoute, strategyNewRoute, strategyRoute, simulationsRoute,
+    personasRoute, personaNewRoute, personaRoute, settingsRoute, guardRoute, strategiesRoute, strategyNewRoute, strategyRoute, simulationsRoute,
     channelsRoute, contentRoute, partnerRoute, adminsRoute, fallbackRoute,
   ]),
 ]);
@@ -198,7 +205,7 @@ export const routeTree = rootRoute.addChildren([
 /** Page titles by first path segment (document.title). */
 export const TITLES: Record<string, string> = {
   login: 'Вход', studio: 'Студия', inbox: 'Диалоги', clients: 'Клиенты', activity: 'Активность', funnel: 'Воронка',
-  dashboard: 'Аналитика', personas: 'Персонажи', settings: 'Промпты', strategies: 'Стратегии', simulations: 'Симуляции', channels: 'Каналы',
+  dashboard: 'Аналитика', personas: 'Персонажи', settings: 'Общие правила', guard: 'Охранник', strategies: 'Стратегии', simulations: 'Симуляции', channels: 'Каналы',
   content: 'Контент', partner: 'Партнёр', admins: 'Администраторы',
 };
 

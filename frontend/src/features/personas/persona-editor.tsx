@@ -13,7 +13,7 @@ import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
 import { SelectControl } from './select-control';
 import { VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
 import {
-  EMPTY_PERSONA, GENDERS, countRules, personaFromForm, personaSchema, personaToForm, personaToInput, type PersonaFormValues,
+  EMPTY_PERSONA, personaFromForm, personaSchema, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
 
 /** Model options: «Авто» first, Broker models (unavailable ones disabled), and the saved value if Broker no longer lists it. */
@@ -60,7 +60,7 @@ export function PersonaEditor({
   });
   const { register, control, handleSubmit, formState } = form;
   const errors = formState.errors;
-  const [prohibitions, model, name, avatarUrl] = useWatch({ control, name: ['prohibitions', 'model', 'name', 'avatar_url'] });
+  const [model, name, avatarUrl] = useWatch({ control, name: ['model', 'name', 'avatar_url'] });
 
   const strategyOptions: Option<number | null>[] = [
     { value: null, label: 'Не выбрана' },
@@ -91,15 +91,6 @@ export function PersonaEditor({
         <Field label="Имя" error={errors.name?.message} className="sm:col-span-2 lg:col-span-1">
           <Input {...register('name')} autoComplete="off" />
         </Field>
-        <Field label="Возраст" error={errors.age?.message}>
-          <Input {...register('age')} inputMode="numeric" />
-        </Field>
-        <Field label="Пол" error={errors.gender?.message}>
-          <SelectControl control={control} name="gender" options={GENDERS} />
-        </Field>
-        <Field label="Язык" error={errors.language?.message}>
-          <Input {...register('language')} placeholder="ru" />
-        </Field>
         <Field label="Модель" hint={modelsUnavailable ? 'Список моделей недоступен — используется авто-цепочка' : undefined}>
           <SelectControl control={control} name="model" options={modelOptions(models, model)} />
         </Field>
@@ -116,20 +107,7 @@ export function PersonaEditor({
         <Textarea
           {...register('description')}
           className="min-h-72 max-h-[70vh]"
-          placeholder="Кто она: имя, возраст, профессия, откуда. Характер и манера держаться. Короткая биография. Как пишет: длина сообщений, «вы»/«ты», эмодзи, любимые обороты. Всё одним текстом, можно с заголовками и списками."
-        />
-      </Field>
-
-      <Field
-        label="Чего нельзя"
-        hint="Одно правило на строку. Этим же руководствуется контролер ответов."
-        error={errors.prohibitions?.message}
-        counter={`Правил: ${countRules(prohibitions ?? '')}`}
-      >
-        <Textarea
-          {...register('prohibitions')}
-          className="min-h-32 max-h-[50vh]"
-          placeholder={'Одно правило на строку:\nне обещать доход и гарантии\nне просить пароли и данные карт'}
+          placeholder="Кто она: возраст, откуда, семья, работа, характер, как пишет. Вся личность и легенда одним текстом. Ограничения задаются позже в симуляторе, здесь их писать не нужно."
         />
       </Field>
 

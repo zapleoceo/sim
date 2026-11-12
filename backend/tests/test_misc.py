@@ -52,7 +52,7 @@ async def test_seed_is_idempotent_and_complete(container):
         assert p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
         assert p.name in system and "Сама никогда не говори, что ты ИИ" in system
-        assert p.description and p.prohibitions and "Чего нельзя никогда" in system
+        assert p.description and p.prohibitions == "" and "Чего нельзя никогда" not in system   # wide freedom
         assert "виртуальная помощница" not in system and "If asked directly what you are" not in system
 
 
@@ -80,9 +80,8 @@ async def test_seed_fills_only_empty_persona_texts(container):
     async with container.factory() as s:
         marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
     assert marina.description == "Своё описание владельца"     # owner edit survives
-    assert "не давить и не торопить" in marina.prohibitions            # empty -> filled
-    assert eva.description.startswith("Я Ева, мне 39") and "национальных стереотипов" in eva.prohibitions
-    assert "не обесценивать трудности" in marina.prohibitions
+    assert marina.prohibitions == ""                                    # no default prohibitions
+    assert eva.description.startswith("Я Ева, мне 39")                 # empty -> filled
 
 
 async def test_apply_persona_prompts_overwrites_seeded_texts(container):

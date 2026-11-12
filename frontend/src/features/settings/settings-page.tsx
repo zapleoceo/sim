@@ -89,14 +89,23 @@ function SettingField({ item }: { item: AppSettingItem }) {
   );
 }
 
-/** All shared prompts and tunables on one page; every field is open, no hidden sections. */
-export function SettingsPage() {
+/** Settings of one or more groups on one page; every field is open, no hidden sections. */
+function SettingsView({ title, subtitle, only, except }: {
+  title: string;
+  subtitle: string;
+  /** Show only these groups (by name). */
+  only?: readonly string[];
+  /** Hide these groups (by name). */
+  except?: readonly string[];
+}) {
   const query = useQuery({ queryKey: qk.settings, queryFn: settingsApi.list });
-  const groups = groupSettings(query.data ?? []);
+  const groups = groupSettings(query.data ?? []).filter(
+    (g) => (!only || only.includes(g.name)) && !(except ?? []).includes(g.name),
+  );
 
   return (
     <Page width="narrow">
-      <PageHeader title="Промпты" subtitle="Общие для всех персонажей. Хранятся в базе: деплой их не сбрасывает." />
+      <PageHeader title={title} subtitle={subtitle} />
       {query.isPending && (
         <div className="flex flex-col gap-4" aria-busy="true">
           <Skeleton className="h-40 w-full" />
@@ -117,5 +126,30 @@ export function SettingsPage() {
         </section>
       ))}
     </Page>
+  );
+}
+
+/** The pre-send guard is its own role with its own prompt and Broker route. */
+export const GUARD_GROUP = 'Охранник';
+
+/** Shared rules for every persona (the guard has its own page). */
+export function SettingsPage() {
+  return (
+    <SettingsView
+      title="Общие правила"
+      subtitle="Одинаковы для всех персонажей. Хранятся в базе: деплой их не сбрасывает."
+      except={[GUARD_GROUP]}
+    />
+  );
+}
+
+/** The guard: checks every reply before it is sent, only the critical rules. */
+export function GuardPage() {
+  return (
+    <SettingsView
+      title="Охранник"
+      subtitle="Проверяет каждый ответ перед отправкой. Только критичные правила; остальное задаётся в симуляторе. Правило честности на прямой вопрос «ты бот?» неизменяемое."
+      only={[GUARD_GROUP]}
+    />
   );
 }

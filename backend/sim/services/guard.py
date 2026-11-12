@@ -14,8 +14,11 @@ once more (anything but ok = block); block -> nothing is sent, an operator is ca
 Fail closed: a broker error / unparseable verdict raises GuardError (an LLMError), the job
 retries with backoff; an unguarded message is never produced.
 
-Prompt caching: the guard system prompt depends only on persona prohibitions and strategy
-rules (no dates, ids or client data); everything variable travels in the user message."""
+Scope: only the critical checks (honesty floor + the owner's guard rules). Persona and strategy
+wishes are not checked here; personas get wide freedom, restrictions are tuned in the simulator.
+
+Prompt caching: the guard system prompt depends only on the guard rules (no persona, dates, ids
+or client data); everything variable travels in the user message."""
 from __future__ import annotations
 
 import json
@@ -28,13 +31,9 @@ from sim.services.humanize import plain_punctuation
 from sim.services.llm_audit import AuditedLLM
 from sim.services.prompt import (
     HISTORY_LIMIT,
-    PROHIBITIONS_HEADING,
-    PersonaProfile,
-    StrategyProfile,
     Turn,
     extract_json_object,
     one_line,
-    prohibition_rules,
 )
 
 log = logging.getLogger(__name__)
@@ -55,17 +54,12 @@ GUARD_HEADER = """Ты контролер перед отправкой: про�
 1. Честность: если клиент прямо и всерьёз спрашивает, говорит ли он с живым человеком, ботом или ИИ, ответ не должен утверждать, что персонаж человек. Ответ, который утверждает, что персонаж человек, в ответ на такой вопрос нужно ЗАБЛОКИРОВАТЬ (block)."""
 
 # Owner-editable (app_setting "guard_rules"); the header above with the honesty floor is fixed.
-GUARD_RULES = """2. Роль: ответ, в котором персонаж без вопроса сам говорит, что он ИИ, бот, ассистент или персонаж/образ (в том числе в ответах о своей жизни, доме или вечере), или выходит из роли с оговорками ("как ИИ я"), нужно ИСПРАВИТЬ (rewrite), чтобы персонаж остался в роли.
-3. Никаких обещаний дохода, заработка или гарантированного результата.
-4. Никогда не просить пароли, коды и данные карт.
-5. Никаких ссылок, кроме тех, что в "allowed_links".
-6. Никаких медицинских, юридических и финансовых советов в роли специалиста.
-7. Никакой политики, религии и войны.
-8. Уважать просьбу не писать: если клиент попросил больше не писать, ответ не должен продолжать продавать (короткое вежливое прощание можно).
-9. Никаких выдуманных фактов о партнёре, его ценах и условиях.
-10. Никакого мата, оскорблений и давления на клиента.
+GUARD_RULES = """2. Никогда не просить пароли, коды из SMS и данные карт.
+3. Никаких ссылок, кроме тех, что в "allowed_links".
+4. Никаких обещаний гарантированного дохода или результата.
+5. Уважать просьбу не писать: если клиент попросил больше не писать, ответ не должен продолжать продавать (короткое вежливое прощание можно).
 
-НЕ НАРУШЕНИЯ: непринуждённый стиль мессенджера задуман специально. Маленькие буквы, простая пунктуация, разговорные слова и редкая мелкая опечатка никогда не повод исправлять. Факты о самом разговоре (что клиент спрашивал или говорил раньше) не твои правила: никогда не исправляй черновик ради согласованности с прошлыми репликами, старые реплики могут отсутствовать в "dialog"."""
+ВСЁ ОСТАЛЬНОЕ НЕ НАРУШЕНИЕ: у персонажа широкая свобода. Тон, стиль, темы, шутки, маленькие буквы, опечатки, рассказы о своей жизни не повод исправлять. Не исправляй черновик ради согласованности с прошлыми репликами: старые реплики могут отсутствовать в "dialog"."""
 
 GUARD_VERDICT_RULES = """ВЕРДИКТЫ:
 - ok: черновик ничего не нарушает.
@@ -101,17 +95,10 @@ class GuardOutcome:
         return self.verdict != BLOCKED
 
 
-def guard_system_prompt(
-    persona: PersonaProfile, strategy: StrategyProfile, rules_text: str = GUARD_RULES
-) -> str:
-    lines = [GUARD_HEADER, rules_text.strip(), ""]
-    rules = prohibition_rules(persona.prohibitions)
-    lines.append(f"PERSONA PROHIBITIONS ({PROHIBITIONS_HEADING}):")
-    lines += [f"- {rule}" for rule in rules] or ["- (none)"]
-    lines += ["", "STRATEGY RULES:"]
-    lines += [f"- {rule}" for rule in strategy.rules] or ["- (none)"]
-    lines += ["", GUARD_VERDICT_RULES]
-    return "\n".join(lines)
+def guard_system_prompt(rules_text: str = GUARD_RULES) -> str:
+    """The guard checks only the critical rules: the fixed honesty floor and the owner-editable
+    rules. Persona and strategy wishes are not its business (they are tuned in the simulator)."""
+    return "\n".join([GUARD_HEADER, rules_text.strip(), "", GUARD_VERDICT_RULES])
 
 
 def guard_user_message(
@@ -166,18 +153,18 @@ class Guard:
         fallback_capability: str,
         rules_text: str = GUARD_RULES,
         history_limit: int = GUARD_HISTORY_TURNS,
+        model: str = "",
     ) -> None:
         self.llm = llm
         self.capability = capability
         self.fallback_capability = fallback_capability
         self.rules_text = rules_text
         self.history_limit = history_limit
+        self.model = model  # owner setting "guard_model": exact Broker model; "" = the route decides
 
     async def review(  # noqa: PLR0913
         self,
         *,
-        persona: PersonaProfile,
-        strategy: StrategyProfile,
         history: list[Turn],
         draft: str,
         stage: Stage,
@@ -186,7 +173,7 @@ class Guard:
         dialog_id: int | None,
         workflow: str = GUARD_WORKFLOW,
     ) -> GuardOutcome:
-        system = guard_system_prompt(persona, strategy, self.rules_text)
+        system = guard_system_prompt(self.rules_text)
 
         async def run(text: str) -> tuple[GuardVerdict, str | None]:
             payload = guard_user_message(history, text, stage, allowed_links, self.history_limit)
@@ -215,7 +202,7 @@ class Guard:
         dialog_id: int | None,
         workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
-        result = await self.call(messages, self.capability, dialog_id, workflow)
+        result = await self.call(messages, self.capability, dialog_id, workflow, self.model)
         if same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",
@@ -228,10 +215,16 @@ class Guard:
             raise GuardError(f"guard returned an unusable verdict (model={result.model})")
         return verdict, result.model
 
-    async def call(
-        self, messages: list[dict[str, str]], capability: str, dialog_id: int | None, workflow: str
+    async def call(  # noqa: PLR0913
+        self,
+        messages: list[dict[str, str]],
+        capability: str,
+        dialog_id: int | None,
+        workflow: str,
+        model: str = "",
     ) -> LLMResult:
+        """The fallback call never pins a model: it must land on another rotation."""
         return await self.llm.chat(
-            messages, capability=capability, json_mode=True,
+            messages, capability=capability, model=model or None, json_mode=True,
             workflow=workflow, dialog_id=dialog_id,
         )

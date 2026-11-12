@@ -13,7 +13,6 @@ from sim.clock import utcnow
 from sim.domain.enums import Author, Delivery, Stage
 from sim.ports.llm import LLMError, LLMResult
 from sim.services import jobkinds
-from sim.services.conversation import persona_profile, strategy_profile
 from sim.services.guard import (
     GUARD_HISTORY_TURNS,
     GuardError,
@@ -21,7 +20,7 @@ from sim.services.guard import (
     guard_user_message,
     parse_verdict,
 )
-from sim.services.prompt import PersonaProfile, StrategyProfile, Turn
+from sim.services.prompt import Turn
 from sim.worker.loop import Worker
 from tests.conftest import OWNER, decision_json, guard_json, inbound, login
 from tests.test_conversation import run_reply, start, state
@@ -285,23 +284,23 @@ async def test_operator_messages_are_not_guarded(container, world, fake_llm, con
 
 
 # ---- prompts ------------------------------------------------------------------------------
-PERSONA = PersonaProfile(name="Марина", description="тёплая", prohibitions="- не обещать доход\nбез мата")
-STRATEGY = StrategyProfile(rules=["не дави"], registration_url="https://rcipm.com/?ref={ref}")
-
-
-def test_guard_system_prompt_has_persona_prohibitions_strategy_rules_and_global_rules():
-    system = guard_system_prompt(PERSONA, STRATEGY)
-    assert "- не обещать доход" in system and "- без мата" in system and "- не дави" in system
-    for rule in ("пароли, коды и данные карт", "Никаких ссылок, кроме", "дохода",
-                 "медицинских, юридических и финансовых", "политики, религии и войны", "просьбу не писать",
-                 "выдуманных фактов о партнёре"):
+def test_guard_checks_only_the_critical_rules():
+    system = guard_system_prompt()
+    for rule in ("пароли, коды из SMS и данные карт", "Никаких ссылок, кроме", "гарантированного дохода",
+                 "просьбу не писать"):
         assert rule in system
-    # honesty floor: BLOCK a human claim on a direct question; voice: REWRITE volunteered AI talk
+    # honesty floor: BLOCK a human claim on a direct question (fixed, not editable)
     assert "не должен утверждать, что персонаж человек" in system and "ЗАБЛОКИРОВАТЬ" in system
-    assert "без вопроса сам говорит, что он ИИ" in system and "ИСПРАВИТЬ" in system
-    # the messenger style is not a violation, and the truncated dialog is not a fact source
-    assert "редкая мелкая опечатка никогда не повод исправлять" in system
-    assert "никогда не исправляй черновик ради согласованности с прошлыми репликами" in system
+    # everything else is the persona's freedom
+    for gone in ("медицинских", "политики", "выдуманных фактов", "мата", "без вопроса сам говорит, что он ИИ"):
+        assert gone not in system
+    assert "ВСЁ ОСТАЛЬНОЕ НЕ НАРУШЕНИЕ" in system and "широкая свобода" in system
+    assert "не исправляй черновик ради согласованности с прошлыми репликами" in system
+
+
+def test_guard_prompt_ignores_persona_and_strategy_and_uses_the_owner_rules():
+    assert "мои правила" in guard_system_prompt("мои правила")
+    assert "не должен утверждать, что персонаж человек" in guard_system_prompt("мои правила")
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():
@@ -316,14 +315,11 @@ def test_guard_rewrite_gets_plain_messenger_punctuation():
     assert verdict is not None and verdict.fixed_reply == 'Ну смотри - это "просто", правда...'
 
 
-def test_guard_system_prompt_is_byte_stable_per_persona():
-    a = guard_system_prompt(PERSONA, STRATEGY)
-    b = guard_system_prompt(PERSONA, STRATEGY)
+def test_guard_system_prompt_is_byte_stable():
+    a, b = guard_system_prompt(), guard_system_prompt()
     assert a == b
-    for noise in ("2026", "ref=", "{ref}", "Анна"):
+    for noise in ("2026", "ref=", "{ref}", "Анна", "Марина"):
         assert noise not in a
-    other = guard_system_prompt(PersonaProfile(name="Ева", prohibitions="не спорить"), STRATEGY)
-    assert other != a and "не спорить" in other
 
 
 def test_guard_user_message_has_last_turns_draft_stage_and_links_only_here():
@@ -348,8 +344,7 @@ async def test_guard_prompt_sent_to_the_broker_is_identical_for_two_clients(cont
     first, second = (c[0] for c in fake_llm.guard_calls)
     assert first[0] == second[0]                       # system: byte-identical
     assert first[1] != second[1]                       # user: variable data
-    persona = persona_profile(world.persona)
-    assert first[0]["content"] == guard_system_prompt(persona, strategy_profile(world.strategy))
+    assert first[0]["content"] == guard_system_prompt()
 
 
 # ---- preview and analytics ----------------------------------------------------------------
