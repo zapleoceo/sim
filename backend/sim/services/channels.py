@@ -88,6 +88,10 @@ class ChannelService:
             raise ChannelError(f"channel kind {kind.value} is not available")
         return await self.channels.add(Channel(kind=kind, persona_id=persona_id, name=name))
 
+    def saved(self, channel: Channel) -> dict[str, str]:
+        """The credentials a reconnect reuses (owner-only: the connect form shows them)."""
+        return saved_credentials(self.box.decrypt_json(channel.session_enc))
+
     def has_saved_credentials(self, channel: Channel) -> bool:
         return bool(saved_credentials(self.box.decrypt_json(channel.session_enc)))
 

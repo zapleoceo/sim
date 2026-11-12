@@ -1,5 +1,5 @@
 import {
-  EMPTY_CONNECT, connectBody, nextStep, pollingDone, validateConnect, verifyValue,
+  EMPTY_CONNECT, connectBody, nextStep, pollingDone, prefillConnect, validateConnect, verifyValue,
 } from './channel-wizard-logic';
 
 describe('channel wizard step machine', () => {
@@ -65,5 +65,11 @@ describe('saved credentials', () => {
     expect(validateConnect('telegram_user', EMPTY_CONNECT, true)).toEqual({});
     expect(validateConnect('telegram_user', { ...EMPTY_CONNECT, phone: '12' }, true)).toEqual({ phone: 'Формат: +380501234567' });
     expect(validateConnect('telegram', EMPTY_CONNECT, true)).toEqual({});
+  });
+});
+
+describe('prefill', () => {
+  it('maps saved credentials onto the form and ignores unknown keys', () => {
+    expect(prefillConnect({ api_id: '1', phone: '+1', secret: 'x' })).toEqual({ ...EMPTY_CONNECT, api_id: '1', phone: '+1' });
   });
 });

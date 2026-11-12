@@ -100,6 +100,7 @@ describe('ChannelsPage', () => {
     const log = fakeApi({
       'GET /api/channels': { items: [tgUser] },
       'GET /api/personas': { items: [persona] },
+      'GET /api/channels/6/credentials': { api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567' },
       'POST /api/channels/6/connect': { status: 'challenge', need: 'code', message: 'Код отправлен в приложение Telegram' },
     });
     const user = userEvent.setup();
@@ -107,8 +108,10 @@ describe('ChannelsPage', () => {
     await user.click(within(await screen.findByRole('article', { name: 'Marina' })).getByRole('button', { name: 'Подключить' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('status')).toHaveTextContent('Данные прошлого подключения сохранены');
+    await waitFor(() => expect(within(dialog).getByLabelText('api_id')).toHaveValue('12345'));
+    expect(within(dialog).getByLabelText('Телефон аккаунта')).toHaveValue('+380501234567');
     await user.click(within(dialog).getByRole('button', { name: 'Подключить' }));
     expect(await within(dialog).findByLabelText('Код')).toBeInTheDocument();
-    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '', api_hash: '', phone: '' });
+    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567' });
   });
 });
