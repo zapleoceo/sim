@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { ErrorState } from '@/components/empty-state';
 import { Field } from '@/components/field';
+import { modelOptions } from '@/components/model-options';
+import { OptionSelect } from '@/components/option-select';
 import { Page, PageHeader } from '@/components/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,11 +13,35 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { personasApi } from '@/lib/api/personas';
 import { settingsApi } from '@/lib/api/settings';
 import { formatDateTime } from '@/lib/format';
 import type { AppSettingItem } from '@/lib/models';
 import { qk } from '@/lib/query';
-import { groupSettings, parseSettingValue, replaceSetting, settingHint } from './settings-logic';
+import { groupSettings, parseSettingValue, pickSettings, replaceSetting, settingHint } from './settings-logic';
+
+const MODEL_AUTO = 'По умолчанию — маршрут Broker';
+
+/** A Broker model picker; falls back to a plain input when Broker does not answer. */
+function ModelInput({ value, onChange, ...control }: {
+  value: string;
+  onChange: (v: string) => void;
+  id?: string;
+  'aria-invalid'?: boolean;
+  'aria-describedby'?: string;
+}) {
+  const models = useQuery({ queryKey: qk.models, queryFn: personasApi.models, retry: false });
+  if (models.isError) return <Input {...control} value={value} onChange={(e) => onChange(e.target.value)} />;
+  return (
+    <OptionSelect
+      {...control}
+      value={value}
+      onChange={onChange}
+      options={modelOptions(models.data ?? [], value, MODEL_AUTO)}
+      disabled={models.isPending}
+    />
+  );
+}
 
 /** One setting: always open, own draft, «Сохранить» and «Вернуть по умолчанию». */
 function SettingField({ item }: { item: AppSettingItem }) {
@@ -52,7 +78,9 @@ function SettingField({ item }: { item: AppSettingItem }) {
   return (
     <div className="flex flex-col gap-2">
       <Field label={item.label} hint={settingHint(item)} error={error}>
-        {item.kind === 'text' ? (
+        {item.kind === 'model' ? (
+          <ModelInput value={draft} onChange={setDraft} />
+        ) : item.kind === 'text' ? (
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -90,16 +118,18 @@ function SettingField({ item }: { item: AppSettingItem }) {
 }
 
 /** Settings of one or more groups on one page; every field is open, no hidden sections. */
-function SettingsView({ title, subtitle, only, except }: {
+function SettingsView({ title, subtitle, only, except, keys }: {
   title: string;
   subtitle: string;
   /** Show only these groups (by name). */
   only?: readonly string[];
   /** Hide these groups (by name). */
   except?: readonly string[];
+  /** Show only these settings, in this order (other keys of the group stay in the DB). */
+  keys?: readonly string[];
 }) {
   const query = useQuery({ queryKey: qk.settings, queryFn: settingsApi.list });
-  const groups = groupSettings(query.data ?? []).filter(
+  const groups = groupSettings(pickSettings(query.data ?? [], keys)).filter(
     (g) => (!only || only.includes(g.name)) && !(except ?? []).includes(g.name),
   );
 
@@ -143,13 +173,17 @@ export function SettingsPage() {
   );
 }
 
+/** What the guard page shows: the model and the instructions; Broker routes stay a backend fallback. */
+export const GUARD_KEYS = ['guard_model', 'guard_rules'] as const;
+
 /** The guard: checks every reply before it is sent, only the critical rules. */
 export function GuardPage() {
   return (
     <SettingsView
       title="Охранник"
-      subtitle="Проверяет каждый ответ перед отправкой. Только критичные правила; остальное задаётся в симуляторе. Правило честности на прямой вопрос «ты бот?» неизменяемое."
+      subtitle="Проверяет каждый ответ перед отправкой. Правило честности на прямой вопрос «ты бот?» неизменяемое."
       only={[GUARD_GROUP]}
+      keys={GUARD_KEYS}
     />
   );
 }
