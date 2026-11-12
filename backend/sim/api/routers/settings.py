@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from sim.api.deps import App, Authed, Db, Owner
 from sim.api.schemas import Body, dt
 from sim.services.app_settings import AppSettingsService, SettingError, SettingItem, env_defaults
+from sim.services.guard import GUARD_HONESTY
+from sim.services.prompt import HONESTY_RULE
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -36,7 +38,12 @@ def not_found_or_invalid(exc: SettingError) -> HTTPException:
 
 @router.get("")
 async def list_settings(c: App, s: Db, _: Authed):
-    return {"items": [setting_out(i) for i in await service(c, s).items()]}
+    """`fixed`: the only texts that are not editable (the honesty rule after the persona prompt
+    and after the guard prompt), shown read-only so the owner sees every prompt."""
+    return {
+        "items": [setting_out(i) for i in await service(c, s).items()],
+        "fixed": {"persona": HONESTY_RULE, "guard": GUARD_HONESTY},
+    }
 
 
 @router.put("/{key}")

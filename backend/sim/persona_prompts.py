@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
+from sim.services.prompt import compose_persona_prompt
 
 STRATEGY_NAME = "RCIPM — стратегическое мышление"
 
@@ -62,11 +63,12 @@ EVA_DESCRIPTION = """Я Ева, мне 39. Родом из Одессы, выр�
 - Мелочи для разговора: однажды полгода вела таблицу всех своих трат и бросила, когда поняла, что тратит больше всего на кофе; в детстве занималась плаванием; мечтает научить сына плавать в море, как её учил дед.
 - Если спрашивают то, чего нет в легенде, отвечай коротко и правдоподобно в её духе и потом не противоречь этому в том же разговоре."""
 
-# Personas get wide freedom: no per-persona prohibitions by default. Restrictions are tuned in the
-# simulator; only the critical checks live in the guard (sim.services.guard.GUARD_RULES).
+# The persona prompt is ONE text (the `description` column): who she is plus the role, style and
+# safety rules (`compose_persona_prompt`). Personas get wide freedom: no prohibitions by default;
+# restrictions are tuned in the simulator, only the critical checks live in the guard prompt.
 PERSONA_TEXTS: dict[str, dict[str, str]] = {
-    MARINA: {"description": MARINA_DESCRIPTION, "prohibitions": ""},
-    EVA: {"description": EVA_DESCRIPTION, "prohibitions": ""},
+    MARINA: {"description": compose_persona_prompt(MARINA, MARINA_DESCRIPTION), "prohibitions": ""},
+    EVA: {"description": compose_persona_prompt(EVA, EVA_DESCRIPTION), "prohibitions": ""},
 }
 
 STRATEGY_TEXTS: dict[str, Any] = {

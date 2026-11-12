@@ -76,9 +76,20 @@ describe('personas pages', () => {
     backend({ 'POST /api/personas': { ...MARINA, id: 7, name: 'Анна' } });
     const { router } = await renderApp('/personas/new');
     await userEvent.type(await screen.findByLabelText('Имя'), 'Анна');
-    await userEvent.type(screen.getByLabelText('Описание персоны'), 'Спокойная');
+    await userEvent.type(screen.getByLabelText('Промпт персонажа'), 'Спокойная');
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas/7'));
+  });
+
+  it('shows the full prompt the model gets, with the fixed honesty rule', async () => {
+    const log = backend({
+      'GET /api/personas/1/prompt': { system: 'Ты Марина.\n\nЧЕСТНОСТЬ: …\n\nСТРАТЕГИЯ', fixed: 'ЧЕСТНОСТЬ: …' },
+    });
+    await renderApp('/personas/1');
+    expect(log.some((r) => r.path === '/api/personas/1/prompt')).toBe(false);     // loaded on demand
+    await userEvent.click(await screen.findByText('Полный промпт, который получает модель'));
+    expect(await screen.findByLabelText('Полный промпт')).toHaveTextContent('СТРАТЕГИЯ');
+    expect(screen.getByText(/не редактируется/)).toBeInTheDocument();
   });
 
   it('says when the persona does not exist (Broker models unavailable is not fatal)', async () => {

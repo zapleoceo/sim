@@ -1,5 +1,5 @@
 import type {
-  BrokerModel, ListResponse, Persona, PersonaIn, PreviewAttachment, PreviewResponse, PreviewTurn,
+  BrokerModel, ListResponse, Persona, PersonaIn, PersonaPrompt, PreviewAttachment, PreviewResponse, PreviewTurn,
 } from '../models';
 import { http } from './http';
 
@@ -22,6 +22,8 @@ export const personasApi = {
     form.append('voice', String(voice));
     return http.post<PreviewAttachment>(`/api/personas/${id}/preview/attachment`, form, { silent: true });
   },
+  /** The persona's full system prompt (saved settings), with the fixed honesty rule marked. */
+  prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
 };

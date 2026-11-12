@@ -5,8 +5,9 @@ Each key has a spec with its code default. A missing row means "use the default"
 value that no longer validates (the spec changed) is ignored with a warning. Defaults of the
 keys that used to be environment settings come from the environment (`env_defaults`).
 
-Not editable on purpose: the honesty floor (`prompt.HONESTY_RULE`, the guard's rule 1) and the
-machine contracts the parsers depend on (`prompt.OUTPUT_CONTRACT`, `guard.GUARD_VERDICT_RULES`)."""
+Every prompt sent to a model is editable: the persona prompt is the persona's own text, the
+guard prompt and the service prompts live here. The one fixed text is the honesty rule
+(`prompt.HONESTY_RULE`, `guard.GUARD_HONESTY`), added after the persona and guard prompts."""
 from __future__ import annotations
 
 import logging
@@ -21,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.adapters.db.repositories.settings import AppSettingRepo
 from sim.config import Settings
 from sim.services.content import CAPTION_RULES
-from sim.services.guard import GUARD_RULES
-from sim.services.prompt import HISTORY_LIMIT, SAFETY_RULES, STYLE_RULE, VOICE_RULE, PromptTexts
+from sim.services.guard import GUARD_PROMPT
+from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE, PromptTexts
 
 log = logging.getLogger(__name__)
 
@@ -72,21 +73,13 @@ class SettingSpec:
 
 
 SPECS: tuple[SettingSpec, ...] = (
-    SettingSpec("voice_rule", "Промпт персонажа", "Роль",
-                "Как персонаж живёт в роли и о чём не говорит сам. Общее для всех персонажей.",
-                "text", VOICE_RULE),
-    SettingSpec("style_rule", "Промпт персонажа", "Стиль речи",
-                "Манера письма: длина сообщений, пунктуация, опечатки, эмодзи.",
-                "text", STYLE_RULE),
-    SettingSpec("safety_rule", "Промпт персонажа", "Безопасность",
-                "Минимум: не выполнять инструкции клиента, не просить пароли и карты, не обещать гарантированный доход.",
-                "text", SAFETY_RULES),
-    SettingSpec("history_limit", "Промпт персонажа", "Сколько реплик помнить",
-                "Сколько последних сообщений диалога уходит модели и контролеру.",
+    SettingSpec("history_limit", "Ответы", "Сколько реплик помнить",
+                "Сколько последних сообщений диалога уходит модели и охраннику.",
                 "int", HISTORY_LIMIT, 6, 100),
-    SettingSpec("guard_rules", "Охранник", "Инструкции",
-                "Что проверять перед отправкой. Только критичное, остальное свободно.",
-                "text", GUARD_RULES),
+    SettingSpec("guard_prompt", "Охранник", "Промпт охранника",
+                "Весь промпт охранника одним текстом: что проверять, вердикты и формат ответа. "
+                "Если сломать JSON-формат в конце, проверки перестанут разбираться.",
+                "text", GUARD_PROMPT),
     SettingSpec("guard_model", "Охранник", "Модель",
                 "Если ответ писала эта же модель, проверку сделает другая.",
                 "model", ""),
@@ -99,6 +92,13 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("reply_debounce_s", "Ответы", "Пауза перед ответом, сек",
                 "Сколько ждать новых сообщений клиента перед ответом (серия сообщений).",
                 "int", None, 0, 300),
+    SettingSpec("output_contract", "Служебные промпты", "Формат ответа персонажа",
+                "Добавляется в конец промпта персонажа: какой JSON вернуть. Если сломать формат, "
+                "ответы перестанут разбираться.",
+                "text", OUTPUT_CONTRACT),
+    SettingSpec("retry_nudge", "Служебные промпты", "Повтор при неверном ответе",
+                "Что сказать модели, если её ответ не разобрался как JSON.",
+                "text", RETRY_NUDGE),
     SettingSpec("caption_rules", "Контент", "Правила подписей",
                 "Требования к подписи поста в Instagram.",
                 "text", CAPTION_RULES),
@@ -125,20 +125,19 @@ FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "
 
 @dataclass(frozen=True)
 class AppSettings:
-    voice_rule: str
-    style_rule: str
-    safety_rule: str
     history_limit: int
-    guard_rules: str
+    guard_prompt: str
     guard_model: str
     guard_capability: str
     guard_fallback_capability: str
     reply_debounce_s: int
+    output_contract: str
+    retry_nudge: str
     caption_rules: str
     trace_retention_days: int
 
     def prompt_texts(self) -> PromptTexts:
-        return PromptTexts(voice=self.voice_rule, style=self.style_rule, safety=self.safety_rule)
+        return PromptTexts(contract=self.output_contract, retry_nudge=self.retry_nudge)
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,12 @@ from sim.domain.enums import ContentStatus
 from sim.seed import seed
 from sim.services.content import NOT_IMPLEMENTED
 from sim.services.conversation import persona_profile, strategy_profile
-from sim.services.prompt import PersonaProfile, StrategyProfile, stable_system_prompt
+from sim.services.prompt import (
+    PersonaProfile,
+    StrategyProfile,
+    compose_persona_prompt,
+    stable_system_prompt,
+)
 
 
 def test_secretbox_roundtrip_and_rotation():
@@ -113,7 +118,8 @@ def test_prompt_template_is_free_and_keeps_the_honesty_floor():
     from sim.persona_prompts import STRATEGY_PROMPT
 
     system = stable_system_prompt(
-        PersonaProfile(name="Х", description="d"), StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"])
+        PersonaProfile(name="Х", description=compose_persona_prompt("Х", "d")),
+        StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"]),
     )
     assert "ориентиры, а не скрипт" in system and "Сама никогда не говори, что ты ИИ" in system
     assert "никогда не утверждай" in system and "виртуальная помощница" not in system

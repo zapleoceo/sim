@@ -14,7 +14,9 @@ from sim.services.prompt import (
     PersonaProfile,
     StrategyProfile,
     Turn,
+    PromptTexts,
     build_messages,
+    compose_persona_prompt,
     dynamic_context,
     handoff_link,
     parse_decision,
@@ -24,8 +26,10 @@ from sim.services.prompt import (
 
 PERSONA = PersonaProfile(
     name="Марина", age=45, language="ru",
-    description="Характер: тёплая. Биография: 20 лет в проектах.",
-    prohibitions="- не обещать доход\n2. не просить пароли\n\nбез мата",
+    description=compose_persona_prompt(
+        "Марина", "Характер: тёплая. Биография: 20 лет в проектах.",
+        prohibitions="- не обещать доход\n2. не просить пароли\n\nбез мата",
+    ),
 )
 STRATEGY = StrategyProfile(
     name="S", goal="регистрация", offer="курс", partner_name="RCIPM",
@@ -88,6 +92,21 @@ def test_description_and_prohibitions_sections():
     assert block.splitlines() == ["- не обещать доход", "- не просить пароли", "- без мата"]
     # prohibitions come before the strategy rules
     assert system.index("Чего нельзя никогда") < system.index("СТРАТЕГИЯ") < system.index("ПРАВИЛА:")
+
+
+def test_the_persona_prompt_is_the_owner_text_then_honesty_strategy_and_format():
+    own = PersonaProfile(name="Х", description="Мой промпт целиком.", prohibitions="не трогать")
+    system = stable_system_prompt(own, STRATEGY, PromptTexts(contract="ФОРМАТ: мой"))
+    assert system.startswith(f"Мой промпт целиком.\n\n{HONESTY_RULE}\n\nСТРАТЕГИЯ")
+    assert system.endswith("ФОРМАТ: мой")
+    assert "не трогать" not in system            # prohibitions were folded into the text (0014)
+    assert VOICE_RULE not in system and STYLE_RULE not in system   # no hidden shared rules
+
+
+def test_compose_persona_prompt_puts_who_she_is_first():
+    text = compose_persona_prompt("Ева", "Я Ева.")
+    assert text.startswith("Ты Ева.\n\nЯ Ева.") and VOICE_RULE in text and STYLE_RULE in text
+    assert compose_persona_prompt("Ева", "Ты Ева, 39 лет.").startswith("Ты Ева, 39 лет.")
 
 
 def test_no_prohibitions_section_when_empty():

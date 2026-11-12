@@ -37,14 +37,10 @@ from sim.services.prompt import (
     handoff_link,
     parse_decision,
     registration_link,
+    stable_system_prompt,
 )
 
 log = logging.getLogger(__name__)
-
-RETRY_NUDGE = (
-    "Твой предыдущий ответ не был корректным JSON-объектом. Ответь ещё раз ТОЛЬКО JSON-объектом, "
-    "описанным в разделе ФОРМАТ ОТВЕТА."
-)
 
 
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
@@ -164,7 +160,7 @@ class ConversationService:
                 self.llm,
                 capability=cfg.guard_capability,
                 fallback_capability=cfg.guard_fallback_capability,
-                rules_text=cfg.guard_rules,
+                prompt_text=cfg.guard_prompt,
                 history_limit=cfg.history_limit,
                 model=cfg.guard_model,
             )
@@ -177,6 +173,14 @@ class ConversationService:
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
             texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
+        )
+
+    async def system_prompt(self, persona: Persona) -> str:
+        """The exact stable system message this persona sends to its model (for the admin)."""
+        cfg = await self.config()
+        strategy = await self.strategy_for(persona.id)
+        return stable_system_prompt(
+            persona_profile(persona), strategy_profile(strategy), cfg.prompt_texts()
         )
 
     async def strategy_for(self, persona_id: int) -> Strategy:
@@ -245,7 +249,8 @@ class ConversationService:
         decision = self.usable_decision(result, workflow, dialog_id)
         if decision is None:
             log.warning("unusable decision (workflow=%s dialog=%s), retrying", workflow, dialog_id)
-            retry = [*messages, {"role": "system", "content": RETRY_NUDGE}]
+            nudge = (await self.config()).prompt_texts().retry_nudge
+            retry = [*messages, {"role": "system", "content": nudge}]
             result = await self.llm.chat(
                 retry,
                 capability="chat:sales",

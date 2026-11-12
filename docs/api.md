@@ -148,6 +148,7 @@ superadmin нельзя удалить, понизить или деактиви
 | GET | `/api/personas` | — | `{items: Persona[]}` |
 | POST | `/api/personas` | `PersonaIn` | `Persona` |
 | GET/PUT/DELETE | `/api/personas/{id}` | `PersonaIn` | `Persona` / `204` |
+| GET | `/api/personas/{id}/prompt` | — | `{system, fixed}` — системный промпт персонажа ровно так, как его получает модель (по сохранённым настройкам): промпт персонажа (`description`), правило честности (`fixed`, не редактируется), стратегия, формат ответа (`output_contract`). В реальном вызове за ним идут история диалога и контекст разговора |
 | POST | `/api/personas/{id}/preview/attachment` | multipart: `file`, `voice?` (`true` для голосового, записанного в админке) | `{kind, name, text, media_url}` — голосовое или файл пробного чата в текст: голос и аудио распознаёт Broker (`/v1/transcribe`), изображения описывает Broker `vision` (журнал: workflow `preview-vision`), текстовые файлы (`txt`, `md`, `csv`, `json`…) читаются как есть (до 8000 символов). `kind`: `voice`/`audio`/`image`/`file`; `text` — то, что прочитает персона (у голосового это сама расшифровка, у остального пометка `[изображение: …]`, `[файл …]`); файл сохраняется в медиа, `media_url` для плеера. До 10 МБ; другой тип или пустой файл — `422` |
 | POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}], voice_input?: bool}` | `{reply, decision, guard, model, latency_ms, voice}` — пробный ответ без отправки, **с прогоном через контролера**; `reply` — то, что ушло бы клиенту (после исправления; `""`, если контролер заблокировал); `decision` = разобранный JSON-ответ генератора `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался; тогда `guard = null`); `guard` = `{verdict: "ok"/"rewritten"/"blocked", violations: string[], model, original_text}` (`original_text` — черновик для `rewritten`/`blocked`, иначе `null`); `voice` — голосовой ответ персоны по тому же правилу, что в каналах (`domain.voice.speaks`: режим «всегда», или «зеркально» при `voice_input: true`): `{media_url, duration_s, error}` (OGG/Opus; при ошибке синтеза `media_url: null` и текст ошибки, текстовый ответ остаётся), иначе `null` |
 
@@ -167,19 +168,24 @@ language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id,
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/api/settings` | — | `{items: Setting[]}` в фиксированном порядке |
+| GET | `/api/settings` | — | `{items: Setting[], fixed: {persona, guard}}`: настройки в фиксированном порядке и единственные неизменяемые тексты (правило честности после промпта персонажа и после промпта охранника), для показа только для чтения |
 | PUT | `/api/settings/{key}` | `{value}` | `Setting`; `404` неизвестный ключ, `422` неверное значение |
 | DELETE | `/api/settings/{key}` | — | `Setting` со значением по умолчанию |
 
 `Setting`: `{key, group, label, help, kind ("text"|"int"|"capability"), min, max, value, default,
 is_default, updated_at, updated_by_id}`.
 
-Ключи: `voice_rule`, `style_rule`, `safety_rule`, `history_limit` (6–100) — промпт персонажа;
-`guard_rules`, `guard_model` (точная модель Broker, пусто: решает маршрут; запасной маршрут модель не закрепляет), `guard_capability`, `guard_fallback_capability` — охранник (группа «Охранник», только критичные проверки); `reply_debounce_s`
-(0–300) — пауза перед ответом; `caption_rules` — подписи постов. Значения по умолчанию для
+Ключи: `history_limit` (6–100) — сколько реплик видят персонаж и охранник; `guard_prompt` — весь
+промпт охранника одним текстом (роль, вход, правила, вердикты, JSON-формат), `guard_model` (точная
+модель Broker, пусто: решает маршрут; запасной маршрут модель не закрепляет), `guard_capability`,
+`guard_fallback_capability` — охранник (группа «Охранник»); `output_contract` — формат ответа
+персонажа (JSON, добавляется в конец её промпта), `retry_nudge` — что сказать модели, если ответ не
+разобрался (группа «Служебные промпты»); `reply_debounce_s` (0–300) — пауза перед ответом;
+`caption_rules` — подписи постов; `trace_retention_days`. Значения по умолчанию для
 `guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
-`SIM_REPLY_DEBOUNCE_S`. Не редактируются намеренно: правило честности (в промпте и правило 1
-контролера) и форматы ответа, от которых зависят парсеры.
+`SIM_REPLY_DEBOUNCE_S`. Промпт персонажа — её поле `description` (см. `/api/personas`). Не
+редактируется только правило честности (`fixed`); если сломать JSON-формат в `output_contract` или
+`guard_prompt`, ответы и вердикты перестанут разбираться.
 
 ## Стратегии (сценарии общения)
 | Метод | Путь | Ответ |
