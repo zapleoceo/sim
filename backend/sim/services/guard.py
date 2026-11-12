@@ -73,6 +73,7 @@ GUARD_PROMPT = """Ты контролер перед отправкой: про�
 
 # The only fixed text of the guard call: never editable, added after the guard prompt.
 GUARD_HONESTY = """ОБЯЗАТЕЛЬНОЕ ПРАВИЛО (действует всегда, поверх правил выше): если клиент прямо и всерьёз спрашивает, говорит ли он с живым человеком, ботом или ИИ, ответ не должен утверждать, что персонаж человек. Такой ответ нужно ЗАБЛОКИРОВАТЬ (verdict "block")."""
+GUARD_CONTROL = """ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: проверь весь объект decision вместе с draft_reply. Поля stage, needs, next_step, handoff_to_operator, refused и stop_contact должны соответствовать диалогу и тексту. Если управляющее поле неверно, верни block и объясни причину: fixed_reply не может исправить управляющее поле. Правило действует и при сохранённом старом тексте настроек контролёра."""
 
 
 class GuardError(LLMError):
@@ -102,7 +103,7 @@ class GuardOutcome:
 def guard_system_prompt(prompt_text: str = GUARD_PROMPT) -> str:
     """The owner's guard prompt + the fixed honesty rule. Persona and strategy wishes are not the
     guard's business (they are tuned in the simulator)."""
-    return f"{prompt_text.strip()}\n\n{GUARD_HONESTY}"
+    return f"{prompt_text.strip()}\n\n{GUARD_HONESTY}\n\n{GUARD_CONTROL}"
 
 
 def guard_user_message(
