@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 SPEC = importlib.util.spec_from_file_location(
     "change_gate", Path(__file__).resolve().parents[1] / "scripts" / "change_gate.py"
 )
 gate = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = gate  # dataclasses look the module up while building the class
 SPEC.loader.exec_module(gate)
 
 
