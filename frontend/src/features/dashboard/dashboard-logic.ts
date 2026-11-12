@@ -1,4 +1,4 @@
-import { daysAgo, formatDayMonth, formatInt, formatMoney, toIsoDate } from '@/lib/format';
+import { daysAgo, formatDayMonth, formatInt, toIsoDate } from '@/lib/format';
 import type { AnalyticsSummary, ChannelKind, CurrencyTotal } from '@/lib/models';
 import { CHANNEL_LABELS, STAGES } from '@/lib/stages';
 
@@ -41,7 +41,7 @@ export function buildKpis(d: AnalyticsSummary): Kpi[] {
     { label: 'Оплаты', value: formatInt(d.payments) },
     { label: 'Выручка', value: formatCurrencyTotals(d.revenue_by_currency) },
     { label: 'Выплаты партнёра', value: formatCurrencyTotals(d.partner_payouts_by_currency) },
-    { label: 'Расход на LLM', value: formatMoney(d.llm.cost_usd, 'USD', 2), hint: `${d.llm.calls} вызовов` },
+    { label: 'Запросы к ИИ', value: formatInt(d.llm.calls), hint: 'расходы в деньгах ниже, по данным Broker' },
     {
       label: 'Контролер ответов',
       value: formatInt(d.guard.ok + d.guard.rewritten + d.guard.blocked),

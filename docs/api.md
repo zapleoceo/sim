@@ -288,6 +288,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Аналитика
 | GET | `/api/analytics/summary` | `from, to` (`YYYY-MM-DD`, обе границы включительно), `persona_id?` | см. ниже |
+| GET | `/api/analytics/spend` | `from, to` (`YYYY-MM-DD`, обе включительно; по умолчанию последние 30 дней) | деньги, потраченные всем проектом SIM, как их считает Broker (`GET /v1/usage`, SIM ничего не пересчитывает): `{available: true, from, to, currency, total, by_capability, by_day, limits: {daily_cap_usd, monthly_cap_usd, today_usd, month_usd}}`; если Broker не ответил — `{available: false, error}` (200). Персонаж не фильтруется: Broker считает по проекту. Подписки (Claude, Codex) оплачиваются фиксированно и в сумму не входят |
 
 ```json
 {"contacts": 0, "new_contacts": 0, "replied": 0,
@@ -301,7 +302,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
  "daily": [{"date": "2026-11-05", "contacts": 0, "registrations": 0, "payments": 0}]}
 ```
 
-`contacts` — уникальные клиенты с входящими сообщениями за период. `replied` — число
+`llm` — вызовы моделей из журнала SIM (`llm_call`); деньги страница «Аналитика» берёт не отсюда, а из `/api/analytics/spend` (данные Broker). `contacts` — уникальные клиенты с входящими сообщениями за период. `replied` — число
 таких клиентов, у которых исходящее сообщение с `delivery: "sent"` и без
 `guard_verdict: "blocked"` предшествует входящему в том же периоде. Повторные
 входящие не увеличивают число клиентов. `queued`, `failed`, `cancelled` и

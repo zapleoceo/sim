@@ -15,6 +15,7 @@ import binascii
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from datetime import date
 from typing import Any
 
 import httpx
@@ -231,6 +232,21 @@ class BrokerLLM:
             raise LLMError(f"models: {err_text(exc)}") from exc
         rows = payload.get("data", []) if isinstance(payload, dict) else payload
         return [r for r in rows if isinstance(r, dict)]
+
+    async def usage(self, start: date, end: date) -> dict[str, Any]:
+        """What this project spent, as Broker books it (`GET /v1/usage`, `end` exclusive)."""
+        try:
+            resp = await self.client.get(
+                f"{self.url}/v1/usage", headers=self.headers,
+                params={"from": start.isoformat(), "to": end.isoformat()},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LLMError(f"usage: {err_text(exc)}") from exc
+        if not isinstance(payload, dict):
+            raise LLMError("usage: unexpected answer")
+        return payload
 
     # ---- polling -------------------------------------------------------------------------
     async def poll(

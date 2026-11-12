@@ -207,3 +207,24 @@ async def test_synthesize_failures_raise_speech_error(status, body):
     respx.post(f"{URL}/v1/speech").respond(status, json=body)
     with pytest.raises(SpeechError):
         await make().synthesize("hi", voice="Kore")
+
+
+@respx.mock
+async def test_usage_reads_the_project_spend_from_broker():
+    from datetime import date
+
+    route = respx.get(f"{URL}/v1/usage").respond(200, json={"total": {"cost_usd": 0.5}})
+    body = await make().usage(date(2026, 11, 1), date(2026, 12, 1))
+    assert body["total"]["cost_usd"] == 0.5
+    req = route.calls.last.request
+    assert req.headers["X-Project-Key"] == "key-1"
+    assert dict(req.url.params) == {"from": "2026-11-01", "to": "2026-12-01"}
+
+
+@respx.mock
+async def test_usage_errors_are_llm_errors():
+    from datetime import date
+
+    respx.get(f"{URL}/v1/usage").respond(404, json={"detail": "Not Found"})
+    with pytest.raises(LLMError, match="usage"):
+        await make().usage(date(2026, 11, 1), date(2026, 12, 1))

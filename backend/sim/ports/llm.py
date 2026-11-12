@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Protocol
 
 
@@ -39,3 +40,7 @@ class LLMPort(Protocol):
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult: ...
 
     async def list_models(self) -> list[dict[str, Any]]: ...
+
+    async def usage(self, start: date, end: date) -> dict[str, Any]:
+        """What this project spent, as Broker books it (`end` exclusive)."""
+        ...

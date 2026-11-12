@@ -17,6 +17,7 @@ import { analyticsApi } from '@/lib/api/analytics';
 import { personasApi } from '@/lib/api/personas';
 import { qk } from '@/lib/query';
 import { DailyLineChart, StageBarChart } from './dashboard-charts';
+import { SpendCard } from './spend-card';
 import {
   PRESETS, buildKpis, channelRows, dailyPoints, periodValid, presetPeriod, stageBars, type ChannelRow, type Period,
 } from './dashboard-logic';
@@ -124,6 +125,8 @@ export function DashboardPage() {
                 </div>
               ))}
             </section>
+
+            <SpendCard from={period.from} to={period.to} enabled={valid} />
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>
