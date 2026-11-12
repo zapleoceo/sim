@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Client, Dialog
+from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.conversations import (
     ClientRepo,
@@ -99,13 +100,20 @@ async def get_dialog(dialog_id: int, s: Db):
 
 @dialogs.post("/{dialog_id}/messages", status_code=201)
 async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App, s: Db, p: Authed):
+    await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
-    message = await c.outbound(s).send_manual(dialog, p.user.id, body.text)
+    try:
+        message = await c.outbound(s).send_manual(
+            dialog, p.user.id, body.text, request_id=body.request_id
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return message_out(message)
 
 
 @dialogs.post("/{dialog_id}/ai")
 async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
+    await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
     dialog.ai_paused = body.paused
     if body.paused:
