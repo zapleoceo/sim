@@ -35,6 +35,35 @@ ClientFactory = Callable[..., Any]
 NEED_CODE = "code"
 NEED_2FA = "2fa"
 
+# Where Telegram delivered the login code (`auth.sentCode.type`). For third-party API apps the
+# code usually goes to the Telegram app on the account's other devices, not by SMS: saying "app or
+# SMS" sent owners to wait for an SMS that never comes.
+CODE_WHERE: dict[str, str] = {
+    "app": "Код отправлен в приложение Telegram на ваших других устройствах: откройте чат «Telegram» "
+           "(служебные уведомления, синяя галочка). По SMS он не придёт.",
+    "sms": "Код отправлен по SMS на номер аккаунта.",
+    "call": "Telegram позвонит на номер аккаунта и продиктует код.",
+    "flash_call": "Telegram сделает короткий звонок: код это последние цифры номера, с которого позвонили.",
+    "email": "Код отправлен на почту, привязанную к аккаунту Telegram для входа.",
+    "email_setup": "Telegram требует сначала привязать почту для входа. Войдите в официальном приложении "
+                   "Telegram, привяжите почту (Настройки → Конфиденциальность → Почта для входа) и "
+                   "подключите аккаунт заново.",
+    "fragment": "Код придёт в Fragment (fragment.com): номер аккаунта анонимный.",
+}
+CODE_WHERE_UNKNOWN = "Введите код входа, который прислал Telegram (проверьте чат «Telegram» в приложении и SMS)."
+CODE_TYPES: dict[str, str] = {
+    "SentCodeTypeApp": "app", "SentCodeTypeSms": "sms", "SentCodeTypeFirebaseSms": "sms",
+    "SentCodeTypeSmsWord": "sms", "SentCodeTypeSmsPhrase": "sms", "SentCodeTypeCall": "call",
+    "SentCodeTypeFlashCall": "flash_call", "SentCodeTypeMissedCall": "flash_call",
+    "SentCodeTypeEmailCode": "email", "SentCodeTypeSetUpEmailRequired": "email_setup",
+    "SentCodeTypeFragmentSms": "fragment",
+}
+
+
+def code_delivery(sent: Any) -> str:
+    """`app` / `sms` / `call` / … from Telethon's SentCode; `unknown` when Telegram did not say."""
+    return CODE_TYPES.get(type(getattr(sent, "type", None)).__name__, "unknown")
+
 
 def label_of(me: Any, phone: str) -> str:
     username = getattr(me, "username", None)
@@ -104,14 +133,16 @@ class TelegramUserConnector:
             await self.close_client(client)
             return self.failed(channel_id, base, exc)
         self._live[channel_id] = client
+        delivery = code_delivery(sent)
+        logger.info("telegram_user code sent channel=%d via %s", channel_id, delivery)  # no secrets
         pending = {
             "step": NEED_CODE, "api_id": api_id, "api_hash": api_hash, "phone": phone,
             "phone_code_hash": sent.phone_code_hash, "proxy": proxy,
-            "string_session": client.session.save(),
+            "string_session": client.session.save(), "code_delivery": delivery,
         }
         return ConnectResult(
             SessionStatus.CHALLENGE, need=NEED_CODE, session={**base, "pending": pending},
-            message="Введите код, который Telegram отправил в приложение или по SMS")
+            message=CODE_WHERE.get(delivery, CODE_WHERE_UNKNOWN))
 
     async def verify(self, channel_id: int, code: str, session: Session) -> ConnectResult:
         pending = session.get("pending")

@@ -164,6 +164,32 @@ async def test_connect_requests_code_and_parks_pending(conn, made):
     assert "string_session" in p
 
 
+async def test_connect_says_where_telegram_sent_the_code(conn, made, monkeypatch):
+    from telethon.tl.types.auth import SentCodeTypeApp, SentCodeTypeSetUpEmailRequired
+
+    from sim.connectors.telegram_user import CODE_WHERE, CODE_WHERE_UNKNOWN
+
+    async def sent_to_app(self, phone):
+        return SimpleNamespace(phone_code_hash="HASH1", type=SentCodeTypeApp(length=5))
+
+    monkeypatch.setattr(FakeClient, "send_code_request", sent_to_app)
+    res = await conn.connect(5, CREDS, {})
+    assert res.message == CODE_WHERE["app"] and "чат «Telegram»" in res.message
+    assert res.session["pending"]["code_delivery"] == "app"
+
+    async def needs_email(self, phone):
+        return SimpleNamespace(phone_code_hash="HASH2",
+                               type=SentCodeTypeSetUpEmailRequired(apple_signin_allowed=False))
+
+    monkeypatch.setattr(FakeClient, "send_code_request", needs_email)
+    res = await conn.connect(5, CREDS, {})
+    assert res.message == CODE_WHERE["email_setup"]
+
+    # the plain fake returns no type at all: an honest generic hint
+    monkeypatch.undo()
+    assert (await conn.connect(5, CREDS, {})).message == CODE_WHERE_UNKNOWN
+
+
 @pytest.mark.parametrize("creds", [
     {**CREDS, "api_id": "abc"}, {**CREDS, "api_hash": ""}, {**CREDS, "phone": "12"},
     {**CREDS, "proxy": "ftp://nope"},
