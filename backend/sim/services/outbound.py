@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import mimetypes
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 
@@ -252,12 +253,18 @@ class OutboundService:
             raise SendFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
         note = await self.voice_note(message, dialog, port)
+        attachment = self.attachment(message, port)
         await self.receipts.claim(message.id, fingerprint)
         async with self.send_step(channel, message, voice=note is not None) as step:
             try:
                 if note is not None:
                     result = await port.send_voice(  # type: ignore[attr-defined]
                         dialog.external_thread_id, note.audio, note.duration_s,
+                    )
+                elif attachment is not None:
+                    data, filename, mime = attachment
+                    result = await port.send_attachment(  # type: ignore[attr-defined]
+                        dialog.external_thread_id, data, filename, mime, message.text,
                     )
                 else:
                     result = await port.send_text(dialog.external_thread_id, message.text)
@@ -283,6 +290,21 @@ class OutboundService:
             return nullcontext(Step(tracing.SEND, name))
         return self.tracer.step(tracing.SEND, name, channel_id=channel.id,
                                 dialog_id=message.dialog_id, message_id=message.id)
+
+    def attachment(self, message: Message, port: object) -> tuple[bytes, str, str] | None:
+        if message.author is not Author.OPERATOR or message.media_kind not in ("image", "file"):
+            return None
+        if Capability.SEND_ATTACHMENT not in getattr(port, "capabilities", frozenset()):
+            raise SendFailed("this channel cannot send attachments")
+        url = message.media_url or ""
+        if not url.startswith("/api/media/") or self.media is None:
+            raise SendFailed("operator attachment is unavailable")
+        name = url.removeprefix("/api/media/")
+        path = self.media.path(name)
+        if path is None:
+            raise SendFailed("operator attachment is unavailable")
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        return path.read_bytes(), name, mime
 
     async def voice_note(self, message: Message, dialog: Dialog, port: object) -> VoiceNote | None:
         """The rendered note for a message queued as voice, or None = send it as text.
