@@ -11,25 +11,37 @@ from sim.adapters.audio import OGG_OPUS_ARGS, OggOpusEncoder
 from sim.adapters.db.models import Persona
 from sim.adapters.db.session import transaction
 from sim.domain.enums import VoiceAmbience, VoiceMode
-from tests.test_voice import WAV, FakeEncoder, FakeSpeech, deliver, reply_to, voiced_world, wav_silence
+from tests.test_voice import (
+    WAV,
+    FakeEncoder,
+    FakeSpeech,
+    deliver,
+    reply_to,
+    voiced_world,
+    wav_silence,
+)
+
+
+def seeded(seed: int) -> random.Random:
+    return random.Random(seed)  # noqa: S311 — reproducible noise choices, not security
 
 
 def test_off_and_unknown_values_keep_the_clean_encoding():
-    rng = random.Random(1)
+    rng = seeded(1)
     assert resolve("off", rng) is VoiceAmbience.OFF
     assert resolve("disco", rng) is VoiceAmbience.OFF
     assert ffmpeg_args(VoiceAmbience.OFF, rng) is None
 
 
 def test_random_picks_one_of_the_presets():
-    rng = random.Random(7)
+    rng = seeded(7)
     picks = {resolve("random", rng) for _ in range(60)}
     assert picks == set(PRESETS)
 
 
 @pytest.mark.parametrize("ambience", PRESETS)
 def test_each_preset_goes_through_the_phone_mic_and_low_bitrate_opus(ambience):
-    args = ffmpeg_args(ambience, random.Random(3))
+    args = ffmpeg_args(ambience, seeded(3))
     graph = args[args.index("-filter_complex") + 1]
     assert "highpass=f=160" in graph and "acompressor" in graph and "anoisesrc" in graph
     assert args[-3:] == ("-f", "ogg", "pipe:1") and "24k" in args
@@ -38,7 +50,7 @@ def test_each_preset_goes_through_the_phone_mic_and_low_bitrate_opus(ambience):
 
 
 def test_noise_differs_from_note_to_note():
-    rng = random.Random(5)
+    rng = seeded(5)
     first = ffmpeg_args(VoiceAmbience.STREET, rng)
     second = ffmpeg_args(VoiceAmbience.STREET, rng)
     assert first != second
@@ -55,7 +67,7 @@ async def test_encoder_uses_the_ambience_graph():
         seen["args"] = args
         return 0, b"OggS", b""
 
-    encoder = OggOpusEncoder(runner, rng=random.Random(2))
+    encoder = OggOpusEncoder(runner, rng=seeded(2))
     await encoder.to_voice_note(WAV, "room")
     assert "-filter_complex" in seen["args"]
     await encoder.to_voice_note(WAV)
