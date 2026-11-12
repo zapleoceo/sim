@@ -270,3 +270,32 @@ def test_0013_adds_a_clean_voice_ambience_to_every_persona(tmp_path):
     command.downgrade(cfg, "0012")
     assert "voice_ambience" not in columns(db, "persona")
     command.upgrade(cfg, "head")
+
+
+def test_0014_folds_shared_rules_into_each_persona_and_wraps_the_guard_rules(tmp_path):
+    import json
+
+    db = tmp_path / "mig14.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0013")
+    with sqlite3.connect(db) as con:
+        con.execute(
+            "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
+            "voice_id, voice_mode, voice_style, voice_ambience, is_active, created_at) VALUES "
+            "(1, 'Марина', '', '', 'Мне 45.', '- не матом', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')"
+        )
+        for key, value in (("style_rule", "СТИЛЬ ИЗ БАЗЫ"), ("guard_rules", "1. правило владельца")):
+            con.execute("INSERT INTO app_setting (key, value, updated_at) VALUES (?, ?, '2026-11-10 00:00:00')",
+                        (key, json.dumps(value, ensure_ascii=False)))
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        description, prohibitions = con.execute("SELECT description, prohibitions FROM persona").fetchone()
+        keys = dict(con.execute("SELECT key, value FROM app_setting").fetchall())
+    assert description.startswith("Ты Марина.\n\nМне 45.\n\nРОЛЬ:")
+    assert "СТИЛЬ ИЗ БАЗЫ" in description and "БЕЗОПАСНОСТЬ:" in description
+    assert description.endswith("Чего нельзя никогда:\n- не матом") and prohibitions == ""
+    assert set(keys) == {"guard_prompt"}
+    guard = json.loads(keys["guard_prompt"])
+    assert "ПРАВИЛА:\n1. правило владельца\n\nВЕРДИКТЫ:" in guard and '"verdict"' in guard
+    command.downgrade(cfg, "0013")
+    command.upgrade(cfg, "head")

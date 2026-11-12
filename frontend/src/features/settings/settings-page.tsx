@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ErrorState } from '@/components/empty-state';
 import { Field } from '@/components/field';
+import { FixedPrompt } from '@/components/fixed-prompt';
 import { modelOptions } from '@/components/model-options';
 import { OptionSelect } from '@/components/option-select';
 import { Page, PageHeader } from '@/components/page';
@@ -118,7 +119,7 @@ function SettingField({ item }: { item: AppSettingItem }) {
 }
 
 /** Settings of one or more groups on one page; every field is open, no hidden sections. */
-function SettingsView({ title, subtitle, only, except, keys }: {
+function SettingsView({ title, subtitle, only, except, keys, footer }: {
   title: string;
   subtitle: string;
   /** Show only these groups (by name). */
@@ -127,6 +128,8 @@ function SettingsView({ title, subtitle, only, except, keys }: {
   except?: readonly string[];
   /** Show only these settings, in this order (other keys of the group stay in the DB). */
   keys?: readonly string[];
+  /** Shown after the settings (read-only notes). */
+  footer?: ReactNode;
 }) {
   const query = useQuery({ queryKey: qk.settings, queryFn: settingsApi.list });
   const groups = groupSettings(pickSettings(query.data ?? [], keys)).filter(
@@ -155,6 +158,7 @@ function SettingsView({ title, subtitle, only, except, keys }: {
           </Card>
         </section>
       ))}
+      {footer}
     </Page>
   );
 }
@@ -167,23 +171,29 @@ export function SettingsPage() {
   return (
     <SettingsView
       title="Общие правила"
-      subtitle="Одинаковы для всех персонажей. Хранятся в базе: деплой их не сбрасывает."
+      subtitle="Служебные промпты и параметры, общие для всех персонажей. Промпт самого персонажа на его странице. Хранятся в базе: деплой их не сбрасывает."
       except={[GUARD_GROUP]}
     />
   );
 }
 
-/** What the guard page shows: the model and the instructions; Broker routes stay a backend fallback. */
-export const GUARD_KEYS = ['guard_model', 'guard_rules'] as const;
+/** What the guard page shows: the model and the one guard prompt; Broker routes stay a backend fallback. */
+export const GUARD_KEYS = ['guard_model', 'guard_prompt'] as const;
 
-/** The guard: checks every reply before it is sent, only the critical rules. */
+function GuardHonesty() {
+  const fixed = useQuery({ queryKey: qk.settingsFixed, queryFn: settingsApi.fixed });
+  return fixed.data?.guard ? <FixedPrompt text={fixed.data.guard} where="после промпта охранника" /> : null;
+}
+
+/** The guard: checks every reply before it is sent, with one prompt. */
 export function GuardPage() {
   return (
     <SettingsView
       title="Охранник"
-      subtitle="Проверяет каждый ответ перед отправкой. Правило честности на прямой вопрос «ты бот?» неизменяемое."
+      subtitle="Проверяет каждый ответ перед отправкой. Весь его промпт один текст ниже."
       only={[GUARD_GROUP]}
       keys={GUARD_KEYS}
+      footer={<GuardHonesty />}
     />
   );
 }

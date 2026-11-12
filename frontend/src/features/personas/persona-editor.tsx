@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
 import { SelectControl } from './select-control';
+import { PersonaFullPrompt } from './persona-full-prompt';
 import { VOICE_AMBIENCE_OPTIONS, VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
 import {
   EMPTY_PERSONA, personaFromForm, personaSchema, personaToForm, personaToInput, type PersonaFormValues,
@@ -86,13 +87,18 @@ export function PersonaEditor({
         <Input {...register('avatar_url')} placeholder="https://…" inputMode="url" />
       </Field>
 
-      <Field label="Описание персоны" error={errors.description?.message}>
+      <Field
+        label="Промпт персонажа"
+        hint="Весь промпт персонажа одним текстом: кто она, легенда, роль, стиль речи, что можно и нельзя. Модель получает его как есть."
+        error={errors.description?.message}
+      >
         <Textarea
           {...register('description')}
-          className="min-h-72 max-h-[70vh]"
-          placeholder="Кто она: возраст, откуда, семья, работа, характер, как пишет. Вся личность и легенда одним текстом. Ограничения задаются позже в симуляторе, здесь их писать не нужно."
+          className="min-h-96 max-h-[75vh] font-mono text-[13px] md:text-[13px]"
+          placeholder="Ты Марина, 45 лет, из Днепра… Как живёшь в роли, как пишешь, чего не делаешь."
         />
       </Field>
+      {persona && <PersonaFullPrompt personaId={persona.id} />}
 
       <FormGrid className="lg:grid-cols-2">
         <Field label="Голосовые ответы" hint="Голос синтезирует Google Gemini TTS через AIbroker; текст ответа остаётся в диалоге">

@@ -298,9 +298,11 @@ def test_guard_checks_only_the_critical_rules():
     assert "Не исправляй черновик ради согласованности с прошлыми репликами" in system
 
 
-def test_guard_prompt_ignores_persona_and_strategy_and_uses_the_owner_rules():
-    assert "мои правила" in guard_system_prompt("мои правила")
-    assert "не должен утверждать, что персонаж человек" in guard_system_prompt("мои правила")
+def test_guard_prompt_is_the_owner_text_plus_the_fixed_honesty_rule():
+    from sim.services.guard import GUARD_HONESTY
+
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_HONESTY}"
+    assert "не должен утверждать, что персонаж человек" in GUARD_HONESTY
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():

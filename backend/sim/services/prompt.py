@@ -27,7 +27,7 @@ STAGE_VALUES = ", ".join(s.value for s in Stage)
 AI_STAGES = ", ".join(s.value for s in Stage if s.value not in ("registered", "paid"))
 
 VOICE_RULE = (
-    "РОЛЬ: живи своей ролью полностью. Ты та женщина, что описана ниже: её биография, дом, "
+    "РОЛЬ: живи своей ролью полностью. Ты та женщина, что описана выше: её биография, дом, "
     "семья, привычки, вчерашний вечер и мнения твои, на такие вопросы отвечай из биографии, "
     "как ответила бы она. Сама никогда не говори, что ты ИИ, бот, ассистент, модель, промпт "
     "или персонаж/образ: никаких оговорок, никаких \"как ИИ я\", не выходи из роли без вопроса."
@@ -47,6 +47,7 @@ STYLE_RULE = (
     "и слова под разговор. Тёплый разговор без продажи лучше навязанной регистрации."
 )
 
+# The only fixed text of the persona call: never editable, added after the persona prompt.
 HONESTY_RULE = (
     "ЧЕСТНОСТЬ (не обсуждается, и это ЕДИНСТВЕННОЕ исключение из РОЛИ): если клиент прямо и "
     "всерьёз спрашивает, говорит ли он с живым человеком, ботом или ИИ, никогда не утверждай, "
@@ -143,15 +144,36 @@ def prohibition_rules(text: str) -> list[str]:
     return [rule for rule in rules if rule]
 
 
+def compose_persona_prompt(
+    name: str, description: str, *, voice: str = VOICE_RULE, style: str = STYLE_RULE,
+    safety: str = SAFETY_RULES, prohibitions: str = "",
+) -> str:
+    """One self-contained persona prompt: who she is plus the role, style and safety rules that
+    used to be shared settings. Used for the shipped personas (`sim.persona_prompts`); migration
+    0014 did the same for existing personas with a frozen copy of this layout."""
+    head = description.strip()
+    if not head.startswith("Ты "):
+        head = f"Ты {name}.\n\n{head}" if head else f"Ты {name}."
+    parts = [head, voice.strip(), style.strip(), safety.strip()]
+    rules = prohibition_rules(prohibitions)
+    if rules:
+        parts.append(f"{PROHIBITIONS_HEADING}:\n" + "\n".join(f"- {rule}" for rule in rules))
+    return "\n\n".join(p for p in parts if p)
+
+
+RETRY_NUDGE = (
+    "Твой предыдущий ответ не был корректным JSON-объектом. Ответь ещё раз ТОЛЬКО JSON-объектом, "
+    "описанным в разделе ФОРМАТ ОТВЕТА."
+)
+
+
 @dataclass(frozen=True)
 class PromptTexts:
-    """The owner-editable parts of the persona prompt (stored in `app_setting`, defaults here).
-    HONESTY_RULE and OUTPUT_CONTRACT are not editable: the honesty floor is a fixed product
-    rule and the decision parser depends on the output format."""
+    """Owner-editable service texts of the persona call (`app_setting`, defaults here). The persona
+    prompt itself is the persona's `description`; HONESTY_RULE is the only fixed text."""
 
-    voice: str = VOICE_RULE
-    style: str = STYLE_RULE
-    safety: str = SAFETY_RULES
+    contract: str = OUTPUT_CONTRACT
+    retry_nudge: str = RETRY_NUDGE
 
 
 DEFAULT_TEXTS = PromptTexts()
@@ -160,18 +182,10 @@ DEFAULT_TEXTS = PromptTexts()
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
-    lines: list[str] = [f"Ты {persona.name}, представитель проекта в этом чате."]
-    profile = [("Возраст", persona.age), ("Пол", persona.gender), ("Язык", persona.language)]
-    lines.append("\nПЕРСОНАЖ")
-    lines += [f"- {label}: {value}" for label, value in profile if value not in (None, "")]
-    if persona.description.strip():
-        lines += ["", "ОПИСАНИЕ (кто ты, характер, биография и манера письма):",
-                  persona.description.strip()]
-    lines += ["", texts.voice.strip(), "", texts.style.strip(), "", HONESTY_RULE]
-    lines += ["", texts.safety.strip()]
-    rules = prohibition_rules(persona.prohibitions)
-    if rules:
-        lines += ["", f"{PROHIBITIONS_HEADING}:"] + [f"- {rule}" for rule in rules]
+    """Persona prompt (the owner's one text) + the fixed honesty rule + the strategy + the answer
+    format. The order is fixed; nothing else is added."""
+    lines: list[str] = [persona.description.strip() or f"Ты {persona.name}."]
+    lines += ["", HONESTY_RULE]
     lines += ["", "СТРАТЕГИЯ"]
     for label, value in (
         ("Название", strategy.name),
@@ -200,7 +214,7 @@ def stable_system_prompt(
     if strategy.rules:
         lines += ["", "ПРАВИЛА:"] + [f"- {rule}" for rule in strategy.rules]
         lines.append("(Это мягкие рамки: держись их своими словами, естественно.)")
-    lines += ["", OUTPUT_CONTRACT]
+    lines += ["", texts.contract.strip()]
     return "\n".join(lines)
 
 
