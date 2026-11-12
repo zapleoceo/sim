@@ -67,10 +67,9 @@ def test_speaks(mode, voice, last, expected):
     assert speaks(mode, voice, last) is expected
 
 
-def test_voice_list_is_the_13_female_voices_checked_for_ru_uk():
-    assert len(GEMINI_VOICES) == len(set(GEMINI_VOICES)) == 13
-    assert {"Kore", "Aoede", "Sulafat"} <= set(GEMINI_VOICES)
-    assert not {"Puck", "Charon", "Laomedeia"} & set(GEMINI_VOICES)
+def test_voice_list_is_the_one_voice_the_owner_chose():
+    assert GEMINI_VOICES == ("Kore",)
+    assert not speaks(VoiceMode.ALWAYS, "Aoede", None)       # the other voices are gone
     assert not speaks(VoiceMode.ALWAYS, "Puck", None)
 
 
@@ -239,12 +238,13 @@ async def test_persona_api_round_trips_voice_settings_and_validates(api):
     h = await owner(api)
     created = (await api.post("/api/personas", json={"name": "Марина"}, headers=h)).json()
     assert (created["voice_id"], created["voice_mode"], created["voice_style"]) == ("", "off", "")
-    body = {"name": "Марина", "voice_id": "Aoede", "voice_mode": "mirror",
+    body = {"name": "Марина", "voice_id": "Kore", "voice_mode": "mirror",
             "voice_style": "тепло, спокойно"}
     upd = (await api.put(f"/api/personas/{created['id']}", json=body, headers=h)).json()
     assert (upd["voice_id"], upd["voice_mode"], upd["voice_style"]) == \
-        ("Aoede", "mirror", "тепло, спокойно")
+        ("Kore", "mirror", "тепло, спокойно")
     for bad in ({"voice_id": "21m00Tcm4TlvDq8ikWAM"},          # an ElevenLabs id
+                {"voice_id": "Aoede"},                         # removed from the list
                 {"voice_mode": "always"},                      # voice replies without a voice
                 {"voice_mode": "sometimes", "voice_id": "Kore"},
                 {"voice_style": "x" * 301, "voice_id": "Kore"}):
