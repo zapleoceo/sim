@@ -1,5 +1,5 @@
 import type {
-  BrokerModel, ListResponse, Persona, PersonaIn, PersonaPrompt, PreviewAttachment, PreviewResponse, PreviewTurn,
+  BrokerModel, ListResponse, Persona, PersonaIn, PersonaPrompt, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn,
 } from '../models';
 import { http } from './http';
 
@@ -9,10 +9,10 @@ export const personasApi = {
   update: (id: number, body: PersonaIn) => http.put<Persona>(`/api/personas/${id}`, body),
   remove: (id: number) => http.delete(`/api/personas/${id}`),
   /** Silent: the preview chat shows the error inline, next to the message. */
-  preview: (id: number, message: string, history: PreviewTurn[], voiceInput = false) =>
+  preview: (id: number, message: string, history: PreviewTurn[], voiceInput = false, context?: PreviewContext) =>
     http.post<PreviewResponse>(
       `/api/personas/${id}/preview`,
-      { message, history, voice_input: voiceInput },
+      { message, history, voice_input: voiceInput, ...context },
       { silent: true },
     ),
   /** A recorded voice note (`voice`) or an attached file → text the persona reads. */
