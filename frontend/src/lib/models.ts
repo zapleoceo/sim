@@ -114,6 +114,8 @@ export interface Channel {
   account_label: string | null;
   last_error: string | null;
   last_activity_at: string | null;
+  /** The last connect saved its credentials (encrypted): a reconnect may leave the fields empty. */
+  has_saved_credentials?: boolean;
 }
 export interface ChannelIn { kind: ChannelKind; persona_id: number; name: string }
 export interface ConnectState {

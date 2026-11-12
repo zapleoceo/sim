@@ -91,4 +91,24 @@ describe('ChannelsPage', () => {
     expect(log.find((r) => r.path === '/api/channels/4/connect')!.body).toEqual({ username: 'marina', password: ' pw ' });
     expect(log.find((r) => r.path === '/api/channels/4/verify')!.body).toEqual({ code: '123456' });
   });
+
+  it('reconnects with the saved credentials without typing them again', async () => {
+    const tgUser: Channel = {
+      id: 6, kind: 'telegram_user', name: 'Marina', persona_id: 3, status: 'challenge', account_label: null,
+      last_error: null, last_activity_at: null, has_saved_credentials: true,
+    };
+    const log = fakeApi({
+      'GET /api/channels': { items: [tgUser] },
+      'GET /api/personas': { items: [persona] },
+      'POST /api/channels/6/connect': { status: 'challenge', need: 'code', message: 'Код отправлен в приложение Telegram' },
+    });
+    const user = userEvent.setup();
+    await renderApp('/channels');
+    await user.click(within(await screen.findByRole('article', { name: 'Marina' })).getByRole('button', { name: 'Подключить' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Данные прошлого подключения сохранены');
+    await user.click(within(dialog).getByRole('button', { name: 'Подключить' }));
+    expect(await within(dialog).findByLabelText('Код')).toBeInTheDocument();
+    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '', api_hash: '', phone: '' });
+  });
 });

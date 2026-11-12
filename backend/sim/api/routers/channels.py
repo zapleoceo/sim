@@ -21,7 +21,9 @@ async def channel_or_404(s: Db, channel_id: int) -> Channel:
 
 @router.get("", dependencies=[Depends(authed)])
 async def list_channels(c: App, s: Db):
-    return {"items": [channel_out(ch) for ch in await c.channels(s).list()]}
+    svc = c.channels(s)
+    return {"items": [channel_out(ch, saved_credentials=svc.has_saved_credentials(ch))
+                      for ch in await svc.list()]}
 
 
 @router.post("", status_code=201, dependencies=[Depends(owner_only)])
