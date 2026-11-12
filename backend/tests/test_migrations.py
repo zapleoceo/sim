@@ -216,3 +216,39 @@ def test_0010_adds_voice_mode_and_clears_non_gemini_voice_ids(tmp_path):
     command.downgrade(cfg, "0009")
     assert "voice_mode" not in columns(db, "persona")
     command.upgrade(cfg, "head")
+
+
+def test_0012_merges_goal_stage_hints_and_rules_into_the_strategy_prompt(tmp_path):
+    import json
+
+    db = tmp_path / "mig12.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0011")
+    with sqlite3.connect(db) as con:
+        con.execute(
+            "INSERT INTO strategy (id, name, goal, prompt, offer, partner_name, registration_url, "
+            "stage_playbook, rules, followup_hours, notes, created_at) VALUES "
+            "(1, 'S', 'Подружиться', 'Как вести разговор', '', '', '', ?, ?, '[]', '', '2026-11-01 00:00:00')",
+            (json.dumps({"engaged": "узнай о человеке", "first_contact": "поздоровайся"}, ensure_ascii=False),
+             json.dumps(["не дави"], ensure_ascii=False)),
+        )
+        con.execute(
+            "INSERT INTO strategy (id, name, goal, prompt, offer, partner_name, registration_url, "
+            "stage_playbook, rules, followup_hours, notes, created_at) VALUES "
+            "(2, 'Пустая', '', 'Только текст', '', '', '', '{}', '[]', '[]', '', '2026-11-01 00:00:00')"
+        )
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        prompt, goal, playbook, rules = con.execute(
+            "SELECT prompt, goal, stage_playbook, rules FROM strategy WHERE id = 1"
+        ).fetchone()
+        untouched = con.execute("SELECT prompt FROM strategy WHERE id = 2").fetchone()[0]
+    assert prompt == (
+        "Цель: Подружиться\n\nКак вести разговор\n\n"
+        "По этапам:\n- Первый контакт: поздоровайся\n- Вовлечён: узнай о человеке\n\n"
+        "Ориентиры:\n- не дави"
+    )
+    assert goal == "" and json.loads(playbook) == {} and json.loads(rules) == []
+    assert untouched == "Только текст"
+    command.downgrade(cfg, "0011")                 # no-op: the schema did not change
+    command.upgrade(cfg, "head")

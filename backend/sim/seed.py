@@ -18,11 +18,8 @@ from sim.persona_prompts import (
     EVA,
     MARINA,
     PERSONA_TEXTS,
-    STAGE_PLAYBOOK,
-    STRATEGY_GOAL,
     STRATEGY_NAME,
     STRATEGY_PROMPT,
-    STRATEGY_RULES,
 )
 from sim.wiring import Container, build_container
 
@@ -31,7 +28,7 @@ log = logging.getLogger(__name__)
 STRATEGY: dict[str, Any] = {
     "name": STRATEGY_NAME,
     "partner_name": "RCIPM",
-    "goal": STRATEGY_GOAL,
+    "goal": "",
     "prompt": STRATEGY_PROMPT,
     "offer": (
         "RCIPM (rcipm.com): «Стратегическое мышление — навык будущего. Образовательная среда, "
@@ -39,8 +36,8 @@ STRATEGY: dict[str, Any] = {
         "условий в этом описании нет: если клиент спрашивает — честно скажи, что уточнишь."
     ),
     "registration_url": "https://rcipm.com/?ref={ref}",
-    "stage_playbook": STAGE_PLAYBOOK,
-    "rules": STRATEGY_RULES,
+    "stage_playbook": {},
+    "rules": [],
     "followup_hours": [24, 72, 168],
     "notes": (
         "TO CONFIRM with the owner: точная ссылка регистрации (шаблон https://rcipm.com/?ref={ref} "
