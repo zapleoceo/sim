@@ -84,6 +84,13 @@ class FakeLLM:
         self.replies: list[str | Exception | LLMResult] = []
         self.calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
         self.transcript = "привет из голосового"
+        self.usage_calls: list[tuple[Any, Any]] = []
+        self.usage_reply: dict[str, Any] | Exception = {
+            "from": "", "to": "", "currency": "USD",
+            "total": {"calls": 2, "cost_usd": 0.03, "tokens_in": 0, "tokens_out": 0},
+            "by_capability": [{"capability": "speech", "calls": 2, "cost_usd": 0.03, "tokens_in": 0, "tokens_out": 0}],
+            "by_day": [], "limits": {"daily_cap_usd": 5.0, "monthly_cap_usd": 50.0, "today_usd": 0.01, "month_usd": 0.03},
+        }
 
     async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> LLMResult:
         self.calls.append((messages, kwargs))
@@ -109,6 +116,12 @@ class FakeLLM:
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         return LLMResult(text=self.transcript)
+
+    async def usage(self, start, end) -> dict[str, Any]:
+        self.usage_calls.append((start, end))
+        if isinstance(self.usage_reply, Exception):
+            raise self.usage_reply
+        return self.usage_reply
 
     async def list_models(self) -> list[dict[str, Any]]:
         return [{"id": "claude-sub/claude-sonnet-5-5", "billing_type": "subscription",

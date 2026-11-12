@@ -17,7 +17,7 @@ describe('dashboard logic', () => {
     const kpis = buildKpis(summary);
     const byLabel = Object.fromEntries(kpis.map((k) => [k.label, k]));
     expect(byLabel['Контакты'].hint).toBe('новых: 40, ответили: 75');
-    expect(byLabel['Расход на LLM'].hint).toBe('410 вызовов');
+    expect(byLabel['Запросы к ИИ'].value).toMatch(/410/);
     expect(byLabel['Контролер ответов'].value).toBe('13');
     expect(byLabel['Контролер ответов'].hint).toBe('ок: 10, исправлено: 2, заблокировано: 1');
     expect(byLabel['Регистрация → оплата'].value).toMatch(/25/);

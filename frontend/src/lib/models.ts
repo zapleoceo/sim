@@ -261,6 +261,21 @@ export interface AnalyticsSummary {
   daily: { date: string; contacts: number; registrations: number; payments: number }[];
 }
 
+export interface SpendSums { calls: number; cost_usd: number; tokens_in: number; tokens_out: number }
+/** Money the whole project spent, as Broker books it (`GET /api/analytics/spend`). */
+export type AnalyticsSpend =
+  | {
+      available: true;
+      from: string;
+      to: string;
+      currency: string;
+      total: SpendSums;
+      by_capability: (SpendSums & { capability: string })[];
+      by_day: (SpendSums & { day: string })[];
+      limits: { daily_cap_usd: number | null; monthly_cap_usd: number | null; today_usd: number; month_usd: number };
+    }
+  | { available: false; error: string };
+
 export interface PartnerImportResult { imported: number; skipped: number; errors: string[] }
 
 export interface SimBranchRow {

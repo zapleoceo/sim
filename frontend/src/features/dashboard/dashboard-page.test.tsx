@@ -24,6 +24,34 @@ describe('DashboardPage', () => {
     expect(req.query.has('persona_id')).toBe(false);
   });
 
+  it('shows the money spent from Broker with the caps and a breakdown', async () => {
+    fakeApi({
+      'GET /api/personas': { items: [] },
+      'GET /api/analytics/summary': summary,
+      'GET /api/analytics/spend': {
+        available: true, from: '2026-11-01', to: '2026-12-01', currency: 'USD',
+        total: { calls: 15, cost_usd: 0.029, tokens_in: 0, tokens_out: 0 },
+        by_capability: [{ capability: 'speech', calls: 15, cost_usd: 0.029, tokens_in: 0, tokens_out: 0 }],
+        by_day: [],
+        limits: { daily_cap_usd: 5, monthly_cap_usd: 50, today_usd: 0.01, month_usd: 0.029 },
+      },
+    });
+    await renderApp('/dashboard');
+    expect(await screen.findByLabelText('Потрачено за период')).toHaveTextContent('0,0290');
+    expect(screen.getByText('Голосовые (синтез речи)')).toBeInTheDocument();
+    expect(screen.getByRole('meter', { name: 'Сегодня: доля лимита' })).toBeInTheDocument();
+  });
+
+  it('says why spend is missing when Broker does not answer', async () => {
+    fakeApi({
+      'GET /api/personas': { items: [] },
+      'GET /api/analytics/summary': summary,
+      'GET /api/analytics/spend': { available: false, error: 'usage: HTTP 404' },
+    });
+    await renderApp('/dashboard');
+    expect(await screen.findByText(/Broker не отдал расходы: usage: HTTP 404/)).toBeInTheDocument();
+  });
+
   it('requests a 7-day period from the preset', async () => {
     const log = fakeApi({ 'GET /api/personas': { items: [] }, 'GET /api/analytics/summary': summary });
     const user = userEvent.setup();

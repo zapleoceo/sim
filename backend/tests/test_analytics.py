@@ -347,3 +347,23 @@ async def test_exchange_persona_filter(container, world):
     assert all_personas["guard"] == {"ok": 1, "rewritten": 0, "blocked": 1}
     assert absent["contacts"] == absent["replied"] == 0
     assert absent["guard"] == {"ok": 0, "rewritten": 0, "blocked": 0}
+
+
+async def test_spend_comes_from_broker_for_whole_days(api, fake_llm):
+    from datetime import date, datetime
+
+    from sim.api.routers.reports import day_span
+    from sim.ports.llm import LLMError
+    from tests.conftest import OWNER, login
+
+    await login(api, *OWNER)
+    body = (await api.get("/api/analytics/spend", params={"from": "2026-11-01", "to": "2026-11-03"})).json()
+    assert body["available"] is True and body["total"]["cost_usd"] == 0.03
+    assert body["limits"]["daily_cap_usd"] == 5.0
+    assert fake_llm.usage_calls[-1] == (date(2026, 11, 1), date(2026, 11, 4))   # `to` day included
+    assert day_span(datetime(2026, 11, 1), datetime(2026, 11, 13, 10, 5)) == (date(2026, 11, 1), date(2026, 11, 14))
+
+    fake_llm.usage_reply = LLMError("usage: HTTP 404")
+    down = (await api.get("/api/analytics/spend")).json()
+    assert down == {"available": False, "error": "usage: HTTP 404"}
+
