@@ -92,21 +92,25 @@ async def test_truncated_output_is_a_retryable_failure_and_audited(container, wo
 
 async def test_truncated_twice_marks_needs_operator(container, world, fake_llm):
     cut = LLMResult(text=decision_json(), finish_reason="length")
-    fake_llm.replies = [cut, cut]
+    fake_llm.replies = [cut] * 4
     await start(container, world)
     assert (await run_reply(container)).status == "needs_operator"
 
 
-async def test_invalid_json_twice_marks_needs_operator_and_sends_nothing(
+async def test_invalid_json_twice_handoffs_with_neutral_reply(
     container, world, fake_llm
 ):
-    fake_llm.replies = ["nope", "still nope"]
+    fake_llm.replies = ["nope", "still nope"] * 2
     await start(container, world)
     outcome = await run_reply(container)
     assert outcome.status == "needs_operator"
     _, dialog, messages, jobs = await state(container)
-    assert dialog.needs_operator and len(messages) == 1
-    assert [j.kind for j in jobs] == [jobkinds.REPLY]
+    assert dialog.needs_operator and dialog.ai_paused and len(messages) == 3
+    assert messages[-1].text == "Я уточню и вернусь с ответом чуть позже."
+    assert messages[-1].delivery is Delivery.QUEUED
+    assert messages[-2].guard_verdict == "blocked"
+    assert [j.kind for j in jobs] == [jobkinds.REPLY, jobkinds.SEND]
+    assert (await run_reply(container)).status == "skipped"
 
 
 async def test_ai_cannot_jump_to_registered(container, world, fake_llm):
@@ -131,12 +135,13 @@ async def test_refusal_and_stop_contact(container, world, fake_llm, flags, no_fo
 
 
 async def test_empty_reply_sends_nothing(container, world, fake_llm):
-    fake_llm.replies = [decision_json(reply="", stage="engaged")]
+    fake_llm.replies = [decision_json(reply="", stage="engaged")] * 2
     await start(container, world)
     outcome = await run_reply(container)
-    assert outcome.status == "empty"
-    _, _, messages, _ = await state(container)
-    assert len(messages) == 1
+    assert outcome.status == "needs_operator"
+    client, dialog, messages, _ = await state(container)
+    assert client.stage is Stage.FIRST_CONTACT and dialog.needs_operator
+    assert messages[-1].delivery is Delivery.QUEUED
 
 
 async def test_handoff_pauses_ai(container, world, fake_llm):
