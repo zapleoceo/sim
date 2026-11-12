@@ -17,6 +17,7 @@ from sim.api.date_bounds import optional_bounds
 from sim.api.deps import App, Db, authed, owner_only
 from sim.domain.enums import Author, ChannelKind, Delivery, Direction
 from sim.services import tracing
+from sim.services.app_settings import trace_retention_days
 
 router = APIRouter(tags=["activity"], dependencies=[Depends(authed)])
 
@@ -143,7 +144,7 @@ async def system_log(s: Db, c: App, query: Annotated[LogQuery, Query()]):
         query.size, (query.page - 1) * query.size,
     )
     return {"items": [trace_step_out(*row) for row in rows], "total": total, "page": query.page,
-            "size": query.size, "retention_days": c.settings.trace_retention_days,
+            "size": query.size, "retention_days": await trace_retention_days(s, c.settings),
             "kinds": list(tracing.KINDS), "statuses": list(tracing.STATUSES)}
 
 

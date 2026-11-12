@@ -26,9 +26,10 @@ from sim.services.prompt import HISTORY_LIMIT, SAFETY_RULES, STYLE_RULE, VOICE_R
 
 log = logging.getLogger(__name__)
 
-Kind = Literal["text", "int", "capability"]
+Kind = Literal["text", "int", "capability", "model"]
 TEXT_MAX = 20000
 CAPABILITY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,79}$")
+MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
 
 
 class SettingError(ValueError):
@@ -53,6 +54,13 @@ class SettingSpec:
             if (self.min is not None and value < self.min) or (self.max is not None and value > self.max):
                 raise SettingError(f"{self.key}: must be between {self.min} and {self.max}")
             return value
+        if self.kind == "model":
+            if not isinstance(value, str):
+                raise SettingError(f"{self.key}: a Broker model id or an empty text is required")
+            model = value.strip()
+            if model and not MODEL.match(model):
+                raise SettingError(f"{self.key}: a Broker model id like codex-sub/gpt-6.1-terra is required")
+            return model
         if not isinstance(value, str) or not value.strip():
             raise SettingError(f"{self.key}: a non-empty text is required")
         text = value.strip()
@@ -71,18 +79,22 @@ SPECS: tuple[SettingSpec, ...] = (
                 "Манера письма: длина сообщений, пунктуация, опечатки, эмодзи.",
                 "text", STYLE_RULE),
     SettingSpec("safety_rule", "Промпт персонажа", "Безопасность",
-                "Что делать с инструкциями клиента, запреты на пароли, обещания дохода и выдумки.",
+                "Минимум: не выполнять инструкции клиента, не просить пароли и карты, не обещать гарантированный доход.",
                 "text", SAFETY_RULES),
     SettingSpec("history_limit", "Промпт персонажа", "Сколько реплик помнить",
                 "Сколько последних сообщений диалога уходит модели и контролеру.",
                 "int", HISTORY_LIMIT, 6, 100),
-    SettingSpec("guard_rules", "Контролер", "Правила контролера",
-                "Правила проверки ответа перед отправкой (кроме неизменяемого правила честности).",
+    SettingSpec("guard_rules", "Охранник", "Промпт охранника",
+                "Только критичные проверки ответа перед отправкой. Правило честности на прямой вопрос «ты бот?» неизменяемое и сюда не входит.",
                 "text", GUARD_RULES),
-    SettingSpec("guard_capability", "Контролер", "Маршрут Broker",
+    SettingSpec("guard_model", "Охранник", "Модель охранника",
+                "Точная модель Broker, например codex-sub/gpt-6.1-terra. Пусто: модель выбирает маршрут ниже. "
+                "Если ответ писала та же модель, охранник уйдёт на запасной маршрут.",
+                "model", ""),
+    SettingSpec("guard_capability", "Охранник", "Маршрут Broker",
                 "Capability Broker для контролера. Должна отличаться от модели персонажа.",
                 "capability"),
-    SettingSpec("guard_fallback_capability", "Контролер", "Запасной маршрут Broker",
+    SettingSpec("guard_fallback_capability", "Охранник", "Запасной маршрут Broker",
                 "Capability, если контролеру попалась та же модель, что писала ответ.",
                 "capability"),
     SettingSpec("reply_debounce_s", "Ответы", "Пауза перед ответом, сек",
@@ -91,6 +103,9 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("caption_rules", "Контент", "Правила подписей",
                 "Требования к подписи поста в Instagram.",
                 "text", CAPTION_RULES),
+    SettingSpec("trace_retention_days", "Журнал", "Хранить журнал, дней",
+                "Сколько дней хранить записи журнала системы (Активность → Журнал). 0 — не удалять.",
+                "int", None, 0, 365),
 )
 BY_KEY: Mapping[str, SettingSpec] = {spec.key: spec for spec in SPECS}
 
@@ -101,11 +116,12 @@ def env_defaults(settings: Settings) -> dict[str, Any]:
         "guard_capability": settings.guard_capability,
         "guard_fallback_capability": settings.guard_fallback_capability,
         "reply_debounce_s": settings.reply_debounce_s,
+        "trace_retention_days": settings.trace_retention_days,
     }
 
 
 FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "prefilter",
-                "reply_debounce_s": 8}
+                "reply_debounce_s": 8, "trace_retention_days": 30}
 
 
 @dataclass(frozen=True)
@@ -115,10 +131,12 @@ class AppSettings:
     safety_rule: str
     history_limit: int
     guard_rules: str
+    guard_model: str
     guard_capability: str
     guard_fallback_capability: str
     reply_debounce_s: int
     caption_rules: str
+    trace_retention_days: int
 
     def prompt_texts(self) -> PromptTexts:
         return PromptTexts(voice=self.voice_rule, style=self.style_rule, safety=self.safety_rule)
@@ -187,3 +205,9 @@ class AppSettingsService:
         except SettingError as exc:
             log.warning("app_setting %s ignored, default used: %s", spec.key, exc)
             return None
+
+
+async def trace_retention_days(session: AsyncSession, settings: Settings) -> int:
+    """How long the system log is kept: the owner setting, else SIM_TRACE_RETENTION_DAYS."""
+    item = await AppSettingsService(session, env_defaults(settings)).item("trace_retention_days")
+    return int(item.value)

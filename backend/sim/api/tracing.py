@@ -21,6 +21,16 @@ def is_quiet(method: str, path: str) -> bool:
     return method in ("GET", "HEAD", "OPTIONS") and path.startswith(QUIET_GETS)
 
 
+LINKED_PATH_PARAMS = ("client_id", "dialog_id", "channel_id")
+
+
+def path_links(request: Request) -> dict[str, int]:
+    """Ids from the matched route (`/api/dialogs/{dialog_id}/...`): an admin action on a client,
+    dialog or channel shows up next to that client in the log."""
+    params = request.path_params  # filled in by the router while the request ran
+    return {k: int(v) for k in LINKED_PATH_PARAMS if str(v := params.get(k, "")).isdigit()}
+
+
 def step_kind(path: str) -> str:
     return tracing.WEBHOOK if path.startswith("/hooks/") else tracing.HTTP
 
@@ -51,6 +61,7 @@ def install_request_tracing(app: FastAPI) -> None:
                 await tracer.record(
                     **step, status=tracing.OK if response.status_code < 400 else tracing.ERROR,
                     http_status=response.status_code, duration_ms=tracing.elapsed_ms(start),
+                    **path_links(request),
                 )
         response.headers[TRACE_HEADER] = ctx.trace_id
         return response
