@@ -36,6 +36,7 @@ from sim.services.prompt import (
     build_messages,
     handoff_link,
     parse_decision,
+    one_line,
     registration_link,
     stable_system_prompt,
 )
@@ -45,6 +46,7 @@ log = logging.getLogger(__name__)
 
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
+NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
 
 
 class ConversationError(Exception):
@@ -66,6 +68,7 @@ class Draft:
     decision: Decision | None
     result: LLMResult
     guard: GuardOutcome | None = None
+    rejection: str = ""
 
 
 @dataclass(frozen=True)
@@ -220,6 +223,14 @@ class ConversationService:
             if link
         ]
         return await (await self.guard()).review(
+            decision={
+                "stage": decision.stage.value if decision.stage else None,
+                "needs": decision.needs,
+                "next_step": decision.next_step,
+                "handoff_to_operator": decision.handoff_to_operator,
+                "refused": decision.refused,
+                "stop_contact": decision.stop_contact,
+            },
             history=history,
             draft=decision.reply,
             stage=ctx.stage,
@@ -324,14 +335,9 @@ class ConversationService:
             instruction=instruction,
             handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
         )
-        prompt = await self.prompt(persona, strategy, history, ctx)
-        decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
-        guard: GuardOutcome | None = None
-        stale = await self.messages.last(dialog_id, Direction.IN)
-        if decision is not None and decision.reply and (stale is None or stale.id <= cutoff):
-            # (A draft already overtaken by a newer client message is not worth a guard call;
-            # the locked re-check below drops it.) Fail closed: a guard error propagates, the job retries; nothing goes out unchecked.
-            guard = await self.review(strategy, history, decision, result, ctx, dialog_id)
+        draft = await self.draft_reply(
+            persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id
+        )
         # The model call took a while. From here on, hold the dialog lock (ingest takes it to
         # insert a client message) and re-read the world before anything is queued.
         await lock(self.session, NS_DIALOG, dialog_id)
@@ -345,14 +351,28 @@ class ConversationService:
             # reply job queued for that message answers with the full context.
             await self.defer_reply(dialog_id, 0)
             return ReplyOutcome("superseded")
-        if decision is None:
-            dialog.needs_operator = True
-            return ReplyOutcome("needs_operator")
+        if draft.decision is None or draft.guard is None or not draft.guard.allowed:
+            return await self.handoff_failed(dialog, draft)
         # A follow-up answers no client message, so "mirror" never voices it.
         voice = speaks(persona.voice_mode, persona.voice_id,
                        None if followup or newer is None else newer.media_kind)
-        return await self.apply(dialog, strategy, decision, result, guard, followup=followup,
-                                voice=voice)
+        return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
+                                followup=followup, voice=voice)
+
+    async def handoff_failed(self, dialog: Dialog, draft: Draft) -> ReplyOutcome:
+        """Two rejected decisions: one neutral reply, then a visible manager handoff."""
+        reason = draft.rejection or "the generator could not produce an approved answer"
+        dialog.needs_operator = True
+        dialog.ai_paused = True
+        await self.followups.cancel(dialog.id)
+        await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
+        blocked = draft.guard or GuardOutcome(BLOCKED, draft.decision.reply if draft.decision else "",
+                                              [reason])
+        await self.outbound.store_blocked(dialog, draft.result, blocked)
+        message = await self.outbound.queue_ai(
+            dialog, NEUTRAL_HANDOFF_REPLY, None, final=True,
+        )
+        return ReplyOutcome("needs_operator", draft.decision, message)
 
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
@@ -378,6 +398,8 @@ class ConversationService:
         followup: bool,
         voice: bool = False,
     ) -> ReplyOutcome:
+        if guard is None or not guard.allowed or not decision.reply:
+            raise ValueError("only an approved complete decision may change dialog state")
         client = dialog.client
         if decision.needs:
             client.needs = decision.needs
@@ -399,13 +421,6 @@ class ConversationService:
             dialog.ai_paused = True
             await self.followups.cancel(dialog.id)
 
-        if not decision.reply or guard is None:
-            return ReplyOutcome("empty", decision)
-        if not guard.allowed:
-            # Nothing is sent; the operator sees the draft and the violations in the dialog.
-            dialog.needs_operator = True
-            await self.outbound.store_blocked(dialog, result, guard)
-            return ReplyOutcome("blocked", decision)
         decision = replace(decision, reply=guard.text)
         message = await self.outbound.queue_ai(
             dialog, guard.text, result,
@@ -431,13 +446,29 @@ class ConversationService:
         """The same builder, model call and pre-send guard as production, without any dialog
         bookkeeping. `history` ends with the client's latest message."""
         prompt = await self.prompt(persona, strategy, history, ctx)
-        decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
-        guard: GuardOutcome | None = None
-        if decision is not None and decision.reply:
-            guard = await self.review(
-                strategy, history, decision, result, ctx, dialog_id, guard_workflow
-            )
-        return Draft(decision, result, guard)
+        rejection = ""
+        for attempt in range(2):
+            decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
+            guard: GuardOutcome | None = None
+            if decision is not None and decision.reply:
+                guard = await self.review(
+                    strategy, history, decision, result, ctx, dialog_id, guard_workflow
+                )
+                if guard.allowed:
+                    return Draft(decision, result, guard)
+                rejection = "; ".join(guard.violations) or "контролёр отклонил решение"
+            else:
+                rejection = "решение не содержит корректного ответа"
+            if attempt == 0:
+                feedback = one_line(rejection, 500)
+                prompt = [
+                    *prompt,
+                    {"role": "assistant", "content": result.text[:4000]},
+                    {"role": "system", "content":
+                     "Контролёр отклонил черновик: " + feedback +
+                     ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
+                ]
+        return Draft(decision, result, guard, rejection)
 
     async def preview(
         self, persona: Persona, message: str, history: list[Turn] | None = None
@@ -454,9 +485,5 @@ class ConversationService:
         )
         turns = [*(history or []), Turn("user", message)]
         draft = await self.draft_reply(persona, strategy, turns, ctx, workflow="preview")
-        reply = draft.result.text[:2000]
-        if draft.decision is not None:
-            reply = draft.decision.reply
-            if draft.guard is not None:
-                reply = draft.guard.text if draft.guard.allowed else ""
+        reply = draft.guard.text if draft.guard is not None and draft.guard.allowed else ""
         return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms, draft.guard)
