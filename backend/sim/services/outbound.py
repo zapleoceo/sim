@@ -14,6 +14,7 @@ from sim.adapters.audio import AudioError
 from sim.adapters.channels.capabilities import Capability
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
+from sim.adapters.media import MediaStore
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
@@ -88,6 +89,7 @@ class OutboundService:
         factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
         voice: VoiceRenderer | None = None,
+        media: MediaStore | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         self.session = session
@@ -96,6 +98,7 @@ class OutboundService:
         self.box = box
         self.clock = clock
         self.voice = voice
+        self.media = media
         self.messages = MessageRepo(session)
         self.dialogs = DialogRepo(session)
         self.jobs = JobRepo(session)
@@ -165,7 +168,8 @@ class OutboundService:
         return message
 
     async def send_manual(
-        self, dialog: Dialog, operator_id: int, text: str, *, request_id: str | None = None
+        self, dialog: Dialog, operator_id: int, text: str, *, request_id: str | None = None,
+        media_kind: str | None = None, media_url: str | None = None,
     ) -> Message:
         """An operator writes in the dialog; repeated request IDs return the same message.
 
@@ -190,6 +194,8 @@ class OutboundService:
             operator_id=operator.id if operator is not None else None,
             operator_name=operator.display_name[:120] if operator is not None else None,
             text=text,
+            media_kind=media_kind,
+            media_url=media_url,
             client_request_id=request_id,
             delivery=Delivery.QUEUED,
             created_at=now,
@@ -228,6 +234,7 @@ class OutboundService:
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
             "thread": dialog.external_thread_id, "text": message.text,
+            "media_url": message.media_url,
             "voice": message.media_kind == VOICE_NOTE,
             "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
         }, sort_keys=True).encode()).hexdigest()
@@ -283,7 +290,17 @@ class OutboundService:
         Voice is best-effort: when the channel cannot send voice, the persona has no valid
         voice any more, or the broker / ffmpeg fails, the client still gets the reply as text
         (the reason is logged; the message stops being marked as voice)."""
-        if message.media_kind != VOICE_NOTE or message.author is not Author.AI:
+        if message.media_kind != VOICE_NOTE:
+            return None
+        if message.author is Author.OPERATOR:
+            if Capability.SEND_VOICE not in getattr(port, "capabilities", frozenset()):
+                raise SendFailed("this channel cannot send voice")
+            name = (message.media_url or "").removeprefix("/api/media/")
+            path = self.media.path(name) if self.media is not None else None
+            if path is None or not (message.media_url or "").startswith("/api/media/"):
+                raise SendFailed("operator voice file is unavailable")
+            return VoiceNote(path.read_bytes(), None, None, message.media_url or "")
+        if message.author is not Author.AI:
             return None
         persona = await self.session.get(Persona, dialog.client.persona_id)
         reason = None
