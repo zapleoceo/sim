@@ -15,9 +15,9 @@ from sim.adapters.audio import AudioError
 from sim.adapters.channels.capabilities import Capability
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
-from sim.adapters.media import MediaStore
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
+from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
 from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction

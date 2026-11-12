@@ -1,16 +1,17 @@
 """Dialogs (the unified inbox), clients and the funnel board."""
 from __future__ import annotations
 
-from typing import Annotated, Any
 from pathlib import Path
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import Client, Dialog
-from sim.adapters.db.locks import NS_DIALOG, lock
-from sim.adapters.channels.capabilities import Capability
 from sim.adapters.audio import AudioError
+from sim.adapters.channels.capabilities import Capability
+from sim.adapters.db.locks import NS_DIALOG, lock
+from sim.adapters.db.models import Client, Dialog, Message
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.conversations import (
     ClientRepo,
@@ -146,7 +147,7 @@ async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App,
 @dialogs.post("/{dialog_id}/attachments", status_code=201)
 async def send_operator_attachment(
     dialog_id: int, c: App, s: Db, p: Authed,
-    file: UploadFile = File(...), caption: str = Form(default=""),
+    file: Annotated[UploadFile, File()], caption: str = Form(default=""),
     request_id: str | None = Form(default=None),
 ):
     if request_id is not None and not (1 <= len(request_id) <= 64):
@@ -168,8 +169,6 @@ async def send_operator_attachment(
     if Capability.SEND_ATTACHMENT not in getattr(port, "capabilities", frozenset()):
         raise HTTPException(422, "This channel cannot send attachments")
     if request_id:
-        from sqlalchemy import select  # noqa: PLC0415
-        from sim.adapters.db.models import Message  # noqa: PLC0415
         existing = await s.scalar(
             select(Message).where(Message.dialog_id == dialog_id,
                                   Message.client_request_id == request_id)
@@ -212,7 +211,7 @@ async def send_operator_attachment(
 @dialogs.post("/{dialog_id}/voice", status_code=201)
 async def send_operator_voice(
     dialog_id: int, c: App, s: Db, p: Authed,
-    file: UploadFile = File(...), request_id: str | None = Form(default=None),
+    file: Annotated[UploadFile, File()], request_id: str | None = Form(default=None),
 ):
     """Record/upload audio, convert to OGG/Opus, then queue one operator voice note."""
     if request_id is not None and not (1 <= len(request_id) <= 64):
@@ -232,8 +231,6 @@ async def send_operator_voice(
     if Capability.SEND_VOICE not in getattr(port, "capabilities", frozenset()):
         raise HTTPException(422, "This channel cannot send voice")
     if request_id:
-        from sqlalchemy import select  # noqa: PLC0415
-        from sim.adapters.db.models import Message  # noqa: PLC0415
         existing = await s.scalar(
             select(Message).where(Message.dialog_id == dialog_id,
                                   Message.client_request_id == request_id)

@@ -8,8 +8,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.locks import NS_DIALOG, lock
+from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.services import jobkinds
 from sim.services.conversation import ReplyOutcome
 from sim.wiring import Container

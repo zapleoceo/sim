@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { fakeApi, reply } from '@/test/fake-api';
 import { PersonaPreview } from './persona-preview';
 
+const initialContext = { stage: 'first_contact', status: 'active', needs: [], next_step: '' };
+
 const ok = { reply: 'Привет! Чем помочь?', model: 'fake-model', latency_ms: 42, decision: { stage: 'engaged' }, guard: null };
 
 describe('PersonaPreview', () => {
@@ -18,7 +20,7 @@ describe('PersonaPreview', () => {
     expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
     expect(screen.getByText('fake-model · 42 мс')).toBeInTheDocument();
     expect(log).toHaveLength(1);
-    expect(log[0]?.body).toEqual({ message: 'привет', history: [], voice_input: false });
+    expect(log[0]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext });
 
     await userEvent.type(input, 'а цена?{Enter}');
     await waitFor(() => expect(log).toHaveLength(2));
@@ -29,6 +31,7 @@ describe('PersonaPreview', () => {
         { role: 'assistant', text: 'Привет! Чем помочь?' },
       ],
       voice_input: false,
+      ...initialContext,
     });
   });
 
@@ -49,7 +52,7 @@ describe('PersonaPreview', () => {
     expect(screen.getByRole('img', { name: 'check.jpg' })).toHaveAttribute('src', '/api/media/abc.jpg');
     expect(screen.getByLabelText('Голосовой ответ')).toHaveAttribute('src', '/api/media/v.ogg');
     const sent = log.find((r) => r.path === '/api/personas/1/preview');
-    expect(sent?.body).toEqual({ message: 'смотри\n[изображение: чек на 500 грн]', history: [], voice_input: false });
+    expect(sent?.body).toEqual({ message: 'смотри\n[изображение: чек на 500 грн]', history: [], voice_input: false, ...initialContext });
     expect(log[0]?.body).toBeInstanceOf(FormData);
   });
 
@@ -80,7 +83,7 @@ describe('PersonaPreview', () => {
     expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(log).toHaveLength(2);
-    expect(log[1]?.body).toEqual({ message: 'привет', history: [], voice_input: false });
+    expect(log[1]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext });
   });
 
   it('marks a blocked reply and clears the chat', async () => {
