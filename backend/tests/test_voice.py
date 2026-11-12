@@ -65,9 +65,11 @@ def test_speaks(mode, voice, last, expected):
     assert speaks(mode, voice, last) is expected
 
 
-def test_voice_list_is_the_30_gemini_voices():
-    assert len(GEMINI_VOICES) == len(set(GEMINI_VOICES)) == 30
-    assert {"Kore", "Aoede", "Puck", "Sulafat"} <= set(GEMINI_VOICES)
+def test_voice_list_is_the_13_female_voices_checked_for_ru_uk():
+    assert len(GEMINI_VOICES) == len(set(GEMINI_VOICES)) == 13
+    assert {"Kore", "Aoede", "Sulafat"} <= set(GEMINI_VOICES)
+    assert not {"Puck", "Charon", "Laomedeia"} & set(GEMINI_VOICES)
+    assert not speaks(VoiceMode.ALWAYS, "Puck", None)
 
 
 # ---- encoder --------------------------------------------------------------------------------

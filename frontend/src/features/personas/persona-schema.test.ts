@@ -81,9 +81,11 @@ describe('persona form validation', () => {
     expect(personaErrors({ ...valid, voice_style: 'x'.repeat(301) }).voice_style).toBe('Не длиннее 300 символов');
   });
 
-  it('offers the 30 Gemini voices and three voice modes', () => {
-    expect(GEMINI_VOICES).toHaveLength(30);
-    expect(new Set(GEMINI_VOICES.map((v) => v.id)).size).toBe(30);
+  it('offers the 13 female Gemini voices checked for ru/uk and three voice modes', () => {
+    expect(GEMINI_VOICES).toHaveLength(13);
+    expect(new Set(GEMINI_VOICES.map((v) => v.id)).size).toBe(13);
+    expect(GEMINI_VOICES.map((v) => v.id)).not.toContain('Laomedeia');
+    expect(GEMINI_VOICES.map((v) => v.id)).not.toContain('Puck');
     expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
     expect(VOICE_OPTIONS[0]).toEqual({ value: '', label: 'Без голоса' });
   });
