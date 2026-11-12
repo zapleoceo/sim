@@ -295,7 +295,7 @@ def test_guard_checks_only_the_critical_rules():
     for gone in ("медицинских", "политики", "выдуманных фактов", "мата", "без вопроса сам говорит, что он ИИ"):
         assert gone not in system
     assert "ВСЁ ОСТАЛЬНОЕ НЕ НАРУШЕНИЕ" in system and "широкая свобода" in system
-    assert "не исправляй черновик ради согласованности с прошлыми репликами" in system
+    assert "Не исправляй черновик ради согласованности с прошлыми репликами" in system
 
 
 def test_guard_prompt_ignores_persona_and_strategy_and_uses_the_owner_rules():
