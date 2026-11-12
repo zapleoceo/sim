@@ -124,13 +124,13 @@ class SimulationService:
         draft = await self.conversation.draft_reply(
             persona, strategy, history, ctx, workflow=SIM_WORKFLOW, guard_workflow=SIM_GUARD_WORKFLOW
         )
-        if draft.decision is None:
-            return SimReply("no_decision", model=draft.result.model)
-        self.apply_decision(branch, draft.decision)
         guard = draft.guard
-        if guard is None:
-            return SimReply("empty", model=draft.result.model, stage=branch.stage)
+        if draft.decision is None or guard is None:
+            return SimReply("no_decision", model=draft.result.model, stage=branch.stage,
+                            note=draft.rejection)
         blocked = not guard.allowed
+        if not blocked:
+            self.apply_decision(branch, draft.decision)
         await self.messages.add(
             SimMessage(
                 branch_id=branch.id,
