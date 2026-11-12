@@ -64,6 +64,28 @@ async def client_or_404(s: Db, client_id: int) -> Client:
     return client
 
 
+def send_capabilities(c: App, dialog: Dialog) -> dict[str, bool]:
+    """Available transport operations, not proof that a channel send will succeed."""
+    result = {"text": False, "voice": False, "attachment": False}
+    if dialog.channel.status is not SessionStatus.ACTIVE:
+        return result
+    connector = c.registry.get(dialog.channel.kind)
+    if connector is None:
+        return result
+    try:
+        port = connector.build_port(
+            dialog.channel_id, c.box.decrypt_json(dialog.channel.session_enc)
+        )
+    except Exception:
+        return result
+    caps = getattr(port, "capabilities", frozenset())
+    return {
+        "text": True,
+        "voice": Capability.SEND_VOICE in caps,
+        "attachment": Capability.SEND_ATTACHMENT in caps,
+    }
+
+
 async def channels_of(s: AsyncSession, client: Client) -> list[dict[str, Any]]:
     return [
         {"kind": d.channel.kind.value, "dialog_id": d.id}
@@ -94,11 +116,12 @@ async def list_dialogs(  # noqa: PLR0913
 
 
 @dialogs.get("/{dialog_id}")
-async def get_dialog(dialog_id: int, s: Db):
+async def get_dialog(dialog_id: int, s: Db, c: App):
     dialog = await dialog_or_404(s, dialog_id)
     messages = await MessageRepo(s).recent(dialog_id, 1000)
     return {
-        "dialog": dialog_out(dialog),
+        "dialog": {**dialog_out(dialog), "send_capabilities": send_capabilities(c, dialog),
+                   "channel_status": dialog.channel.status.value},
         "client": client_out(dialog.client, await channels_of(s, dialog.client)),
         "messages": [message_out(m) for m in messages],
     }
