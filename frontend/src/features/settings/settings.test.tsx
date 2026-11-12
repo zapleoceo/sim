@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type { AppSettingItem } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
 import { CSRF, renderApp, testUser } from '@/test/render-app';
-import { groupSettings, parseSettingValue, replaceSetting, settingHint } from './settings-logic';
+import { groupSettings, parseSettingValue, pickSettings, replaceSetting, settingHint } from './settings-logic';
 
 function item(patch: Partial<AppSettingItem>): AppSettingItem {
   return {
@@ -14,7 +14,7 @@ function item(patch: Partial<AppSettingItem>): AppSettingItem {
 
 const STYLE = item({ key: 'style', group: 'Стиль', label: 'Манера письма', value: 'коротко', default: 'коротко' });
 const GUARD = item({
-  key: 'guard_prompt', group: 'Охранник', label: 'Промпт охранника', value: 'свой', default: 'исходный', is_default: false,
+  key: 'guard_rules', group: 'Охранник', label: 'Инструкции', value: 'свой', default: 'исходный', is_default: false,
   updated_at: '2026-11-11T10:00:00Z',
 });
 const DELAY = item({ key: 'delay', group: 'Стиль', label: 'Пауза, с', kind: 'int', min: 0, max: 600, value: 30, default: 30 });
@@ -23,8 +23,13 @@ describe('settings logic', () => {
   it('groups in API order', () => {
     expect(groupSettings([STYLE, GUARD, DELAY]).map((g) => [g.name, g.items.map((i) => i.key)])).toEqual([
       ['Стиль', ['style', 'delay']],
-      ['Охранник', ['guard_prompt']],
+      ['Охранник', ['guard_rules']],
     ]);
+  });
+
+  it('picks only the given keys in the given order', () => {
+    expect(pickSettings([STYLE, GUARD, DELAY], ['delay', 'missing', 'style']).map((i) => i.key)).toEqual(['delay', 'style']);
+    expect(pickSettings([STYLE, DELAY]).map((i) => i.key)).toEqual(['style', 'delay']);
   });
 
   it('parses integers within range and keeps text as is', () => {
@@ -53,7 +58,7 @@ describe('SettingsPage', () => {
     const user = userEvent.setup();
 
     const style = await screen.findByLabelText('Манера письма');
-    expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();   // the guard has its own page
+    expect(screen.queryByLabelText('Инструкции')).not.toBeInTheDocument();   // the guard has its own page
     expect(screen.getByRole('region', { name: 'Стиль' })).toBeInTheDocument();
 
     const styleBlock = style.closest('div.flex.flex-col.gap-2') as HTMLElement;
@@ -71,16 +76,30 @@ describe('SettingsPage', () => {
   it('the guard has its own page with only its settings, and resets to default', async () => {
     fakeApi({
       'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
-      'DELETE /api/settings/guard_prompt': { ...GUARD, value: 'исходный', is_default: true, updated_at: null },
+      'DELETE /api/settings/guard_rules': { ...GUARD, value: 'исходный', is_default: true, updated_at: null },
     });
     await renderApp('/guard');
     const user = userEvent.setup();
-    const prompt = await screen.findByLabelText('Промпт охранника');
+    const prompt = await screen.findByLabelText('Инструкции');
     expect(prompt).toHaveValue('свой');
     expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
     const guard = prompt.closest('div.flex.flex-col.gap-2') as HTMLElement;
     await user.click(within(guard).getByRole('button', { name: /Вернуть по умолчанию/ }));
-    await waitFor(() => expect(screen.getByLabelText('Промпт охранника')).toHaveValue('исходный'));
+    await waitFor(() => expect(screen.getByLabelText('Инструкции')).toHaveValue('исходный'));
+  });
+
+  it('the guard page shows only the model picker and the instructions', async () => {
+    const MODEL = item({ key: 'guard_model', group: 'Охранник', label: 'Модель', kind: 'model', value: 'codex-sub/gpt-6.1-terra', default: '' });
+    const ROUTE = item({ key: 'guard_capability', group: 'Охранник', label: 'Маршрут Broker', kind: 'capability', value: 'structured' });
+    fakeApi({
+      'GET /api/settings': { items: [GUARD, MODEL, ROUTE] },
+      'GET /api/models': { items: [{ id: 'codex-sub/gpt-6.1-terra', name: 'GPT 6.1 Terra', available: true, subscription: true }] },
+    });
+    await renderApp('/guard');
+    expect(await screen.findByLabelText('Инструкции')).toBeInTheDocument();
+    const model = screen.getByRole('combobox', { name: 'Модель' });
+    await waitFor(() => expect(model).toHaveTextContent('GPT 6.1 Terra'));
+    expect(screen.queryByLabelText('Маршрут Broker')).not.toBeInTheDocument();
   });
 
   it('rejects a non-integer before calling the API', async () => {

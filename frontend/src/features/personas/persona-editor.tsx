@@ -2,8 +2,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Avatar } from '@/components/avatar';
 import { Field, FormGrid } from '@/components/field';
+import { modelOptions } from '@/components/model-options';
 import type { Option } from '@/components/option-select';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,24 +16,7 @@ import {
   EMPTY_PERSONA, personaFromForm, personaSchema, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
 
-/** Model options: «Авто» first, Broker models (unavailable ones disabled), and the saved value if Broker no longer lists it. */
-export function modelOptions(models: readonly BrokerModel[], current: string): Option<string>[] {
-  const out: Option<string>[] = [
-    { value: '', label: 'Авто — цепочка chat:sales' },
-    ...models.map((m) => ({
-      value: m.id,
-      disabled: !m.available,
-      label: (
-        <span className="flex items-center gap-2">
-          {m.name}
-          {m.subscription && <Badge variant="muted">подписка</Badge>}
-        </span>
-      ),
-    })),
-  ];
-  if (current && !models.some((m) => m.id === current)) out.push({ value: current, label: current });
-  return out;
-}
+const PERSONA_AUTO = 'Авто — цепочка chat:sales';
 
 export function PersonaEditor({
   persona,
@@ -92,7 +75,7 @@ export function PersonaEditor({
           <Input {...register('name')} autoComplete="off" />
         </Field>
         <Field label="Модель" hint={modelsUnavailable ? 'Список моделей недоступен — используется авто-цепочка' : undefined}>
-          <SelectControl control={control} name="model" options={modelOptions(models, model)} />
+          <SelectControl control={control} name="model" options={modelOptions(models, model, PERSONA_AUTO)} />
         </Field>
         <Field label="Стратегия">
           <SelectControl control={control} name="strategy_id" options={strategyOptions} />

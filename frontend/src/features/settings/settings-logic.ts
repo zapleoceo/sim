@@ -16,6 +16,12 @@ export function groupSettings(items: readonly AppSettingItem[]): SettingGroup[] 
   return groups;
 }
 
+/** Only the given keys, in the given order; no keys means everything as the API returned it. */
+export function pickSettings(items: readonly AppSettingItem[], keys?: readonly string[]): AppSettingItem[] {
+  if (!keys) return [...items];
+  return keys.flatMap((k) => items.filter((i) => i.key === k));
+}
+
 export type ParsedSetting = { ok: true; value: string | number } | { ok: false; error: string };
 
 /** Input text -> typed value. Integers are checked against min/max so the API rarely answers 422. */

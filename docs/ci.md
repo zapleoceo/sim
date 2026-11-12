@@ -33,8 +33,9 @@ Rollback: restore the database from the backup in `/var/backups/vera/sim/daily/<
 ## Tests and docs gate
 
 Job `change-gate` ("Tests and docs required") runs on every pull request to `main`
-(`backend/scripts/change_gate.py`, unit tests in `backend/tests/test_change_gate.py`). For the
-files changed between the PR base and head:
+(`backend/scripts/change_gate.py`, unit tests in `backend/tests/test_change_gate.py`). The job checks
+out the PR merge commit, so the gate script from `main` also runs for branches created before it
+existed. For the files changed between the PR base and head:
 
 - product code changed (`backend/sim/**`, `frontend/src/**` except `*.test.ts(x)` and
   `frontend/src/test/**`) without a changed test file (`backend/tests/**`, `*.test.ts(x)`,
