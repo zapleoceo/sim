@@ -111,8 +111,9 @@ async def test_blocked_draft_is_not_part_of_the_next_prompt(container, world, fa
     await start(container, world)
     await run_reply(container)
     await ingest(container, world.channel.id, inbound("Алло?", ext="m2"))
+    _, dialog, _, _ = await state(container)
     async with transaction(container.factory) as s:
-        (await s.get(Dialog, (await state(container))[1].id)).ai_paused = False
+        (await s.get(Dialog, dialog.id)).ai_paused = False
     fake_llm.replies = [decision_json(reply="Здравствуйте!")]
     await run_reply(container)
     prompt = fake_llm.gen_calls[-1][0]
