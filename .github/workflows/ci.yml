@@ -98,6 +98,27 @@ jobs:
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python infra/build_release_artifact.py
 
+  # Pull requests: product code must change together with tests and docs.
+  change-gate:
+    name: Tests and docs required
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Product code changes need tests and docs
+        working-directory: backend
+        run: >-
+          python scripts/change_gate.py
+          ${{ github.event.pull_request.base.sha }}
+          ${{ github.event.pull_request.head.sha }}
+
   # Production deploy: only for pushes to main after backend and frontend pass.
   # Gates: fresh DB backup, old worker stopped before migrations, readiness smoke.
   deploy:
