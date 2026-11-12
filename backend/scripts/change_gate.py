@@ -47,7 +47,11 @@ def evaluate(changed: list[str], messages: str) -> GateResult:
 
 
 def git(*args: str) -> str:
-    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+    # CI-only helper: fixed argv, no shell; arguments are refs from the workflow, not user input.
+    return subprocess.run(  # noqa: S603
+        ["git", *args],  # noqa: S607
+        check=True, capture_output=True, text=True,
+    ).stdout
 
 
 def main(base: str, head: str) -> int:
