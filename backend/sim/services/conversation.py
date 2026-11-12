@@ -17,7 +17,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, Stage
-from sim.domain.funnel import Actor, FunnelRuleError
+from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
@@ -78,6 +78,7 @@ class PreviewResult:
     model: str | None
     latency_ms: int
     guard: GuardOutcome | None = None
+    context: dict[str, Any] | None = None
 
 
 def persona_profile(p: Persona) -> PersonaProfile:
@@ -471,19 +472,33 @@ class ConversationService:
         return Draft(decision, result, guard, rejection)
 
     async def preview(
-        self, persona: Persona, message: str, history: list[Turn] | None = None
+        self, persona: Persona, message: str, history: list[Turn] | None = None,
+        *, stage: Stage = Stage.FIRST_CONTACT, status: ClientStatus = ClientStatus.ACTIVE,
+        needs: list[str] | None = None, next_step: str = "",
     ) -> PreviewResult:
         """Same builder as production; nothing is persisted or sent."""
         strategy = await self.strategy_for(persona.id)
         ctx = DialogContext(
-            stage=Stage.FIRST_CONTACT,
-            status=ClientStatus.ACTIVE.value,
+            stage=stage,
+            status=status.value,
             client_name="Preview",
             channel_kind="preview",
             ref_code="PREVIEW",
             now=self.clock(),
+            needs=list(needs or []),
+            next_step=next_step,
         )
         turns = [*(history or []), Turn("user", message)]
         draft = await self.draft_reply(persona, strategy, turns, ctx, workflow="preview")
         reply = draft.guard.text if draft.guard is not None and draft.guard.allowed else ""
-        return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms, draft.guard)
+        approved = draft.decision if reply else None
+        context = {
+            "stage": advance_by_ai(stage, approved.stage).value if approved else stage.value,
+            "status": (ClientStatus.REFUSED if approved and (approved.refused or approved.stop_contact)
+                       else ClientStatus.PAUSED if approved and approved.handoff_to_operator
+                       else status).value,
+            "needs": approved.needs if approved and approved.needs else list(needs or []),
+            "next_step": approved.next_step if approved and approved.next_step else next_step,
+        }
+        return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms,
+                             draft.guard, context)
