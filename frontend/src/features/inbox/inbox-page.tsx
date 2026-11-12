@@ -120,7 +120,7 @@ export function InboxPage() {
       for (let offset = 0; ; offset += 200) {
         const page = await simulationsApi.list(null, { limit: 200, offset });
         items.push(...page.items);
-        if (items.length >= page.total || page.items.length === 0) break;
+        if ((page.total !== undefined && items.length >= page.total) || page.items.length === 0) break;
       }
       return items;
     },
