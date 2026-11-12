@@ -41,7 +41,9 @@ const detail: DialogDetail = {
 
 function api() {
   return fakeApi({
-    'GET /api/personas': { items: [{ id: 1, name: 'Марина' }] },
+    'GET /api/personas': { items: [{ id: 1, name: 'Марина', is_active: true }] },
+    'GET /api/channels': { items: [{ id: 4, kind: 'telegram', name: 'Марина TG',
+      persona_id: 1, status: 'active', account_label: '@marina', last_error: null, last_activity_at: null }] },
     'GET /api/dialogs': { items: [row], total: 1 },
     'GET /api/simulations': { items: [{ id: 2, admin: { id: 1, display_name: 'Админ' },
       persona: { id: 1, name: 'Марина' }, title: 'Пробный разговор', message_count: 1,
@@ -50,10 +52,16 @@ function api() {
     'GET /api/simulations/2': { id: 2, admin: { id: 1, display_name: 'Админ' },
       persona: { id: 1, name: 'Марина' }, title: 'Пробный разговор', message_count: 1,
       stage: 'first_contact', status: 'active', created_at: '2026-11-11T09:00:00Z',
-      last_active_at: '2026-11-11T10:00:00Z', closed_at: null, needs: [], next_step: '', notes: '',
+      last_active_at: '2026-11-11T10:00:00Z', closed_at: null, needs: [], next_step: '', notes: '', can_continue: true, pending: false,
       messages: [{ id: 5, role: 'client', text: 'Тестовое приветствие', model: null,
         created_at: '2026-11-11T10:00:00Z', guard: null }] },
     'GET /api/dialogs/1': detail,
+    'POST /api/simulations/2/messages': { pending: true },
+    'POST /api/simulations': { id: 3, admin: { id: 1, display_name: 'Админ' },
+      persona: { id: 1, name: 'Марина' }, title: 'Новый тест', message_count: 0,
+      stage: 'first_contact', status: 'active', created_at: '2026-11-11T10:00:00Z',
+      last_active_at: '2026-11-11T10:00:00Z', closed_at: null, needs: [], next_step: '',
+      notes: '', can_continue: true, pending: false, messages: [] },
     'POST /api/dialogs/1/read': null,
     'POST /api/dialogs/1/messages': (req) => ({
       id: 12,
@@ -71,15 +79,30 @@ describe('InboxPage', () => {
     api();
     await renderApp('/inbox?d=-2');
     expect(await screen.findByText('Тестовое приветствие')).toBeInTheDocument();
-    expect(screen.getByText(/Это симуляция, не канал клиента/)).toBeInTheDocument();
+    expect(screen.getByText(/Это симуляция: сообщения остаются здесь/)).toBeInTheDocument();
     expect(screen.getByText('Тест')).toBeInTheDocument();
   });
+  it('continues a test chat through the isolated simulation queue', async () => {
+    const log = api();
+    await renderApp('/inbox?d=-2');
+    const box = await screen.findByRole('textbox', { name: 'Сообщение тестовому клиенту' });
+    await userEvent.type(box, 'Проверка ответа');
+    await userEvent.click(screen.getByRole('button', { name: 'Продолжить тест' }));
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'POST' && r.path === '/api/simulations/2/messages');
+      expect(sent?.body).toMatchObject({ text: 'Проверка ответа' });
+      expect(typeof (sent?.body as { request_id?: string })?.request_id).toBe('string');
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+  });
+
   it('lists dialogs with unread count and the needs-operator badge', async () => {
     api();
     await renderApp('/inbox');
     expect(await screen.findByText('Анна Клиентова')).toBeInTheDocument();
     expect(screen.getByLabelText('2 непрочитанных')).toBeInTheDocument();
     expect(screen.getByText('нужен оператор')).toBeInTheDocument();
+    expect(screen.getByText(/Требуется ответ менеджера/)).toBeInTheDocument();
   });
 
   it('opens a dialog, marks it read and sends an operator reply with CSRF', async () => {

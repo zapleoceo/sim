@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tip } from '@/components/ui/tooltip';
-import type { ChannelKind, ClientStatus, DialogFilter, DialogRow, Persona, Stage } from '@/lib/models';
+import type { ChannelKind, ClientStatus, DialogFilter, DialogRow, Persona, Stage, Channel } from '@/lib/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS, STAGES, STATUSES, STATUS_LABELS } from '@/lib/stages';
 import { cn } from '@/lib/utils';
 import { DEFAULT_DIALOG_FILTER, LOAD_MORE_THRESHOLD, rowPreview, rowTime } from './inbox-logic';
@@ -31,11 +31,13 @@ export function InboxFilters({
   filter,
   onChange,
   personas,
+  channels,
   activeCount,
 }: {
   filter: DialogFilter;
   onChange: (f: DialogFilter) => void;
   personas: Persona[];
+  channels: Channel[];
   activeCount: number;
 }) {
   const set = <K extends keyof DialogFilter>(key: K, value: DialogFilter[K]): void => onChange({ ...filter, [key]: value });
@@ -55,12 +57,21 @@ export function InboxFilters({
                 { value: "test", label: "Тестовые" }]}
             />
           </FilterField>
-          <FilterField label="Аватар">
+          <FilterField label="Фото клиента">
             <OptionSelect<DialogFilter["avatar"]>
               value={filter.avatar}
               onChange={(v) => set("avatar", v)}
               options={[{ value: "", label: "Любой" }, { value: "with", label: "С аватаром" },
                 { value: "without", label: "Без аватара" }]}
+            />
+          </FilterField>
+          <FilterField label="Аватар / аккаунт">
+            <OptionSelect<number | null>
+              value={filter.channel_id}
+              onChange={(v) => set("channel_id", v)}
+              options={[{ value: null, label: "Все аккаунты" }, ...channels.map((ch) => ({
+                value: ch.id, label: `${ch.name || ch.account_label || `#${ch.id}`} · ${CHANNEL_LABELS[ch.kind]}`,
+              }))]}
             />
           </FilterField>
           <FilterField label="Канал">

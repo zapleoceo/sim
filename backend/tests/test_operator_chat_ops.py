@@ -91,3 +91,14 @@ async def test_attachment_support_is_explicit_and_uses_same_send_fence(api, cont
     assert len(sent) == 1 and sent[0][0] == "chat-1"
     assert sent[0][1].startswith(b"\x89PNG") and sent[0][3] == "image/png"
     assert sent[0][4] == "Смотрите"
+
+
+async def test_inbox_filters_an_exact_channel_account(api, container, world):
+    did = await dialog_id(container, world)
+    await login(api, *OWNER)
+    found = await api.get(f"/api/dialogs?channel_id={world.channel.id}")
+    missing = await api.get(f"/api/dialogs?channel_id={world.channel.id + 1000}")
+    assert found.status_code == missing.status_code == 200
+    assert [row["id"] for row in found.json()["items"]] == [did]
+    assert found.json()["items"][0]["channel_id"] == world.channel.id
+    assert missing.json()["items"] == []

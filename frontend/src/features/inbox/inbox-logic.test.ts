@@ -114,6 +114,7 @@ describe('test conversations in the inbox', () => {
     const test = visibleTestRows([branch], [], filter);
     expect(test).toHaveLength(1);
     expect(visibleTestRows([branch], [], { ...filter, avatar: 'with' })).toHaveLength(0);
+    expect(visibleTestRows([branch], [], { ...filter, channel_id: 4 })).toHaveLength(0);
     expect(combineDialogRows([row(1, { last_message: { text: 'real', direction: 'in', at: '2026-01-01T09:00:00Z' } })], test)[0].id).toBe(-7);
   });
 });

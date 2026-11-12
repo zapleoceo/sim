@@ -43,6 +43,12 @@ class SimBranchRepo(Repository[SimBranch]):
 class SimMessageRepo(Repository[SimMessage]):
     model = SimMessage
 
+    async def by_request(self, branch_id: int, request_id: str) -> SimMessage | None:
+        return await self.session.scalar(
+            select(SimMessage).where(SimMessage.branch_id == branch_id,
+                                     SimMessage.client_request_id == request_id)
+        )
+
     async def recent(self, branch_id: int, limit: int) -> list[SimMessage]:
         """The last `limit` messages of the branch, oldest first."""
         rows = (

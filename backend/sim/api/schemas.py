@@ -100,6 +100,15 @@ class PersonaIn(Body):
         return self
 
 
+class SimStartIn(Body):
+    persona_id: int = Field(gt=0)
+
+
+class SimContinueIn(Body):
+    text: str = Field(min_length=1, max_length=4000)
+    request_id: str = Field(min_length=1, max_length=64)
+
+
 class PreviewHistoryItem(Body):
     role: Literal["user", "assistant"]
     text: str

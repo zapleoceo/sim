@@ -444,11 +444,15 @@ class SimBranch(Base):
 
 class SimMessage(Base):
     __tablename__ = "sim_message"
-    __table_args__ = (Index("ix_sim_message_branch_id_id", "branch_id", "id"),)
+    __table_args__ = (
+        Index("ix_sim_message_branch_id_id", "branch_id", "id"),
+        UniqueConstraint("branch_id", "client_request_id", name="uq_sim_message_branch_request"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     branch_id: Mapped[int] = mapped_column(ForeignKey("sim_branch.id", ondelete="CASCADE"))
-    role: Mapped[str] = mapped_column(String(8))  # client | ai
+    role: Mapped[str] = mapped_column(String(8))  # client | ai | system
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     text: Mapped[str] = mapped_column(Text, default="")
     guard_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
     guard_violations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

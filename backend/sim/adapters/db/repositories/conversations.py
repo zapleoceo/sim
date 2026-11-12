@@ -126,6 +126,7 @@ class DialogRepo(Repository[Dialog]):
         stage: Stage | None = None,
         status: ClientStatus | None = None,
         avatar: str | None = None,
+        channel_id: int | None = None,
         q: str | None = None,
         unread_only: bool = False,
         needs_operator: bool = False,
@@ -137,6 +138,8 @@ class DialogRepo(Repository[Dialog]):
         )
         if channel_kind:
             stmt = stmt.where(Channel.kind == channel_kind)
+        if channel_id:
+            stmt = stmt.where(Dialog.channel_id == channel_id)
         if persona_id:
             stmt = stmt.where(Client.persona_id == persona_id)
         if stage:

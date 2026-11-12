@@ -103,6 +103,7 @@ async def list_dialogs(  # noqa: PLR0913
     stage: Stage | None = None,
     status: ClientStatus | None = None,
     avatar: str | None = None,
+    channel_id: int | None = None,
     q: str | None = None,
     unread_only: bool = False,
     needs_operator: bool = False,
@@ -111,7 +112,8 @@ async def list_dialogs(  # noqa: PLR0913
 ):
     rows, total = await DialogRepo(s).search(
         limit, offset, channel_kind=channel_kind, persona_id=persona_id, stage=stage,
-        status=status, avatar=avatar, q=q, unread_only=unread_only, needs_operator=needs_operator,
+        status=status, avatar=avatar, channel_id=channel_id, q=q,
+        unread_only=unread_only, needs_operator=needs_operator,
     )
     personas = {p.id: p for p in await PersonaRepo(s).all()}
     return {"items": [dialog_row(d, personas.get(d.client.persona_id)) for d in rows], "total": total}

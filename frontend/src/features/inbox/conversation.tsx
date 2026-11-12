@@ -154,6 +154,9 @@ export function Conversation({
           </Button>
         )}
       </header>
+      {dialog.needs_operator && <div role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm font-semibold">
+        Требуется ответ менеджера. ИИ остановлен; проверьте переписку и ответьте клиенту.
+      </div>}
       <div className="flex-none border-b px-4 py-1.5">
         <Link
           to="/clients/$id"

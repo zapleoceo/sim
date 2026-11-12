@@ -6,9 +6,11 @@ import { Avatar } from '@/components/avatar';
 import { StageChip, StatusBadge } from '@/components/badges';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/option-select';
 import { SINGLE_PANE_QUERY, WIDE_QUERY, useMediaQuery } from '@/hooks/use-media-query';
 import { useDebounced } from '@/hooks/use-debounced';
 import { dialogsApi } from '@/lib/api/dialogs';
+import { channelsApi } from '@/lib/api/channels';
 import { clientsApi } from '@/lib/api/clients';
 import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
@@ -64,6 +66,33 @@ function ClientSideCard({ detail, personas }: { detail: DialogDetail; personas: 
 }
 
 function TestConversation({ branch }: { branch: SimBranchDetail }) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const request = useRef<{ text: string; id: string } | null>(null);
+  const canSend = branch.can_continue === true && !branch.pending;
+  const send = async (): Promise<void> => {
+    const value = text.trim();
+    if (!value || !canSend || sending) return;
+    const id = request.current?.text === value ? request.current.id : crypto.randomUUID();
+    request.current = { text: value, id };
+    setSending(true);
+    setError('');
+    try {
+      await simulationsApi.send(branch.id, value, id);
+      setText('');
+      request.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['inbox-test-dialog', -branch.id] }),
+        queryClient.invalidateQueries({ queryKey: ['inbox-simulations'] }),
+      ]);
+    } catch {
+      setError('Не удалось подтвердить тестовое сообщение. Повтор использует тот же запрос.');
+    } finally {
+      setSending(false);
+    }
+  };
   return (
     <section aria-label="Тестовый диалог" className="flex min-h-0 flex-1 flex-col">
       <header className="border-b p-4">
@@ -74,16 +103,31 @@ function TestConversation({ branch }: { branch: SimBranchDetail }) {
         {branch.messages.map((message) => (
           <div key={message.id} className="mb-3 rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">
-              {message.role === 'client' ? 'Тестовый клиент' : 'Персонаж'} · {new Date(message.created_at).toLocaleString()}
+              {message.role === 'client' ? 'Тестовый клиент' : message.role === 'system' ? 'Система' : 'Персонаж'}
+              {' · '}{new Date(message.created_at).toLocaleString()}
             </p>
             <p className="whitespace-pre-wrap">{message.text}</p>
             {message.guard?.verdict === 'blocked' && <p className="text-xs text-destructive">Не отправлено: контролёр отклонил</p>}
           </div>
         ))}
+        {branch.pending && <p role="status" className="text-sm">Персонаж готовит ответ…</p>}
       </div>
-      <p className="border-t p-4 text-xs text-muted-foreground">
-        Это симуляция, не канал клиента. Продолжение теста доступно через бот симуляций; отправка в реальный канал здесь выключена.
-      </p>
+      <form className="flex flex-col gap-2 border-t p-4" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+        <p className="text-xs text-muted-foreground">Это симуляция: сообщения остаются здесь и не уходят в канал клиента.</p>
+        {!branch.can_continue && <p className="text-xs text-warning">
+          {branch.closed_at || branch.status === 'refused' || branch.status === 'paused'
+            ? 'Ветка завершена или передана оператору. Начните новый тест.'
+            : 'Продолжать тест может только его автор.'}
+        </p>}
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        <textarea aria-label="Сообщение тестовому клиенту" value={text}
+          onChange={(event) => { setText(event.target.value); request.current = null; }}
+          disabled={!branch.can_continue || sending} rows={2} maxLength={4000}
+          className="w-full rounded-md border bg-background p-2 text-sm" />
+        <Button type="submit" disabled={!canSend || sending || !text.trim()}>
+          {sending ? 'Отправка…' : 'Продолжить тест'}
+        </Button>
+      </form>
     </section>
   );
 }
@@ -106,6 +150,7 @@ export function InboxPage() {
   const narrow = useMediaQuery(SINGLE_PANE_QUERY);
   const wide = useMediaQuery(WIDE_QUERY);
   const [cardOpen, setCardOpen] = useState(true);
+  const [newTestPersonaId, setNewTestPersonaId] = useState<number | null>(null);
 
   const [filter, setFilter] = useState<DialogFilter>(DEFAULT_DIALOG_FILTER);
   const debouncedQ = useDebounced(filter.q, 250);
@@ -113,6 +158,20 @@ export function InboxPage() {
   const filterKey = JSON.stringify(apiFilter);
 
   const personas = useQuery({ queryKey: qk.personas, queryFn: personasApi.list });
+  const channels = useQuery({ queryKey: ['inbox-channels'], queryFn: channelsApi.list });
+  const operatorQueue = useQuery({
+    queryKey: ['inbox-operator-queue'],
+    queryFn: () => dialogsApi.list({ ...DEFAULT_DIALOG_FILTER, needs_operator: true },
+      { limit: 1, offset: 0 }, true),
+    refetchInterval: POLL_MS,
+  });
+  const startTest = useMutation({
+    mutationFn: (personaId: number) => simulationsApi.start(personaId),
+    onSuccess: (branch) => {
+      void queryClient.invalidateQueries({ queryKey: ['inbox-simulations'] });
+      void navigate({ search: (current) => ({ ...current, d: -branch.id }) });
+    },
+  });
   const simulations = useQuery({
     queryKey: ["inbox-simulations"],
     queryFn: async () => {
@@ -262,8 +321,24 @@ export function InboxPage() {
           className={cn('flex min-h-0 flex-col border-r', narrow ? 'w-full' : 'w-[340px] flex-none xl:w-[380px]')}
         >
           <div className="flex-none border-b p-3">
-            <InboxFilters filter={filter} onChange={setFilter} personas={personas.data ?? []} activeCount={count} />
+            <InboxFilters filter={filter} onChange={setFilter} personas={personas.data ?? []}
+              channels={channels.data ?? []} activeCount={count} />
           </div>
+          {(operatorQueue.data?.total ?? 0) > 0 && <button type="button"
+            className="w-full border-b bg-warning/15 px-3 py-2 text-left text-sm font-semibold"
+            onClick={() => setFilter({ ...DEFAULT_DIALOG_FILTER, source: 'real', needs_operator: true })}>
+            Требуется ответ менеджера: {operatorQueue.data?.total} · открыть очередь
+          </button>}
+          <div className="flex items-center gap-2 border-b p-2">
+            <OptionSelect<number | null> value={newTestPersonaId} onChange={setNewTestPersonaId}
+              options={[{ value: null, label: 'Персонаж для теста' },
+                ...(personas.data ?? []).filter((p) => p.is_active).map((p) => ({ value: p.id, label: p.name }))]} />
+            <Button type="button" size="sm" disabled={!newTestPersonaId || startTest.isPending}
+              onClick={() => { if (newTestPersonaId) startTest.mutate(newTestPersonaId); }}>
+              Новый тест
+            </Button>
+          </div>
+          {startTest.isError && <p role="alert" className="p-2 text-xs text-destructive">Не удалось создать тест.</p>}
           <DialogList
             rows={visibleRows}
             selectedId={dialogId}

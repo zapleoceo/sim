@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, SessionTransaction
 NS_REPLY = 1
 NS_DIALOG = 2
 NS_SIM = 3      # one reply in flight per admin simulation branch (keyed by branch id)
+NS_SIM_INPUT = 4  # short browser-input lock for idempotent branch message creation
 
 held: set[tuple[int, int]] = set()   # sqlite emulation only
 

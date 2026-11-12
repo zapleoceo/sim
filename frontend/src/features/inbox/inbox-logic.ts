@@ -9,6 +9,7 @@ export const LOAD_MORE_THRESHOLD = 240;
 export const DEFAULT_DIALOG_FILTER: DialogFilter = {
   source: '',
   avatar: '',
+  channel_id: null,
   channel_kind: '',
   persona_id: null,
   stage: '',
@@ -46,6 +47,7 @@ export function testDialogRow(branch: SimBranchRow, persona?: Persona): DialogRo
   return {
     id: -branch.id,
     is_test: true,
+    channel_id: null,
     channel_kind: 'telegram',
     persona: { id: branch.persona.id, name: branch.persona.name, avatar_url: persona?.avatar_url ?? '' },
     client: { id: -branch.id, display_name: branch.title || 'Тестовый диалог',
@@ -61,7 +63,7 @@ export function testDialogRow(branch: SimBranchRow, persona?: Persona): DialogRo
 export function visibleTestRows(
   branches: readonly SimBranchRow[], personas: readonly Persona[], filter: DialogFilter,
 ): DialogRow[] {
-  if (filter.source === 'real' || filter.channel_kind || filter.unread_only || filter.needs_operator) return [];
+  if (filter.source === 'real' || filter.channel_kind || filter.channel_id || filter.unread_only || filter.needs_operator) return [];
   const byId = new Map(personas.map((p) => [p.id, p]));
   const q = filter.q.trim().toLowerCase();
   return branches.map((b) => testDialogRow(b, byId.get(b.persona.id))).filter((row) =>

@@ -69,6 +69,8 @@ class SimulationService:
             SimBranch(
                 admin_user_id=admin.id,
                 persona_id=persona.id,
+                admin=admin,
+                persona=persona,
                 title=f"{persona.name} · {now:%d.%m %H:%M}",
                 created_at=now,
                 last_active_at=now,
@@ -88,10 +90,13 @@ class SimulationService:
     async def close(self, branch: SimBranch) -> None:
         branch.closed_at = self.clock()
 
-    async def add_client_message(self, branch: SimBranch, text: str) -> SimMessage:
+    async def add_client_message(
+        self, branch: SimBranch, text: str, *, request_id: str | None = None
+    ) -> SimMessage:
         now = self.clock()
         branch.last_active_at = now
-        return await self.messages.add(SimMessage(branch_id=branch.id, role=CLIENT, text=text, created_at=now))
+        return await self.messages.add(SimMessage(branch_id=branch.id, role=CLIENT, text=text,
+                                                  client_request_id=request_id, created_at=now))
 
     # ---- the reply -----------------------------------------------------------------------
     async def reply(self, branch: SimBranch, client_name: str) -> SimReply:
@@ -107,7 +112,9 @@ class SimulationService:
             return SimReply("skipped", note="персонаж выключен")
         strategy = await self.conversation.strategy_for(persona.id)
         rows = await self.messages.recent(branch.id, (await self.conversation.config()).history_limit)
-        history = visible_turns((m.role == CLIENT, m.text, m.guard_verdict) for m in rows)
+        history = visible_turns(
+            (m.role == CLIENT, m.text, m.guard_verdict) for m in rows if m.role != "system"
+        )
         ref = sim_ref(branch.id)
         ctx = DialogContext(
             stage=branch.stage,
