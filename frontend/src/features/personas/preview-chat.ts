@@ -1,7 +1,7 @@
 import { useCallback, useReducer, useRef } from 'react';
 import { personasApi } from '@/lib/api/personas';
 import { errorDetail, errorMessage } from '@/lib/errors';
-import type { GuardInfo, PreviewAttachment, PreviewResponse, PreviewTurn, PreviewVoice } from '@/lib/models';
+import type { GuardInfo, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, PreviewVoice } from '@/lib/models';
 
 export interface PreviewMsg {
   role: 'user' | 'assistant';
@@ -22,6 +22,7 @@ export interface PreviewFailure { text: string; history: PreviewTurn[]; error: s
 
 export interface PreviewState {
   messages: PreviewMsg[];
+  context: PreviewContext;
   busy: boolean;
   /** A voice note or file is being recognized by the Broker. */
   uploading: boolean;
@@ -39,7 +40,8 @@ export type PreviewAction =
   | { type: 'reset' };
 
 export const INITIAL_PREVIEW: PreviewState = {
-  messages: [], busy: false, uploading: false, failure: null, uploadError: null,
+  messages: [], context: { stage: "first_contact", status: "active", needs: [], next_step: "" },
+  busy: false, uploading: false, failure: null, uploadError: null,
 };
 
 /** History sent to the backend: answered turns only (failed user messages are left out). */
@@ -82,7 +84,8 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
     }
     case 'success': {
       const messages = state.messages.map((m) => (m.failed ? { ...m, failed: false } : m));
-      return { ...state, messages: [...messages, replyMessage(action.reply)], busy: false, failure: null };
+      return { ...state, messages: [...messages, replyMessage(action.reply)],
+        context: action.reply.context ?? state.context, busy: false, failure: null };
     }
     case 'fail': {
       const messages = state.messages.map((m, i) =>
@@ -117,7 +120,7 @@ export function usePreviewChat(personaId: number) {
   const run = useCallback(
     async (text: string, history: PreviewTurn[], voiceInput: boolean) => {
       try {
-        const reply = await personasApi.preview(personaId, text, history, voiceInput);
+        const reply = await personasApi.preview(personaId, text, history, voiceInput, stateRef.current.context);
         dispatch({ type: 'success', reply });
       } catch (e) {
         console.error('[preview]', e);
