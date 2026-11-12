@@ -158,6 +158,7 @@ export interface DialogRow {
   ai_paused: boolean;
   /** ИИ не справился или передал диалог человеку — нужен оператор. */
   needs_operator: boolean;
+  is_test?: boolean;
 }
 export interface Dialog {
   id: number;
@@ -166,9 +167,13 @@ export interface Dialog {
   client_id?: number;
   ai_paused: boolean;
   needs_operator: boolean;
+  channel_status?: ChannelStatus;
+  send_capabilities?: { text: boolean; voice: boolean; attachment: boolean };
 }
 export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
 export interface DialogFilter {
+  source: '' | 'real' | 'test';
+  avatar: '' | 'with' | 'without';
   channel_kind: ChannelKind | '';
   persona_id: number | null;
   stage: Stage | '';

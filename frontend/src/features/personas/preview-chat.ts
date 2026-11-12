@@ -76,6 +76,7 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
       return {
         // A new message replaces an unanswered (failed) one.
         messages: [...state.messages.filter((m) => !m.failed), msg],
+        context: state.context,
         busy: true,
         uploading: false,
         failure: null,

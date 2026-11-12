@@ -1,5 +1,5 @@
 import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
-import type { Delivery, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message } from '@/lib/models';
+import type { Delivery, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, SimBranchRow } from '@/lib/models';
 
 export const POLL_MS = 5000;
 export const PAGE_SIZE = 50;
@@ -7,6 +7,8 @@ export const PAGE_SIZE = 50;
 export const LOAD_MORE_THRESHOLD = 240;
 
 export const DEFAULT_DIALOG_FILTER: DialogFilter = {
+  source: '',
+  avatar: '',
   channel_kind: '',
   persona_id: null,
   stage: '',
@@ -37,6 +39,44 @@ export function mergeFirstPage(current: readonly DialogRow[], head: readonly Dia
   if (reset) return [...head];
   const ids = new Set(head.map((r) => r.id));
   return [...head, ...current.slice(pageSize).filter((r) => !ids.has(r.id))];
+}
+
+/** Test branches use negative IDs in this view; they never point at a real channel. */
+export function testDialogRow(branch: SimBranchRow, persona?: Persona): DialogRow {
+  return {
+    id: -branch.id,
+    is_test: true,
+    channel_kind: 'telegram',
+    persona: { id: branch.persona.id, name: branch.persona.name, avatar_url: persona?.avatar_url ?? '' },
+    client: { id: -branch.id, display_name: branch.title || 'Тестовый диалог',
+      avatar_url: persona?.avatar_url ?? '', stage: branch.stage, status: branch.status },
+    last_message: { text: `Тестовый диалог · ${branch.message_count} сообщений`,
+      direction: 'in', at: branch.last_active_at },
+    unread: 0,
+    ai_paused: true,
+    needs_operator: false,
+  };
+}
+
+export function visibleTestRows(
+  branches: readonly SimBranchRow[], personas: readonly Persona[], filter: DialogFilter,
+): DialogRow[] {
+  if (filter.source === 'real' || filter.channel_kind || filter.unread_only || filter.needs_operator) return [];
+  const byId = new Map(personas.map((p) => [p.id, p]));
+  const q = filter.q.trim().toLowerCase();
+  return branches.map((b) => testDialogRow(b, byId.get(b.persona.id))).filter((row) =>
+    (!filter.persona_id || row.persona.id === filter.persona_id) &&
+    (!filter.stage || row.client.stage === filter.stage) &&
+    (!filter.status || row.client.status === filter.status) &&
+    (!q || row.client.display_name.toLowerCase().includes(q) || row.persona.name.toLowerCase().includes(q)) &&
+    (!filter.avatar || (filter.avatar === 'with') === Boolean(row.client.avatar_url))
+  );
+}
+
+export function combineDialogRows(real: readonly DialogRow[], test: readonly DialogRow[]): DialogRow[] {
+  return [...real, ...test].sort((a, b) =>
+    (b.last_message?.at ?? '').localeCompare(a.last_message?.at ?? '') || b.id - a.id
+  );
 }
 
 /** Appends the next page, skipping rows already shown. */

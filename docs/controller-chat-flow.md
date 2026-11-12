@@ -9,3 +9,11 @@ The preview carries its approved stage/status/needs/next-step context between tu
 The inbox already lists real dialogs across connected channels, supports source/persona/stage filters, text replies, manual stage changes, operator takeover and AI pause. Channels without active sessions cannot deliver real messages. Attachment and voice delivery require explicit channel capabilities and are not inferred from a channel label. No Stepan2 funnel is copied.
 
 Verification is CI-only per `AGENTS.md`. Review the exact PR-head run, including backend/PostgreSQL, frontend and change-gate jobs; no local tests or channel sends.
+
+## Operator composer and test chats
+
+Operator text, voice and attachments queue through the existing outbound SEND job and permanent send-intent fence. The UI passes a stable request id on retries; migration 0015 adds a nullable unique per-dialog request key for duplicate POST protection. Operator sends and AI pause acquire the dialog lock used by the reply pipeline. A manual response pauses the AI and cancels queued AI replies and follow-ups. The chat header offers manual stage changes through the existing operator funnel endpoint.
+
+Voice uploads (up to 8 MiB) are converted to OGG/Opus and sent only when the connected port advertises SEND_VOICE: Telegram bot, Telegram user account and WhatsApp. Attachments (JPEG, PNG, WebP, PDF or UTF-8 text up to 8 MiB) are sent only by Telegram bot and Telegram user ports; WhatsApp and Instagram do not advertise that capability. The UI disables unsupported actions and the API also rejects them. These are implemented transport paths, not claims that any external account is connected or a real message has been delivered.
+
+The inbox also lists owner-visible simulation branches with a clear test mark and a read-only transcript. Negative view IDs keep them separate from real dialog IDs. Simulations never call a real channel; continuing a test still uses the existing simulation bot. The new source filter separates tests from channel dialogs; avatar presence, channel, persona and stage filters apply to the visible list. No Stepan2 funnel or channel credentials are imported.

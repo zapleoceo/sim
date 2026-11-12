@@ -19,8 +19,8 @@ export function parseLoginSearch(s: Record<string, unknown>): LoginSearch {
 }
 
 export function parseInboxSearch(s: Record<string, unknown>): InboxSearch {
-  const d = positiveInt(s.d);
-  return d ? { d } : {};
+  const d = Number(s.d);
+  return Number.isSafeInteger(d) && d !== 0 && Math.abs(d) < 1_000_000_000 ? { d } : {};
 }
 
 /** `tab`: no value = the system log for owners (messages for operators); `trace`: an opened trace id. */

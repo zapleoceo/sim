@@ -101,6 +101,7 @@ async def list_dialogs(  # noqa: PLR0913
     persona_id: int | None = None,
     stage: Stage | None = None,
     status: ClientStatus | None = None,
+    avatar: str | None = None,
     q: str | None = None,
     unread_only: bool = False,
     needs_operator: bool = False,
@@ -109,7 +110,7 @@ async def list_dialogs(  # noqa: PLR0913
 ):
     rows, total = await DialogRepo(s).search(
         limit, offset, channel_kind=channel_kind, persona_id=persona_id, stage=stage,
-        status=status, q=q, unread_only=unread_only, needs_operator=needs_operator,
+        status=status, avatar=avatar, q=q, unread_only=unread_only, needs_operator=needs_operator,
     )
     personas = {p.id: p for p in await PersonaRepo(s).all()}
     return {"items": [dialog_row(d, personas.get(d.client.persona_id)) for d in rows], "total": total}
@@ -131,6 +132,8 @@ async def get_dialog(dialog_id: int, s: Db, c: App):
 async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App, s: Db, p: Authed):
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
+    if not send_capabilities(c, dialog)["text"]:
+        raise HTTPException(409, "Channel is not connected")
     try:
         message = await c.outbound(s).send_manual(
             dialog, p.user.id, body.text, request_id=body.request_id
@@ -172,6 +175,8 @@ async def send_operator_attachment(
                                   Message.client_request_id == request_id)
         )
         if existing is not None:
+            if existing.author.value != "operator" or existing.media_kind not in ("image", "file"):
+                raise HTTPException(409, "Request id belongs to another message")
             return message_out(existing)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ATTACHMENT_SUFFIXES:
@@ -234,6 +239,8 @@ async def send_operator_voice(
                                   Message.client_request_id == request_id)
         )
         if existing is not None:
+            if existing.author.value != "operator" or existing.media_kind != VOICE_NOTE:
+                raise HTTPException(409, "Request id belongs to another message")
             return message_out(existing)
     if not (file.content_type or "").startswith("audio/"):
         raise HTTPException(422, "An audio file is required")

@@ -125,6 +125,7 @@ class DialogRepo(Repository[Dialog]):
         persona_id: int | None = None,
         stage: Stage | None = None,
         status: ClientStatus | None = None,
+        avatar: str | None = None,
         q: str | None = None,
         unread_only: bool = False,
         needs_operator: bool = False,
@@ -142,6 +143,10 @@ class DialogRepo(Repository[Dialog]):
             stmt = stmt.where(Client.stage == stage)
         if status:
             stmt = stmt.where(Client.status == status)
+        if avatar == "with":
+            stmt = stmt.where(Client.avatar_url != "")
+        elif avatar == "without":
+            stmt = stmt.where(Client.avatar_url == "")
         if unread_only:
             stmt = stmt.where(Dialog.unread > 0)
         if needs_operator:

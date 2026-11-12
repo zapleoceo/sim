@@ -305,9 +305,9 @@ def test_guard_checks_only_the_critical_rules():
 
 
 def test_guard_prompt_is_the_owner_text_plus_the_fixed_honesty_rule():
-    from sim.services.guard import GUARD_HONESTY
+    from sim.services.guard import GUARD_CONTROL, GUARD_HONESTY
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_HONESTY}"
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_HONESTY}\n\n{GUARD_CONTROL}"
     assert "не должен утверждать, что персонаж человек" in GUARD_HONESTY
 
 

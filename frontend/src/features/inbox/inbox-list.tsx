@@ -47,6 +47,22 @@ export function InboxFilters({
       search={<SearchInput value={filter.q} onChange={(q) => set('q', q)} placeholder="Поиск" />}
       filters={
         <>
+          <FilterField label="Источник">
+            <OptionSelect<DialogFilter["source"]>
+              value={filter.source}
+              onChange={(v) => set("source", v)}
+              options={[{ value: "", label: "Все диалоги" }, { value: "real", label: "Каналы" },
+                { value: "test", label: "Тестовые" }]}
+            />
+          </FilterField>
+          <FilterField label="Аватар">
+            <OptionSelect<DialogFilter["avatar"]>
+              value={filter.avatar}
+              onChange={(v) => set("avatar", v)}
+              options={[{ value: "", label: "Любой" }, { value: "with", label: "С аватаром" },
+                { value: "without", label: "Без аватара" }]}
+            />
+          </FilterField>
           <FilterField label="Канал">
             <OptionSelect<ChannelKind | ''>
               value={filter.channel_kind}
@@ -165,7 +181,8 @@ export function DialogList({
                   )}
                 </span>
                 <span className="flex flex-wrap items-center gap-1.5">
-                  <ChannelIcon kind={row.channel_kind} size={18} />
+                  {row.is_test ? <span className="rounded bg-warning/15 px-1.5 text-[11px] font-semibold">Тест</span>
+                    : <ChannelIcon kind={row.channel_kind} size={18} />}
                   <StageChip stage={row.client.stage} className="h-5 px-2 text-[11px]" />
                   <span className="truncate text-xs text-muted-foreground">{row.persona.name}</span>
                   {row.ai_paused && (
