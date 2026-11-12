@@ -151,7 +151,10 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
     persona = await persona_or_404(s, persona_id)
     history = [Turn(h.role, h.text) for h in body.history]
     try:
-        result = await c.conversation(s).preview(persona, body.message, history)
+        result = await c.conversation(s).preview(
+            persona, body.message, history, stage=body.stage, status=body.status,
+            needs=body.needs, next_step=body.next_step,
+        )
     except ConversationError as exc:
         raise HTTPException(422, str(exc)) from exc
     except LLMError as exc:
@@ -168,6 +171,7 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
             "refused": d.refused, "stop_contact": d.stop_contact,
         },
         "guard": preview_guard(result.guard),
+        "context": result.context,
         "model": result.model,
         "latency_ms": result.latency_ms,
     }
