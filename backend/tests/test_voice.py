@@ -41,8 +41,10 @@ class FakeSpeech:
 class FakeEncoder:
     error: Exception | None = None
     seen: list[bytes] = field(default_factory=list)
+    ambiences: list[str] = field(default_factory=list)
 
-    async def to_voice_note(self, audio: bytes) -> bytes:
+    async def to_voice_note(self, audio: bytes, ambience: str = "off") -> bytes:
+        self.ambiences.append(ambience)
         self.seen.append(audio)
         if self.error is not None:
             raise self.error

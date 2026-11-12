@@ -35,6 +35,7 @@ from sim.domain.enums import (
     Role,
     SessionStatus,
     Stage,
+    VoiceAmbience,
     VoiceMode,
 )
 
@@ -129,6 +130,10 @@ class Persona(Base):
     voice_mode: Mapped[VoiceMode] = mapped_column(enum_col(VoiceMode), default=VoiceMode.OFF)
     # Delivery hint read by the TTS model before the text, e.g. "тепло, спокойно, с улыбкой".
     voice_style: Mapped[str] = mapped_column(Text, default="")
+    # "Recorded on a phone" in a room / on the street / in a cafe (sim.adapters.ambience), or clean.
+    voice_ambience: Mapped[VoiceAmbience] = mapped_column(
+        enum_col(VoiceAmbience), default=VoiceAmbience.OFF
+    )
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )

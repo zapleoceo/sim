@@ -20,7 +20,15 @@ from sim.adapters.db.models import (
     Strategy,
 )
 from sim.adapters.db.models import Channel as ChannelRow
-from sim.domain.enums import ChannelKind, ClientStatus, ContentKind, Role, Stage, VoiceMode
+from sim.domain.enums import (
+    ChannelKind,
+    ClientStatus,
+    ContentKind,
+    Role,
+    Stage,
+    VoiceAmbience,
+    VoiceMode,
+)
 from sim.domain.voice import GEMINI_VOICES
 from sim.services.channels import ConnectState
 
@@ -74,6 +82,7 @@ class PersonaIn(Body):
     voice_id: str = Field(default="", max_length=120)    # Gemini TTS voice name, "" = none
     voice_mode: VoiceMode = VoiceMode.OFF
     voice_style: str = Field(default="", max_length=300)
+    voice_ambience: VoiceAmbience = VoiceAmbience.OFF
     strategy_id: int | None = None
     is_active: bool = True
 
@@ -200,6 +209,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
+        "voice_ambience": p.voice_ambience.value,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
     }
 

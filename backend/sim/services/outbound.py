@@ -282,6 +282,7 @@ class OutboundService:
             try:
                 note = await self.voice.render(
                     message.text, voice=persona.voice_id, style=persona.voice_style,
+                    ambience=persona.voice_ambience,
                 )
             except (SpeechError, AudioError) as exc:
                 reason = f"{type(exc).__name__}: {exc}"[:300]

@@ -129,7 +129,9 @@ async def preview_voice(
     if not reply or renderer is None or not speaks(persona.voice_mode, persona.voice_id, last_kind):
         return None
     try:
-        note = await renderer.render(reply, voice=persona.voice_id, style=persona.voice_style)
+        note = await renderer.render(
+            reply, voice=persona.voice_id, style=persona.voice_style, ambience=persona.voice_ambience,
+        )
     except (SpeechError, AudioError) as exc:
         return {"media_url": None, "duration_s": None, "error": str(exc)[:300]}
     return {"media_url": note.media_url, "duration_s": note.duration_s, "error": None}
