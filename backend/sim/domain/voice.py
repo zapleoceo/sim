@@ -6,14 +6,10 @@ from __future__ import annotations
 
 from sim.domain.enums import VoiceMode
 
-# Female voices only (Google's gender table), checked 2026-11-12 on Russian and Ukrainian:
-# each one said the same phrase in both languages and Gemini ASR transcribed it back verbatim.
-# Laomedeia is left out (it turned «Марина» into «Уарина»); male voices are not offered
-# because the personas are women. The Broker itself accepts all 30 Gemini voices.
-GEMINI_VOICES: tuple[str, ...] = (
-    "Kore", "Aoede", "Leda", "Zephyr", "Callirrhoe", "Autonoe", "Despina", "Erinome",
-    "Achernar", "Gacrux", "Pulcherrima", "Vindemiatrix", "Sulafat",
-)
+# The one voice the owner tested and chose (Marina's voice notes, 2026-11-12/13, with and without
+# the phone-recording ambience). The other 12 female voices checked for ru/uk that day were removed
+# from the admin on the owner's request; the Broker itself accepts all 30 Gemini voices.
+GEMINI_VOICES: tuple[str, ...] = ("Kore",)
 VOICE_KINDS = ("audio", "voice")
 
 
