@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.repositories.conversations import DialogRepo
+from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.services import jobkinds
 from sim.services.conversation import ReplyOutcome
 from sim.wiring import Container
@@ -36,9 +37,12 @@ def reply_detail(outcome: ReplyOutcome) -> dict[str, Any]:
 
 async def giveup_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
     """The model could not answer after all retries: hand the dialog to a human."""
-    dialog = await DialogRepo(s).get(int(payload["dialog_id"]))
+    dialog_id = int(payload["dialog_id"])
+    await lock(s, NS_DIALOG, dialog_id)
+    dialog = await DialogRepo(s).get(dialog_id)
     if dialog is not None:
         dialog.needs_operator = True
+        dialog.ai_paused = True
 
 
 async def giveup_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
