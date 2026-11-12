@@ -1,4 +1,6 @@
-import type { BrokerModel, ListResponse, Persona, PersonaIn, PreviewResponse, PreviewTurn } from '../models';
+import type {
+  BrokerModel, ListResponse, Persona, PersonaIn, PreviewAttachment, PreviewResponse, PreviewTurn,
+} from '../models';
 import { http } from './http';
 
 export const personasApi = {
@@ -7,8 +9,19 @@ export const personasApi = {
   update: (id: number, body: PersonaIn) => http.put<Persona>(`/api/personas/${id}`, body),
   remove: (id: number) => http.delete(`/api/personas/${id}`),
   /** Silent: the preview chat shows the error inline, next to the message. */
-  preview: (id: number, message: string, history: PreviewTurn[]) =>
-    http.post<PreviewResponse>(`/api/personas/${id}/preview`, { message, history }, { silent: true }),
+  preview: (id: number, message: string, history: PreviewTurn[], voiceInput = false) =>
+    http.post<PreviewResponse>(
+      `/api/personas/${id}/preview`,
+      { message, history, voice_input: voiceInput },
+      { silent: true },
+    ),
+  /** A recorded voice note (`voice`) or an attached file → text the persona reads. */
+  attachment: (id: number, file: Blob, filename: string, voice = false) => {
+    const form = new FormData();
+    form.append('file', file, filename);
+    form.append('voice', String(voice));
+    return http.post<PreviewAttachment>(`/api/personas/${id}/preview/attachment`, form, { silent: true });
+  },
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
 };

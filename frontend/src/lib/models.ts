@@ -69,13 +69,19 @@ export interface GuardInfo {
   /** Черновик генератора; задан, если контролер исправил или заблокировал ответ. */
   original_text: string | null;
 }
+/** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
+export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
 export interface PreviewResponse {
   reply: string;
   decision: unknown;
   guard: GuardInfo | null;
   model: string;
   latency_ms: number;
+  voice?: PreviewVoice | null;
 }
+export type PreviewAttachmentKind = 'voice' | 'audio' | 'image' | 'file';
+/** A voice note or file of the preview chat, already turned into text by the Broker. */
+export interface PreviewAttachment { kind: PreviewAttachmentKind; name: string; text: string; media_url: string }
 
 export interface Strategy {
   id: number;

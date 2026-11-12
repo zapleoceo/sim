@@ -18,7 +18,7 @@ describe('PersonaPreview', () => {
     expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
     expect(screen.getByText('fake-model · 42 мс')).toBeInTheDocument();
     expect(log).toHaveLength(1);
-    expect(log[0]?.body).toEqual({ message: 'привет', history: [] });
+    expect(log[0]?.body).toEqual({ message: 'привет', history: [], voice_input: false });
 
     await userEvent.type(input, 'а цена?{Enter}');
     await waitFor(() => expect(log).toHaveLength(2));
@@ -28,7 +28,39 @@ describe('PersonaPreview', () => {
         { role: 'user', text: 'привет' },
         { role: 'assistant', text: 'Привет! Чем помочь?' },
       ],
+      voice_input: false,
     });
+  });
+
+  it('sends an attached photo as its Broker description and plays the voice reply', async () => {
+    const log = fakeApi({
+      'POST /api/personas/1/preview/attachment': {
+        kind: 'image', name: 'check.jpg', text: '[изображение: чек на 500 грн]', media_url: '/api/media/abc.jpg',
+      },
+      'POST /api/personas/1/preview': {
+        ...ok, reply: 'О, покупочка!', voice: { media_url: '/api/media/v.ogg', duration_s: 2, error: null },
+      },
+    });
+    render(<PersonaPreview personaId={1} />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'смотри');
+    await userEvent.upload(screen.getByTestId('preview-file'), new File(['jpeg'], 'check.jpg', { type: 'image/jpeg' }));
+
+    expect(await screen.findByText('О, покупочка!')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'check.jpg' })).toHaveAttribute('src', '/api/media/abc.jpg');
+    expect(screen.getByLabelText('Голосовой ответ')).toHaveAttribute('src', '/api/media/v.ogg');
+    const sent = log.find((r) => r.path === '/api/personas/1/preview');
+    expect(sent?.body).toEqual({ message: 'смотри\n[изображение: чек на 500 грн]', history: [], voice_input: false });
+    expect(log[0]?.body).toBeInstanceOf(FormData);
+  });
+
+  it('shows why a file could not be read and sends nothing', async () => {
+    const log = fakeApi({
+      'POST /api/personas/1/preview/attachment': reply(422, { detail: 'Поддерживаются голосовые, аудио, изображения и текстовые файлы' }),
+    });
+    render(<PersonaPreview personaId={1} />);
+    await userEvent.upload(screen.getByTestId('preview-file'), new File(['x'], 'a.txt', { type: 'text/plain' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось распознать');
+    expect(log.some((r) => r.path === '/api/personas/1/preview')).toBe(false);
   });
 
   it('shows a preview failure visibly and «Повторить» resends the same message', async () => {
@@ -48,7 +80,7 @@ describe('PersonaPreview', () => {
     expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(log).toHaveLength(2);
-    expect(log[1]?.body).toEqual({ message: 'привет', history: [] });
+    expect(log[1]?.body).toEqual({ message: 'привет', history: [], voice_input: false });
   });
 
   it('marks a blocked reply and clears the chat', async () => {

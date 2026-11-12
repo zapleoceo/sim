@@ -1,9 +1,12 @@
 """Personas, strategies and the Broker model catalog."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy.exc import IntegrityError
 
+from sim.adapters.audio import AudioError
 from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
@@ -15,11 +18,15 @@ from sim.api.schemas import (
     persona_out,
     strategy_out,
 )
+from sim.domain.voice import speaks
 from sim.ports.llm import LLMError
+from sim.ports.speech import SpeechError
 from sim.services.conversation import ConversationError
 from sim.services.guard import GuardOutcome
 from sim.services.models import catalog_items
+from sim.services.preview_media import MAX_BYTES, AttachmentError
 from sim.services.prompt import Turn
+from sim.wiring import Container
 
 personas = APIRouter(prefix="/api/personas", tags=["personas"], dependencies=[Depends(authed)])
 strategies = APIRouter(prefix="/api/strategies", tags=["strategies"], dependencies=[Depends(authed)])
@@ -95,6 +102,39 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
     return guard_out(g.verdict, g.violations, g.model, draft)
 
 
+@personas.post("/{persona_id}/preview/attachment")
+async def preview_attachment(
+    persona_id: int, c: App, s: Db, _: Authed,
+    file: Annotated[UploadFile, File()],
+    voice: Annotated[bool, Form()] = False,
+):
+    """A voice note recorded in the admin or an attached file → text the persona reads."""
+    await persona_or_404(s, persona_id)
+    data = await file.read(MAX_BYTES + 1)
+    try:
+        att = await c.preview_attachments().read(
+            data, file.filename or "file", file.content_type or "", voice=voice
+        )
+    except AttachmentError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"kind": att.kind, "name": att.name, "text": att.text, "media_url": att.media_url}
+
+
+async def preview_voice(
+    c: Container, persona: Persona, reply: str, voice_input: bool
+) -> dict[str, object] | None:
+    """The persona's voice note for this reply, by the same rule as a channel (`speaks`)."""
+    renderer = c.voice_renderer()
+    last_kind = "voice" if voice_input else None
+    if not reply or renderer is None or not speaks(persona.voice_mode, persona.voice_id, last_kind):
+        return None
+    try:
+        note = await renderer.render(reply, voice=persona.voice_id, style=persona.voice_style)
+    except (SpeechError, AudioError) as exc:
+        return {"media_url": None, "duration_s": None, "error": str(exc)[:300]}
+    return {"media_url": note.media_url, "duration_s": note.duration_s, "error": None}
+
+
 @personas.post("/{persona_id}/preview")
 async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Authed):
     persona = await persona_or_404(s, persona_id)
@@ -107,6 +147,7 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
         raise HTTPException(502, f"Broker error: {exc}") from exc
     d = result.decision
     return {
+        "voice": await preview_voice(c, persona, result.reply, body.voice_input),
         "reply": result.reply,
         "decision": None
         if d is None

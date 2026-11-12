@@ -99,6 +99,9 @@ class PreviewHistoryItem(Body):
 class PreviewIn(Body):
     message: str = Field(min_length=1, max_length=4000)
     history: list[PreviewHistoryItem] = Field(default_factory=list, max_length=60)
+    # The message is the transcript of a voice note recorded in the admin: a persona in
+    # «mirror» voice mode answers with a voice note, as it would in a channel.
+    voice_input: bool = False
 
 
 class StrategyIn(Body):

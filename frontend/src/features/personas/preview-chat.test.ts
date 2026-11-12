@@ -1,5 +1,14 @@
-import type { PreviewResponse } from '@/lib/models';
-import { INITIAL_PREVIEW, historyOf, previewReducer } from './preview-chat';
+import type { PreviewAttachment, PreviewResponse } from '@/lib/models';
+import { INITIAL_PREVIEW, attachmentText, historyOf, isIdle, previewReducer } from './preview-chat';
+import { recordingType } from './use-voice-recorder';
+
+describe('voice recorder', () => {
+  it('picks Opus in WebM, then OGG, then MP4 (Safari)', () => {
+    expect(recordingType(() => true)).toEqual({ mime: 'audio/webm;codecs=opus', ext: 'webm' });
+    expect(recordingType((t) => t === 'audio/mp4')).toEqual({ mime: 'audio/mp4', ext: 'm4a' });
+    expect(recordingType(() => false)).toEqual({ mime: '', ext: 'webm' });
+  });
+});
 
 const reply = (text: string): PreviewResponse => ({ reply: text, decision: null, guard: null, model: 'm', latency_ms: 12 });
 
@@ -33,6 +42,32 @@ describe('preview chat state', () => {
       { role: 'user', text: 'вопрос' },
       { role: 'assistant', text: 'ответ' },
     ]);
+  });
+
+  it('a voice note is sent as its transcript and the reply keeps its voice note', () => {
+    const voice: PreviewAttachment = { kind: 'voice', name: 'voice.webm', text: 'привет', media_url: '/api/media/a.webm' };
+    let s = previewReducer(INITIAL_PREVIEW, { type: 'upload' });
+    expect(isIdle(s)).toBe(false);
+    s = previewReducer(s, { type: 'send', text: attachmentText('', voice), attachment: voice });
+    expect(s.uploading).toBe(false);
+    expect(s.messages[0]).toEqual({ role: 'user', text: 'привет', attachment: voice });
+    s = previewReducer(s, { type: 'success', reply: { ...reply('ага'), voice: { media_url: '/v.ogg', duration_s: 1, error: null } } });
+    expect(s.messages[1]?.voice?.media_url).toBe('/v.ogg');
+    expect(historyOf(s.messages)).toEqual([{ role: 'user', text: 'привет' }, { role: 'assistant', text: 'ага' }]);
+    expect(attachmentText(' смотри ', { ...voice, kind: 'image', text: '[изображение: кот]' })).toBe('смотри\n[изображение: кот]');
+  });
+
+  it('an unreadable file shows an error and leaves the chat idle', () => {
+    const s = previewReducer(previewReducer(INITIAL_PREVIEW, { type: 'upload' }), { type: 'upload-fail', error: 'нельзя' });
+    expect(s.uploadError).toBe('нельзя');
+    expect(isIdle(s)).toBe(true);
+    expect(s.messages).toEqual([]);
+  });
+
+  it('remembers that a failed message was a voice note, for the retry', () => {
+    const s = previewReducer(previewReducer(INITIAL_PREVIEW, { type: 'send', text: 'a' }),
+      { type: 'fail', text: 'a', history: [], error: 'x', voiceInput: true });
+    expect(s.failure?.voiceInput).toBe(true);
   });
 
   it('a new message replaces the unanswered one; reset clears everything', () => {
