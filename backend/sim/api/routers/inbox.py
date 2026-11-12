@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Client, Dialog
 from sim.adapters.db.locks import NS_DIALOG, lock
+from sim.adapters.channels.capabilities import Capability
+from sim.adapters.audio import AudioError
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.conversations import (
     ClientRepo,
@@ -31,9 +33,10 @@ from sim.api.schemas import (
     partner_event_out,
 )
 from sim.clock import to_naive_utc
-from sim.domain.enums import ChannelKind, ClientStatus, Direction, Stage
+from sim.domain.enums import ChannelKind, ClientStatus, Direction, SessionStatus, Stage
 from sim.services.funnel import FunnelRuleError, FunnelService
 from sim.services.outbound import cancel_queued_ai
+from sim.services.voice import VOICE_NOTE
 
 dialogs = APIRouter(prefix="/api/dialogs", tags=["dialogs"], dependencies=[Depends(authed)])
 clients = APIRouter(prefix="/api/clients", tags=["clients"], dependencies=[Depends(authed)])
@@ -42,6 +45,7 @@ funnel = APIRouter(prefix="/api/funnel", tags=["funnel"], dependencies=[Depends(
 Limit = Annotated[int, Query(ge=1, le=200)]
 Offset = Annotated[int, Query(ge=0)]
 FUNNEL_CLIENTS_PER_STAGE = 50
+MAX_OPERATOR_AUDIO_BYTES = 8 * 1024 * 1024
 
 
 async def dialog_or_404(s: Db, dialog_id: int) -> Dialog:
@@ -108,6 +112,57 @@ async def send_operator_message(dialog_id: int, body: OperatorMessageIn, c: App,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    return message_out(message)
+
+
+@dialogs.post("/{dialog_id}/voice", status_code=201)
+async def send_operator_voice(
+    dialog_id: int, c: App, s: Db, p: Authed,
+    file: UploadFile = File(...), request_id: str | None = Form(default=None),
+):
+    """Record/upload audio, convert to OGG/Opus, then queue one operator voice note."""
+    if request_id is not None and not (1 <= len(request_id) <= 64):
+        raise HTTPException(422, "Invalid request id")
+    dialog = await dialog_or_404(s, dialog_id)
+    if dialog.channel.status is not SessionStatus.ACTIVE:
+        raise HTTPException(409, "Channel is not connected")
+    connector = c.registry.get(dialog.channel.kind)
+    if connector is None:
+        raise HTTPException(422, "This channel cannot send voice")
+    try:
+        port = connector.build_port(
+            dialog.channel_id, c.box.decrypt_json(dialog.channel.session_enc)
+        )
+    except Exception as exc:
+        raise HTTPException(409, "Channel session is unavailable") from exc
+    if Capability.SEND_VOICE not in getattr(port, "capabilities", frozenset()):
+        raise HTTPException(422, "This channel cannot send voice")
+    if request_id:
+        from sqlalchemy import select  # noqa: PLC0415
+        from sim.adapters.db.models import Message  # noqa: PLC0415
+        existing = await s.scalar(
+            select(Message).where(Message.dialog_id == dialog_id,
+                                  Message.client_request_id == request_id)
+        )
+        if existing is not None:
+            return message_out(existing)
+    if not (file.content_type or "").startswith("audio/"):
+        raise HTTPException(422, "An audio file is required")
+    data = await file.read(MAX_OPERATOR_AUDIO_BYTES + 1)
+    await file.close()
+    if not data or len(data) > MAX_OPERATOR_AUDIO_BYTES:
+        raise HTTPException(413, "Audio file exceeds the 8 MiB limit")
+    try:
+        audio = await c.encoder.to_voice_note(data)
+    except AudioError as exc:
+        raise HTTPException(422, "Audio conversion failed") from exc
+    name = c.media.save(audio, "ogg")
+    await lock(s, NS_DIALOG, dialog_id)
+    dialog = await dialog_or_404(s, dialog_id)
+    message = await c.outbound(s).send_manual(
+        dialog, p.user.id, "[голосовое сообщение оператора]", request_id=request_id,
+        media_kind=VOICE_NOTE, media_url=f"/api/media/{name}",
+    )
     return message_out(message)
 
 
