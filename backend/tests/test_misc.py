@@ -86,9 +86,7 @@ async def test_seed_fills_only_empty_persona_texts(container):
         marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
     assert marina.description == "Своё описание владельца"     # owner edit survives
     assert marina.prohibitions == ""                                    # no default prohibitions
-    assert eva.description.startswith("Ты Ева Коган.
-
-Я Ева, мне 39")   # empty -> filled, one full prompt
+    assert eva.description.startswith("Ты Ева Коган.\n\nЯ Ева, мне 39")   # empty -> filled, one full prompt
 
 
 async def test_apply_persona_prompts_overwrites_seeded_texts(container):
@@ -108,9 +106,7 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
     async with container.factory() as s:
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
         strategy = (await s.scalars(select(Strategy))).one()
-    assert marina.description.startswith("Ты Марина Светлова.
-
-Мне 45, я Марина")
+    assert marina.description.startswith("Ты Марина Светлова.\n\nМне 45, я Марина")
     assert "РОЛЬ:" in marina.description and strategy.prompt == STRATEGY_PROMPT
     assert strategy.goal == "" and strategy.rules == [] and strategy.stage_playbook == {}   # one text
     assert strategy.prompt.startswith("Цель: подружиться")
