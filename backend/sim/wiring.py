@@ -35,6 +35,7 @@ from sim.services.llm_audit import AuditedLLM
 from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
+from sim.services.preview_media import PreviewAttachments
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
 from sim.services.voice import VoiceEncoder, VoiceRenderer
@@ -114,6 +115,9 @@ class Container:
         if self.speech is None:
             return None
         return VoiceRenderer(self.speech, self.encoder, self.media)
+
+    def preview_attachments(self) -> PreviewAttachments:
+        return PreviewAttachments(self.llm, self.audited(), self.media)
 
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(
