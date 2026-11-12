@@ -73,41 +73,46 @@ async def test_rewrite_then_ok_sends_the_fixed_reply(container, world, fake_llm)
 
 
 async def test_rewrite_then_failed_recheck_blocks(container, world, fake_llm):
-    fake_llm.replies = [decision_json(reply=DRAFT)]
+    fake_llm.replies = [decision_json(reply=DRAFT)] * 2
     fake_llm.guard_replies = [
         guard_json("rewrite", ["обещание дохода"], "Всё равно гарантирую."),
         guard_json("rewrite", ["снова гарантия"], "Ещё раз."),
+        guard_json("block", ["снова гарантия"]),
     ]
     await start(container, world)
-    assert (await run_reply(container)).status == "blocked"
-    await assert_blocked(container, ["обещание дохода", "after rewrite: снова гарантия"])
+    assert (await run_reply(container)).status == "needs_operator"
+    await assert_blocked(container, ["снова гарантия"])
 
 
 async def test_block_sends_nothing_and_calls_the_operator(container, world, fake_llm):
-    fake_llm.replies = [decision_json(reply="Да, я живой человек.")]
-    fake_llm.guard_replies = [guard_json("block", ["выдаёт себя за человека"])]
+    fake_llm.replies = [decision_json(reply="Да, я живой человек.")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["выдаёт себя за человека"])] * 2
     await start(container, world)
-    assert (await run_reply(container)).status == "blocked"
+    assert (await run_reply(container)).status == "needs_operator"
     await assert_blocked(container, ["выдаёт себя за человека"], text="Да, я живой человек.")
 
 
 async def assert_blocked(container, violations, text=DRAFT):
     _, dialog, messages, jobs = await state(container)
-    (ai,) = ai_messages(messages)
-    assert dialog.needs_operator is True
-    assert ai.text == text and ai.delivery is Delivery.CANCELLED
-    assert ai.guard_verdict == "blocked" and ai.guard_violations == violations
-    assert "blocked by the guard" in ai.error
-    assert [j.kind for j in jobs if j.kind in (jobkinds.SEND, jobkinds.FOLLOWUP)] == []
+    blocked, neutral = ai_messages(messages)
+    assert dialog.needs_operator is True and dialog.ai_paused is True
+    assert blocked.text == text and blocked.delivery is Delivery.CANCELLED
+    assert neutral.text == "Я уточню и вернусь с ответом чуть позже."
+    assert neutral.delivery is Delivery.QUEUED
+    assert blocked.guard_verdict == "blocked" and blocked.guard_violations == violations
+    assert "blocked by the guard" in blocked.error
+    assert [j.kind for j in jobs if j.kind == jobkinds.SEND] == [jobkinds.SEND]
     assert dialog.last_message_text != text           # the draft never became the dialog preview
 
 
 async def test_blocked_draft_is_not_part_of_the_next_prompt(container, world, fake_llm):
-    fake_llm.replies = [decision_json(reply="Да, я живой человек.")]
-    fake_llm.guard_replies = [guard_json("block", ["ложь"])]
+    fake_llm.replies = [decision_json(reply="Да, я живой человек.")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["ложь"])] * 2
     await start(container, world)
     await run_reply(container)
     await ingest(container, world.channel.id, inbound("Алло?", ext="m2"))
+    async with transaction(container.factory) as s:
+        (await s.get(Dialog, (await state(container))[1].id)).ai_paused = False
     fake_llm.replies = [decision_json(reply="Здравствуйте!")]
     await run_reply(container)
     prompt = fake_llm.gen_calls[-1][0]
@@ -257,11 +262,11 @@ async def test_blocked_followup_stops_the_ladder_and_needs_operator(container, w
     await run_reply(container)
     _, dialog, messages, _ = await state(container)
     last_in = max(m.id for m in messages if m.author is Author.CLIENT)
-    fake_llm.replies = [decision_json(reply=DRAFT)]
-    fake_llm.guard_replies = [guard_json("block", ["обещание"])]
+    fake_llm.replies = [decision_json(reply=DRAFT)] * 2
+    fake_llm.guard_replies = [guard_json("block", ["обещание"])] * 2
     async with transaction(container.factory) as s:
         outcome = await container.followup(s).run(dialog.id, 0, last_in, container.conversation(s))
-    assert outcome == "blocked"
+    assert outcome == "needs_operator"
     _, dialog, _, jobs = await state(container)
     assert dialog.needs_operator and dialog.followup_step == 0
     # no further rung was scheduled: only the job queued after the first reply exists
@@ -367,8 +372,8 @@ async def test_preview_endpoint_includes_the_guard(api, world, fake_llm):
 
 async def test_preview_blocked_returns_empty_reply_and_the_draft(api, world, fake_llm):
     h = {"X-CSRF-Token": await login(api, OWNER[0])}
-    fake_llm.replies = [decision_json(reply="Я человек")]
-    fake_llm.guard_replies = [guard_json("block", ["ложь"])]
+    fake_llm.replies = [decision_json(reply="Я человек")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["ложь"])] * 2
     body = (await api.post(f"/api/personas/{world.persona.id}/preview",
                            json={"message": "Ты бот?"}, headers=h)).json()
     assert body["reply"] == "" and body["guard"]["verdict"] == "blocked"
@@ -377,8 +382,8 @@ async def test_preview_blocked_returns_empty_reply_and_the_draft(api, world, fak
 
 async def test_dialog_api_and_analytics_expose_the_guard(api, container, world, fake_llm):
     await login(api, OWNER[0])
-    fake_llm.replies = [decision_json(reply=DRAFT)]
-    fake_llm.guard_replies = [guard_json("block", ["обещание дохода"])]
+    fake_llm.replies = [decision_json(reply=DRAFT)] * 2
+    fake_llm.guard_replies = [guard_json("block", ["обещание дохода"])] * 2
     await start(container, world)
     await run_reply(container)
     _, dialog, _, _ = await state(container)
