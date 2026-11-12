@@ -157,6 +157,7 @@ class VerifyIn(Body):
 
 class OperatorMessageIn(Body):
     text: str = Field(min_length=1, max_length=4000)
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class AiToggleIn(Body):
