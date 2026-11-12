@@ -108,7 +108,7 @@ class Container:
     def outbound(self, s: AsyncSession) -> OutboundService:
         return OutboundService(
             s, self.registry, self.box, factory=self.factory, clock=self.clock,
-            voice=self.voice_renderer(), tracer=self.tracer(s),
+            voice=self.voice_renderer(), media=self.media, tracer=self.tracer(s),
         )
 
     def voice_renderer(self) -> VoiceRenderer | None:
