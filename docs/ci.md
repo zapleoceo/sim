@@ -43,6 +43,13 @@ existed. For the files changed between the PR base and head:
 - product code changed without a change in `docs/**` or `README.md` fails the job.
 
 A purely cosmetic change may opt out with `tests-not-needed` or `docs-not-needed` in a commit
-message of the PR; reviewers see it. To make the gate blocking for merges, add "Tests and docs
-required" to the required status checks of the `main` branch protection. Coverage thresholds are
-not enforced yet.
+message of the PR; reviewers see it. Coverage thresholds are not enforced yet.
+
+## Branch protection of `main`
+
+Since 2026-11-12 `main` is protected. A pull request merges only when these required status checks
+passed: "Backend and PostgreSQL", "Frontend" and "Tests and docs required" (the branch need not be
+up to date with `main`, CI already runs on the merge commit). Force pushes and deleting `main` are
+off. Admins are not forced (`enforce_admins: false`), so an emergency fix stays possible; it still
+goes through CI and the `deploy` gates. Current settings:
+`gh api repos/zapleoceo/sim/branches/main/protection`.
