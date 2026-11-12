@@ -86,7 +86,7 @@ class FollowupService:
         outcome = await conversation.run_reply(
             dialog_id, instruction=followup_instruction(hours, step), workflow="followup"
         )
-        if outcome.message is None:
+        if outcome.status != "sent" or outcome.message is None:
             return outcome.status
         dialog.followup_step = step + 1
         if step + 1 < len(hours):

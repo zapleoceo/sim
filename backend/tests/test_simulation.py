@@ -229,8 +229,8 @@ async def test_debug_off_hides_the_footer(api, container, tg, world, fake_llm):
 
 async def test_guard_block_shows_the_draft_and_violations(api, container, tg, world, fake_llm):
     await start_branch(api, container, world)
-    fake_llm.replies = [decision_json(reply="Заработаете миллион за месяц!")]
-    fake_llm.guard_replies = [guard_json("block", ["обещает доход"])]
+    fake_llm.replies = [decision_json(reply="Заработаете миллион за месяц!")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["обещает доход"])] * 2
     await send(api, container, msg_update("Сколько заработаю?"))
     await run_jobs(container)
     answer = tg.last_text()
@@ -253,8 +253,8 @@ async def test_rewritten_reply_is_sent_fixed_and_marked(api, container, tg, worl
 
 async def test_a_blocked_draft_is_not_part_of_the_next_prompt(api, container, tg, world, fake_llm):
     await start_branch(api, container, world)
-    fake_llm.replies = [decision_json(reply="ЧЕРНОВИК-БЛОК"), decision_json(reply="ок")]
-    fake_llm.guard_replies = [guard_json("block", ["x"])]
+    fake_llm.replies = [decision_json(reply="ЧЕРНОВИК-БЛОК")] * 2 + [decision_json(reply="ок")]
+    fake_llm.guard_replies = [guard_json("block", ["x"])] * 2
     await send(api, container, msg_update("раз"))
     await run_jobs(container)
     await send(api, container, msg_update("два"))

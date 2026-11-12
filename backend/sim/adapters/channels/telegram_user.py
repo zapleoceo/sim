@@ -220,7 +220,7 @@ class TelethonTransport:
 
 class TelegramUserAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM_USER
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT})
 
     def __init__(
         self,
@@ -350,6 +350,33 @@ class TelegramUserAdapter:
             return SendResult(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
         ext = f"{peer}:{mid}"
         self.s.remember_sent(ext)                # its echo is not a human turn
+        return SendResult(ok=True, external_message_id=ext)
+
+    async def send_attachment(
+        self, external_thread_id: str, data: bytes, filename: str,
+        mime: str, caption: str,
+    ) -> SendResult:
+        try:
+            peer = int(external_thread_id)
+        except ValueError:
+            return SendResult(ok=False, error="bad thread id")
+        async def send() -> int:
+            client = await self.t.ready()
+            file = io.BytesIO(data)
+            file.name = filename
+            sent = await client.send_file(
+                await self.t.entity(client, peer), file, caption=caption[:1000],
+            )
+            return int(sent.id)
+        try:
+            mid = await self.throttled(send)
+        except tg_errors.FloodWaitError as exc:
+            return SendResult(ok=False,
+                              error=f"flood_wait:{int(getattr(exc, 'seconds', 0) or 0)}")
+        except Exception as exc:
+            return SendResult(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        ext = f"{peer}:{mid}"
+        self.s.remember_sent(ext)
         return SendResult(ok=True, external_message_id=ext)
 
     async def send_throttled(self, peer: int, text: str) -> int:

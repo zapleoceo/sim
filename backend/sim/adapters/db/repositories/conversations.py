@@ -125,6 +125,8 @@ class DialogRepo(Repository[Dialog]):
         persona_id: int | None = None,
         stage: Stage | None = None,
         status: ClientStatus | None = None,
+        avatar: str | None = None,
+        channel_id: int | None = None,
         q: str | None = None,
         unread_only: bool = False,
         needs_operator: bool = False,
@@ -136,12 +138,18 @@ class DialogRepo(Repository[Dialog]):
         )
         if channel_kind:
             stmt = stmt.where(Channel.kind == channel_kind)
+        if channel_id:
+            stmt = stmt.where(Dialog.channel_id == channel_id)
         if persona_id:
             stmt = stmt.where(Client.persona_id == persona_id)
         if stage:
             stmt = stmt.where(Client.stage == stage)
         if status:
             stmt = stmt.where(Client.status == status)
+        if avatar == "with":
+            stmt = stmt.where(Client.avatar_url != "")
+        elif avatar == "without":
+            stmt = stmt.where(Client.avatar_url == "")
         if unread_only:
             stmt = stmt.where(Dialog.unread > 0)
         if needs_operator:

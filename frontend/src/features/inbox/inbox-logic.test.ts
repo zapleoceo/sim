@@ -1,7 +1,7 @@
 import type { DialogDetail, DialogRow, Message } from '@/lib/models';
 import {
   DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
-  normalizeFilter, rowPreview,
+  normalizeFilter, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
 } from './inbox-logic';
 
 function row(id: number, patch: Partial<DialogRow> = {}): DialogRow {
@@ -92,5 +92,29 @@ describe('conversation', () => {
     expect(isSendKey({ key: 'Enter', shiftKey: false })).toBe(true);
     expect(isSendKey({ key: 'Enter', shiftKey: true })).toBe(false);
     expect(isSendKey({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false);
+  });
+});
+
+
+describe('test conversations in the inbox', () => {
+  const branch = {
+    id: 7, admin: { id: 1, display_name: 'Админ' }, persona: { id: 3, name: 'Марина' },
+    title: 'Пробный разговор', message_count: 2, stage: 'engaged' as const,
+    status: 'active' as const, created_at: '2026-01-01T09:00:00Z',
+    last_active_at: '2026-01-02T09:00:00Z', closed_at: null,
+  };
+  it('marks a test branch and never routes it to a real dialog id', () => {
+    const test = testDialogRow(branch);
+    expect(test.id).toBe(-7);
+    expect(test.is_test).toBe(true);
+    expect(test.client.stage).toBe('engaged');
+  });
+  it('filters test branches and merges them by activity time', () => {
+    const filter = { ...DEFAULT_DIALOG_FILTER, source: 'test' as const };
+    const test = visibleTestRows([branch], [], filter);
+    expect(test).toHaveLength(1);
+    expect(visibleTestRows([branch], [], { ...filter, avatar: 'with' })).toHaveLength(0);
+    expect(visibleTestRows([branch], [], { ...filter, channel_id: 4 })).toHaveLength(0);
+    expect(combineDialogRows([row(1, { last_message: { text: 'real', direction: 'in', at: '2026-01-01T09:00:00Z' } })], test)[0].id).toBe(-7);
   });
 });

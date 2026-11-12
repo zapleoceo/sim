@@ -6,17 +6,21 @@ import { Avatar } from '@/components/avatar';
 import { StageChip, StatusBadge } from '@/components/badges';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/option-select';
 import { SINGLE_PANE_QUERY, WIDE_QUERY, useMediaQuery } from '@/hooks/use-media-query';
 import { useDebounced } from '@/hooks/use-debounced';
 import { dialogsApi } from '@/lib/api/dialogs';
+import { channelsApi } from '@/lib/api/channels';
+import { clientsApi } from '@/lib/api/clients';
+import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
-import type { Dialog, DialogDetail, DialogFilter, DialogRow, Persona } from '@/lib/models';
+import type { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { Conversation } from './conversation';
 import { DialogList, InboxFilters } from './inbox-list';
 import {
-  DEFAULT_DIALOG_FILTER, PAGE_SIZE, POLL_MS, activeFilterCount, appendPage, mergeFirstPage, normalizeFilter,
+  DEFAULT_DIALOG_FILTER, PAGE_SIZE, POLL_MS, activeFilterCount, appendPage, combineDialogRows, mergeFirstPage, normalizeFilter, visibleTestRows,
 } from './inbox-logic';
 
 const route = getRouteApi('/_app/inbox');
@@ -61,6 +65,73 @@ function ClientSideCard({ detail, personas }: { detail: DialogDetail; personas: 
   );
 }
 
+function TestConversation({ branch }: { branch: SimBranchDetail }) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const request = useRef<{ text: string; id: string } | null>(null);
+  const canSend = branch.can_continue === true && !branch.pending;
+  const send = async (): Promise<void> => {
+    const value = text.trim();
+    if (!value || !canSend || sending) return;
+    const id = request.current?.text === value ? request.current.id : crypto.randomUUID();
+    request.current = { text: value, id };
+    setSending(true);
+    setError('');
+    try {
+      await simulationsApi.send(branch.id, value, id);
+      setText('');
+      request.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['inbox-test-dialog', -branch.id] }),
+        queryClient.invalidateQueries({ queryKey: ['inbox-simulations'] }),
+      ]);
+    } catch {
+      setError('Не удалось подтвердить тестовое сообщение. Повтор использует тот же запрос.');
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <section aria-label="Тестовый диалог" className="flex min-h-0 flex-1 flex-col">
+      <header className="border-b p-4">
+        <strong>{branch.title || 'Тестовый диалог'}</strong>
+        <p className="text-xs text-muted-foreground">Тест · {branch.persona.name} · этап {branch.stage}</p>
+      </header>
+      <div role="log" aria-label="Сообщения тестового диалога" className="flex-1 overflow-y-auto p-4">
+        {branch.messages.map((message) => (
+          <div key={message.id} className="mb-3 rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">
+              {message.role === 'client' ? 'Тестовый клиент' : message.role === 'system' ? 'Система' : 'Персонаж'}
+              {' · '}{new Date(message.created_at).toLocaleString()}
+            </p>
+            <p className="whitespace-pre-wrap">{message.text}</p>
+            {message.guard?.verdict === 'blocked' && <p className="text-xs text-destructive">Не отправлено: контролёр отклонил</p>}
+          </div>
+        ))}
+        {branch.pending && <p role="status" className="text-sm">Персонаж готовит ответ…</p>}
+      </div>
+      <form className="flex flex-col gap-2 border-t p-4" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+        <p className="text-xs text-muted-foreground">Это симуляция: сообщения остаются здесь и не уходят в канал клиента.</p>
+        {!branch.can_continue && <p className="text-xs text-warning">
+          {branch.closed_at || branch.status === 'refused' || branch.status === 'paused'
+            ? 'Ветка завершена или передана оператору. Начните новый тест.'
+            : 'Продолжать тест может только его автор.'}
+        </p>}
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        <textarea aria-label="Сообщение тестовому клиенту" value={text}
+          onChange={(event) => { setText(event.target.value); request.current = null; }}
+          disabled={!branch.can_continue || sending} rows={2} maxLength={4000}
+          className="w-full rounded-md border bg-background p-2 text-sm" />
+        <Button type="submit" disabled={!canSend || sending || !text.trim()}>
+          {sending ? 'Отправка…' : 'Продолжить тест'}
+        </Button>
+      </form>
+    </section>
+  );
+}
+
 function SideField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 text-sm">
@@ -79,6 +150,7 @@ export function InboxPage() {
   const narrow = useMediaQuery(SINGLE_PANE_QUERY);
   const wide = useMediaQuery(WIDE_QUERY);
   const [cardOpen, setCardOpen] = useState(true);
+  const [newTestPersonaId, setNewTestPersonaId] = useState<number | null>(null);
 
   const [filter, setFilter] = useState<DialogFilter>(DEFAULT_DIALOG_FILTER);
   const debouncedQ = useDebounced(filter.q, 250);
@@ -86,6 +158,34 @@ export function InboxPage() {
   const filterKey = JSON.stringify(apiFilter);
 
   const personas = useQuery({ queryKey: qk.personas, queryFn: personasApi.list });
+  const channels = useQuery({ queryKey: ['inbox-channels'], queryFn: channelsApi.list });
+  const operatorQueue = useQuery({
+    queryKey: ['inbox-operator-queue'],
+    queryFn: () => dialogsApi.list({ ...DEFAULT_DIALOG_FILTER, needs_operator: true },
+      { limit: 1, offset: 0 }, true),
+    refetchInterval: POLL_MS,
+  });
+  const startTest = useMutation({
+    mutationFn: (personaId: number) => simulationsApi.start(personaId),
+    onSuccess: (branch) => {
+      void queryClient.invalidateQueries({ queryKey: ['inbox-simulations'] });
+      void navigate({ search: (current) => ({ ...current, d: -branch.id }) });
+    },
+  });
+  const simulations = useQuery({
+    queryKey: ["inbox-simulations"],
+    queryFn: async () => {
+      const items: SimBranchRow[] = [];
+      for (let offset = 0; ; offset += 200) {
+        const page = await simulationsApi.list(null, { limit: 200, offset });
+        items.push(...page.items);
+        if ((page.total !== undefined && items.length >= page.total) || page.items.length === 0) break;
+      }
+      return items;
+    },
+    retry: false,
+    refetchInterval: 30_000,
+  });
 
   // List: first page refetched every 5 s; the loaded tail is kept between polls.
   const [rows, setRows] = useState<DialogRow[]>([]);
@@ -105,7 +205,10 @@ export function InboxPage() {
     setTotal(list.data.total ?? list.data.items.length);
   }, [list.data, filterKey]);
 
-  const remaining = Math.max(0, total - rows.length);
+  const testRows = visibleTestRows(simulations.data ?? [], personas.data ?? [], filter);
+  const visibleRows = combineDialogRows(filter.source === "test" ? [] : rows,
+    filter.source === "real" ? [] : testRows);
+  const remaining = filter.source === "test" ? 0 : Math.max(0, total - rows.length);
 
   const loadMore = (): void => {
     if (loadingMore || remaining === 0) return;
@@ -130,10 +233,16 @@ export function InboxPage() {
       loadedOnce.current = id;
       return d;
     },
-    enabled: dialogId !== null,
+    enabled: dialogId !== null && dialogId > 0,
     refetchInterval: POLL_MS,
   });
-  const detail = dialogId !== null && detailQuery.data?.dialog.id === dialogId ? detailQuery.data : null;
+  const detail = dialogId !== null && dialogId > 0 && detailQuery.data?.dialog.id === dialogId ? detailQuery.data : null;
+  const testDetail = useQuery({
+    queryKey: ["inbox-test-dialog", dialogId],
+    queryFn: () => simulationsApi.get(-(dialogId as number)),
+    enabled: dialogId !== null && dialogId < 0,
+    refetchInterval: POLL_MS,
+  });
 
   // Mark read when the open dialog has unread messages.
   useEffect(() => {
@@ -151,16 +260,38 @@ export function InboxPage() {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...flags } : r)));
   };
 
+  const acceptMessage = (id: number, msg: Message): void => {
+    queryClient.setQueryData<DialogDetail>(qk.dialog(id), (d) =>
+      d ? { ...d, dialog: { ...d.dialog, ai_paused: true, needs_operator: false },
+        messages: d.messages.some((m) => m.id === msg.id) ? d.messages : [...d.messages, msg] } : d,
+    );
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ai_paused: true, needs_operator: false } : r)));
+  };
+
   const sendMutation = useMutation({
-    mutationFn: ({ id, text }: { id: number; text: string }) => dialogsApi.send(id, text),
-    onSuccess: (msg, { id }) => {
-      // An operator reply pauses the AI and clears «needs operator» (the server does the same).
-      queryClient.setQueryData<DialogDetail>(qk.dialog(id), (d) =>
-        d ? { ...d, dialog: { ...d.dialog, ai_paused: true, needs_operator: false }, messages: [...d.messages, msg] } : d,
-      );
-      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ai_paused: true, needs_operator: false } : r)));
-    },
+    mutationFn: ({ id, text, requestId }: { id: number; text: string; requestId: string }) =>
+      dialogsApi.send(id, text, requestId),
+    onSuccess: (msg, { id }) => acceptMessage(id, msg),
   });
+  const mediaMutation = useMutation({
+    mutationFn: (item: { id: number; kind: 'voice'; file: Blob; filename: string; requestId: string } |
+      { id: number; kind: 'file'; file: File; caption: string; requestId: string }) =>
+      item.kind === 'voice'
+        ? dialogsApi.sendVoice(item.id, item.file, item.filename, item.requestId)
+        : dialogsApi.sendAttachment(item.id, item.file, item.caption, item.requestId),
+    onSuccess: (msg, item) => acceptMessage(item.id, msg),
+  });
+
+  const changeStage = async (clientId: number, stage: Stage): Promise<boolean> => {
+    try {
+      const updated = await clientsApi.changeStage(clientId, { stage, reason: 'Из чата оператором' });
+      if (dialogId !== null) queryClient.setQueryData<DialogDetail>(qk.dialog(dialogId), (d) =>
+        d ? { ...d, client: updated } : d);
+      setRows((prev) => prev.map((r) => r.client.id === clientId ?
+        { ...r, client: { ...r.client, stage: updated.stage } } : r));
+      return true;
+    } catch { return false; }
+  };
 
   const toggleAi = (paused: boolean): void => {
     if (dialogId === null) return;
@@ -190,12 +321,28 @@ export function InboxPage() {
           className={cn('flex min-h-0 flex-col border-r', narrow ? 'w-full' : 'w-[340px] flex-none xl:w-[380px]')}
         >
           <div className="flex-none border-b p-3">
-            <InboxFilters filter={filter} onChange={setFilter} personas={personas.data ?? []} activeCount={count} />
+            <InboxFilters filter={filter} onChange={setFilter} personas={personas.data ?? []}
+              channels={channels.data ?? []} activeCount={count} />
           </div>
+          {(operatorQueue.data?.total ?? 0) > 0 && <button type="button"
+            className="w-full border-b bg-warning/15 px-3 py-2 text-left text-sm font-semibold"
+            onClick={() => setFilter({ ...DEFAULT_DIALOG_FILTER, source: 'real', needs_operator: true })}>
+            Требуется ответ менеджера: {operatorQueue.data?.total} · открыть очередь
+          </button>}
+          <div className="flex items-center gap-2 border-b p-2">
+            <OptionSelect<number | null> value={newTestPersonaId} onChange={setNewTestPersonaId}
+              options={[{ value: null, label: 'Персонаж для теста' },
+                ...(personas.data ?? []).filter((p) => p.is_active).map((p) => ({ value: p.id, label: p.name }))]} />
+            <Button type="button" size="sm" disabled={!newTestPersonaId || startTest.isPending}
+              onClick={() => { if (newTestPersonaId) startTest.mutate(newTestPersonaId); }}>
+              Новый тест
+            </Button>
+          </div>
+          {startTest.isError && <p role="alert" className="p-2 text-xs text-destructive">Не удалось создать тест.</p>}
           <DialogList
-            rows={rows}
+            rows={visibleRows}
             selectedId={dialogId}
-            loading={list.isPending}
+            loading={list.isPending || simulations.isPending}
             remaining={remaining}
             loadingMore={loadingMore}
             filtered={count > 0}
@@ -207,28 +354,37 @@ export function InboxPage() {
 
       {showConversation && (
         <section aria-label="Диалог" className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {detail ? (
+          {dialogId !== null && dialogId < 0 && testDetail.data ? (
+            <TestConversation branch={testDetail.data} />
+          ) : detail ? (
             <Conversation
               key={detail.dialog.id}
               detail={detail}
               narrow={narrow}
               wide={wide}
               cardOpen={cardOpen}
-              sending={sendMutation.isPending}
+              sending={sendMutation.isPending || mediaMutation.isPending}
               onBack={back}
               onToggleCard={() => setCardOpen((v) => !v)}
               onToggleAi={toggleAi}
               onResolve={resolve}
-              onSend={(text) =>
-                sendMutation
-                  .mutateAsync({ id: detail.dialog.id, text })
-                  .then(() => true)
-                  .catch(() => false)
+              onSend={(text, requestId) =>
+                sendMutation.mutateAsync({ id: detail.dialog.id, text, requestId })
+                  .then(() => true).catch(() => false)
               }
+              onSendVoice={(file, filename, requestId) =>
+                mediaMutation.mutateAsync({ id: detail.dialog.id, kind: "voice", file, filename, requestId })
+                  .then(() => true).catch(() => false)
+              }
+              onSendAttachment={(file, caption, requestId) =>
+                mediaMutation.mutateAsync({ id: detail.dialog.id, kind: "file", file, caption, requestId })
+                  .then(() => true).catch(() => false)
+              }
+              onChangeStage={(stage) => changeStage(detail.client.id, stage)}
             />
           ) : dialogId !== null ? (
             <div className="grid flex-1 place-items-center">
-              {detailQuery.isError ? (
+              {detailQuery.isError || testDetail.isError ? (
                 <EmptyState icon={MessagesSquare} title="Диалог не открылся" hint="Возможно, он удалён.">
                   <Button variant="outline" onClick={back}>
                     К списку

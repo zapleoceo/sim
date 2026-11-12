@@ -232,6 +232,7 @@ class Message(Base):
     __tablename__ = "message"
     __table_args__ = (
         UniqueConstraint("dialog_id", "external_id"),
+        UniqueConstraint("dialog_id", "client_request_id"),
         Index("ix_message_dialog_id_id", "dialog_id", "id"),
         Index("ix_message_created_at_id", "created_at", "id"),
         Index("ix_message_dialog_created_at_id", "dialog_id", "created_at", "id"),
@@ -249,6 +250,7 @@ class Message(Base):
     media_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     delivery: Mapped[Delivery] = mapped_column(enum_col(Delivery), default=Delivery.SENT)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -442,11 +444,15 @@ class SimBranch(Base):
 
 class SimMessage(Base):
     __tablename__ = "sim_message"
-    __table_args__ = (Index("ix_sim_message_branch_id_id", "branch_id", "id"),)
+    __table_args__ = (
+        Index("ix_sim_message_branch_id_id", "branch_id", "id"),
+        UniqueConstraint("branch_id", "client_request_id", name="uq_sim_message_branch_request"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     branch_id: Mapped[int] = mapped_column(ForeignKey("sim_branch.id", ondelete="CASCADE"))
-    role: Mapped[str] = mapped_column(String(8))  # client | ai
+    role: Mapped[str] = mapped_column(String(8))  # client | ai | system
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     text: Mapped[str] = mapped_column(Text, default="")
     guard_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
     guard_violations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

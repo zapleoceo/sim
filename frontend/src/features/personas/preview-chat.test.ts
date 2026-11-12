@@ -13,6 +13,16 @@ describe('voice recorder', () => {
 const reply = (text: string): PreviewResponse => ({ reply: text, decision: null, guard: null, model: 'm', latency_ms: 12 });
 
 describe('preview chat state', () => {
+  it('carries approved context and preserves it on a rejected turn', () => {
+    const next = { stage: 'engaged' as const, status: 'active' as const, needs: ['цель'], next_step: 'уточнить' };
+    let state = previewReducer(INITIAL_PREVIEW, { type: 'send', text: 'привет' });
+    state = previewReducer(state, { type: 'success', reply: { ...reply('ответ'), context: next } });
+    expect(state.context).toEqual(next);
+    state = previewReducer(state, { type: 'send', text: 'ещё' });
+    state = previewReducer(state, { type: 'success', reply: { ...reply(''), context: next,
+      guard: { verdict: 'blocked', violations: ['ошибка'], model: null, original_text: null } } });
+    expect(state.context).toEqual(next);
+  });
   it('appends the user turn, then the reply with model and latency', () => {
     let s = previewReducer(INITIAL_PREVIEW, { type: 'send', text: 'привет' });
     expect(s.busy).toBe(true);

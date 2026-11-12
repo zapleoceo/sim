@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import mimetypes
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 
@@ -16,6 +17,7 @@ from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
+from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
 from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction
@@ -88,6 +90,7 @@ class OutboundService:
         factory: async_sessionmaker[AsyncSession],
         clock: Clock = utcnow,
         voice: VoiceRenderer | None = None,
+        media: MediaStore | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         self.session = session
@@ -96,6 +99,7 @@ class OutboundService:
         self.box = box
         self.clock = clock
         self.voice = voice
+        self.media = media
         self.messages = MessageRepo(session)
         self.dialogs = DialogRepo(session)
         self.jobs = JobRepo(session)
@@ -164,8 +168,23 @@ class OutboundService:
         await self.messages.add(message)
         return message
 
-    async def send_manual(self, dialog: Dialog, operator_id: int, text: str) -> Message:
-        """An operator writes in the dialog: the AI steps back on this dialog."""
+    async def send_manual(
+        self, dialog: Dialog, operator_id: int, text: str, *, request_id: str | None = None,
+        media_kind: str | None = None, media_url: str | None = None,
+    ) -> Message:
+        """An operator writes in the dialog; repeated request IDs return the same message.
+
+        The caller holds the dialog lock before invoking this method.
+        """
+        if request_id:
+            existing = await self.session.scalar(
+                select(Message).where(Message.dialog_id == dialog.id,
+                                      Message.client_request_id == request_id)
+            )
+            if existing is not None:
+                if existing.text != text or existing.author is not Author.OPERATOR:
+                    raise ValueError("request id already used for a different message")
+                return existing
         now = self.clock()
         operator = await self.session.get(AdminUser, operator_id)
         await cancel_queued_ai(self.session, dialog.id, "cancelled: an operator took over")
@@ -176,6 +195,9 @@ class OutboundService:
             operator_id=operator.id if operator is not None else None,
             operator_name=operator.display_name[:120] if operator is not None else None,
             text=text,
+            media_kind=media_kind,
+            media_url=media_url,
+            client_request_id=request_id,
             delivery=Delivery.QUEUED,
             created_at=now,
         )
@@ -213,6 +235,7 @@ class OutboundService:
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
             "thread": dialog.external_thread_id, "text": message.text,
+            "media_url": message.media_url,
             "voice": message.media_kind == VOICE_NOTE,
             "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
         }, sort_keys=True).encode()).hexdigest()
@@ -230,12 +253,18 @@ class OutboundService:
             raise SendFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
         note = await self.voice_note(message, dialog, port)
+        attachment = self.attachment(message, port)
         await self.receipts.claim(message.id, fingerprint)
         async with self.send_step(channel, message, voice=note is not None) as step:
             try:
                 if note is not None:
                     result = await port.send_voice(  # type: ignore[attr-defined]
                         dialog.external_thread_id, note.audio, note.duration_s,
+                    )
+                elif attachment is not None:
+                    data, filename, mime = attachment
+                    result = await port.send_attachment(  # type: ignore[attr-defined]
+                        dialog.external_thread_id, data, filename, mime, message.text,
                     )
                 else:
                     result = await port.send_text(dialog.external_thread_id, message.text)
@@ -262,13 +291,38 @@ class OutboundService:
         return self.tracer.step(tracing.SEND, name, channel_id=channel.id,
                                 dialog_id=message.dialog_id, message_id=message.id)
 
+    def attachment(self, message: Message, port: object) -> tuple[bytes, str, str] | None:
+        if message.author is not Author.OPERATOR or message.media_kind not in ("image", "file"):
+            return None
+        if Capability.SEND_ATTACHMENT not in getattr(port, "capabilities", frozenset()):
+            raise SendFailed("this channel cannot send attachments")
+        url = message.media_url or ""
+        if not url.startswith("/api/media/") or self.media is None:
+            raise SendFailed("operator attachment is unavailable")
+        name = url.removeprefix("/api/media/")
+        path = self.media.path(name)
+        if path is None:
+            raise SendFailed("operator attachment is unavailable")
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        return path.read_bytes(), name, mime
+
     async def voice_note(self, message: Message, dialog: Dialog, port: object) -> VoiceNote | None:
         """The rendered note for a message queued as voice, or None = send it as text.
 
         Voice is best-effort: when the channel cannot send voice, the persona has no valid
         voice any more, or the broker / ffmpeg fails, the client still gets the reply as text
         (the reason is logged; the message stops being marked as voice)."""
-        if message.media_kind != VOICE_NOTE or message.author is not Author.AI:
+        if message.media_kind != VOICE_NOTE:
+            return None
+        if message.author is Author.OPERATOR:
+            if Capability.SEND_VOICE not in getattr(port, "capabilities", frozenset()):
+                raise SendFailed("this channel cannot send voice")
+            name = (message.media_url or "").removeprefix("/api/media/")
+            path = self.media.path(name) if self.media is not None else None
+            if path is None or not (message.media_url or "").startswith("/api/media/"):
+                raise SendFailed("operator voice file is unavailable")
+            return VoiceNote(path.read_bytes(), None, None, message.media_url or "")
+        if message.author is not Author.AI:
             return None
         persona = await self.session.get(Persona, dialog.client.persona_id)
         reason = None

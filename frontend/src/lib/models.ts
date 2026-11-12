@@ -74,10 +74,12 @@ export interface GuardInfo {
 }
 /** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
 export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
+export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
 export interface PreviewResponse {
   reply: string;
   decision: unknown;
   guard: GuardInfo | null;
+  context?: PreviewContext;
   model: string;
   latency_ms: number;
   voice?: PreviewVoice | null;
@@ -150,6 +152,7 @@ export interface Message {
 }
 export interface DialogRow {
   id: number;
+  channel_id?: number | null;
   channel_kind: ChannelKind;
   persona: { id: number; name: string; avatar_url: string };
   client: { id: number; display_name: string; avatar_url: string; stage: Stage; status: ClientStatus };
@@ -158,6 +161,7 @@ export interface DialogRow {
   ai_paused: boolean;
   /** ИИ не справился или передал диалог человеку — нужен оператор. */
   needs_operator: boolean;
+  is_test?: boolean;
 }
 export interface Dialog {
   id: number;
@@ -166,9 +170,14 @@ export interface Dialog {
   client_id?: number;
   ai_paused: boolean;
   needs_operator: boolean;
+  channel_status?: ChannelStatus;
+  send_capabilities?: { text: boolean; voice: boolean; attachment: boolean };
 }
 export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
 export interface DialogFilter {
+  source: '' | 'real' | 'test';
+  avatar: '' | 'with' | 'without';
+  channel_id: number | null;
   channel_kind: ChannelKind | '';
   persona_id: number | null;
   stage: Stage | '';
@@ -294,13 +303,15 @@ export interface SimBranchRow {
 }
 export interface SimMessage {
   id: number;
-  role: 'client' | 'ai';
+  role: 'client' | 'ai' | 'system';
   text: string;
   model: string | null;
   created_at: string;
   guard: GuardInfo | null;
 }
 export interface SimBranchDetail extends SimBranchRow {
+  pending?: boolean;
+  can_continue?: boolean;
   needs: string[];
   next_step: string;
   notes: string;

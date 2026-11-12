@@ -129,7 +129,7 @@ def chunk_text(text: str, limit: int = TG_MAX_TEXT) -> list[str]:
 
 class TelegramAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT})
 
     def __init__(self, transport: TelegramTransport) -> None:
         self._t = transport
@@ -175,6 +175,22 @@ class TelegramAdapter:
         try:
             res = await self._t.upload("sendVoice", params, "voice", "voice.ogg", audio,
                                        "audio/ogg")
+        except TelegramError as exc:
+            return SendResult(ok=False, error=str(exc))
+        return SendResult(ok=True,
+                          external_message_id=str((res or {}).get("message_id", "")) or None)
+
+    async def send_attachment(
+        self, external_thread_id: str, data: bytes, filename: str,
+        mime: str, caption: str,
+    ) -> SendResult:
+        method = "sendPhoto" if mime.startswith("image/") else "sendDocument"
+        field = "photo" if method == "sendPhoto" else "document"
+        try:
+            res = await self._t.upload(
+                method, {"chat_id": external_thread_id, "caption": caption[:1000]},
+                field, filename, data, mime,
+            )
         except TelegramError as exc:
             return SendResult(ok=False, error=str(exc))
         return SendResult(ok=True,

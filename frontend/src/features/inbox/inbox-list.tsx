@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tip } from '@/components/ui/tooltip';
-import type { ChannelKind, ClientStatus, DialogFilter, DialogRow, Persona, Stage } from '@/lib/models';
+import type { ChannelKind, ClientStatus, DialogFilter, DialogRow, Persona, Stage, Channel } from '@/lib/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS, STAGES, STATUSES, STATUS_LABELS } from '@/lib/stages';
 import { cn } from '@/lib/utils';
 import { DEFAULT_DIALOG_FILTER, LOAD_MORE_THRESHOLD, rowPreview, rowTime } from './inbox-logic';
@@ -31,11 +31,13 @@ export function InboxFilters({
   filter,
   onChange,
   personas,
+  channels,
   activeCount,
 }: {
   filter: DialogFilter;
   onChange: (f: DialogFilter) => void;
   personas: Persona[];
+  channels: Channel[];
   activeCount: number;
 }) {
   const set = <K extends keyof DialogFilter>(key: K, value: DialogFilter[K]): void => onChange({ ...filter, [key]: value });
@@ -47,6 +49,31 @@ export function InboxFilters({
       search={<SearchInput value={filter.q} onChange={(q) => set('q', q)} placeholder="Поиск" />}
       filters={
         <>
+          <FilterField label="Источник">
+            <OptionSelect<DialogFilter["source"]>
+              value={filter.source}
+              onChange={(v) => set("source", v)}
+              options={[{ value: "", label: "Все диалоги" }, { value: "real", label: "Каналы" },
+                { value: "test", label: "Тестовые" }]}
+            />
+          </FilterField>
+          <FilterField label="Фото клиента">
+            <OptionSelect<DialogFilter["avatar"]>
+              value={filter.avatar}
+              onChange={(v) => set("avatar", v)}
+              options={[{ value: "", label: "Любой" }, { value: "with", label: "С аватаром" },
+                { value: "without", label: "Без аватара" }]}
+            />
+          </FilterField>
+          <FilterField label="Аккаунт канала">
+            <OptionSelect<number | null>
+              value={filter.channel_id}
+              onChange={(v) => set("channel_id", v)}
+              options={[{ value: null, label: "Все аккаунты" }, ...channels.map((ch) => ({
+                value: ch.id, label: `${ch.name || ch.account_label || `#${ch.id}`} · ${CHANNEL_LABELS[ch.kind]}`,
+              }))]}
+            />
+          </FilterField>
           <FilterField label="Канал">
             <OptionSelect<ChannelKind | ''>
               value={filter.channel_kind}
@@ -165,7 +192,8 @@ export function DialogList({
                   )}
                 </span>
                 <span className="flex flex-wrap items-center gap-1.5">
-                  <ChannelIcon kind={row.channel_kind} size={18} />
+                  {row.is_test ? <span className="rounded bg-warning/15 px-1.5 text-[11px] font-semibold">Тест</span>
+                    : <ChannelIcon kind={row.channel_kind} size={18} />}
                   <StageChip stage={row.client.stage} className="h-5 px-2 text-[11px]" />
                   <span className="truncate text-xs text-muted-foreground">{row.persona.name}</span>
                   {row.ai_paused && (
