@@ -232,6 +232,7 @@ class Message(Base):
     __tablename__ = "message"
     __table_args__ = (
         UniqueConstraint("dialog_id", "external_id"),
+        UniqueConstraint("dialog_id", "client_request_id"),
         Index("ix_message_dialog_id_id", "dialog_id", "id"),
         Index("ix_message_created_at_id", "created_at", "id"),
         Index("ix_message_dialog_created_at_id", "dialog_id", "created_at", "id"),
@@ -249,6 +250,7 @@ class Message(Base):
     media_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     delivery: Mapped[Delivery] = mapped_column(enum_col(Delivery), default=Delivery.SENT)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)
