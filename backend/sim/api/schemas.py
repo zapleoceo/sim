@@ -335,6 +335,7 @@ def dialog_row(d: Dialog, persona: Persona | None) -> dict[str, Any]:
     c = d.client
     return {
         "id": d.id,
+        "channel_id": d.channel_id,
         "channel_kind": d.channel.kind.value,
         "persona": {
             "id": c.persona_id,

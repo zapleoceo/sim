@@ -1,4 +1,4 @@
-"""Admin simulations (the login-bot test chats): read-only list and transcript, owner and up."""
+"""Admin simulations: owner-visible history and isolated browser continuation."""
 from __future__ import annotations
 
 from typing import Annotated
