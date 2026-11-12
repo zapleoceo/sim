@@ -185,9 +185,9 @@ async def send_operator_attachment(
     await file.close()
     if not data or len(data) > MAX_OPERATOR_AUDIO_BYTES:
         raise HTTPException(413, "Attachment exceeds the 8 MiB limit")
-    if suffix in {".jpg", ".jpeg"} and not data.startswith(b"\\xff\\xd8\\xff"):
+    if suffix in {".jpg", ".jpeg"} and not data.startswith(b"\xff\xd8\xff"):
         raise HTTPException(422, "Invalid JPEG")
-    if suffix == ".png" and not data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+    if suffix == ".png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise HTTPException(422, "Invalid PNG")
     if suffix == ".webp" and not (data.startswith(b"RIFF") and data[8:12] == b"WEBP"):
         raise HTTPException(422, "Invalid WebP")
