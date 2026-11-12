@@ -164,8 +164,22 @@ class OutboundService:
         await self.messages.add(message)
         return message
 
-    async def send_manual(self, dialog: Dialog, operator_id: int, text: str) -> Message:
-        """An operator writes in the dialog: the AI steps back on this dialog."""
+    async def send_manual(
+        self, dialog: Dialog, operator_id: int, text: str, *, request_id: str | None = None
+    ) -> Message:
+        """An operator writes in the dialog; repeated request IDs return the same message.
+
+        The caller holds the dialog lock before invoking this method.
+        """
+        if request_id:
+            existing = await self.session.scalar(
+                select(Message).where(Message.dialog_id == dialog.id,
+                                      Message.client_request_id == request_id)
+            )
+            if existing is not None:
+                if existing.text != text or existing.author is not Author.OPERATOR:
+                    raise ValueError("request id already used for a different message")
+                return existing
         now = self.clock()
         operator = await self.session.get(AdminUser, operator_id)
         await cancel_queued_ai(self.session, dialog.id, "cancelled: an operator took over")
@@ -176,6 +190,7 @@ class OutboundService:
             operator_id=operator.id if operator is not None else None,
             operator_name=operator.display_name[:120] if operator is not None else None,
             text=text,
+            client_request_id=request_id,
             delivery=Delivery.QUEUED,
             created_at=now,
         )
