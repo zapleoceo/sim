@@ -10,7 +10,13 @@ from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.repositories.simulations import SimBranchRepo, SimMessageRepo
 from sim.api.deps import App, Db, Owner, owner_only
-from sim.api.schemas import SimContinueIn, SimStartIn, sim_branch_out, sim_branch_row, sim_message_out
+from sim.api.schemas import (
+    SimContinueIn,
+    SimStartIn,
+    sim_branch_out,
+    sim_branch_row,
+    sim_message_out,
+)
 from sim.domain.enums import ClientStatus
 from sim.services import jobkinds
 
