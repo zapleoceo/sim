@@ -74,10 +74,12 @@ export interface GuardInfo {
 }
 /** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
 export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
+export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
 export interface PreviewResponse {
   reply: string;
   decision: unknown;
   guard: GuardInfo | null;
+  context?: PreviewContext;
   model: string;
   latency_ms: number;
   voice?: PreviewVoice | null;
