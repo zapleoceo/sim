@@ -5,11 +5,12 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { personasApi } from '@/lib/api/personas';
+import { errorDetail, errorMessage } from '@/lib/errors';
 
 /**
  * Owner only: ask for an AI video note of the persona. The backend sends it to the single
- * account from the setting «Кружочки ИИ» and nowhere else; errors (no recipient set, no
- * dialog) arrive as the standard API error toast.
+ * account from the setting «Кружочки ИИ» and nowhere else. A refusal (no recipient set, no
+ * dialog, bad reference) is shown with the server's own reason, not the generic 409 text.
  */
 export function AiVideoNote({ personaId }: { personaId: number }) {
   const [prompt, setPrompt] = useState('');
@@ -22,6 +23,7 @@ export function AiVideoNote({ personaId }: { personaId: number }) {
           : 'Кружочек генерируется и придёт в Telegram разрешённому аккаунту',
       );
     },
+    onError: (err) => toast.error(errorDetail(err) || errorMessage(err)),
   });
 
   return (
