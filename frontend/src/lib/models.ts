@@ -326,7 +326,7 @@ export interface SimBranchDetail extends SimBranchRow {
 }
 
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
-/** Fixed honesty rule added after the persona prompt and after the guard prompt (not editable). */
+/** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
 /** The persona's full system prompt as the model gets it; `fixed` is the non-editable part. */
 export interface PersonaPrompt { system: string; fixed: string }

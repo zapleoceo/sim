@@ -1,6 +1,6 @@
 import { Lock } from 'lucide-react';
 
-/** The one non-editable text of a prompt (the honesty rule), shown read-only next to the editable one. */
+/** The one non-editable text of a prompt (the decision consistency contract), shown read-only next to the editable one. */
 export function FixedPrompt({ text, where }: { text: string; where: string }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-dashed bg-muted/40 p-3 text-xs">

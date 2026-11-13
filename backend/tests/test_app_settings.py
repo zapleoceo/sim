@@ -6,8 +6,8 @@ import pytest
 from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
-from sim.services.guard import GUARD_CONTROL, GUARD_HONESTY, GUARD_PROMPT
-from sim.services.prompt import HISTORY_LIMIT, HONESTY_RULE, OUTPUT_CONTRACT, RETRY_NUDGE
+from sim.services.guard import GUARD_CONTROL, GUARD_PROMPT
+from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE
 from tests.conftest import OPERATOR, OWNER, login
 
 
@@ -60,10 +60,10 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
     async with transaction(container.factory) as s:
         await container.conversation(s).preview(await s.get(Persona, world.persona.id), "Привет!")
     system = fake_llm.gen_calls[0][0][0]["content"]
-    assert system.startswith(f"PERSONA PROMPT FROM DB\n\n{HONESTY_RULE}")   # the honesty rule is fixed
+    assert system.startswith("PERSONA PROMPT FROM DB\n\nСТРАТЕГИЯ")
     assert system.endswith('FORMAT FROM DB: {"reply": "", "stage": ""}') and OUTPUT_CONTRACT not in system
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
-    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_HONESTY}\n\n{GUARD_CONTROL}"
+    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}"
     assert guard_kwargs["capability"] == "chat:smart"
 
 
@@ -77,12 +77,12 @@ async def test_the_retry_nudge_comes_from_the_settings(container, world, fake_ll
     assert retry_messages[-1] == {"role": "system", "content": "NUDGE FROM DB"}
 
 
-async def test_api_shows_the_fixed_honesty_texts_and_the_full_persona_prompt(api, world):
+async def test_api_exposes_no_fixed_persona_rule_and_keeps_guard_control(api, world):
     await login(api, OWNER[0])
     fixed = (await api.get("/api/settings")).json()["fixed"]
-    assert fixed == {"persona": HONESTY_RULE, "guard": f"{GUARD_HONESTY}\n\n{GUARD_CONTROL}"}
+    assert fixed == {"persona": "", "guard": GUARD_CONTROL}
     body = (await api.get(f"/api/personas/{world.persona.id}/prompt")).json()
-    assert body["fixed"] == HONESTY_RULE and HONESTY_RULE in body["system"]
+    assert body["fixed"] == "" and "ЧЕСТНОСТЬ" not in body["system"]
     assert body["system"].endswith(OUTPUT_CONTRACT)
 
 

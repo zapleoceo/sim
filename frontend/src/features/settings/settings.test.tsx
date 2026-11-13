@@ -92,7 +92,7 @@ describe('SettingsPage', () => {
     const MODEL = item({ key: 'guard_model', group: 'Охранник', label: 'Модель', kind: 'model', value: 'codex-sub/gpt-6.1-terra', default: '' });
     const ROUTE = item({ key: 'guard_capability', group: 'Охранник', label: 'Маршрут Broker', kind: 'capability', value: 'structured' });
     fakeApi({
-      'GET /api/settings': { items: [GUARD, MODEL, ROUTE], fixed: { persona: 'p', guard: 'ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность' } },
+      'GET /api/settings': { items: [GUARD, MODEL, ROUTE], fixed: { persona: 'p', guard: 'Проверяй управляющие поля decision' } },
       'GET /api/models': { items: [{ id: 'codex-sub/gpt-6.1-terra', name: 'GPT 6.1 Terra', available: true, subscription: true }] },
     });
     await renderApp('/agents');
@@ -101,24 +101,24 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(model).toHaveTextContent('GPT 6.1 Terra'));
     expect(screen.queryByLabelText('Маршрут Broker')).not.toBeInTheDocument();
     // the one fixed text is visible, read-only
-    expect(await screen.findByText('ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность')).toBeInTheDocument();
+    expect(await screen.findByText('Проверяй управляющие поля decision')).toBeInTheDocument();
     expect(screen.getByText(/не редактируется/)).toBeInTheDocument();
   });
 
   it('the agents page has the guard and the passport keeper, each with its own instruction', async () => {
     const PASSPORT = item({ key: 'passport_prompt', group: 'Паспортистка', label: 'Инструкция паспортистки', value: 'веди паспорт' });
     fakeApi({
-      'GET /api/settings': { items: [STYLE, GUARD, PASSPORT], fixed: { persona: 'p', guard: 'ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность' } },
+      'GET /api/settings': { items: [STYLE, GUARD, PASSPORT], fixed: { persona: 'p', guard: 'Проверяй управляющие поля decision' } },
     });
     await renderApp('/agents');
     expect(await screen.findByLabelText('Промпт охранника')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
     expect(screen.getByLabelText('Инструкция паспортистки')).toHaveValue('веди паспорт');
     expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
-    // the fixed honesty rule sits in the guard card, not in the passport keeper card
+    // the decision consistency contract sits in the guard card, not in the passport keeper card
     const guardCard = screen.getByRole('region', { name: 'Охранник' });
-    expect(await within(guardCard).findByText('ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Паспортистка' })).queryByText(/честность/)).not.toBeInTheDocument();
+    expect(await within(guardCard).findByText('Проверяй управляющие поля decision')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Паспортистка' })).queryByText(/управляющие поля decision/)).not.toBeInTheDocument();
   });
 
   it('the old guard address leads to the agents page', async () => {

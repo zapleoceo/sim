@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException
 from sim.api.deps import App, Authed, Db, Owner
 from sim.api.schemas import Body, dt
 from sim.services.app_settings import AppSettingsService, SettingError, SettingItem, env_defaults
-from sim.services.guard import GUARD_CONTROL, GUARD_HONESTY
-from sim.services.prompt import HONESTY_RULE
+from sim.services.guard import GUARD_CONTROL
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -42,7 +41,7 @@ async def list_settings(c: App, s: Db, _: Authed):
     and after the guard prompt), shown read-only so the owner sees every prompt."""
     return {
         "items": [setting_out(i) for i in await service(c, s).items()],
-        "fixed": {"persona": HONESTY_RULE, "guard": f"{GUARD_HONESTY}\n\n{GUARD_CONTROL}"},
+        "fixed": {"persona": "", "guard": GUARD_CONTROL},
     }
 
 

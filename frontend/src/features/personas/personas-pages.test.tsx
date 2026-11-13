@@ -81,15 +81,15 @@ describe('personas pages', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas/7'));
   });
 
-  it('shows the full prompt the model gets, with the fixed honesty rule', async () => {
+  it('shows the full prompt the model gets, without an appended identity block', async () => {
     const log = backend({
-      'GET /api/personas/1/prompt': { system: 'Ты Марина.\n\nЧЕСТНОСТЬ: …\n\nСТРАТЕГИЯ', fixed: 'ЧЕСТНОСТЬ: …' },
+      'GET /api/personas/1/prompt': { system: 'Ты Марина.\n\nСТРАТЕГИЯ', fixed: '' },
     });
     await renderApp('/personas/1');
     expect(log.some((r) => r.path === '/api/personas/1/prompt')).toBe(false);     // loaded on demand
     await userEvent.click(await screen.findByText('Полный промпт, который получает модель'));
     expect(await screen.findByLabelText('Полный промпт')).toHaveTextContent('СТРАТЕГИЯ');
-    expect(screen.getByText(/не редактируется/)).toBeInTheDocument();
+    expect(screen.queryByText(/не редактируется/)).not.toBeInTheDocument();
   });
 
   it('says when the persona does not exist (Broker models unavailable is not fatal)', async () => {

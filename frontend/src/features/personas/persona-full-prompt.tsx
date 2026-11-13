@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { ErrorState } from '@/components/empty-state';
-import { FixedPrompt } from '@/components/fixed-prompt';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { personasApi } from '@/lib/api/personas';
@@ -10,7 +9,7 @@ import { qk } from '@/lib/query';
 
 /**
  * Everything the persona's model gets as its system prompt, for the saved persona: the persona
- * prompt, the fixed honesty rule, the strategy and the answer format. Loaded when opened.
+ * prompt, the strategy and the answer format. Loaded when opened.
  */
 export function PersonaFullPrompt({ personaId }: { personaId: number }) {
   const [open, setOpen] = useState(false);
@@ -35,7 +34,6 @@ export function PersonaFullPrompt({ personaId }: { personaId: number }) {
           {query.isError && <ErrorState onRetry={() => void query.refetch()} />}
           {query.data && (
             <>
-              <FixedPrompt text={query.data.fixed} where="после промпта персонажа" />
               <pre
                 aria-label="Полный промпт"
                 className="max-h-[60vh] overflow-auto rounded-lg bg-muted/60 p-3 text-[12px] whitespace-pre-wrap [overflow-wrap:anywhere]"

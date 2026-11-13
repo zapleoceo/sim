@@ -14,7 +14,7 @@ once more (anything but ok = block); block -> nothing is sent, an operator is ca
 Fail closed: a broker error / unparseable verdict raises GuardError (an LLMError), the job
 retries with backoff; an unguarded message is never produced.
 
-Scope: the owner's guard prompt (one text) plus the fixed honesty rule. Persona and strategy
+Scope: the owner's guard prompt (one text) plus the decision consistency contract. Persona and strategy
 wishes are not checked here; personas get wide freedom, restrictions are tuned in the simulator.
 
 Prompt caching: the guard system prompt depends only on the guard prompt (no persona, dates, ids
@@ -71,8 +71,6 @@ GUARD_PROMPT = """Ты контролер перед отправкой: про�
 {"verdict": "ok" | "rewrite" | "block", "violations": [string], "fixed_reply": string}
 "violations": короткие описания нарушений на русском (пусто для ok). "fixed_reply": непустой ТОЛЬКО для rewrite, иначе пустая строка."""
 
-# The only fixed text of the guard call: never editable, added after the guard prompt.
-GUARD_HONESTY = """ОБЯЗАТЕЛЬНОЕ ПРАВИЛО (действует всегда, поверх правил выше): если клиент прямо и всерьёз спрашивает, говорит ли он с живым человеком, ботом или ИИ, ответ не должен утверждать, что персонаж человек. Такой ответ нужно ЗАБЛОКИРОВАТЬ (verdict "block"). Только этот прямой вопрос: ответы в роли на «кто ты», «где ты», «что делаешь», вопросы про жизнь, семью и город персонажа нарушением не являются, не исправляй их в признания или извинения."""
 GUARD_CONTROL = """ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: проверь весь объект decision вместе с draft_reply. Поля stage, needs, next_step, handoff_to_operator, refused и stop_contact должны соответствовать диалогу и тексту. Если управляющее поле неверно, верни block и объясни причину: fixed_reply не может исправить управляющее поле. Правило действует и при сохранённом старом тексте настроек контролёра."""
 
 
@@ -101,9 +99,9 @@ class GuardOutcome:
 
 
 def guard_system_prompt(prompt_text: str = GUARD_PROMPT) -> str:
-    """The owner's guard prompt + the fixed honesty rule. Persona and strategy wishes are not the
+    """The owner's guard prompt + the decision consistency contract. Persona and strategy wishes are not the
     guard's business (they are tuned in the simulator)."""
-    return f"{prompt_text.strip()}\n\n{GUARD_HONESTY}\n\n{GUARD_CONTROL}"
+    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}"
 
 
 def guard_user_message(

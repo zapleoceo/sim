@@ -185,7 +185,7 @@ export function SettingsPage() {
 /** What the agents page shows: each agent's model and its one instruction; Broker routes stay a backend fallback. */
 export const AGENT_KEYS = ['guard_model', 'guard_prompt', 'passport_model', 'passport_prompt'] as const;
 
-function GuardHonesty() {
+function GuardControl() {
   const fixed = useQuery({ queryKey: qk.settingsFixed, queryFn: settingsApi.fixed });
   return fixed.data?.guard ? <FixedPrompt text={fixed.data.guard} where="после промпта охранника" /> : null;
 }
@@ -201,7 +201,7 @@ export function AgentsPage() {
       subtitle="Помощники персонажа, у каждого своя модель и своя инструкция. Охранник проверяет каждый ответ перед отправкой. Паспортистка после каждого ответа обновляет паспорт собеседника: что персонаж о нём знает."
       only={AGENT_GROUPS}
       keys={AGENT_KEYS}
-      groupFooters={{ [GUARD_GROUP]: <GuardHonesty /> }}
+      groupFooters={{ [GUARD_GROUP]: <GuardControl /> }}
     />
   );
 }

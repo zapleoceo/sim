@@ -22,7 +22,7 @@ export const personasApi = {
     form.append('voice', String(voice));
     return http.post<PreviewAttachment>(`/api/personas/${id}/preview/attachment`, form, { silent: true });
   },
-  /** The persona's full system prompt (saved settings), with the fixed honesty rule marked. */
+  /** The persona's full system prompt (saved settings), without an appended identity block. */
   prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
