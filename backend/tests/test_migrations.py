@@ -310,16 +310,63 @@ def test_0020_adds_accept_calls_and_roundtrips(tmp_path):
     assert "accept_calls" not in columns(db, "persona")
 
 
-def test_0022_adds_the_role_game_columns_and_roundtrips(tmp_path):
+def insert(con: sqlite3.Connection, table: str, **values: object) -> None:
+    """Insert a row, filling the required columns the test does not care about."""
+    filler = {"INT": 0, "BOOL": 0, "DATE": "2026-11-01 00:00:00", "JSON": "[]"}
+    for _, name, kind, notnull, default, _ in con.execute(f"PRAGMA table_info({table})"):
+        if notnull and default is None and name not in values:
+            values[name] = next((v for k, v in filler.items() if k in kind.upper()), "")
+    marks = ", ".join("?" for _ in values)
+    con.execute(f"INSERT INTO {table} ({', '.join(values)}) VALUES ({marks})",  # noqa: S608
+                tuple(values.values()))
+
+
+def test_0024_removes_the_role_game(tmp_path):
     db = tmp_path / "mig.db"
     cfg = alembic_config(db)
+    command.upgrade(cfg, "0023")
+    with sqlite3.connect(db) as con:
+        insert(con, "strategy", id=1, name="RCIPM")
+        insert(con, "strategy", id=2, name="Sim1 — игра")
+        insert(con, "persona", id=1, name="Марина", strategy_id=1)
+        insert(con, "persona", id=4, name="Sim1", strategy_id=2, is_game=1)
+        insert(con, "persona_media", id=1, persona_id=1)
+        insert(con, "persona_media", id=2, persona_id=4)
+        insert(con, "sim_branch", id=1, persona_id=1)
+        insert(con, "sim_branch", id=2, persona_id=4)
+        insert(con, "sim_message", id=1, branch_id=1)
+        insert(con, "sim_message", id=2, branch_id=2)
+        for key in ("game_channel_id", "game_owner_telegram_id", "history_limit"):
+            insert(con, "app_setting", key=key, value="7")
     command.upgrade(cfg, "head")
-    assert "is_game" in columns(db, "persona")
-    assert {"game_state", "game_consent_at"} <= columns(db, "dialog")
-    command.downgrade(cfg, "0021")
     assert "is_game" not in columns(db, "persona")
     assert not {"game_state", "game_consent_at"} & columns(db, "dialog")
+    with sqlite3.connect(db) as con:
+        def ids(table: str) -> list[int]:
+            return [row[0] for row in con.execute(f"SELECT id FROM {table} ORDER BY id")]  # noqa: S608
+        assert [ids(t) for t in ("persona", "strategy", "persona_media", "sim_branch", "sim_message")] == [[1]] * 5
+        assert con.execute("SELECT key FROM app_setting").fetchall() == [("history_limit",)]
+    command.downgrade(cfg, "0023")
+    assert "is_game" in columns(db, "persona")
+    assert {"game_state", "game_consent_at"} <= columns(db, "dialog")
     command.upgrade(cfg, "head")
+
+
+def test_0024_keeps_a_game_persona_that_is_in_use_switched_off(tmp_path):
+    """The admin refuses to delete a persona used by a channel or a client; so does the migration."""
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0023")
+    with sqlite3.connect(db) as con:
+        insert(con, "strategy", id=2, name="Sim1 — игра")
+        insert(con, "persona", id=4, name="Sim1", strategy_id=2, is_game=1, is_active=1)
+        insert(con, "channel", id=1, persona_id=4)
+        insert(con, "persona_media", id=2, persona_id=4)
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT id, is_active, strategy_id FROM persona").fetchall() == [(4, 0, 2)]
+        assert con.execute("SELECT count(*) FROM persona_media").fetchone() == (1,)
+        assert con.execute("SELECT name FROM strategy").fetchall() == [("Sim1 — игра",)]
 
 
 def test_0023_sets_eva_birth_date_and_leaves_other_personas_alone(tmp_path):

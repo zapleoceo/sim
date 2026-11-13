@@ -9,11 +9,10 @@ Three operations, each a part of the next:
   notes, next step, and the pending passport updates of all the client's dialogs. Used by the
   owner's «Очистить паспорт» (`DELETE /api/clients/{id}/passport`).
 - `reset(dialog, client)`: both, plus the funnel stage and status back to the start. Used by
-  `/reset` from a chat (owner's request: testing personas from scratch) and by the game's `НСН`
-  (docs/game.md).
+  `/reset` from a chat (owner's request: testing personas from scratch).
 
 Always kept: the client row, its ref code and channel identities (the link to the person stays),
-the funnel and partner events (analytics), the request journal, the game state. Nothing is sent
+the funnel and partner events (analytics), the request journal. Nothing is sent
 to the chat and nothing is deleted in the messenger itself."""
 from __future__ import annotations
 

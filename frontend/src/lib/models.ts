@@ -63,8 +63,6 @@ export interface Persona {
   voice_ambience: VoiceAmbience;
   /** Отвечать на входящие звонки в Telegram живым голосом (тот же voice_id, Gemini Live через AIbroker). */
   accept_calls: boolean;
-  /** Персонаж игры (Sim1): отвечает только внутри начатой игры. Ставит seed, в форме не меняется. */
-  is_game?: boolean;
   strategy_id: number | null;
   is_active: boolean;
   created_at: string;
@@ -354,8 +352,7 @@ export interface SimBranchDetail extends SimBranchRow {
 
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 /** Fixed guard contract; persona is empty for backward compatibility. */
-/** `game`: the command vocabulary of the role game (read-only, comes from the code). */
-export interface FixedPrompts { persona: string; guard: string; game?: string }
+export interface FixedPrompts { persona: string; guard: string }
 /** The persona's full system prompt as the model gets it; `fixed` is empty for compatibility. */
 export interface PersonaPrompt { system: string; fixed: string }
 export interface AppSettingItem {

@@ -7,7 +7,6 @@ from fastapi import APIRouter, HTTPException
 
 from sim.api.deps import App, Authed, Db, Owner
 from sim.api.schemas import Body, dt
-from sim.domain.game import vocabulary_text
 from sim.services.app_settings import AppSettingsService, SettingError, SettingItem, env_defaults
 from sim.services.guard import GUARD_CONTROL
 
@@ -38,11 +37,10 @@ def not_found_or_invalid(exc: SettingError) -> HTTPException:
 
 @router.get("")
 async def list_settings(c: App, s: Db, _: Authed):
-    """`fixed`: read-only texts of the code, so the owner sees them: the decision-control contract
-    (persona is empty) and the command vocabulary of the role game."""
+    """`fixed`: the fixed decision-control contract (persona is empty), shown read-only so the owner sees every prompt."""
     return {
         "items": [setting_out(i) for i in await service(c, s).items()],
-        "fixed": {"persona": "", "guard": GUARD_CONTROL, "game": vocabulary_text()},
+        "fixed": {"persona": "", "guard": GUARD_CONTROL},
     }
 
 
