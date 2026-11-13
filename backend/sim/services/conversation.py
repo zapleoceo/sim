@@ -22,6 +22,7 @@ from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
+from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
@@ -33,6 +34,7 @@ from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
+from sim.services.persona_media_tool import PersonaMediaTool
 from sim.services.prompt import (
     Decision,
     DialogContext,
@@ -137,10 +139,26 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
     ]
 
 
+def decision_fields(decision: Decision) -> dict[str, Any]:
+    """The control fields the guard checks together with the draft; her media request is there
+    only when she made one."""
+    fields: dict[str, Any] = {
+        "stage": decision.stage.value if decision.stage else None,
+        "needs": decision.needs,
+        "next_step": decision.next_step,
+        "handoff_to_operator": decision.handoff_to_operator,
+        "refused": decision.refused,
+        "stop_contact": decision.stop_contact,
+    }
+    if decision.media is not None:
+        fields["media"] = {"kind": decision.media.kind.value, "scene": decision.media.scene}
+    return fields
+
+
 def history_turns(messages: list[Message]) -> list[Turn]:
     """Client -> user turn; AI and operator -> assistant turn."""
     return visible_turns(
-        (m.author is Author.CLIENT, m.text, m.guard_verdict)
+        (m.author is Author.CLIENT, history_text(m), m.guard_verdict)
         for m in messages
         if m.direction is Direction.IN or m.delivery is Delivery.SENT
     )
@@ -155,6 +173,7 @@ class ConversationService:
         *,
         clock: Clock = utcnow,
         settings_env: Mapping[str, Any] | None = None,
+        media_tool: PersonaMediaTool | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -170,6 +189,7 @@ class ConversationService:
         self.jobs = JobRepo(session)
         self.funnel = FunnelService(session)
         self.followups = FollowupService(session, clock=clock)
+        self.media_tool = media_tool
 
     # ---- shared pieces -------------------------------------------------------------------
     async def config(self) -> AppSettings:
@@ -290,14 +310,7 @@ class ConversationService:
             if link
         ]
         return await (await self.guard()).review(
-            decision={
-                "stage": decision.stage.value if decision.stage else None,
-                "needs": decision.needs,
-                "next_step": decision.next_step,
-                "handoff_to_operator": decision.handoff_to_operator,
-                "refused": decision.refused,
-                "stop_contact": decision.stop_contact,
-            },
+            decision=decision_fields(decision),
             history=history,
             draft=decision.reply,
             stage=ctx.stage,
@@ -390,9 +403,13 @@ class ConversationService:
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
         ctx = await self.dialog_context(dialog, persona, instruction=instruction)
+        port = self.outbound.try_port(dialog.channel)
+        if self.media_tool is not None:
+            # What she may attach to this reply, or that she must not promise any media.
+            offer = await self.media_tool.offer(dialog, persona, port)
+            ctx = replace(ctx, media=offer.brief())
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
-        port = self.outbound.try_port(dialog.channel)
         if not followup:
             await mark_read(port, dialog.external_thread_id, last.external_id)
         action = RECORD_VOICE if will_speak(persona, followup, last) else TYPING
@@ -484,15 +501,22 @@ class ConversationService:
         decision = replace(decision, reply=guard.text)
         # A voice note is one message; text goes as 1-3 messages with a typing pause between them.
         parts = [guard.text] if voice else bubbles(guard.text)
+        final = stop or decision.handoff_to_operator   # nothing follows this reply
         delay = 0.0
         for i, part in enumerate(parts):
             if i:
                 delay += typing_pause_s(part)
             message = await self.outbound.queue_ai(
                 dialog, part, result if i == 0 else None,
-                final=stop or decision.handoff_to_operator, guard=guard, voice=voice, delay_s=delay,
+                final=final, guard=guard, voice=voice, delay_s=delay,
             )
-        if not followup and not stop and not decision.handoff_to_operator:
+        if decision.media is not None and self.media_tool is not None and not final:
+            persona = await self.personas.get(client.persona_id)
+            if persona is not None:
+                await self.media_tool.request(
+                    dialog, persona, decision.media, self.outbound.try_port(dialog.channel),
+                    delay_s=delay)
+        if not followup and not final:
             dialog.followup_step = 0
             await self.followups.schedule(dialog, strategy, 0, message)
         # The passportist updates the lead passport (one job per dialog, coalesced).

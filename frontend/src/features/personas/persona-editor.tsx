@@ -88,7 +88,7 @@ export function PersonaEditor({
           <Field label="Имя" error={errors.name?.message}>
             <Input {...register('name')} autoComplete="off" />
           </Field>
-          <Field label="Пол" hint="Справочное поле карточки: в промпт не попадает">
+          <Field label="Пол" hint="Идёт в описание кадра для её фото и кружочков; в промпт переписки не попадает">
             <SelectControl control={control} name="gender" options={GENDERS} />
           </Field>
           <Field

@@ -21,6 +21,7 @@ from sim.adapters.db.models import Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, Direction
+from sim.services.ai_media import history_text
 from sim.services.llm_audit import AuditedLLM
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ class PassportService:
         cfg = await self.settings.load()
         recent = await self.messages.recent_visible(dialog_id, cfg.history_limit)
         turns = [
-            {"role": "client" if m.direction is Direction.IN else "persona", "text": m.text or ""}
+            {"role": "client" if m.direction is Direction.IN else "persona", "text": history_text(m)}
             for m in recent if m.direction is Direction.IN or m.author is Author.AI
         ]
         if not turns:

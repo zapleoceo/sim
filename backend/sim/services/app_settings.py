@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 Kind = Literal["text", "int", "capability", "model"]
 TEXT_MAX = 20000
+MEDIA_GROUP = "Фото и кружочки персонажа"
 CAPABILITY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,79}$")
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
 
@@ -122,6 +123,15 @@ SPECS: tuple[SettingSpec, ...] = (
                 "Числовой Telegram id единственного аккаунта, которому можно отправлять "
                 "сгенерированные ИИ кружочки. 0: кружочки не отправляются никому.",
                 "int", 0, 0, 9_999_999_999_999),
+    SettingSpec("persona_photo_model", MEDIA_GROUP, "Модель для фото",
+                "Подписочная модель Broker с генерацией изображений, которая делает фото персонажа "
+                "по референсам из его галереи, например codex-sub/gpt-6.1-sol. Пусто: персонажи "
+                "фото не отправляют.",
+                "model", ""),
+    SettingSpec("persona_media_gap_min", MEDIA_GROUP, "Пауза между медиа, мин",
+                "Не чаще одного сгенерированного фото или кружочка на диалог за столько минут. "
+                "0: без паузы.",
+                "int", 30, 0, 1440),
 )
 BY_KEY: Mapping[str, SettingSpec] = {spec.key: spec for spec in SPECS}
 
@@ -159,6 +169,8 @@ class AppSettings:
     caption_rules: str
     trace_retention_days: int
     video_note_owner_telegram_id: int
+    persona_photo_model: str
+    persona_media_gap_min: int
 
     def prompt_texts(self) -> PromptTexts:
         return PromptTexts(contract=self.output_contract, retry_nudge=self.retry_nudge)

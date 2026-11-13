@@ -72,9 +72,15 @@ def human_date(d: date) -> str:
     return f"{d.day} {MONTHS_GEN[d.month - 1]} {d.year}"
 
 
+def local_time(tz: str, now_utc: datetime) -> datetime:
+    """The persona's wall clock. `now_utc` is naive UTC (the app clock) or aware."""
+    aware = now_utc.replace(tzinfo=ZoneInfo("UTC")) if now_utc.tzinfo is None else now_utc
+    return aware.astimezone(zone(tz))
+
+
 def persona_facts(birth: date | None, tz: str, now_utc: datetime, routine: str = "") -> str:
     """Lines for the dynamic context. `now_utc` is naive UTC (the app clock)."""
-    local = (now_utc.replace(tzinfo=ZoneInfo("UTC")) if now_utc.tzinfo is None else now_utc).astimezone(zone(tz))
+    local = local_time(tz, now_utc)
     today = local.date()
     lines = [
         f"- Сейчас у тебя: {WEEKDAYS[local.weekday()]}, {human_date(today)}, {local:%H:%M} ({day_part(local.hour)})",

@@ -31,6 +31,7 @@ from sim.domain.enums import (
 from sim.ports.channel import SendResult
 from sim.ports.video import VideoError, VideoResult
 from sim.services import jobkinds
+from sim.services.ai_media import is_ai_video
 from sim.services.app_settings import BY_KEY, AppSettingsService
 from sim.services.outbound import SendFailed
 from sim.services.video_note import (
@@ -43,7 +44,6 @@ from sim.services.video_note import (
     VideoNoteRequest,
     cache_key,
     cache_name,
-    is_ai_video,
 )
 from sim.worker.handlers import HANDLERS
 

@@ -7,6 +7,7 @@
 - HTTP API: [docs/api.md](docs/api.md)
 - Переписка, активность и подключение каналов: [docs/admin-activity.md](docs/admin-activity.md)
 - Персонажи и стратегия: [docs/personas.md](docs/personas.md)
+- Фото и кружочки по решению персонажа: [docs/persona-media.md](docs/persona-media.md)
 - Запуск и эксплуатация: [docs/operations.md](docs/operations.md)
 - CI, тесты и деплой: [docs/ci.md](docs/ci.md)
 - Админка (стек, структура, тесты, сборка): [docs/admin-frontend.md](docs/admin-frontend.md)
