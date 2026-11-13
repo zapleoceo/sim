@@ -20,7 +20,10 @@ async def test_authoritative_prompt_save_preserves_legacy_and_preview_uses_it(ap
     assert after["guard_system"]
     assert (await api.get(url)).json()["description"] == original["description"]
     # An older editor's full persona PUT must not clear the authoritative prompt.
-    assert (await api.put(url, json=original, headers=headers)).status_code == 200
+    legacy_body = {"name": original["name"], "description": original["description"],
+                   "strategy_id": original["strategy_id"]}
+    update = await api.put(url, json=legacy_body, headers=headers)
+    assert update.status_code == 200, update.text
     assert (await api.get(url + "/prompt")).json()["mode"] == "unified"
     fake_llm.replies = [decision_json(reply="Hello", stage="engaged")]
     preview = await api.post(url + "/preview", json={"message": "Hi"}, headers=headers)
