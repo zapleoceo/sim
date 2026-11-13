@@ -1,13 +1,12 @@
 import { Link } from '@tanstack/react-router';
 import {
-  AlertCircle, ArrowLeft, Ban, Check, Clock, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, SendHorizontal, Square, User,
-  type LucideIcon,
+  ArrowLeft, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, SendHorizontal, Square, User,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon, NeedsOperatorBadge, StageChip, StatusBadge } from '@/components/badges';
 import { EmptyState } from '@/components/empty-state';
-import { MessageContent, MessageMetadata } from '@/components/message-parts';
+import { MessageBubble } from '@/components/message-bubble';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { OptionSelect } from '@/components/option-select';
@@ -17,10 +16,8 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
-import { cn } from '@/lib/utils';
-import { deliveryMeta, groupByDay, isSendKey, type DeliveryIcon } from './inbox-logic';
+import { groupByDay, isSendKey } from './inbox-logic';
 
-const DELIVERY_ICONS: Record<DeliveryIcon, LucideIcon> = { clock: Clock, check: Check, alert: AlertCircle, ban: Ban };
 
 export function Conversation({
   detail,
@@ -182,40 +179,9 @@ export function Conversation({
             <div className="my-2 flex justify-center">
               <span className="rounded-full bg-background px-3 py-0.5 text-xs text-muted-foreground shadow-xs">{g.label}</span>
             </div>
-            {g.items.map((m) => {
-              const blocked = m.msg.guard?.verdict === 'blocked';
-              const dm = m.msg.direction === 'out' ? deliveryMeta(m.msg.delivery, m.msg.guard) : null;
-              const DIcon = dm ? DELIVERY_ICONS[dm.icon] : null;
-              return (
-                <div key={m.msg.id} className={cn('flex', m.side === 'right' && 'justify-end')}>
-                  <div
-                    data-author={m.msg.author}
-                    className={cn(
-                      'flex max-w-[85%] flex-col gap-1.5 rounded-2xl px-3.5 py-2 text-sm sm:max-w-[70%]',
-                      m.msg.author === 'client' && 'rounded-bl-md bg-bubble-client',
-                      m.msg.author === 'ai' && 'rounded-br-md bg-bubble-ai',
-                      m.msg.author === 'operator' && 'rounded-br-md bg-bubble-operator',
-                      blocked && 'border border-dashed border-destructive',
-                    )}
-                  >
-                    {m.authorLabel && <span className="text-[11px] font-medium text-muted-foreground">{m.authorLabel}</span>}
-                    <MessageContent message={m.msg} />
-                    <MessageMetadata message={m.msg} />
-                    <span className="flex items-center justify-end gap-1 text-[11px] text-muted-foreground tabular">
-                      {m.time}
-                      {dm && DIcon && (
-                        <Tip label={dm.label}>
-                          <DIcon
-                            aria-label={dm.label}
-                            className={cn('size-3.5', dm.icon === 'alert' && 'text-destructive')}
-                          />
-                        </Tip>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            {g.items.map((m) => (
+              <MessageBubble key={m.msg.id} vm={m} details />
+            ))}
           </div>
         ))}
       </div>

@@ -44,4 +44,3 @@ export function clientApiFilter(f: ClientFilter): ClientFilter {
   return { ...f, q: f.q.trim() };
 }
 
-export interface ClientFormValues { display_name: string; next_step: string; next_step_at: string; notes: string }

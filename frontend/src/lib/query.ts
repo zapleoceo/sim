@@ -32,6 +32,7 @@ export const qk = {
   dialog: (id: number) => ['dialog', id] as const,
   clients: (filter: unknown, page: unknown) => ['clients', filter, page] as const,
   client: (id: number) => ['client', id] as const,
+  clientChat: (id: number, limit: number) => ['client-chat', id, limit] as const,
   funnel: (personaId: number | null) => ['funnel', personaId] as const,
   analytics: (from: string, to: string, personaId: number | null) => ['analytics', from, to, personaId] as const,
   spend: (from: string, to: string) => ['analytics', 'spend', from, to] as const,
