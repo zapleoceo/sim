@@ -20,6 +20,7 @@ from sim.domain.funnel import Actor, status_on_inbound
 from sim.ports.channel import InboundMessage
 from sim.services import jobkinds, tracing
 from sim.services.app_settings import AppSettingsService
+from sim.services.dialog_reset import DialogReset, is_reset
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
@@ -54,6 +55,7 @@ class IngestResult:
     client: Client | None = None
     reply_queued: bool = False
     status_before: ClientStatus | None = None
+    reset: bool = False          # the message was `/reset`: the dialog was wiped, nothing stored
 
 
 def new_ref_code() -> str:
@@ -95,13 +97,16 @@ class IngestService:
                 message_id=result.message.id if result.message else None,
             )
             step.detail = {"duplicate": result.duplicate, "reply_queued": result.reply_queued,
-                           "own": msg.from_me, "edit": msg.is_edit, "media": msg.media_kind}
+                           "own": msg.from_me, "edit": msg.is_edit, "media": msg.media_kind,
+                           "reset": result.reset}
         return result
 
     async def accept(self, channel: Channel, msg: InboundMessage) -> IngestResult:
         dialog = await self.dialogs.by_thread(channel.id, msg.external_thread_id)
         if dialog and msg.external_id and await self.messages.by_external(dialog.id, msg.external_id):
             return IngestResult(duplicate=True, dialog=dialog, client=dialog.client)
+        if is_reset(msg.text) and not msg.media_kind and not msg.is_edit:
+            return await self.reset(dialog)
         if msg.from_me:
             return await self.ingest_own(dialog, msg)
         if msg.is_edit:
@@ -160,6 +165,16 @@ class IngestService:
             reply_queued=queued,
             status_before=status_before,
         )
+
+    async def reset(self, dialog: Dialog | None) -> IngestResult:
+        """`/reset` in the chat (from the client, or typed on the connected account itself): wipe
+        the dialog and its context; the command itself is not stored and gets no reply."""
+        if dialog is None:              # nothing to wipe yet
+            return IngestResult(reset=True)
+        await lock(self.session, NS_DIALOG, dialog.id)
+        wiped = await DialogReset(self.session).reset(dialog, dialog.client)
+        log.info("dialog %s reset by /reset: %d messages wiped", dialog.id, wiped)
+        return IngestResult(dialog=dialog, client=dialog.client, reset=True)
 
     # ---- pieces --------------------------------------------------------------------------
     async def resolve_client(
