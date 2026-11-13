@@ -1,24 +1,19 @@
 # Sim — архитектура MVP
 
-База main `349dc6648fb6808ff18c982260b40d138e3244e6`, PR #1–#12 слиты.
-Текущая ветка добавляет модуль активности и объединённую историю клиента.
-Описание относится к коду, не к развёрнутой версии. Контекст брифа:
-[состояние проекта](project-status.md); результаты проверок — в
-[задаче админки](ai-ui/tasks/unified-client-admin/task-context.md).
+Описание относится к коду, не к развёрнутой версии. Старые отчёты и ревью — в
+[docs/history/](history/).
 
 Платформа ИИ-персонажей: привлечение в Instagram, личное общение в WhatsApp и Telegram,
 сопровождение клиента по воронке до регистрации и первой оплаты у партнёра.
 
 Документированная схема: `https://sim.zapleo.com` → Cloudflare → nginx :80 → docker compose.
-Фактический origin TLS не проверен. Read-only проверка 2026-11-07 показала production
-на `b27a89b` / миграции `0005`; текущие изменения не развёрнуты.
 Репозиторная конфигурация LLM: только через AIbroker (`https://aib.zapleo.com`, проект `sim`, id 21, лимиты $0 — бесплатные
 провайдеры + подписочные `claude-sub/*`, `codex-sub/*`).
 
 ## Принципы
 
 1. **Слои и порты внешних систем.** `domain` содержит правила без IO; `ports` (Protocol)
-   описывают каналы и LLM, `adapters` их реализуют; `api`/`worker` собирают зависимости
+   описывают каналы, LLM, синтез/распознавание речи и живой голос, `adapters` их реализуют; `api`/`worker` собирают зависимости
    (`sim/wiring.py`). В текущем коде `services` также напрямую используют SQLAlchemy,
    ORM-репозитории и инфраструктурные компоненты: строгой гексагональной изоляции пока нет.
    Новый канал добавляется через адаптер и реестр коннекторов (часть решений взята из stepan2).
@@ -42,7 +37,8 @@
 backend/sim/
   config.py            pydantic-settings, префикс SIM_
   domain/              enums, воронка (переходы этапов), чистые правила; без IO
-  ports/               Protocol-интерфейсы: ChannelPort, LLMPort, VoicePort, Clock
+  clock.py             Clock (источник времени, naive UTC) и utcnow()
+  ports/               Protocol-интерфейсы: ChannelPort (и PollingChannelPort), LLMPort, SpeechPort, LiveVoicePort
   adapters/
     crypto.py          Fernet (из stepan2)
     llm/broker.py      клиент Broker: POST /v1/jobs → poll GET /v1/jobs/{id} (из stepan2, упрощён)
@@ -118,10 +114,10 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 История реального диалога включает входящие и только `sent` исходящие сообщения.
 Фильтрация происходит до лимита истории; `queued`, `failed`, `cancelled` и guard-blocked
 черновики не воспринимаются как увиденные клиентом. Inbox сохраняет все записи.
-После PR #9 аналитический `replied` также учитывает только `sent` исходящие без
-`guard_verdict=blocked`, сохраняя все входящие. Период и порядок по-прежнему определяются
+Аналитический `replied` также учитывает только `sent` исходящие без
+`guard_verdict=blocked`, сохраняя все входящие. Период и порядок определяются
 по `created_at`, отдельного `sent_at` нет; это приближение хронологии доставки. Счётчики
-`guard` не изменены (см. [ревью](review-2026-11-07.md)).
+`guard` включают сохранённые вердикты неотправленных сообщений.
 
 Правки сообщений Telegram (`edited_message`) сохраняются с пометкой «[изменено]», но нового
 ответа ИИ не вызывают. Правка approved/scheduled поста оператором (не owner) возвращает его в `draft`.
@@ -379,7 +375,7 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 | React 19 + Vite + TypeScript, shadcn/ui (Radix + Tailwind), TanStack Query/Router/Table для админки | брать | мейнстрим-стек: готовые доступные компоненты вместо самописной вёрстки, быстрый билд и ленивые страницы; заменил Angular 19 + Material (см. [admin-frontend.md](admin-frontend.md)) |
 | Flask + itstep-* пакеты (правило `python.md`) | нет | Sim — проект zapleo, не itstep: внутренний PyPI и сервисы itstep отсюда недоступны; берём стек stepan2 (FastAPI, uv), чтобы переносить его код без переписывания |
 
-## Очередь, публикации и финансовые события после PR #1–#10
+## Очередь worker и доставка
 
 `Worker.run()` держит до четырёх job: свободный слот заполняется без ожидания остальных,
 проверки due job и polling продолжаются с `worker_tick_s`. Активные job этого worker
@@ -388,15 +384,14 @@ job/polling завершаются. `tick()` остаётся batch-вызово
 не для одновременной работы с `run()`. Истёкший lease позволяет другому worker повторно
 взять долгую job. Порядок завершения не гарантируется.
 
-Слитый PR #11 переносит claim-time `attempts` через Worker и защищает complete/fail
+Worker передаёт claim-time `attempts` как поколение и защищает complete/fail
 условием `running` + то же поколение; claim повторно проверяет due/expired и attempts.
-Terminal giveup выполняется только после применённого terminal-failure CAS. Схема и HTTP
-не меняются. Lease renewal и универсальный fencing побочных
-эффектов не добавлены; старый владелец может завершить истёкший lease, если нового claim нет.
-Старые worker нужно полностью вывести из работы перед запуском новых. Подробный контракт
-и пределы: [API, очередь](api.md#локальный-кандидат-fencing-состояния-очереди).
+Terminal giveup выполняется только после применённого terminal-failure CAS. Lease renewal
+и универсальный fencing побочных эффектов нет; старый владелец может завершить истёкший
+lease, если нового claim нет. Старые worker нужно полностью вывести из работы перед запуском
+новых. Подробный контракт и пределы: [API, очередь](api.md#fencing-состояния-очереди).
 
-PR #12 добавляет отдельный долговечный intent/receipt для исходящих сообщений. При
+Для исходящих сообщений есть отдельный долговечный intent/receipt. При
 неизвестном исходе повторный вызов транспорта блокируется и требуется оператор;
 см. [границы доставки](outbound-delivery.md).
 
@@ -474,10 +469,8 @@ CSV-строка без `external_id` и без явного `occurred_at` от�
 registration и payment, выручка — только payment. API и dashboard обновляются совместно.
 Полный контракт: [api.md](api.md).
 
-## Основание и границы проверки
+## Границы проверки
 
-Проверки PR #12 и слитого PR #13 разделены в [README](../README.md) и
-[задаче админки](ai-ui/tasks/unified-client-admin/task-context.md). PostgreSQL-конкурентность
-и реальные каналы в этой работе не проверены. Подробности: [operations.md](operations.md).
-
-Исходники main (изменение аналитики слито в PR #9): [backend/sim/wiring.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/wiring.py), [backend/sim/worker/loop.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/worker/loop.py), [backend/sim/services/guard.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/guard.py), [backend/sim/services/analytics.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/analytics.py), [backend/sim/services/partner.py](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/partner.py).
+CI (см. [ci.md](ci.md)) проверяет PostgreSQL-сценарии на временной пустой базе и подменяет
+транспорты каналов; работу реальных каналов он не подтверждает. Эксплуатация:
+[operations.md](operations.md).
