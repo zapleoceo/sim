@@ -1,7 +1,8 @@
 import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
 import type { Delivery, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, SimBranchRow } from '@/lib/models';
 
-export const POLL_MS = 5000;
+/** Fallback only: changes arrive live through /api/events (lib/live.ts). */
+export const POLL_MS = 30_000;
 export const PAGE_SIZE = 50;
 /** How close (px) to the end of the list the next page starts loading. */
 export const LOAD_MORE_THRESHOLD = 240;
