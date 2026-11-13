@@ -331,7 +331,8 @@ def test_0023_sets_eva_birth_date_and_leaves_other_personas_alone(tmp_path):
             con.execute(
                 "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
                 "voice_id, voice_mode, voice_style, voice_ambience, is_active, created_at) VALUES "
-                f"({persona_id}, '{name}', '', '', 'd', '', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')"
+                "(?, ?, '', '', 'd', '', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')",
+                (persona_id, name),
             )
     command.upgrade(cfg, "head")
     with sqlite3.connect(db) as con:
