@@ -36,6 +36,15 @@ from sim.wiring import Container, build_container
 
 log = logging.getLogger(__name__)
 NOT_SPA_PREFIXES = ("api/", "hooks/")
+# Every router of the app; tests walk their routes (e.g. that only public ones skip the session).
+ROUTERS = (
+    system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
+    persona_media.router,
+    channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
+    reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
+    settings_api.router,
+    events.router,
+)
 
 
 def resolve_static_dir(configured: str) -> Path | None:
@@ -106,14 +115,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         openapi_url="/api/openapi.json" if docs else None,
         lifespan=lifespan,
     )
-    for router in (
-        system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
-        persona_media.router,
-        channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
-        reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
-        settings_api.router,
-        events.router,
-    ):
+    for router in ROUTERS:
         app.include_router(router)
     install_request_tracing(app)
     if (static := resolve_static_dir(cfg.static_dir)) is not None:
