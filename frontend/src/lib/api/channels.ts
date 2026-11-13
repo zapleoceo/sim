@@ -8,6 +8,8 @@ export interface ConnectBody {
   api_id?: string;
   api_hash?: string;
   phone?: string;
+  /** telegram_user: `qr` — scan a QR in Telegram → Devices (no code); `code` — code to the app. */
+  method?: 'qr' | 'code';
   proxy?: string;
 }
 

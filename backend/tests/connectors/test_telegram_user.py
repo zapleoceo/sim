@@ -530,3 +530,77 @@ async def test_send_voice_flood_and_bad_thread_are_failed_results():
     res = await a.send_voice("10", b"OggS", 1.0)
     assert not res.ok and res.error == "flood_wait:12"
     assert (await a.send_voice("not-a-peer", b"OggS", 1.0)).error == "bad thread id"
+
+
+# --- login by QR ---------------------------------------------------------------------------
+
+class FakeQr:
+    """Telethon QRLogin stand-in: `outcome` decides what the scan wait ends with."""
+
+    def __init__(self, outcome):
+        self.url = "tg://login?token=AAA"
+        self.outcome = outcome
+        self.recreated = 0
+
+    async def wait(self, timeout=None):
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return self.outcome
+
+    async def recreate(self):
+        self.recreated += 1
+        self.url = f"tg://login?token=NEW{self.recreated}"
+        self.outcome = SimpleNamespace(username="marina", phone="380501112233", first_name="M")
+
+
+def with_qr(monkeypatch, qr):
+    async def qr_login(self):
+        self.calls.append(("qr_login",))
+        return qr
+    monkeypatch.setattr(FakeClient, "qr_login", qr_login, raising=False)
+
+
+async def settle():
+    import asyncio
+    for _ in range(3):
+        await asyncio.sleep(0)
+
+
+async def test_qr_login_shows_a_qr_and_finishes_after_the_scan(conn, made, monkeypatch):
+    with_qr(monkeypatch, FakeQr(SimpleNamespace(username="marina", phone="380501112233")))
+    res = await conn.connect(5, {**CREDS, "phone": "", "method": "qr"}, {})
+    assert res.status is SessionStatus.PENDING and res.qr_data_uri.startswith("data:image/svg+xml")
+    assert res.session["pending"]["step"] == "qr" and "Устройства" in res.message
+    assert made[0].calls == [("qr_login",)]                    # no code request, no phone needed
+    await settle()
+    done = await conn.state(5, res.session)
+    assert done.status is SessionStatus.ACTIVE and done.account_label == "@stepan"   # get_me()
+    assert done.session["string_session"] and "pending" not in done.session
+
+
+async def test_an_expired_qr_is_replaced_by_a_new_one(conn, monkeypatch):
+    qr = FakeQr(TimeoutError())
+    with_qr(monkeypatch, qr)
+    res = await conn.connect(5, {**CREDS, "method": "qr"}, {})
+    await settle()
+    again = await conn.state(5, res.session)
+    assert again.status is SessionStatus.PENDING and qr.recreated == 1
+    assert again.qr_data_uri != res.qr_data_uri
+
+
+async def test_qr_scan_on_a_2fa_account_asks_for_the_password(conn, made, monkeypatch):
+    with_qr(monkeypatch, FakeQr(tge.SessionPasswordNeededError(request=None)))
+    res = await conn.connect(5, {**CREDS, "method": "qr"}, {})
+    await settle()
+    st = await conn.state(5, res.session)
+    assert st.status is SessionStatus.CHALLENGE and st.need == "2fa"
+    assert st.session["pending"]["step"] == "2fa"
+    ok = await conn.verify(5, "cloud-pass", st.session)
+    assert ok.status is SessionStatus.ACTIVE
+    assert ("sign_in", None, None, "cloud-pass", None) in made[0].calls
+
+
+async def test_qr_login_lost_on_restart_asks_to_connect_again(conn):
+    st = await conn.state(5, {"pending": {"step": "qr", "api_id": 1, "api_hash": "h"}})
+    assert st.status is SessionStatus.ERROR and "Подключить" in st.message
+    assert st.session["pending"] is None

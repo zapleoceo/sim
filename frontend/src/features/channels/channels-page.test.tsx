@@ -100,7 +100,7 @@ describe('ChannelsPage', () => {
     const log = fakeApi({
       'GET /api/channels': { items: [tgUser] },
       'GET /api/personas': { items: [persona] },
-      'GET /api/channels/6/credentials': { api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567' },
+      'GET /api/channels/6/credentials': { api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567', method: 'code' },
       'POST /api/channels/6/connect': { status: 'challenge', need: 'code', message: 'Код отправлен в приложение Telegram' },
     });
     const user = userEvent.setup();
@@ -112,6 +112,34 @@ describe('ChannelsPage', () => {
     expect(within(dialog).getByLabelText('Телефон аккаунта')).toHaveValue('+380501234567');
     await user.click(within(dialog).getByRole('button', { name: 'Подключить' }));
     expect(await within(dialog).findByLabelText('Код')).toBeInTheDocument();
-    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567' });
+    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567', method: 'code' });
   });
+
+  it('connects a Telegram account by QR and asks for the 2FA password after the scan', async () => {
+    const tgUser: Channel = {
+      id: 7, kind: 'telegram_user', name: 'Eva', persona_id: 3, status: 'new', account_label: null,
+      last_error: null, last_activity_at: null,
+    };
+    let polls = 0;
+    const log = fakeApi({
+      'GET /api/channels': { items: [tgUser] },
+      'GET /api/personas': { items: [persona] },
+      'POST /api/channels/7/connect': { status: 'pending', qr_data_uri: 'data:image/svg+xml,qr1' },
+      'GET /api/channels/7/state': () => (++polls === 1
+        ? { status: 'pending', qr_data_uri: 'data:image/svg+xml,qr2' }
+        : { status: 'challenge', need: '2fa' }),
+    });
+    const user = userEvent.setup();
+    await renderApp('/channels');
+    await user.click(within(await screen.findByRole('article', { name: 'Eva' })).getByRole('button', { name: 'Подключить' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('radio', { name: /По QR-коду/ })).toHaveAttribute('aria-checked', 'true');
+    expect(within(dialog).queryByLabelText('Телефон аккаунта')).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('api_id'), '12345');
+    await user.type(within(dialog).getByLabelText('api_hash'), 'a'.repeat(32));
+    await user.click(within(dialog).getByRole('button', { name: 'Подключить' }));
+    expect(await within(dialog).findByRole('img', { name: /QR-код для привязки/ })).toHaveAttribute('src', 'data:image/svg+xml,qr1');
+    expect(log.find((r) => r.path === '/api/channels/7/connect')!.body).toEqual({ api_id: '12345', api_hash: 'a'.repeat(32), method: 'qr' });
+    expect(await within(dialog).findByLabelText('Пароль 2FA', {}, { timeout: 8000 })).toBeInTheDocument();
+  }, 15000);
 });
