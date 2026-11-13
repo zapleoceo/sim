@@ -22,11 +22,17 @@ REPLACEMENTS = (
     (";", ","),
 )
 SPACES = re.compile(r"[ \t]{2,}")
+# Latin look-alikes a model sometimes slips into a Russian word ("стратегичeскому" with a Latin e):
+# a detector flags them at once. Only letters touching Cyrillic letters are replaced.
+LATIN_LOOKALIKES = "aceopxyACEHKMOPTXB"
+HOMOGLYPHS = str.maketrans(LATIN_LOOKALIKES, "асеорхуАСЕНКМОРТХВ")
+MIXED = re.compile(rf"(?<=[а-яёА-ЯЁ])[{LATIN_LOOKALIKES}]+|[{LATIN_LOOKALIKES}]+(?=[а-яёА-ЯЁ])")
 
 
 def plain_punctuation(text: str) -> str:
     for typographic, typed in REPLACEMENTS:
         text = text.replace(typographic, typed)
+    text = MIXED.sub(lambda m: m.group(0).translate(HOMOGLYPHS), text)
     return SPACES.sub(" ", text)
 
 
