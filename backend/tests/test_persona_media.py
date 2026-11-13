@@ -3,10 +3,6 @@ from __future__ import annotations
 
 import io
 
-from sim.adapters.db.models import PersonaMedia
-from sim.adapters.db.repositories.persona_media import PersonaMediaRepo
-from sim.adapters.db.session import transaction
-from sim.domain.enums import MediaKind
 from tests.conftest import OWNER, login
 
 ONE_PX_JPEG = (
@@ -28,6 +24,15 @@ ONE_PX_JPEG = (
     b"\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa"
     b"\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xfb\xd2\x8a+\xff\xd9"
 )
+MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 64   # ISO BMFF header
+
+
+async def upload(api, pid: int, headers, *, name="test.jpg", data=ONE_PX_JPEG, mime="image/jpeg",
+                 kind="photo"):
+    return await api.post(
+        f"/api/personas/{pid}/media",
+        files={"file": (name, io.BytesIO(data), mime)}, data={"kind": kind}, headers=headers,
+    )
 
 
 async def owner(api) -> dict[str, str]:
@@ -70,7 +75,7 @@ async def test_filter_by_kind(api, world):
     )
     await api.post(
         f"/api/personas/{pid}/media",
-        files={"file": ("b.mp4", io.BytesIO(b"\x00" * 100), "video/mp4")},
+        files={"file": ("b.mp4", io.BytesIO(MP4), "video/mp4")},
         data={"kind": "video_note"},
         headers=h,
     )
@@ -127,21 +132,66 @@ async def test_delete_nonexistent_returns_404(api, world):
     assert (await api.delete(f"/api/personas/{world.persona.id}/media/9999", headers=h)).status_code == 404
 
 
-async def test_repo_by_tags(container, world):
-    async with transaction(container.factory) as s:
-        from sim.clock import utcnow
-        repo = PersonaMediaRepo(s)
-        m1 = PersonaMedia(
-            persona_id=world.persona.id, kind=MediaKind.PHOTO,
-            storage_name="a.jpg", tags=["selfie", "main"], created_at=utcnow(),
-        )
-        m2 = PersonaMedia(
-            persona_id=world.persona.id, kind=MediaKind.VIDEO_NOTE,
-            storage_name="b.mp4", tags=["greeting"], created_at=utcnow(),
-        )
-        await repo.add(m1)
-        await repo.add(m2)
-        matched = await repo.by_tags(world.persona.id, ["selfie"])
-        assert len(matched) == 1 and matched[0].storage_name == "a.jpg"
-        matched_all = await repo.by_tags(world.persona.id, [])
-        assert len(matched_all) == 2
+async def test_content_must_match_the_declared_type(api, world):
+    h = await owner(api)
+    pid = world.persona.id
+    page = await upload(api, pid, h, name="x.jpg", data=b"<html><script>alert(1)</script>")
+    assert page.status_code == 422 and "does not match" in page.json()["detail"]
+    png_as_jpeg = await upload(api, pid, h, data=b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    assert png_as_jpeg.status_code == 422
+    empty = await upload(api, pid, h, data=b"")
+    assert empty.status_code == 422
+    video = await upload(api, pid, h, name="v.mp4", data=MP4, mime="video/mp4", kind="video")
+    assert video.status_code == 201 and video.json()["storage_name"].endswith(".mp4")
+    assert len((await api.get(f"/api/personas/{pid}/media")).json()["items"]) == 1
+
+
+async def test_too_large_upload_is_413(api, world, monkeypatch):
+    from sim.services import persona_media
+
+    monkeypatch.setattr(persona_media, "MAX_MEDIA_BYTES", 16)
+    resp = await upload(api, world.persona.id, await owner(api))
+    assert resp.status_code == 413
+
+
+async def test_delete_removes_the_file_too(api, world, container):
+    h = await owner(api)
+    pid = world.persona.id
+    item = (await upload(api, pid, h)).json()
+    assert container.media.path(item["storage_name"]) is not None
+
+    assert (await api.delete(f"/api/personas/{pid}/media/{item['id']}", headers=h)).status_code == 204
+    assert container.media.path(item["storage_name"]) is None
+    assert (await api.get(f"/api/personas/{pid}/media/{item['id']}/file")).status_code == 404
+
+
+async def test_media_under_an_unknown_persona_is_404(api, world):
+    h = await owner(api)
+    item = (await upload(api, world.persona.id, h)).json()
+    other = world.persona.id + 100
+    assert (await api.get(f"/api/personas/{other}/media")).status_code == 404
+    assert (await api.get(f"/api/personas/{other}/media/{item['id']}/file")).status_code == 404
+    assert (await api.delete(f"/api/personas/{other}/media/{item['id']}", headers=h)).status_code == 404
+
+
+async def test_download_is_sandboxed_like_every_stored_file(api, world):
+    h = await owner(api)
+    pid = world.persona.id
+    item = (await upload(api, pid, h)).json()
+    resp = await api.get(f"/api/personas/{pid}/media/{item['id']}/file")
+    assert "sandbox" in resp.headers["content-security-policy"]
+    assert resp.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_list_rejects_unknown_kind(api, world):
+    await owner(api)
+    resp = await api.get(f"/api/personas/{world.persona.id}/media", params={"kind": "sticker"})
+    assert resp.status_code == 422
+
+
+async def test_media_store_remove(container):
+    name = await container.media.save(b"data", "txt")
+    assert container.media.remove(name) is True
+    assert container.media.path(name) is None
+    assert container.media.remove(name) is False
+    assert container.media.remove("../../etc/passwd") is False

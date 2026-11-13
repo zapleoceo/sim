@@ -49,7 +49,7 @@ health-проверки не логируются.
 
 ## Единая админка: сообщения и журнал LLM
 
-Код слит в PR #13, схема `0008`; выкладка не подтверждена.
+Схема `0008`.
 
 - `GET /api/activity/messages` — сохранённые сообщения всех клиентов, все авторизованные роли.
 - `GET /api/clients/{client_id}/messages` — сообщения одного клиента по всем его каналам,
@@ -93,16 +93,16 @@ nullable `dialog_id` и контекст клиента/персоны/кана�
 и не предоставляет повторную отправку. Миграция `0008` добавляет снимок автора
 и индексы сортировки сообщений; откат не меняет постоянные receipt `0007`.
 
-Срез main `7ef50b1f2481f1ed9dde03c264075ea82ba86529`, PR #1–#13 слиты.
-Подтверждено состояние Git; production-версия и deployment не подтверждены.
-
-Fencing состояния job и постоянные outbound intent/receipt входят в эту базу.
-Unified admin описан выше как слитый исходный код. Проверки до выкладки:
-[backend validation](ai-ui/tasks/unified-client-admin/backend-validation.md).
-
 Базовый путь `/api`. JSON, даты ISO-8601 UTC. Авторизация — cookie `sim_session` (httpOnly,
 Secure, SameSite=Lax) + заголовок `X-CSRF-Token` на POST/PUT/PATCH/DELETE (значение из
-`GET /api/auth/me` → `csrf_token`). Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx.
+`GET /api/auth/me` → `csrf_token`). Без сессии публичны только `/api/live`, `/api/ready`,
+`/api/health`, `/api/auth/config`, `/api/auth/telegram`, `/api/auth/link` и вебхуки `/hooks/*`
+(у них своя проверка секрета); `POST /api/auth/logout` без сессии лишь стирает cookie (`204`).
+Остальные маршруты без сессии отвечают `401`; это проверяет `backend/tests/test_auth_required.py`.
+Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx. Ошибки сервисов переводятся в коды в одном месте
+(`api/errors.py`): `ChannelError`, `ContentError`, `ConversationError`, `AttachmentError`, `MediaRejected` → `422`,
+`ContentConflict` (состояние поста не позволяет) → `409`, `MediaTooLarge` → `413`, `MediaNotFound` → `404`,
+ошибка Broker (`LLMError`) → `502` `Broker error: …`, если маршрут не обработал её сам.
 Списки: `{"items": [...], "total": N}`, параметры `limit` (≤200, по умолчанию 50), `offset`.
 
 ## Auth
@@ -167,16 +167,19 @@ language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id,
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| POST | `/api/personas/{id}/media` | multipart: `file`, `kind` (`photo`/`video`/`video_note`), `caption?`, `tags?` (через запятую) | `PersonaMedia` (201) |
-| GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует) |
-| DELETE | `/api/personas/{id}/media/{media_id}` | — | 204 |
+| POST | `/api/personas/{id}/media` | multipart: `file`, `kind` (`photo`/`video`/`video_note`), `caption?` (до 500 символов), `tags?` (через запятую) | `PersonaMedia` (201); `413` больше 50 МБ; `422` неверный `kind`, тип не из списка или содержимое файла не того типа |
+| GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует, неизвестный — `422`) |
+| DELETE | `/api/personas/{id}/media/{media_id}` | — | 204; удаляет и строку, и файл |
 | GET | `/api/personas/{id}/media/{media_id}/file` | — | файл (inline для изображений/видео, download для остального) |
 | POST | `/api/personas/{id}/video-note` | `{prompt, duration_s?: 3..15 (5), resolution?: "360p"/"720p" ("360p"), reference_media_id?}` | `202 {status: "queued", cached, cache_key, dialog_id}` — кружочек ИИ только на аккаунт из настройки `video_note_owner_telegram_id` (по умолчанию 0: никому); `cached: true` — такой запрос уже сгенерирован, файл берётся из кеша. Только владелец. `409` — получатель не задан, нет личного диалога персоны с этим аккаунтом в `telegram_user`, нет персоны или негодный референс; `422` — параметры. Перед кружочком уходит сообщение «Сгенерировано ИИ» ([video-notes.md](video-notes.md)) |
 
 `PersonaMedia`: `{id, persona_id, kind, storage_name, caption, tags: string[], file_url, created_at}`.
-`file_url` = `/api/media/{storage_name}`.
+`file_url` = `/api/media/{storage_name}`. Неизвестный персонаж или медиа другого персонажа — `404`.
 MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/webm`; до 50 МБ.
-Загрузка и удаление — только owner/superadmin.
+Заявленный тип должен совпасть с сигнатурой файла (библиотека `filetype`), иначе `422`.
+Ответ с файлом несёт те же заголовки, что `/api/media/{name}` (`Content-Security-Policy: sandbox`,
+`nosniff`; `api/media_files.py`). Логика — `services/persona_media.py` (`PersonaMediaService`),
+загрузка и удаление — только owner/superadmin.
 
 ### Telegram capabilities
 
@@ -388,7 +391,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Дополнения реализации (аддитивные поля)
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
-`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`).
+`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`; заголовки — `api/media_files.py`).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
 
 
@@ -424,7 +427,7 @@ Job `send` использует независимые intent/receipt из ми�
 
 ### Fencing состояния очереди
 
-Входит в базу PR #1–#12; схема БД и HTTP API этим изменением не менялись. Существующий `attempts`, который
+Существующий `attempts`, который
 увеличивается при каждом claim, используется как поколение владения. Worker сохраняет
 `claim_attempt` из результата claim до выполнения handler и передаёт именно его в
 `complete`/`fail`, а не значение из повторно загруженной job. Эти методы меняют строку
@@ -448,18 +451,12 @@ Job `send` использует независимые intent/receipt из ми�
 Смешанный rollout старых и новых worker небезопасен: старые процессы всё ещё могут
 обновлять очередь без проверки поколения. Перед применением требуются остановка новых
 claim у старых worker и полное завершение/остановка их текущих job; затем запуск только
-новой версии. Отсутствие миграции не делает смешанный rollout безопасным. В этой работе
-rollout не выполнялся. Исторический backend-прогон fencing: 502 теста и Ruff прошли;
-это не текущая проверка production. PostgreSQL-конкурентность и внешние эффекты не проверены.
+новой версии. Отсутствие миграции не делает смешанный rollout безопасным.
 
-## Срез и известные ограничения аналитики
+## Известные ограничения аналитики
 
-База контракта: main `349dc6648fb6808ff18c982260b40d138e3244e6` (PR #1–#12).
-Описанные возможности не подтверждают текущую production-версию. В PR #9 `replied`
-учитывает только `sent`, не guard-blocked исходящие перед входящим; точный контракт
+`replied` учитывает только `sent`, не guard-blocked исходящие перед входящим; точный контракт
 и сохранённое приближение по `created_at` приведены в разделе «Аналитика» выше.
-История ИИ уже была исправлена в PR #3, финансовая группировка валют в PR #8;
-эти контракты сохраняются. Счётчики `guard` по-прежнему включают сохранённые вердикты
-неотправленных сообщений. PR #9 слит; production-выкладка не подтверждена.
-Подробнее: [состояние проекта](project-status.md), [ревью](review-2026-11-07.md) и
+Финансовые суммы группируются по валюте без конвертации. Счётчики `guard` включают
+сохранённые вердикты неотправленных сообщений. См. также
 [durable publication intent/receipt](publication-intents.md).

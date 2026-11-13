@@ -92,7 +92,7 @@ class PreviewAttachments:
         kind = classify(filename, content_type, voice=voice)
         name = PurePath(filename).name[:120] or "file"
         content = await self.content(kind, data, name, content_type)
-        stored = self.store.save(data, suffix_of(filename) or ("webm" if voice else "bin"))
+        stored = await self.store.save(data, suffix_of(filename) or ("webm" if voice else "bin"))
         return Attachment(kind, name, message_text(kind, name, content), f"/api/media/{stored}")
 
     async def content(self, kind: AttachmentKind, data: bytes, name: str, content_type: str) -> str:

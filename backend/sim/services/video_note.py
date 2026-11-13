@@ -233,7 +233,7 @@ class OwnerVideoNotes:
         if not cached:
             try:
                 clip = await self.generate(request, plan)
-                self.media.save_as(plan.name, await self.encoder.to_video_note(clip.video))
+                await self.media.save_as(plan.name, await self.encoder.to_video_note(clip.video))
             except VideoError as exc:
                 self.report_failure(plan.dialog, str(exc))
                 return {"outcome": "failed", "error": str(exc)[:300]}

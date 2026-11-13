@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     trace_retention_days: int = 30
     trace_purge_interval_s: float = 3600.0
 
-    static_dir: str = "../frontend/dist/sim/browser"   # built Angular app (prod: /app/static)
+    static_dir: str = "../frontend/dist/sim/browser"   # built React admin (Vite; prod: /app/static)
     media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)
     # Private subscription studio: explicit account binding, disabled by default.
     studio_owner_telegram_id: int = 0

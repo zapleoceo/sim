@@ -337,7 +337,7 @@ async def test_clearing_the_allowlist_stops_an_already_queued_note(container, sc
 
 
 async def test_a_gallery_video_note_is_not_touched_by_the_gate(container, scene):
-    name = container.media.save(b"uploaded-note", "mp4")
+    name = await container.media.save(b"uploaded-note", "mp4")
     message = await operator_note(container, scene.stranger_dialog, f"/api/media/{name}")
     assert (await deliver(container, message)).delivery is Delivery.SENT
     assert scene.port.notes == [(str(STRANGER_TG), b"uploaded-note")]
@@ -373,7 +373,7 @@ async def test_without_a_video_port_the_job_fails_cleanly(container, scene):
 # ---- reference photo -----------------------------------------------------------------------
 
 async def add_media(container, persona_id: int, kind: MediaKind, data: bytes, suffix: str) -> int:
-    name = container.media.save(data, suffix)
+    name = await container.media.save(data, suffix)
     async with transaction(container.factory) as s:
         row = PersonaMedia(persona_id=persona_id, kind=kind, storage_name=name)
         s.add(row)
@@ -497,17 +497,17 @@ async def test_encoder_rejects_empty_input_and_a_missing_binary():
 
 # ---- media store ---------------------------------------------------------------------------
 
-def test_media_store_saves_a_cache_entry_under_its_name(tmp_path):
+async def test_media_store_saves_a_cache_entry_under_its_name(tmp_path):
     store = MediaStore(tmp_path / "media")
     name = cache_name("ab" * 32)
     assert store.path(name) is None
-    assert store.save_as(name, NOTE) == name
+    assert await store.save_as(name, NOTE) == name
     assert store.path(name).read_bytes() == NOTE
-    store.save_as(name, b"new")                                   # replaced in one step
+    await store.save_as(name, b"new")                                  # replaced in one step
     assert store.path(name).read_bytes() == b"new"
     assert [p.name for p in (tmp_path / "media").iterdir()] == [name]
     with pytest.raises(ValueError, match="unsafe"):
-        store.save_as("../escape.mp4", NOTE)
+        await store.save_as("../escape.mp4", NOTE)
 
 
 # ---- Broker client (/v1/video/jobs) --------------------------------------------------------

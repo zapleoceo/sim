@@ -42,6 +42,6 @@ class VoiceRenderer:
         speech = await self.speech.synthesize(text, voice=voice, style=style,
                                               workflow=VOICE_WORKFLOW)
         audio = await self.encoder.to_voice_note(speech.audio, ambience)
-        name = self.store.save(audio, OGG_MIME.split("/", 1)[1])
+        name = await self.store.save(audio, OGG_MIME.split("/", 1)[1])
         return VoiceNote(audio=audio, duration_s=speech.duration_s, cost_usd=speech.cost_usd,
                          media_url=f"/api/media/{name}")
