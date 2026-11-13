@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.adapters.channels.capabilities import TYPING
 from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
 from sim.adapters.db.models import Dialog, Message, Persona, Strategy
 from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo, StrategyRepo
@@ -22,6 +23,7 @@ from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
+from sim.services.chat_activity import showing
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
@@ -336,9 +338,11 @@ class ConversationService:
             instruction=instruction,
             handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
         )
-        draft = await self.draft_reply(
-            persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id
-        )
+        # "Марина печатает…" in the chat while the model writes and the guard checks the reply.
+        async with showing(self.outbound.try_port(dialog.channel), dialog.external_thread_id, TYPING):
+            draft = await self.draft_reply(
+                persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id
+            )
         # The model call took a while. From here on, hold the dialog lock (ingest takes it to
         # insert a client message) and re-read the world before anything is queued.
         await lock(self.session, NS_DIALOG, dialog_id)

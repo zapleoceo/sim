@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.audio import AudioError
-from sim.adapters.channels.capabilities import Capability
+from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
@@ -25,6 +25,7 @@ from sim.domain.voice import GEMINI_VOICES
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing
+from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
@@ -281,6 +282,18 @@ class OutboundService:
             step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
 
+    def try_port(self, channel: Channel) -> object | None:
+        """The channel port for side signals (typing indicator), or None when it cannot be built.
+        Never raises: such a signal must not fail the work it decorates."""
+        connector = self.registry.get(channel.kind)
+        if connector is None:
+            return None
+        try:
+            return connector.build_port(channel.id, self.box.decrypt_json(channel.session_enc))
+        except Exception as exc:
+            log.debug("no port for channel %s: %s", channel.id, type(exc).__name__)
+            return None
+
     def send_step(
         self, channel: Channel, message: Message, *, voice: bool = False
     ) -> AbstractAsyncContextManager[Step]:
@@ -334,10 +347,11 @@ class OutboundService:
             reason = "persona has no Gemini voice"
         else:
             try:
-                note = await self.voice.render(
-                    message.text, voice=persona.voice_id, style=persona.voice_style,
-                    ambience=persona.voice_ambience,
-                )
+                async with showing(port, dialog.external_thread_id, RECORD_VOICE):
+                    note = await self.voice.render(
+                        message.text, voice=persona.voice_id, style=persona.voice_style,
+                        ambience=persona.voice_ambience,
+                    )
             except (SpeechError, AudioError) as exc:
                 reason = f"{type(exc).__name__}: {exc}"[:300]
             else:
