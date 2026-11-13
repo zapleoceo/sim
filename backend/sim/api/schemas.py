@@ -1,6 +1,7 @@
 """Request bodies (pydantic) and response serialisers (plain dicts, shapes from docs/api.md)."""
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -34,6 +35,7 @@ from sim.domain.enums import (
 from sim.domain.voice import GEMINI_VOICES
 from sim.services.channels import ConnectState
 from sim.services.persona_routine import MAX_ROUTINE_LEN, invalid_lines
+from sim.services.prompt_map import PromptMap
 
 
 def dt(value: datetime | None) -> str | None:
@@ -252,6 +254,14 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
         "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
+    }
+
+
+def prompt_map_out(m: PromptMap) -> dict[str, Any]:
+    return {
+        "system": m.system, "fixed": "", "strategy_id": m.strategy_id, "context": m.context,
+        "parts": [asdict(part) for part in m.parts],
+        "rules": [asdict(rule) for rule in m.rules],
     }
 
 

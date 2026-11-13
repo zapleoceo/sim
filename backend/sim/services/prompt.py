@@ -143,6 +143,12 @@ def prohibition_rules(text: str) -> list[str]:
     return [rule for rule in rules if rule]
 
 
+def prohibitions_block(text: str) -> str:
+    """The persona's «Чего нельзя никогда» section; "" when she has no such rules."""
+    rules = prohibition_rules(text)
+    return f"{PROHIBITIONS_HEADING}:\n" + "\n".join(f"- {rule}" for rule in rules) if rules else ""
+
+
 def compose_persona_prompt(
     name: str, description: str, *, voice: str = VOICE_RULE, style: str = STYLE_RULE,
     safety: str = SAFETY_RULES, prohibitions: str = "",
@@ -153,10 +159,7 @@ def compose_persona_prompt(
     head = description.strip()
     if not head.startswith("Ты "):
         head = f"Ты {name}.\n\n{head}" if head else f"Ты {name}."
-    parts = [head, voice.strip(), style.strip(), safety.strip()]
-    rules = prohibition_rules(prohibitions)
-    if rules:
-        parts.append(f"{PROHIBITIONS_HEADING}:\n" + "\n".join(f"- {rule}" for rule in rules))
+    parts = [head, voice.strip(), style.strip(), safety.strip(), prohibitions_block(prohibitions)]
     return "\n\n".join(p for p in parts if p)
 
 
@@ -178,44 +181,79 @@ class PromptTexts:
 DEFAULT_TEXTS = PromptTexts()
 
 
+@dataclass(frozen=True)
+class PromptPart:
+    """One piece of the stable system prompt and where the owner edits it."""
+
+    key: str
+    title: str
+    text: str
+    source: str       # "persona" | "strategy" | "setting": whose field the text comes from
+    field: str        # the persona / strategy field, or the setting key
+
+
+LINK_RULES = (
+    "- Личная ссылка регистрации клиента дана в сообщении с контекстом в конце разговора; "
+    "используй ровно её и никогда другую.",
+    "- Если удобнее продолжить в другом канале, предложи это и дай ровно ту ссылку, что "
+    "указана для канала в сообщении с контекстом; никогда не выдумывай такие ссылки.",
+)
+
+
+def strategy_head(strategy: StrategyProfile) -> str:
+    """What is sold, then the two link rules that always follow it (the rules are code)."""
+    facts = (("Название", strategy.name), ("Цель", strategy.goal),
+             ("Партнёр", strategy.partner_name), ("Оффер", strategy.offer))
+    return "\n".join(["СТРАТЕГИЯ", *(f"- {label}: {value}" for label, value in facts if value),
+                      *LINK_RULES])
+
+
+def stage_hints(playbook: dict[str, str]) -> str:
+    order = {s.value: i for i, s in enumerate(Stage)}
+    stages = sorted(playbook, key=lambda k: (order.get(k, 99), k))
+    return "\n".join(["ПОДСКАЗКИ ПО ЭТАПАМ (коротко по каждому этапу, не скрипт):",
+                      *(f"- {stage}: {playbook[stage]}" for stage in stages)])
+
+
+def strategy_rules(rules: list[str]) -> str:
+    return "\n".join(["ПРАВИЛА:", *(f"- {rule}" for rule in rules),
+                      "(Это мягкие рамки: держись их своими словами, естественно.)"])
+
+
+def system_prompt_parts(
+    persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
+) -> list[PromptPart]:
+    """The stable system prompt piece by piece, in its fixed order: the persona prompt (the
+    owner's one text), her prohibitions and routine, the strategy, the answer format. Nothing
+    else is added. Empty pieces are left out, except the answer format that closes the prompt."""
+    guidance = strategy.prompt.strip()
+    parts = [
+        PromptPart("description", "Промпт персонажа",
+                   persona.description.strip() or f"Ты {persona.name}.", "persona", "description"),
+        PromptPart("prohibitions", "Запреты",
+                   prohibitions_block(persona.prohibitions), "persona", "prohibitions"),
+        PromptPart("routine", "Распорядок недели",
+                   routine_block(persona.routine), "persona", "routine"),
+        PromptPart("strategy", "Стратегия: что продаём и правило ссылок",
+                   strategy_head(strategy), "strategy", "offer"),
+        PromptPart("strategy_prompt", "Сценарий стратегии",
+                   f"ОРИЕНТИРЫ СТРАТЕГИИ (ориентиры для разговора, не скрипт):\n{guidance}"
+                   if guidance else "", "strategy", "prompt"),
+        PromptPart("stage_playbook", "Подсказки по этапам",
+                   stage_hints(strategy.stage_playbook) if strategy.stage_playbook else "",
+                   "strategy", "stage_playbook"),
+        PromptPart("rules", "Правила стратегии",
+                   strategy_rules(strategy.rules) if strategy.rules else "", "strategy", "rules"),
+    ]
+    return [*(part for part in parts if part.text),
+            PromptPart("output_contract", "Формат ответа персонажа", texts.contract.strip(),
+                       "setting", "output_contract")]
+
+
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
-    """Persona prompt (the owner's one text) + her routine + the strategy + the answer
-    format. The order is fixed; nothing else is added."""
-    lines: list[str] = [persona.description.strip() or f"Ты {persona.name}."]
-    if block := routine_block(persona.routine):
-        lines += ["", block]
-    lines += ["", "СТРАТЕГИЯ"]
-    for label, value in (
-        ("Название", strategy.name),
-        ("Цель", strategy.goal),
-        ("Партнёр", strategy.partner_name),
-        ("Оффер", strategy.offer),
-    ):
-        if value:
-            lines.append(f"- {label}: {value}")
-    lines.append(
-        "- Личная ссылка регистрации клиента дана в сообщении с контекстом в конце разговора; "
-        "используй ровно её и никогда другую."
-    )
-    lines.append(
-        "- Если удобнее продолжить в другом канале, предложи это и дай ровно ту ссылку, что "
-        "указана для канала в сообщении с контекстом; никогда не выдумывай такие ссылки."
-    )
-    if strategy.prompt.strip():
-        lines += ["", "ОРИЕНТИРЫ СТРАТЕГИИ (ориентиры для разговора, не скрипт):",
-                  strategy.prompt.strip()]
-    if strategy.stage_playbook:
-        lines += ["", "ПОДСКАЗКИ ПО ЭТАПАМ (коротко по каждому этапу, не скрипт):"]
-        order = {s.value: i for i, s in enumerate(Stage)}
-        for stage in sorted(strategy.stage_playbook, key=lambda k: (order.get(k, 99), k)):
-            lines.append(f"- {stage}: {strategy.stage_playbook[stage]}")
-    if strategy.rules:
-        lines += ["", "ПРАВИЛА:"] + [f"- {rule}" for rule in strategy.rules]
-        lines.append("(Это мягкие рамки: держись их своими словами, естественно.)")
-    lines += ["", texts.contract.strip()]
-    return "\n".join(lines)
+    return "\n\n".join(part.text for part in system_prompt_parts(persona, strategy, texts))
 
 
 HANDOFF_GREETING = "Привет! Я по поводу нашего разговора"

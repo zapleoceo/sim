@@ -16,6 +16,7 @@ from sim.api.schemas import (
     StrategyIn,
     guard_out,
     persona_out,
+    prompt_map_out,
     strategy_out,
 )
 from sim.domain.voice import speaks
@@ -102,11 +103,12 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
 
 @personas.get("/{persona_id}/prompt")
 async def persona_prompt(persona_id: int, c: App, s: Db):
-    """Exactly what the persona's model gets as its system prompt (saved settings), with an
-    empty fixed field for compatibility. Client history and the per-dialog context follow
-    it in a real call."""
+    """Exactly what the persona's model gets as its system prompt (saved settings), and the same
+    text piece by piece with the place each piece is edited. `context` is an example of the
+    per-reply message that follows the client history in a real call; `rules` are fixed in the
+    code. `fixed` is empty, kept for compatibility. No model is called."""
     persona = await persona_or_404(s, persona_id)
-    return {"system": await c.conversation(s).system_prompt(persona), "fixed": ""}
+    return prompt_map_out(await c.conversation(s).prompt_map(persona))
 
 
 @personas.post("/{persona_id}/preview/attachment")
