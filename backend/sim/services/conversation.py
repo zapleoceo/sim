@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.channels.capabilities import TYPING
+from sim.adapters.channels.capabilities import RECORD_VOICE, TYPING
 from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
 from sim.adapters.db.models import Dialog, Message, Persona, Strategy
 from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo, StrategyRepo
@@ -23,7 +23,8 @@ from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
-from sim.services.chat_activity import showing
+from sim.services.call_prompt import call_system_prompt
+from sim.services.chat_activity import mark_read, showing
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
@@ -86,6 +87,13 @@ class PreviewResult:
     context: dict[str, Any] | None = None
 
 
+def will_speak(persona: Persona, followup: bool, inbound: Message | None) -> bool:
+    """Whether this answer goes out as a voice note. A follow-up answers no client message,
+    so "mirror" never voices it."""
+    kind = None if followup or inbound is None else inbound.media_kind
+    return speaks(persona.voice_mode, persona.voice_id, kind)
+
+
 def persona_profile(p: Persona) -> PersonaProfile:
     return PersonaProfile(
         name=p.name,
@@ -94,6 +102,7 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
+        routine=p.routine,
     )
 
 
@@ -108,6 +117,12 @@ def strategy_profile(s: Strategy) -> StrategyProfile:
         stage_playbook=dict(s.stage_playbook or {}),
         rules=list(s.rules or []),
     )
+
+
+def with_persona_facts(persona: Persona, ctx: DialogContext) -> DialogContext:
+    """Her exact age, local time and where she is now, computed by code for this moment."""
+    return replace(ctx, persona_facts=persona_facts(
+        persona.birth_date, persona.timezone, ctx.now, persona.routine))
 
 
 def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
@@ -179,7 +194,7 @@ class ConversationService:
         self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
     ) -> list[dict[str, Any]]:
         cfg = await self.config()
-        ctx = replace(ctx, persona_facts=persona_facts(persona.birth_date, persona.timezone, ctx.now))
+        ctx = with_persona_facts(persona, ctx)
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
             texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
@@ -209,6 +224,36 @@ class ConversationService:
         if strategy is None:
             raise ConversationError("no strategy configured")
         return strategy
+
+    async def dialog_context(
+        self, dialog: Dialog, persona: Persona, *, instruction: str = ""
+    ) -> DialogContext:
+        """What the system knows about this conversation right now (replies and phone calls)."""
+        client = dialog.client
+        return DialogContext(
+            stage=client.stage,
+            status=client.status.value,
+            client_name=client.display_name,
+            channel_kind=dialog.channel.kind.value,
+            ref_code=client.ref_code,
+            now=self.clock(),
+            needs=list(client.needs or []),
+            notes=client.notes,
+            next_step=client.next_step,
+            passport=client.passport or "",
+            instruction=instruction,
+            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
+        )
+
+    async def call_prompt(self, dialog: Dialog, persona: Persona) -> str:
+        """The live voice model's system prompt for a phone call in this dialog: the persona
+        prompt and strategy, the chat so far and the dialog context (sim.services.call_prompt)."""
+        cfg = await self.config()
+        strategy = await self.strategy_for(persona.id)
+        recent = await self.messages.recent_visible(dialog.id, cfg.history_limit)
+        ctx = with_persona_facts(persona, await self.dialog_context(dialog, persona))
+        return call_system_prompt(persona_profile(persona), strategy_profile(strategy),
+                                  history_turns(recent), ctx)
 
     async def handoff_links(self, persona: Persona, channel_id: int, ref_code: str) -> list[tuple[str, str]]:
         """Links to the persona's OTHER active channels that carry the client's ref code."""
@@ -336,22 +381,14 @@ class ConversationService:
         recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
-        ctx = DialogContext(
-            stage=client.stage,
-            status=client.status.value,
-            client_name=client.display_name,
-            channel_kind=dialog.channel.kind.value,
-            ref_code=client.ref_code,
-            now=self.clock(),
-            needs=list(client.needs or []),
-            notes=client.notes,
-            next_step=client.next_step,
-            passport=client.passport or "",
-            instruction=instruction,
-            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
-        )
-        # "Марина печатает…" in the chat while the model writes and the guard checks the reply.
-        async with showing(self.outbound.try_port(dialog.channel), dialog.external_thread_id, TYPING):
+        ctx = await self.dialog_context(dialog, persona, instruction=instruction)
+        # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
+        # answer will be a voice note) while the model writes and the guard checks the reply.
+        port = self.outbound.try_port(dialog.channel)
+        if not followup:
+            await mark_read(port, dialog.external_thread_id, last.external_id)
+        action = RECORD_VOICE if will_speak(persona, followup, last) else TYPING
+        async with showing(port, dialog.external_thread_id, action):
             draft = await self.draft_reply(
                 persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id
             )
@@ -370,9 +407,7 @@ class ConversationService:
             return ReplyOutcome("superseded")
         if draft.decision is None or draft.guard is None or not draft.guard.allowed:
             return await self.handoff_failed(dialog, draft)
-        # A follow-up answers no client message, so "mirror" never voices it.
-        voice = speaks(persona.voice_mode, persona.voice_id,
-                       None if followup or newer is None else newer.media_kind)
+        voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
 

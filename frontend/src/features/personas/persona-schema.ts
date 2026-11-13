@@ -4,11 +4,15 @@ import { GEMINI_VOICES } from './persona-voices';
 
 export const AVATAR_URL_PATTERN = /^(https?:\/\/|\/)\S+$/i;
 
+/** Как backend `persona_routine.MAX_ROUTINE_LEN`; формат строк проверяет API. */
+export const ROUTINE_MAX = 4000;
+
 export const EMPTY_PERSONA: PersonaIn = {
   name: '',
   age: null,
   birth_date: null,
   timezone: 'Europe/Kyiv',
+  routine: '',
   gender: 'female',
   avatar_url: '',
   description: '',
@@ -19,6 +23,7 @@ export const EMPTY_PERSONA: PersonaIn = {
   voice_mode: 'off',
   voice_style: '',
   voice_ambience: 'off',
+  accept_calls: false,
   strategy_id: null,
   is_active: true,
 };
@@ -49,6 +54,7 @@ export const personaSchema = z.object({
   }, '18–100'),
   birth_date: z.string().refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1976-12-09'),
   timezone: z.string().refine(notBlank, 'Укажите часовой пояс').refine((v) => v.length <= 64, 'Не длиннее 64 символов'),
+  routine: z.string().max(ROUTINE_MAX, `Не длиннее ${ROUTINE_MAX} символов`),
   gender: z.string(),
   avatar_url: z
     .string()
@@ -62,8 +68,12 @@ export const personaSchema = z.object({
   voice_mode: z.enum(['off', 'mirror', 'always']),
   voice_style: z.string().max(300, 'Не длиннее 300 символов'),
   voice_ambience: z.enum(['off', 'room', 'street', 'cafe', 'random']),
+  accept_calls: z.boolean(),
   strategy_id: z.number().nullable(),
   is_active: z.boolean(),
+}).refine((v) => !v.accept_calls || v.voice_id !== '', {
+  path: ['voice_id'],
+  message: 'Для звонков выберите голос',
 }).refine((v) => v.voice_mode === 'off' || v.voice_id !== '', {
   path: ['voice_id'],
   message: 'Для голосовых ответов выберите голос',
@@ -89,6 +99,7 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
     age: p.age == null ? '' : String(p.age),
     birth_date: p.birth_date ?? '',
     timezone: p.timezone || 'Europe/Kyiv',
+    routine: p.routine ?? '',
     gender: p.gender || 'female',
     avatar_url: p.avatar_url ?? '',
     description: p.description,
@@ -99,6 +110,7 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
     voice_mode: p.voice_mode ?? 'off',
     voice_style: p.voice_style ?? '',
     voice_ambience: p.voice_ambience ?? 'off',
+    accept_calls: p.accept_calls ?? false,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
@@ -111,6 +123,7 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
     age: v.age.trim() === '' ? null : Number(v.age),
     birth_date: v.birth_date || null,
     timezone: v.timezone.trim(),
+    routine: v.routine,
     gender: v.gender || 'female',
     avatar_url: v.avatar_url.trim(),
     description: v.description,
@@ -121,6 +134,7 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
     voice_mode: v.voice_mode,
     voice_style: v.voice_style.trim(),
     voice_ambience: v.voice_ambience,
+    accept_calls: v.accept_calls,
     strategy_id: v.strategy_id,
     is_active: v.is_active,
   };
@@ -132,6 +146,7 @@ export function personaToInput(p: Persona): PersonaIn {
     age: p.age,
     birth_date: p.birth_date ?? null,
     timezone: p.timezone || 'Europe/Kyiv',
+    routine: p.routine ?? '',
     gender: p.gender,
     avatar_url: p.avatar_url,
     description: p.description,
@@ -142,6 +157,7 @@ export function personaToInput(p: Persona): PersonaIn {
     voice_mode: p.voice_mode,
     voice_style: p.voice_style,
     voice_ambience: p.voice_ambience,
+    accept_calls: p.accept_calls ?? false,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };

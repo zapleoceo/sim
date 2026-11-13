@@ -1,6 +1,6 @@
 import type { Persona } from '@/lib/models';
 import {
-  EMPTY_PERSONA, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
+  EMPTY_PERSONA, ROUTINE_MAX, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
 import { GEMINI_VOICES, VOICE_AMBIENCE_OPTIONS, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
@@ -41,6 +41,13 @@ describe('persona form validation', () => {
     expect(personaErrors({ ...valid, timezone: ' ' }).timezone).toBe('Укажите часовой пояс');
     expect(personaFromForm({ ...valid, birth_date: '1976-12-09' }).birth_date).toBe('1976-12-09');
     expect(personaFromForm(valid)).toMatchObject({ birth_date: null, timezone: 'Europe/Kyiv' });
+  });
+
+  it('keeps the weekly routine as typed and limits its length', () => {
+    const routine = 'пн-пт 09:00-13:00 консультации\nежедневно 23:00-06:30 сплю';
+    expect(personaFromForm({ ...valid, routine }).routine).toBe(routine);
+    expect(personaErrors({ ...valid, routine: 'x'.repeat(ROUTINE_MAX + 1) }).routine).toBe(`Не длиннее ${ROUTINE_MAX} символов`);
+    expect(personaFromForm(valid).routine).toBe('');
   });
 
   it('passes hidden prohibitions through unchanged', () => {
@@ -95,8 +102,15 @@ describe('persona form validation', () => {
     expect(personaErrors({ ...valid, voice_style: 'x'.repeat(301) }).voice_style).toBe('Не длиннее 300 символов');
   });
 
-  it('offers only Kore, the voice the owner chose, and three voice modes', () => {
-    expect(GEMINI_VOICES.map((v) => v.id)).toEqual(['Kore']);
+  it('phone calls are off by default, need a voice and round-trip to the API body', () => {
+    expect(valid.accept_calls).toBe(false);
+    expect(personaErrors({ ...valid, accept_calls: true }).voice_id).toBe('Для звонков выберите голос');
+    expect(personaErrors({ ...valid, accept_calls: true, voice_id: 'Kore' })).toEqual({});
+    expect(personaFromForm({ ...valid, accept_calls: true, voice_id: 'Kore' }).accept_calls).toBe(true);
+  });
+
+  it('offers Kore and Vindemiatrix, the voices the owner chose, and three voice modes', () => {
+    expect(GEMINI_VOICES.map((v) => v.id)).toEqual(['Kore', 'Vindemiatrix']);
     expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
     expect(VOICE_OPTIONS[0]).toEqual({ value: '', label: 'Без голоса' });
   });

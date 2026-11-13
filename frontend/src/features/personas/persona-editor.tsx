@@ -107,6 +107,17 @@ export function PersonaEditor({
           placeholder="Ты Марина, 45 лет, из Днепра… Как живёшь в роли, как пишешь, чего не делаешь."
         />
       </Field>
+      <Field
+        label="Распорядок недели"
+        hint="Строка на дело: дни, время, что делает. Дни: пн…вс, пн-пт, сб,вс, ежедневно или дата 2026-11-20 (разовое дело). Где она сейчас, что было вчера и будет завтра, считает код, поэтому ответы всегда совпадают."
+        error={errors.routine?.message}
+      >
+        <Textarea
+          {...register('routine')}
+          className="min-h-48 font-mono text-[13px] md:text-[13px]"
+          placeholder={'пн-пт 06:30-07:15 пробежка вдоль Эльбы\nпн-пт 09:00-13:00 консультации с клиентами, из дома\nвс 13:00-16:00 обед у мамы\nежедневно 23:00-06:30 сплю'}
+        />
+      </Field>
       {persona && <PersonaFullPrompt personaId={persona.id} />}
 
       <FormGrid className="lg:grid-cols-2">
@@ -126,6 +137,23 @@ export function PersonaEditor({
           <SelectControl control={control} name="voice_ambience" options={VOICE_AMBIENCE_OPTIONS} />
         </Field>
       </FormGrid>
+
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <Controller
+            control={control}
+            name="accept_calls"
+            render={({ field }) => (
+              <Switch id="persona-accept-calls" checked={field.value} onCheckedChange={field.onChange} />
+            )}
+          />
+          <Label htmlFor="persona-accept-calls">Принимать звонки</Label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Отвечает на входящие звонки в Telegram живым голосом (тот же голос, Google Gemini Live через AIbroker), только
+          клиентам, с которыми уже есть переписка. Расшифровка звонка попадает в диалог.
+        </p>
+      </div>
 
       <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">
         {onRemove && (

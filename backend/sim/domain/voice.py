@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from sim.domain.enums import VoiceMode
 
-# The one voice the owner tested and chose (Marina's voice notes, 2026-11-12/13, with and without
-# the phone-recording ambience). The other 12 female voices checked for ru/uk that day were removed
-# from the admin on the owner's request; the Broker itself accepts all 30 Gemini voices.
-GEMINI_VOICES: tuple[str, ...] = ("Kore",)
+# Voices the owner tested and chose (2026-11-13): Kore, and Vindemiatrix as Marina's homely voice,
+# picked from a casting of one text read "like to a friend in the kitchen". The other female voices
+# were removed from the admin on the owner's request; the Broker itself accepts all 30 Gemini voices.
+GEMINI_VOICES: tuple[str, ...] = ("Kore", "Vindemiatrix")
 VOICE_KINDS = ("audio", "voice")
 
 

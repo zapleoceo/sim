@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 
+from sim.adapters.channels.capabilities import CallListener, IncomingCall
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.catalog import ChannelRepo
 from sim.adapters.db.repositories.jobs import JobRepo
@@ -75,6 +76,19 @@ class Worker:
             listen = getattr(conn, "listen", None)
             if callable(listen):
                 listen(lambda k=kind: self.wake.add(k))
+            if self.c.settings.calls_enabled and isinstance(conn, CallListener):
+                conn.listen_calls(self.answer_call)
+
+    # ---- phone calls ---------------------------------------------------------------------
+    async def answer_call(self, channel_id: int, call: IncomingCall) -> None:
+        """An incoming call on a channel account (ACCEPT_CALL). It runs as its own task beside
+        jobs and polls; a failure ends this call only."""
+        try:
+            outcome = await self.c.calls().handle(channel_id, call)
+        except Exception:
+            log.exception("call on channel %s failed", channel_id)
+            return
+        log.info("call on channel %s: %s", channel_id, outcome.status)
 
     # ---- jobs ----------------------------------------------------------------------------
     async def claim_jobs(self, limit: int) -> list[Claim]:

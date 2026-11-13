@@ -43,6 +43,8 @@ export interface Persona {
   birth_date: string | null;
   /** Часовой пояс IANA (Europe/Kyiv): местное время персонажа считает код. */
   timezone: string;
+  /** Распорядок недели, строка на дело («пн-пт 09:00-13:00 консультации»): где она сейчас, была и будет, считает код. */
+  routine: string;
   gender: string;
   avatar_url: string;
   /** Свободный текст: кто она, характер, биография, как пишет. */
@@ -59,6 +61,8 @@ export interface Persona {
   voice_style: string;
   /** Обстановка голосовых: off — чистый звук, room/street/cafe — «запись на смартфон» там, random — случайно. */
   voice_ambience: VoiceAmbience;
+  /** Отвечать на входящие звонки в Telegram живым голосом (тот же voice_id, Gemini Live через AIbroker). */
+  accept_calls: boolean;
   strategy_id: number | null;
   is_active: boolean;
   created_at: string;

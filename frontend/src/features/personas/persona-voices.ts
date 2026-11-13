@@ -2,12 +2,13 @@ import type { Option } from '@/components/option-select';
 import type { VoiceAmbience, VoiceMode } from '@/lib/models';
 
 /**
- * Голос Google Gemini TTS (синтез идёт через AIbroker): только Kore, его владелец проверил и выбрал
+ * Голоса Google Gemini TTS (синтез идёт через AIbroker): Kore и Vindemiatrix, их владелец проверил и выбрал
  * (остальные проверенные женские голоса убраны). Список совпадает с backend `sim.domain.voice.GEMINI_VOICES`; подпись — характер
  * голоса по описанию Google.
  */
 export const GEMINI_VOICES: readonly { id: string; label: string }[] = [
   { id: 'Kore', label: 'Kore — уверенный' },
+  { id: 'Vindemiatrix', label: 'Vindemiatrix — мягкий, домашний' },
 ];
 
 export const VOICE_MODES: readonly { id: VoiceMode; label: string }[] = [

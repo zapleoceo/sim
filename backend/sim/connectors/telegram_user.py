@@ -17,7 +17,7 @@ from typing import Any
 
 from telethon import errors as tg_errors
 
-from sim.adapters.channels.capabilities import Capability
+from sim.adapters.channels.capabilities import CallHandler, Capability
 from sim.adapters.channels.telegram_user import (
     TelegramUserAdapter,
     TelethonTransport,
@@ -118,7 +118,8 @@ class TelegramUserConnector:
     label = "Telegram (аккаунт)"
     polling = True
     poll_interval_setting = "tg_user_poll_interval_s"
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE,
+                              Capability.ACCEPT_CALL})
 
     def __init__(self, client_factory: ClientFactory = build_tg_client) -> None:
         self._factory = client_factory
@@ -126,6 +127,7 @@ class TelegramUserConnector:
         self._qr: dict[int, QrLogin] = {}         # QR logins waiting for a scan (API process)
         self._on_new: Callable[[], None] | None = None   # set by the worker: wake the poll
         self._runtime: dict[int, Runtime] = {}    # connected polling/sending clients
+        self._on_call: CallHandler | None = None         # set by the worker: answer calls
 
     # --- login -----------------------------------------------------------------------------
 
@@ -368,6 +370,12 @@ class TelegramUserConnector:
         self._on_new = on_new_message
         self._runtime.clear()
 
+    def listen_calls(self, handler: CallHandler) -> None:
+        """Called once by the worker (ACCEPT_CALL): its listening clients also attach the call
+        bridge, and every incoming private call goes to `handler(channel_id, call)`."""
+        self._on_call = handler
+        self._runtime.clear()
+
     def build_port(self, channel_id: int, session: Session) -> ChannelPort:
         string_session = str(session.get("string_session") or "")
         if not string_session:
@@ -380,10 +388,13 @@ class TelegramUserConnector:
                 transport = TelethonTransport(
                     lambda: self._factory(string_session, api_id, api_hash, proxy))
             else:     # the worker: the client keeps its update loop and wakes the poll
+                on_call = self._on_call
                 transport = TelethonTransport(
                     lambda: self._factory(string_session, api_id, api_hash, proxy,
                                           receive_updates=True),
-                    on_new_message=self._on_new)
+                    on_new_message=self._on_new,
+                    on_call=(lambda call, cid=channel_id: on_call(cid, call))
+                    if on_call is not None else None)
             rt = Runtime(string_session, transport)
             self._runtime[channel_id] = rt
         return TelegramUserAdapter(

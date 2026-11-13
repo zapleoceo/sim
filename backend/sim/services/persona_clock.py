@@ -2,11 +2,14 @@
 
 Models miscount ages, mix up weekdays and convert UTC to local time badly. The persona prompt
 gets these facts ready-made in the dynamic context: her local date, weekday and time of day,
-her age, birthday and zodiac sign, days until the next birthday. The model only has to use them."""
+her age, birthday and zodiac sign, days until the next birthday, and from her routine where she
+is now, was earlier and will be (`persona_routine`). The model only has to use them."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from sim.services.persona_routine import routine_facts
 
 DEFAULT_TZ = "Europe/Kyiv"
 
@@ -69,7 +72,7 @@ def human_date(d: date) -> str:
     return f"{d.day} {MONTHS_GEN[d.month - 1]} {d.year}"
 
 
-def persona_facts(birth: date | None, tz: str, now_utc: datetime) -> str:
+def persona_facts(birth: date | None, tz: str, now_utc: datetime, routine: str = "") -> str:
     """Lines for the dynamic context. `now_utc` is naive UTC (the app clock)."""
     local = (now_utc.replace(tzinfo=ZoneInfo("UTC")) if now_utc.tzinfo is None else now_utc).astimezone(zone(tz))
     today = local.date()
@@ -81,4 +84,5 @@ def persona_facts(birth: date | None, tz: str, now_utc: datetime) -> str:
         days = days_to_birthday(birth, today)
         when = "сегодня твой день рождения" if days == 0 else f"до дня рождения {days} дн."
         lines.append(f"- Тебе {age_on(birth, today)} (родилась {human_date(birth)}), знак зодиака {zodiac(birth)}, {when}")
+    lines += routine_facts(routine, local)
     return "\n".join(lines)

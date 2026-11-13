@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -123,6 +124,9 @@ class Persona(Base):
     # (sim.services.persona_clock) and given to the model, never left to its arithmetic.
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Kyiv", server_default="Europe/Kyiv")
+    # Weekly routine, one entry per line ("пн-пт 09:00-13:00 консультации"): where she is now, was and
+    # will be is computed by code (sim.services.persona_routine), so her answers always agree.
+    routine: Mapped[str] = mapped_column(Text, default="", server_default="")
     gender: Mapped[str] = mapped_column(String(32), default="")
     avatar_url: Mapped[str] = mapped_column(Text, default="")
     # Free text: who she is, character, biography, how she writes (Markdown-ish).
@@ -140,6 +144,8 @@ class Persona(Base):
     voice_ambience: Mapped[VoiceAmbience] = mapped_column(
         enum_col(VoiceAmbience), default=VoiceAmbience.OFF
     )
+    # Answer incoming Telegram calls with her live voice (same `voice_id`; sim.services.calls).
+    accept_calls: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )
