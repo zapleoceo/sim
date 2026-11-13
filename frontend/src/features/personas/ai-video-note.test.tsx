@@ -42,6 +42,15 @@ describe('AI video note', () => {
     });
   });
 
+  it('shows the server reason when the request is refused', async () => {
+    backend(reply(409, { detail: 'Получатель не задан: укажите Telegram id в настройке «Кружочки ИИ».' }));
+    await renderApp('/personas/1');
+    await userEvent.type(await screen.findByLabelText('Описание кружочка'), 'Марина машет рукой');
+    await userEvent.click(screen.getByRole('button', { name: 'Создать и отправить' }));
+    expect(await screen.findByText('Получатель не задан: укажите Telegram id в настройке «Кружочки ИИ».')).toBeInTheDocument();
+    expect(screen.queryByText('Данные изменились. Обновите страницу и повторите')).not.toBeInTheDocument();
+  });
+
   it('says when the same note comes from the cache', async () => {
     backend(reply(202, { status: 'queued', cached: true, cache_key: 'k', dialog_id: 5 }));
     await renderApp('/personas/1');

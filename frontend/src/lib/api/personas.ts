@@ -29,7 +29,7 @@ export const personasApi = {
 
   /** Owner: queue an AI video note; it goes only to the account from the «Кружочки ИИ» setting. */
   videoNote: (id: number, prompt: string) =>
-    http.post<VideoNoteQueued>(`/api/personas/${id}/video-note`, { prompt }),
+    http.post<VideoNoteQueued>(`/api/personas/${id}/video-note`, { prompt }, { silent: true }),
 
   // ---- media gallery ---
   media: {
