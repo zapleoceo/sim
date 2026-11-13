@@ -19,8 +19,8 @@ from sim.clock import Clock, utcnow
 from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
-from sim.ports.llm import LLMPort
 from sim.ports.live_voice import LiveVoicePort
+from sim.ports.llm import LLMPort
 from sim.ports.speech import SpeechPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
