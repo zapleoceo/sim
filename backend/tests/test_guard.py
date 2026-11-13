@@ -295,8 +295,7 @@ def test_guard_checks_only_the_critical_rules():
     for rule in ("пароли, коды из SMS и данные карт", "Никаких ссылок, кроме", "гарантированного дохода",
                  "просьбу не писать"):
         assert rule in system
-    # honesty floor: BLOCK a human claim on a direct question (fixed, not editable)
-    assert "не должен утверждать, что персонаж человек" in system and "ЗАБЛОКИРОВАТЬ" in system
+    assert "не должен утверждать, что персонаж человек" not in system
     # everything else is the persona's freedom
     for gone in ("медицинских", "политики", "выдуманных фактов", "мата", "без вопроса сам говорит, что он ИИ"):
         assert gone not in system

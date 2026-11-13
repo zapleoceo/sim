@@ -37,8 +37,7 @@ def not_found_or_invalid(exc: SettingError) -> HTTPException:
 
 @router.get("")
 async def list_settings(c: App, s: Db, _: Authed):
-    """`fixed`: the only texts that are not editable (the honesty rule after the persona prompt
-    and after the guard prompt), shown read-only so the owner sees every prompt."""
+    """`fixed`: the fixed decision-control contract (persona is empty), shown read-only so the owner sees every prompt."""
     return {
         "items": [setting_out(i) for i in await service(c, s).items()],
         "fixed": {"persona": "", "guard": GUARD_CONTROL},

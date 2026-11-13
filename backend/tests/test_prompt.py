@@ -60,12 +60,11 @@ def test_layout_system_history_system():
     assert [m["role"] for m in msgs] == ["system", "user", "assistant", "system"]
 
 
-def test_voice_and_honesty_rules_present():
+def test_voice_rules_present_without_fixed_identity_rule():
     system = stable_system_prompt(PERSONA, STRATEGY)
     # lives the role, never volunteers being an AI...
     assert "Сама никогда не говори, что ты ИИ" in system and "никаких оговорок" in system
-    # ...but never claims to be human on a direct question
-    assert "прямо и " in system and "никогда не утверждай" in system
+    assert "никогда не утверждай" not in system
 
 
 def test_voice_and_style_aim_at_a_human_messenger_voice():

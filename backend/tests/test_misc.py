@@ -115,7 +115,7 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
     assert again == []                                  # idempotent
 
 
-def test_prompt_template_is_free_and_keeps_the_honesty_floor():
+def test_prompt_template_has_no_fixed_identity_rule():
     from sim.persona_prompts import STRATEGY_PROMPT
 
     system = stable_system_prompt(
@@ -123,7 +123,7 @@ def test_prompt_template_is_free_and_keeps_the_honesty_floor():
         StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"]),
     )
     assert "ориентиры, а не скрипт" in system and "Сама никогда не говори, что ты ИИ" in system
-    assert "никогда не утверждай" in system and "виртуальная помощница" not in system
+    assert "никогда не утверждай" not in system and "виртуальная помощница" not in system
     assert "милениал" in system and "не используй длинные тире" in system
     assert "ОРИЕНТИРЫ СТРАТЕГИИ" in system and "Сначала человек, потом предложение" in system
     assert system.index("ОРИЕНТИРЫ СТРАТЕГИИ") < system.index("ПРАВИЛА:")

@@ -104,8 +104,8 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
 
 @personas.get("/{persona_id}/prompt")
 async def persona_prompt(persona_id: int, c: App, s: Db):
-    """Exactly what the persona's model gets as its system prompt (saved settings), plus the
-    honesty rule marked as the one fixed part. Client history and the per-dialog context follow
+    """Exactly what the persona's model gets as its system prompt (saved settings), with an
+    empty fixed field for compatibility. Client history and the per-dialog context follow
     it in a real call."""
     persona = await persona_or_404(s, persona_id)
     return {"system": await c.conversation(s).system_prompt(persona), "fixed": ""}
