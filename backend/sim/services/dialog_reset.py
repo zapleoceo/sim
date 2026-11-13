@@ -33,7 +33,8 @@ class DialogReset:
     async def reset(self, dialog: Dialog, client: Client) -> int:
         """Wipe the dialog (the caller holds the dialog lock). Returns deleted messages."""
         for kind, key in ((jobkinds.REPLY, jobkinds.reply_key(dialog.id)),
-                          (jobkinds.FOLLOWUP, jobkinds.followup_key(dialog.id))):
+                          (jobkinds.FOLLOWUP, jobkinds.followup_key(dialog.id)),
+                          (jobkinds.PASSPORT, jobkinds.passport_key(dialog.id))):
             await self.jobs.cancel_pending(kind, key)
         res = await self.session.execute(delete(Message).where(Message.dialog_id == dialog.id))
         dialog.unread = 0
@@ -49,4 +50,6 @@ class DialogReset:
         client.next_step = ""
         client.next_step_at = None
         client.no_followups = False
+        client.passport = ""
+        client.passport_updated_at = None
         return int(res.rowcount or 0)  # type: ignore[attr-defined]

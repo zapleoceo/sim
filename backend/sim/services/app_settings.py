@@ -23,6 +23,7 @@ from sim.adapters.db.repositories.settings import AppSettingRepo
 from sim.config import Settings
 from sim.services.content import CAPTION_RULES
 from sim.services.guard import GUARD_PROMPT
+from sim.services.passport import PASSPORT_PROMPT
 from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE, PromptTexts
 
 log = logging.getLogger(__name__)
@@ -89,6 +90,12 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("guard_fallback_capability", "Охранник", "Запасной маршрут Broker",
                 "Capability, если контролеру попалась та же модель, что писала ответ.",
                 "capability"),
+    SettingSpec("passport_model", "Паспортистка", "Модель",
+                "Модель, которая после каждого ответа обновляет паспорт собеседника. Пусто: маршрут chat:sales.",
+                "model", ""),
+    SettingSpec("passport_prompt", "Паспортистка", "Инструкция паспортистки",
+                "Как вести паспорт лида: что собирать и в каком виде. Персонаж читает паспорт перед каждым ответом.",
+                "text", PASSPORT_PROMPT),
     SettingSpec("reply_debounce_s", "Ответы", "Пауза перед ответом, сек",
                 "Сколько ждать новых сообщений клиента перед ответом (серия сообщений).",
                 "int", None, 0, 300),
@@ -130,6 +137,8 @@ class AppSettings:
     guard_model: str
     guard_capability: str
     guard_fallback_capability: str
+    passport_model: str
+    passport_prompt: str
     reply_debounce_s: int
     output_contract: str
     retry_nudge: str

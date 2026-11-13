@@ -60,6 +60,23 @@ describe('ClientPage', () => {
     await waitFor(() => expect(log.find((r) => r.method === 'POST' && r.path === '/api/clients/7/stage')?.body).toEqual({ stage: 'interested' }));
   });
 
+  it('shows the lead passport kept by the passport keeper, or an empty hint', async () => {
+    fakeApi({
+      ...common,
+      'GET /api/clients/7': { ...card, passport: 'Кто он: Анна, Днепр, двое детей.', passport_updated_at: '2026-11-12T09:00:00Z' },
+    });
+    await renderApp('/clients/7');
+    expect(await screen.findByText('Паспорт собеседника')).toBeInTheDocument();
+    expect(screen.getByText('Кто он: Анна, Днепр, двое детей.')).toBeInTheDocument();
+    expect(screen.getByText(/^Обновлён/)).toBeInTheDocument();
+  });
+
+  it('shows an empty passport hint for a new lead', async () => {
+    fakeApi({ ...common, 'GET /api/clients/7': card });
+    await renderApp('/clients/7');
+    expect(await screen.findByText(/паспортистка заполнит его/)).toBeInTheDocument();
+  });
+
   it('does not call the API for a partner-only stage', async () => {
     const log = fakeApi({ ...common, 'GET /api/clients/7': card });
     await renderApp('/clients/7');

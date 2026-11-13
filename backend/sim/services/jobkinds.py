@@ -7,6 +7,7 @@ FOLLOWUP = "followup"
 CONTENT_PUBLISH = "content_publish"
 SIM_REPLY = "sim_reply"   # a persona answer inside an admin simulation branch
 MEDIA = "media"           # download a channel attachment (+ transcribe a voice message)
+PASSPORT = "passport"     # the passportist agent updates the lead passport after a reply
 
 
 def reply_key(dialog_id: int) -> str:
@@ -31,3 +32,7 @@ def sim_reply_key(branch_id: int, message_id: int) -> str:
 
 def sim_reply_prefix(branch_id: int) -> str:
     return f"sim_reply:{branch_id}:"
+
+
+def passport_key(dialog_id: int) -> str:
+    return f"passport:{dialog_id}"

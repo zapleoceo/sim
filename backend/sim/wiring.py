@@ -23,7 +23,7 @@ from sim.ports.speech import SpeechPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
-from sim.services.app_settings import env_defaults
+from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
@@ -36,6 +36,7 @@ from sim.services.llm_audit import AuditedLLM
 from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
+from sim.services.passport import PassportService
 from sim.services.preview_media import PreviewAttachments
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
@@ -144,6 +145,10 @@ class Container:
 
     def followup(self, s: AsyncSession) -> FollowupService:
         return FollowupService(s, clock=self.clock)
+
+    def passport(self, s: AsyncSession) -> PassportService:
+        return PassportService(s, self.audited(), AppSettingsService(s, env_defaults(self.settings)),
+                               clock=self.clock)
 
     def ingest(self, s: AsyncSession) -> IngestService:
         return IngestService(

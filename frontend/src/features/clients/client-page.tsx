@@ -215,6 +215,7 @@ export function ClientPage() {
 
           <StageCard card={card.data} onChanged={() => void card.refetch()} />
           <ClientForm key={`${card.data.id}:${card.dataUpdatedAt}`} card={card.data} />
+          <PassportCard card={card.data} />
 
           <Card>
             <CardTitle id="hist-h">История</CardTitle>
@@ -243,6 +244,26 @@ export function ClientPage() {
         <EmptyState icon={Hourglass} title="Загружаем клиента…" />
       )}
     </Page>
+  );
+}
+
+/** The lead passport: written by the passport keeper agent, read-only here. */
+function PassportCard({ card }: { card: ClientCard }) {
+  const text = (card.passport ?? '').trim();
+  return (
+    <Card>
+      <CardTitle id="passport-h">Паспорт собеседника</CardTitle>
+      {text ? (
+        <>
+          <p aria-labelledby="passport-h" className="whitespace-pre-wrap text-sm">{text}</p>
+          {card.passport_updated_at && (
+            <p className="text-xs text-muted-foreground">Обновлён {formatDateTime(card.passport_updated_at)}</p>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">Пока пусто: паспортистка заполнит его после первых ответов.</p>
+      )}
+    </Card>
   );
 }
 
