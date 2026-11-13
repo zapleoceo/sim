@@ -1,6 +1,7 @@
 """Dialogs (the unified inbox), clients and the funnel board."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -20,7 +21,7 @@ from sim.adapters.db.repositories.conversations import (
     MessageRepo,
 )
 from sim.adapters.db.repositories.records import PartnerEventRepo
-from sim.api.deps import App, Authed, Db, authed
+from sim.api.deps import App, Authed, Db, Owner, authed
 from sim.api.schemas import (
     AiToggleIn,
     ClientPatchIn,
@@ -36,9 +37,12 @@ from sim.api.schemas import (
 )
 from sim.clock import to_naive_utc
 from sim.domain.enums import ChannelKind, ClientStatus, Direction, SessionStatus, Stage
+from sim.services.dialog_reset import DialogReset
 from sim.services.funnel import FunnelRuleError, FunnelService
 from sim.services.outbound import cancel_queued_ai
 from sim.services.voice import VOICE_NOTE
+
+log = logging.getLogger(__name__)
 
 dialogs = APIRouter(prefix="/api/dialogs", tags=["dialogs"], dependencies=[Depends(authed)])
 clients = APIRouter(prefix="/api/clients", tags=["clients"], dependencies=[Depends(authed)])
@@ -119,16 +123,30 @@ async def list_dialogs(  # noqa: PLR0913
     return {"items": [dialog_row(d, personas.get(d.client.persona_id)) for d in rows], "total": total}
 
 
-@dialogs.get("/{dialog_id}")
-async def get_dialog(dialog_id: int, s: Db, c: App):
-    dialog = await dialog_or_404(s, dialog_id)
-    messages = await MessageRepo(s).recent(dialog_id, 1000)
+async def dialog_detail(s: AsyncSession, c: App, dialog: Dialog) -> dict[str, Any]:
+    messages = await MessageRepo(s).recent(dialog.id, 1000)
     return {
         "dialog": {**dialog_out(dialog), "send_capabilities": send_capabilities(c, dialog),
                    "channel_status": dialog.channel.status.value},
         "client": client_out(dialog.client, await channels_of(s, dialog.client)),
         "messages": [message_out(m) for m in messages],
     }
+
+
+@dialogs.get("/{dialog_id}")
+async def get_dialog(dialog_id: int, s: Db, c: App):
+    return await dialog_detail(s, c, await dialog_or_404(s, dialog_id))
+
+
+@dialogs.delete("/{dialog_id}/messages")
+async def clear_dialog_chat(dialog_id: int, c: App, s: Db, p: Owner):
+    """«Очистить чат» (owner only, irreversible): the dialog's history in SIM is wiped and the
+    persona's next reply starts without it. The messenger keeps its messages; nothing is sent."""
+    await lock(s, NS_DIALOG, dialog_id)
+    dialog = await dialog_or_404(s, dialog_id)
+    wiped = await DialogReset(s).clear_chat(dialog)
+    log.info("dialog %s: chat cleared by admin %s, %d messages wiped", dialog_id, p.user.id, wiped)
+    return {**await dialog_detail(s, c, dialog), "deleted_messages": wiped}
 
 
 @dialogs.post("/{dialog_id}/messages", status_code=201)
@@ -330,6 +348,16 @@ async def patch_client(client_id: int, body: ClientPatchIn, s: Db):
         elif value is None:
             continue  # text fields are not nullable
         setattr(client, field, value)
+    return client_out(client, await channels_of(s, client))
+
+
+@clients.delete("/{client_id}/passport")
+async def clear_client_passport(client_id: int, s: Db, p: Owner):
+    """«Очистить паспорт» (owner only, irreversible): what was collected about the person is
+    forgotten; the client, its dialogs and messages stay."""
+    client = await client_or_404(s, client_id)
+    await DialogReset(s).clear_passport(client)
+    log.info("client %s: passport cleared by admin %s", client_id, p.user.id)
     return client_out(client, await channels_of(s, client))
 
 

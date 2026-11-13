@@ -1,3 +1,4 @@
+import type { ConfirmOptions } from '@/components/confirm';
 import { formatDateTime } from '@/lib/format';
 import type { ClientCard, ClientFilter, FunnelEvent, PartnerEvent } from '@/lib/models';
 import { stageMeta } from '@/lib/stages';
@@ -44,3 +45,15 @@ export function clientApiFilter(f: ClientFilter): ClientFilter {
   return { ...f, q: f.q.trim() };
 }
 
+
+/** «Очистить паспорт» (owner only): what the owner confirms before the irreversible wipe. */
+export const CLEAR_PASSPORT_CONFIRM: ConfirmOptions = {
+  title: 'Очистить паспорт?',
+  message:
+    'Будет удалено всё, что собрано о клиенте: паспорт собеседника, потребности, заметки и следующий шаг. ' +
+    'Восстановить их нельзя. Клиент, его диалоги и сообщения, этап и статус останутся. ' +
+    'В Telegram ничего не удаляется и ничего не отправляется. После следующего ответа персонажа ' +
+    'паспортистка начнёт заполнять паспорт заново по последним сообщениям.',
+  confirmLabel: 'Очистить паспорт',
+  danger: true,
+};

@@ -1,3 +1,4 @@
+import type { ConfirmOptions } from '@/components/confirm';
 import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
 import type { Delivery, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, SimBranchRow } from '@/lib/models';
 
@@ -167,4 +168,20 @@ export function detailChanged(prev: DialogDetail | null | undefined, next: Dialo
 /** Enter sends, Shift+Enter (or IME composition) inserts a newline. */
 export function isSendKey(e: { key: string; shiftKey: boolean; isComposing?: boolean }): boolean {
   return e.key === 'Enter' && !e.shiftKey && !e.isComposing;
+}
+
+/** «Очистить чат» (owner only): what the owner confirms before the irreversible wipe. */
+export const CLEAR_CHAT_CONFIRM: ConfirmOptions = {
+  title: 'Очистить чат?',
+  message:
+    'Вся история сообщений этого диалога будет удалена из базы SIM без возможности восстановления, ' +
+    'а следующий ответ персонажа начнётся без прошлого контекста. Клиент и его паспорт останутся. ' +
+    'В Telegram и других мессенджерах сообщения останутся: там ничего не удаляется и ничего не отправляется.',
+  confirmLabel: 'Очистить чат',
+  danger: true,
+};
+
+/** The list row of a dialog whose chat was just cleared (the server answer for the rest). */
+export function clearedRow(row: DialogRow): DialogRow {
+  return { ...row, last_message: null, unread: 0, needs_operator: false };
 }

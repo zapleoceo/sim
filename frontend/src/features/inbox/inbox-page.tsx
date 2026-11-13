@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
 import { Hourglass, MessagesSquare } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { Avatar } from '@/components/avatar';
 import { StageChip, StatusBadge } from '@/components/badges';
+import { useConfirm } from '@/components/confirm';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { OptionSelect } from '@/components/option-select';
@@ -15,13 +17,15 @@ import { clientsApi } from '@/lib/api/clients';
 import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
 import type { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
+import { useAuth } from '@/lib/auth';
 import { useLiveDialogs } from '@/lib/live';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { Conversation } from './conversation';
 import { DialogList, InboxFilters } from './inbox-list';
 import {
-  DEFAULT_DIALOG_FILTER, PAGE_SIZE, POLL_MS, activeFilterCount, appendPage, combineDialogRows, mergeFirstPage, normalizeFilter, visibleTestRows,
+  CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, PAGE_SIZE, POLL_MS, activeFilterCount, appendPage, clearedRow, combineDialogRows,
+  mergeFirstPage, normalizeFilter, visibleTestRows,
 } from './inbox-logic';
 
 const route = getRouteApi('/_app/inbox');
@@ -146,6 +150,8 @@ export function InboxPage() {
   const search = route.useSearch();
   const navigate = route.useNavigate();
   const queryClient = useQueryClient();
+  const { isOwner } = useAuth();
+  const confirm = useConfirm();
   const dialogId = search.d ?? null;
   useLiveDialogs();   // the server pushes changed dialog ids: list and open dialog refresh at once
 
@@ -295,6 +301,23 @@ export function InboxPage() {
     } catch { return false; }
   };
 
+  // «Очистить чат» (owner only): the server answers with the emptied dialog, shown at once.
+  const clearChat = useMutation({
+    mutationFn: (id: number) => dialogsApi.clearChat(id),
+    onSuccess: (cleared, id) => {
+      queryClient.setQueryData<DialogDetail>(qk.dialog(id), cleared);
+      setRows((prev) => prev.map((r) => (r.id === id ? clearedRow(r) : r)));
+      void queryClient.invalidateQueries({ queryKey: ['dialogs'] });
+      void queryClient.invalidateQueries({ queryKey: ['client-chat'] });
+      toast.success('Чат очищен');
+    },
+  });
+  const askClearChat = async (): Promise<void> => {
+    if (dialogId === null) return;
+    const id = dialogId;
+    if (await confirm(CLEAR_CHAT_CONFIRM)) clearChat.mutate(id);
+  };
+
   const toggleAi = (paused: boolean): void => {
     if (dialogId === null) return;
     const id = dialogId;
@@ -383,6 +406,8 @@ export function InboxPage() {
                   .then(() => true).catch(() => false)
               }
               onChangeStage={(stage) => changeStage(detail.client.id, stage)}
+              onClearChat={isOwner ? () => void askClearChat() : undefined}
+              clearing={clearChat.isPending}
             />
           ) : dialogId !== null ? (
             <div className="grid flex-1 place-items-center">
