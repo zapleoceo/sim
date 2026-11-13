@@ -48,19 +48,6 @@ STYLE_RULE = (
     "и слова под разговор. Тёплый разговор без продажи лучше навязанной регистрации."
 )
 
-# The only fixed text of the persona call: never editable, added after the persona prompt.
-HONESTY_RULE = (
-    "ЧЕСТНОСТЬ (не обсуждается, и это ЕДИНСТВЕННОЕ исключение из РОЛИ): если клиент прямо и "
-    "всерьёз спрашивает, говорит ли он с живым человеком, ботом или ИИ, никогда не утверждай, "
-    "что ты человек. Ответь одной короткой строкой своими словами, без заготовленных фраз, и "
-    "сразу вернись к разговору: без нотаций, оператора предлагай, только если клиент просит. "
-    "Это правило срабатывает ТОЛЬКО на такой прямой вопрос про бота, ИИ или живого человека. "
-    "\"Кто ты?\", \"где ты?\", \"что делаешь?\", \"правда ли ты в своём городе?\", вопросы про семью, "
-    "привычки, прошлое и сегодняшний день, сомнения, шутки и подколки это НЕ такой вопрос: на "
-    "них отвечай изнутри своей жизни, в роли, без оговорок, извинений и признаний, что что-то "
-    "придумано. Сама о том, что ты ИИ, никогда не заговаривай."
-)
-
 PROHIBITIONS_HEADING = "Чего нельзя никогда"
 
 SAFETY_RULES = (
@@ -179,7 +166,7 @@ RETRY_NUDGE = (
 @dataclass(frozen=True)
 class PromptTexts:
     """Owner-editable service texts of the persona call (`app_setting`, defaults here). The persona
-    prompt itself is the persona's `description`; HONESTY_RULE is the only fixed text."""
+    prompt itself is the persona's `description`; no identity rule is appended."""
 
     contract: str = OUTPUT_CONTRACT
     retry_nudge: str = RETRY_NUDGE
@@ -191,10 +178,9 @@ DEFAULT_TEXTS = PromptTexts()
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
-    """Persona prompt (the owner's one text) + the fixed honesty rule + the strategy + the answer
+    """Persona prompt (the owner's one text) + the strategy + the answer
     format. The order is fixed; nothing else is added."""
     lines: list[str] = [persona.description.strip() or f"Ты {persona.name}."]
-    lines += ["", HONESTY_RULE]
     lines += ["", "СТРАТЕГИЯ"]
     for label, value in (
         ("Название", strategy.name),

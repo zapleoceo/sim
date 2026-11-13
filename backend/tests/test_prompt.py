@@ -7,7 +7,6 @@ import pytest
 
 from sim.domain.enums import Stage
 from sim.services.prompt import (
-    HONESTY_RULE,
     STYLE_RULE,
     VOICE_RULE,
     DialogContext,
@@ -61,12 +60,11 @@ def test_layout_system_history_system():
     assert [m["role"] for m in msgs] == ["system", "user", "assistant", "system"]
 
 
-def test_voice_and_honesty_rules_present():
+def test_voice_rules_present_without_fixed_identity_rule():
     system = stable_system_prompt(PERSONA, STRATEGY)
     # lives the role, never volunteers being an AI...
     assert "Сама никогда не говори, что ты ИИ" in system and "никаких оговорок" in system
-    # ...but never claims to be human on a direct question
-    assert "прямо и " in system and "никогда не утверждай" in system
+    assert "никогда не утверждай" not in system
 
 
 def test_voice_and_style_aim_at_a_human_messenger_voice():
@@ -74,9 +72,9 @@ def test_voice_and_style_aim_at_a_human_messenger_voice():
     assert "на такие вопросы отвечай из биографии" in system
     assert "милениал" in system and "не используй длинные тире" in system
     assert "мелкую естественную опечатку" in system and "никогда в именах, ссылках, цифрах и ценах" in system
-    assert "без заготовленных фраз" in system and "ЕДИНСТВЕННОЕ исключение из РОЛИ" in system
+    assert "ЕДИНСТВЕННОЕ исключение из РОЛИ" not in system
     # the rules practise what they preach: no long dashes or guillemets to imitate
-    for rule in (VOICE_RULE, STYLE_RULE, HONESTY_RULE):
+    for rule in (VOICE_RULE, STYLE_RULE):
         assert not set(rule) & {"—", "–", "«", "»"}
 
 
@@ -94,10 +92,10 @@ def test_description_and_prohibitions_sections():
     assert system.index("Чего нельзя никогда") < system.index("СТРАТЕГИЯ") < system.index("ПРАВИЛА:")
 
 
-def test_the_persona_prompt_is_the_owner_text_then_honesty_strategy_and_format():
+def test_the_persona_prompt_is_the_owner_text_then_strategy_and_format():
     own = PersonaProfile(name="Х", description="Мой промпт целиком.", prohibitions="не трогать")
     system = stable_system_prompt(own, STRATEGY, PromptTexts(contract="ФОРМАТ: мой"))
-    assert system.startswith(f"Мой промпт целиком.\n\n{HONESTY_RULE}\n\nСТРАТЕГИЯ")
+    assert system.startswith("Мой промпт целиком.\n\nСТРАТЕГИЯ")
     assert system.endswith("ФОРМАТ: мой")
     assert "не трогать" not in system            # prohibitions were folded into the text (0014)
     assert VOICE_RULE not in system and STYLE_RULE not in system   # no hidden shared rules
@@ -222,9 +220,7 @@ def test_client_name_quotes_cannot_break_out_of_the_data_value():
     assert value.startswith('"Eve\\"')
 
 
-def test_honesty_applies_only_to_the_direct_bot_question_life_questions_stay_in_role():
-    assert "ТОЛЬКО на такой прямой вопрос" in HONESTY_RULE
-    for in_role in ("Кто ты?", "где ты?", "что делаешь?"):
-        assert in_role in HONESTY_RULE
-    assert "без оговорок, извинений и признаний" in HONESTY_RULE
-    assert "никогда не утверждай" in HONESTY_RULE          # the floor itself is unchanged
+def test_no_fixed_identity_rule_is_appended():
+    system = stable_system_prompt(PERSONA, STRATEGY)
+    assert "ЧЕСТНОСТЬ" not in system
+    assert "никогда не утверждай" not in system

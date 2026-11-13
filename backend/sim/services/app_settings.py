@@ -6,8 +6,8 @@ value that no longer validates (the spec changed) is ignored with a warning. Def
 keys that used to be environment settings come from the environment (`env_defaults`).
 
 Every prompt sent to a model is editable: the persona prompt is the persona's own text, the
-guard prompt and the service prompts live here. The one fixed text is the honesty rule
-(`prompt.HONESTY_RULE`, `guard.GUARD_HONESTY`), added after the persona and guard prompts."""
+guard prompt and the service prompts live here. The fixed guard text is the decision consistency contract
+(`guard.GUARD_CONTROL`); no identity rule is appended to either prompt."""
 from __future__ import annotations
 
 import logging

@@ -295,8 +295,7 @@ def test_guard_checks_only_the_critical_rules():
     for rule in ("пароли, коды из SMS и данные карт", "Никаких ссылок, кроме", "гарантированного дохода",
                  "просьбу не писать"):
         assert rule in system
-    # honesty floor: BLOCK a human claim on a direct question (fixed, not editable)
-    assert "не должен утверждать, что персонаж человек" in system and "ЗАБЛОКИРОВАТЬ" in system
+    assert "не должен утверждать, что персонаж человек" not in system
     # everything else is the persona's freedom
     for gone in ("медицинских", "политики", "выдуманных фактов", "мата", "без вопроса сам говорит, что он ИИ"):
         assert gone not in system
@@ -304,11 +303,10 @@ def test_guard_checks_only_the_critical_rules():
     assert "Не исправляй черновик ради согласованности с прошлыми репликами" in system
 
 
-def test_guard_prompt_is_the_owner_text_plus_the_fixed_honesty_rule():
-    from sim.services.guard import GUARD_CONTROL, GUARD_HONESTY
+def test_guard_prompt_is_the_owner_text_plus_decision_control():
+    from sim.services.guard import GUARD_CONTROL
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_HONESTY}\n\n{GUARD_CONTROL}"
-    assert "не должен утверждать, что персонаж человек" in GUARD_HONESTY
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}"
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():
@@ -399,7 +397,6 @@ async def test_dialog_api_and_analytics_expose_the_guard(api, container, world, 
     assert summary["guard"] == {"ok": 0, "rewritten": 0, "blocked": 1}
 
 
-def test_guard_honesty_does_not_turn_in_role_answers_into_confessions():
-    from sim.services.guard import GUARD_HONESTY
-
-    assert "Только этот прямой вопрос" in GUARD_HONESTY and "ЗАБЛОКИРОВАТЬ" in GUARD_HONESTY
+def test_no_fixed_identity_rule_is_appended():
+    system = guard_system_prompt("owner rules")
+    assert "не должен утверждать, что персонаж человек" not in system
