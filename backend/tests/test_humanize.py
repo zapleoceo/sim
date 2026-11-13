@@ -30,7 +30,8 @@ def test_a_reply_of_several_messages_gets_at_most_one_slip():
     from sim.services.humanize import messenger_touches
 
     reply = "Ой, привет.\n\nСегодня бегала вдоль реки, погода отличная.\n\nА у вас как дела, всё хорошо?"
-    clean = ["ой, привет", "сегодня бегала вдоль реки, погода отличная", "а у вас как дела, всё хорошо?"]
+    # a one-letter first word ("А") keeps its capital: only words like "Привет" are lowered
+    clean = ["ой, привет", "сегодня бегала вдоль реки, погода отличная", "А у вас как дела, всё хорошо?"]
     for n in range(40):  # different texts -> different seeds
         text = reply + " ок" * n
         out = messenger_touches(text, typo_percent=100, lowercase_percent=100).split("\n\n")
