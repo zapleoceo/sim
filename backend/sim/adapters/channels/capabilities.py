@@ -14,6 +14,20 @@ class Capability(StrEnum):
     PUBLISH_PHOTO = "publish_photo"     # port.publish_photo(path, caption) -> external id
     SEND_VOICE = "send_voice"           # port.send_voice(thread, ogg_opus, duration_s) -> SendResult
     SEND_ATTACHMENT = "send_attachment"  # port.send_attachment(thread, bytes, name, mime, caption)
+    CHAT_ACTION = "chat_action"          # port.send_chat_action(thread, "typing" | "record_voice")
+
+
+TYPING = "typing"                  # "печатает…"
+RECORD_VOICE = "record_voice"      # "записывает голосовое…"
+
+
+@runtime_checkable
+class ChatActionSender(Protocol):
+    """Shows the persona as typing / recording a voice note. Best effort: an indicator never
+    fails a reply, so implementations swallow their errors. One call lasts a few seconds
+    (Telegram ~5 s), callers repeat it while the work goes on."""
+
+    async def send_chat_action(self, external_thread_id: str, action: str) -> None: ...
 
 
 @runtime_checkable

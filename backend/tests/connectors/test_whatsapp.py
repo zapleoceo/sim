@@ -152,3 +152,15 @@ async def test_send_voice_failure_is_result():
         return_value=httpx.Response(500))
     res = await WhatsAppConnector().build_port(3, SESSION).send_voice(JID, b"OggS", None)
     assert not res.ok and "500" in res.error
+
+
+@respx.mock
+async def test_chat_action_is_an_evolution_presence():
+    s = respx.post(f"{EVO}/chat/sendPresence/sim-3").mock(return_value=httpx.Response(201, json={}))
+    port = WhatsAppConnector().build_port(3, SESSION)
+    await port.send_chat_action(JID, "typing")
+    await port.send_chat_action(JID, "record_voice")
+    bodies = [json.loads(c.request.content) for c in s.calls]
+    assert [b["presence"] for b in bodies] == ["composing", "recording"] and bodies[0]["number"] == JID
+    s.mock(return_value=httpx.Response(500))
+    await port.send_chat_action(JID, "typing")           # a failure is swallowed

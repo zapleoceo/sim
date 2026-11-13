@@ -129,7 +129,8 @@ def chunk_text(text: str, limit: int = TG_MAX_TEXT) -> list[str]:
 
 class TelegramAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
+                              Capability.CHAT_ACTION})
 
     def __init__(self, transport: TelegramTransport) -> None:
         self._t = transport
@@ -143,6 +144,13 @@ class TelegramAdapter:
                 raise
             await asyncio.sleep(exc.retry_after)
             return await self._t.call("sendMessage", params)
+
+    async def send_chat_action(self, external_thread_id: str, action: str) -> None:
+        """Bot API sendChatAction: `typing` / `record_voice` for ~5 s (best effort)."""
+        try:
+            await self._t.call("sendChatAction", {"chat_id": external_thread_id, "action": action})
+        except Exception as exc:
+            logger.debug("telegram chat action failed: %s", type(exc).__name__)
 
     async def send_text(self, external_thread_id: str, text: str) -> SendResult:
         """Long texts go out in chunks. A failure on the FIRST chunk is a failed send (nothing

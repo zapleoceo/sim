@@ -639,3 +639,21 @@ async def test_after_listen_the_connector_builds_listening_clients(made):
     port = conn.build_port(5, {"api_id": 1, "api_hash": "h", "string_session": "SESS"})
     await port.t.ready()
     assert calls == [{"receive_updates": True}]
+
+
+async def test_chat_action_sets_typing_or_recording_on_the_peer():
+    class CallingClient(FakeClient):
+        def __init__(self):
+            super().__init__("SESS")
+            self.requests = []
+
+        async def __call__(self, request):
+            self.requests.append((type(request).__name__, type(request.action).__name__))
+
+    client = CallingClient()
+    port = TelegramUserAdapter(TelethonTransport(lambda: client), TGUserState())
+    await port.send_chat_action("777", "typing")
+    await port.send_chat_action("777", "record_voice")
+    assert client.requests == [("SetTypingRequest", "SendMessageTypingAction"),
+                               ("SetTypingRequest", "SendMessageRecordAudioAction")]
+    await port.send_chat_action("not-a-peer", "typing")  # bad thread id: swallowed
