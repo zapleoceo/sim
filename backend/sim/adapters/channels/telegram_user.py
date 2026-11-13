@@ -239,7 +239,7 @@ class TelethonTransport:
 class TelegramUserAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM_USER
     capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
-                              Capability.CHAT_ACTION})
+                              Capability.CHAT_ACTION, Capability.MARK_READ})
 
     def __init__(
         self,
@@ -334,6 +334,18 @@ class TelegramUserAdapter:
             await client(tl_functions.messages.SetTypingRequest(peer=entity, action=kind))
         except Exception as exc:
             logger.debug("telegram_user chat action failed: %s", type(exc).__name__)
+
+    async def mark_read(self, external_thread_id: str, external_message_id: str) -> None:
+        """messages.readHistory up to this message: the client sees it read (best effort).
+        Inbound ids are "<peer>:<message id>"."""
+        try:
+            peer = int(external_thread_id)
+            max_id = int(external_message_id.rpartition(":")[2])
+            client = await self.t.ready()
+            entity = await self.t.entity(client, peer)
+            await client(tl_functions.messages.ReadHistoryRequest(peer=entity, max_id=max_id))
+        except Exception as exc:
+            logger.debug("telegram_user mark read failed: %s", type(exc).__name__)
 
     async def send_text(self, external_thread_id: str, text: str) -> SendResult:
         """Chunks of 4096. A failure on the FIRST chunk is a failed send (the job retries);
