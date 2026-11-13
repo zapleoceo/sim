@@ -32,6 +32,7 @@ from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
+from sim.services.video_note import is_ai_video, label_delivered, owner_allowed, owner_telegram_id
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -41,8 +42,7 @@ class SendFailed(Exception):
     """Delivery did not succeed; the worker retries with backoff."""
 
 
-def send_key(message_id: int) -> str:
-    return f"send:{message_id}"
+send_key = jobkinds.send_key
 
 
 async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -> int:
@@ -237,6 +237,8 @@ class OutboundService:
             message.delivery = Delivery.CANCELLED
             message.error = "cancelled: AI paused or client refused before sending"
             return
+        if not await self.ai_video_gate(message, dialog):
+            return
         channel = dialog.channel
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
@@ -291,6 +293,21 @@ class OutboundService:
                 raise SendUncertain(UNCERTAIN_SEND) from None
             step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
+
+    async def ai_video_gate(self, message: Message, dialog: Dialog) -> bool:
+        """Hard allowlist for generated video notes (sim.services.video_note), whoever queued
+        the message: False = cancelled, it is not for this dialog. Raises SendFailed (retried)
+        while the "Сгенерировано ИИ" label before it has not been delivered."""
+        if not is_ai_video(message.media_url):
+            return True
+        if not owner_allowed(dialog, await owner_telegram_id(self.session)):
+            message.delivery = Delivery.CANCELLED
+            message.error = "cancelled: AI video notes go only to the allowlisted owner account"
+            log.warning("message %s: AI video note refused for dialog %s", message.id, dialog.id)
+            return False
+        if not await label_delivered(self.session, message):
+            raise SendFailed("the AI label before the video note is not delivered yet")
+        return True
 
     def try_port(self, channel: Channel) -> object | None:
         """The channel port for side signals (typing indicator), or None when it cannot be built.

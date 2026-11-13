@@ -56,6 +56,20 @@ class MediaStore:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / name).write_bytes(data)
 
+    async def save_as(self, name: str, data: bytes) -> str:
+        """Store under a caller-chosen name (a content-addressed cache entry); the name must
+        still be a safe media name. Written through a temp file so a reader never sees half."""
+        if not SAFE_NAME.match(name):
+            raise ValueError(f"unsafe media name: {name!r}")
+        await asyncio.to_thread(self._replace, name, data)
+        return name
+
+    def _replace(self, name: str, data: bytes) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        partial = self.root / f"{name}.{secrets.token_hex(4)}.part"
+        partial.write_bytes(data)
+        partial.replace(self.root / name)
+
     def path(self, name: str) -> Path | None:
         if not SAFE_NAME.match(name):
             return None

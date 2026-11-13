@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     broker_project_key: str = ""
     broker_poll_budget_s: float = 180.0
     broker_subscription_budget_s: float = 600.0
+    # AI video notes (Broker /v1/video/jobs): how long one clip may stay queued + rendering.
+    broker_video_budget_s: float = 900.0
     # Persona phone calls (Broker /v1/live, Gemini Live): the longest call; the Broker caps it at
     # 540 s itself (Google closes one live session after ~10 min).
     call_max_seconds: float = 540.0

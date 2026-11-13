@@ -340,7 +340,7 @@ FloodWait на отправке даёт `flood_wait:<секунды>` и пов
 
 Голос: входящие голосовые → Broker `/v1/transcribe/jobs`. Исходящий голос персонажа — `SpeechPort`
 (Broker `POST /v1/speech`, Google Gemini TTS) → ffmpeg OGG/Opus → `send_voice` канала; подробно в
-[voice.md](voice.md). Видео (Vivix) не подключено.
+[voice.md](voice.md). Видео (Vivix) не подключено. Кружочки ИИ — `VideoPort` (Broker `POST /v1/video/jobs`, Gemini Omni Flash) → ffmpeg квадрат 384 px со звуком → `send_video_note`, только на один аккаунт из настройки владельца, с кешем по хешу запроса: [video-notes.md](video-notes.md).
 
 ## Безопасность
 

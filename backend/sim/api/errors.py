@@ -14,6 +14,7 @@ from sim.services.content import ContentConflict, ContentError
 from sim.services.conversation import ConversationError
 from sim.services.persona_media import MediaNotFound, MediaRejected, MediaTooLarge
 from sim.services.preview_media import AttachmentError
+from sim.services.video_note import VideoNoteRefused
 
 STATUS_BY_ERROR: dict[type[Exception], int] = {
     ChannelError: 422,
@@ -24,6 +25,7 @@ STATUS_BY_ERROR: dict[type[Exception], int] = {
     MediaRejected: 422,
     MediaTooLarge: 413,
     MediaNotFound: 404,
+    VideoNoteRefused: 409,
 }
 BROKER_STATUS = 502
 
