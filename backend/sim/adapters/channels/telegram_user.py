@@ -20,10 +20,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from telethon import errors as tg_errors
+from telethon import functions as tl_functions
+from telethon import types as tl_types
 from telethon.events import NewMessage
 
 from sim.adapters.channels._http import MEDIA_MAX_BYTES
-from sim.adapters.channels.capabilities import Capability
+from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
 from sim.adapters.channels.telegram import chunk_text
 from sim.clock import utcnow
 from sim.domain.enums import ChannelKind, SessionStatus
@@ -236,7 +238,8 @@ class TelethonTransport:
 
 class TelegramUserAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM_USER
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
+                              Capability.CHAT_ACTION})
 
     def __init__(
         self,
@@ -319,6 +322,18 @@ class TelegramUserAdapter:
         logger.warning("telegram_user read flood wait: %ss", seconds)
 
     # --- outbound --------------------------------------------------------------------------
+
+    async def send_chat_action(self, external_thread_id: str, action: str) -> None:
+        """messages.setTyping: "печатает" or "записывает голосовое" for ~5 s (best effort)."""
+        try:
+            peer = int(external_thread_id)
+            client = await self.t.ready()
+            entity = await self.t.entity(client, peer)
+            kind = (tl_types.SendMessageRecordAudioAction() if action == RECORD_VOICE
+                    else tl_types.SendMessageTypingAction())
+            await client(tl_functions.messages.SetTypingRequest(peer=entity, action=kind))
+        except Exception as exc:
+            logger.debug("telegram_user chat action failed: %s", type(exc).__name__)
 
     async def send_text(self, external_thread_id: str, text: str) -> SendResult:
         """Chunks of 4096. A failure on the FIRST chunk is a failed send (the job retries);

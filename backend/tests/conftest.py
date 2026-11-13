@@ -148,6 +148,10 @@ class FakePort:
     media_error: Exception | None = None
     downloads: list[str] = field(default_factory=list)
     voices: list[tuple[str, bytes, float | None]] = field(default_factory=list)
+    actions: list[tuple[str, str]] = field(default_factory=list)      # "печатает" / "записывает"
+
+    async def send_chat_action(self, external_thread_id: str, action: str) -> None:
+        self.actions.append((external_thread_id, action))
 
     async def download_media(self, ref: str) -> bytes:
         """Like the real adapters: a marker (tg-file:/wa-msg:), never a fetchable URL."""

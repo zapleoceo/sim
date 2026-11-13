@@ -6,15 +6,19 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 from typing import Any, Protocol
 
 from sim.adapters.channels._http import API_TIMEOUT, MEDIA_MAX_BYTES
-from sim.adapters.channels.capabilities import Capability
+from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
 from sim.adapters.channels.wa_parse import WA_MEDIA_PREFIX
 from sim.domain.enums import ChannelKind, SessionStatus
 from sim.ports.channel import SendResult
 
 WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "CONNECTION_UPDATE"]
+PRESENCE_MS = 5000          # how long one sendPresence keeps "печатает / записывает" visible
+
+logger = logging.getLogger(__name__)
 
 
 class EvolutionError(Exception):
@@ -87,7 +91,7 @@ def create_payload(instance: str, url: str, secret: str) -> dict[str, Any]:
 
 class WhatsAppAdapter:
     kind: ChannelKind = ChannelKind.WHATSAPP
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.CHAT_ACTION})
 
     def __init__(self, transport: EvolutionTransport, *, instance: str) -> None:
         self._t = transport
@@ -103,6 +107,18 @@ class WhatsAppAdapter:
             return SendResult(ok=False, error=str(exc))
         key = (raw or {}).get("key") or {}
         return SendResult(ok=True, external_message_id=str(key.get("id") or "") or None)
+
+    async def send_chat_action(self, external_thread_id: str, action: str) -> None:
+        """Evolution v2 sendPresence: `composing` ("печатает") or `recording` ("записывает
+        аудио") for a few seconds (best effort)."""
+        presence = "recording" if action == RECORD_VOICE else "composing"
+        try:
+            await self._t.request(
+                "POST", f"/chat/sendPresence/{self._instance}",
+                {"number": external_thread_id, "presence": presence, "delay": PRESENCE_MS},
+            )
+        except Exception as exc:
+            logger.debug("whatsapp presence failed: %s", type(exc).__name__)
 
     async def send_voice(
         self, external_thread_id: str, audio: bytes, duration_s: float | None
