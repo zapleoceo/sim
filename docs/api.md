@@ -95,7 +95,11 @@ nullable `dialog_id` и контекст клиента/персоны/кана�
 
 Базовый путь `/api`. JSON, даты ISO-8601 UTC. Авторизация — cookie `sim_session` (httpOnly,
 Secure, SameSite=Lax) + заголовок `X-CSRF-Token` на POST/PUT/PATCH/DELETE (значение из
-`GET /api/auth/me` → `csrf_token`). Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx.
+`GET /api/auth/me` → `csrf_token`). Без сессии публичны только `/api/live`, `/api/ready`,
+`/api/health`, `/api/auth/config`, `/api/auth/telegram`, `/api/auth/link` и вебхуки `/hooks/*`
+(у них своя проверка секрета); `POST /api/auth/logout` без сессии лишь стирает cookie (`204`).
+Остальные маршруты без сессии отвечают `401`; это проверяет `backend/tests/test_auth_required.py`.
+Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx.
 Списки: `{"items": [...], "total": N}`, параметры `limit` (≤200, по умолчанию 50), `offset`.
 
 ## Auth
