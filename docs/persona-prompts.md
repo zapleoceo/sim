@@ -92,7 +92,7 @@
 высокомерничать; не язвить в адрес собеседника.
 
 
-## Visible agent prompt (0019)
+## Visible agent prompt (0019_agent_prompt)
 
 The persona screen explicitly reports `legacy` or `unified`. Legacy is unchanged:
 `description`, strategy text and legacy strategy rules are composed. The editor materializes
@@ -122,6 +122,8 @@ SIM boundary must not be advertised as the complete provider-native system promp
 The screen discloses postprocessing (including terminal punctuation removal), technical
 handoff and retry text instead of pretending those are user-authored behavioural text.
 
-Migration 0019 adds a nullable column only. Rollback of the migration drops that new column;
+Migration 0019_agent_prompt (parent 0018) adds a nullable column only. Rollback of the migration drops that new column;
 back up its saved values before downgrading. No live persona is switched by migration.
 CI must run backend/PostgreSQL, frontend and tests/docs gates on the published commit.
+
+Integration order: this migration is independent of unmerged routine/media work. Later migrations branching from 0018 must be rebased onto 0019_agent_prompt (or explicitly merged) before release; never deploy multiple Alembic heads.
