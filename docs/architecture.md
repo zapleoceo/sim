@@ -82,6 +82,7 @@ backend/sim/
 | `content_post` | контент IG: тип, подпись, медиа, статус (`draft`/`approved`/`scheduled`/`published`/`failed`), время |
 | `content_publish_intent` | постоянный intent по post ID; fingerprint, время попытки и внешний receipt; хранится независимо от удаления поста |
 | `sim_branch`, `sim_message`, `sim_admin_pref` | симуляции админов в боте входа: ветка (админ, персонаж, этап/статус/потребности/следующий шаг/заметки, `closed_at`, `last_active_at`), её сообщения (`role` `client`/`ai`, вердикт контролера, нарушения, модель) и настройка `/debug`. Отдельно от `client`/`dialog`/`message` |
+| `persona_media` | медиа-галерея персонажа: `kind` (`photo`/`video`/`video_note`), `storage_name` (имя файла в media_dir), `caption`, `tags` (JSON), `created_at`; FK на `persona` (CASCADE) |
 | `job` | очередь: kind (`reply`, `send`, `followup`, `passport`, `media`, `content_publish`, `sim_reply`), payload, run_at, attempts, locked_until |
 | `trace_event` | журнал системы: один шаг одного запроса (kind, name, status, started_at, duration_ms, attempt, http_status, actor, маскированная error, detail) и id связей без FK; хранится `trace_retention_days` |
 | `llm_call` | аудит каждого вызова Broker (модель, токены, cost, latency, ошибка, `trace_id`); вызовы контролера — `workflow = "guard"`; симуляции — `sim` и `sim_guard` (в сводку расходов аналитики не входят) |

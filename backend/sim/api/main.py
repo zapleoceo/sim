@@ -20,6 +20,7 @@ from sim.api.routers import (
     events,
     hooks,
     inbox,
+    persona_media,
     reports,
     simulations,
     studio,
@@ -107,6 +108,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     )
     for router in (
         system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
+        persona_media.router,
         channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
         reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
         settings_api.router,

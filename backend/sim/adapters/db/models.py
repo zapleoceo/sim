@@ -28,6 +28,7 @@ from sim.domain.enums import (
     Author,
     ChannelKind,
     ClientStatus,
+    MediaKind,
     ContentKind,
     ContentStatus,
     Delivery,
@@ -143,6 +144,18 @@ class Persona(Base):
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PersonaMedia(Base):
+    __tablename__ = "persona_media"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"))
+    kind: Mapped[MediaKind] = mapped_column(enum_col(MediaKind))
+    storage_name: Mapped[str] = mapped_column(String(120))
+    caption: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

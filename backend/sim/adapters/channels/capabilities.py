@@ -14,6 +14,8 @@ class Capability(StrEnum):
     PUBLISH_PHOTO = "publish_photo"     # port.publish_photo(path, caption) -> external id
     SEND_VOICE = "send_voice"           # port.send_voice(thread, ogg_opus, duration_s) -> SendResult
     SEND_ATTACHMENT = "send_attachment"  # port.send_attachment(thread, bytes, name, mime, caption)
+    SEND_PHOTO = "send_photo"           # port.send_photo(thread, bytes, caption) -> SendResult
+    SEND_VIDEO_NOTE = "send_video_note" # port.send_video_note(thread, bytes) -> SendResult
     CHAT_ACTION = "chat_action"          # port.send_chat_action(thread, "typing" | "record_voice")
 
 
@@ -54,4 +56,18 @@ class AttachmentSender(Protocol):
     async def send_attachment(
         self, external_thread_id: str, data: bytes, filename: str,
         mime: str, caption: str,
+    ) -> SendResult: ...
+
+
+@runtime_checkable
+class PhotoSender(Protocol):
+    async def send_photo(
+        self, external_thread_id: str, data: bytes, caption: str,
+    ) -> SendResult: ...
+
+
+@runtime_checkable
+class VideoNoteSender(Protocol):
+    async def send_video_note(
+        self, external_thread_id: str, data: bytes,
     ) -> SendResult: ...

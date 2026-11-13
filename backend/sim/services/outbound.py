@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.audio import AudioError
 from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
+from sim.domain.enums import MediaKind
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
@@ -259,12 +260,17 @@ class OutboundService:
 
         note = await self.voice_note(message, dialog, port)
         attachment = self.attachment(message, port)
+        gallery_media = self.gallery_media(message, port)
         await self.receipts.claim(message.id, fingerprint)
         async with self.send_step(channel, message, voice=note is not None) as step:
             try:
                 if note is not None:
                     result = await port.send_voice(  # type: ignore[attr-defined]
                         dialog.external_thread_id, note.audio, note.duration_s,
+                    )
+                elif gallery_media is not None:
+                    result = await self._send_gallery(
+                        port, dialog.external_thread_id, gallery_media, message.text,
                     )
                 elif attachment is not None:
                     data, filename, mime = attachment
@@ -366,6 +372,33 @@ class OutboundService:
         log.warning("message %s goes out as text, not voice: %s", message.id, reason)
         message.media_kind = None
         return None
+
+    def gallery_media(self, message: Message, port: object) -> tuple[bytes, str, str] | None:
+        """A photo or video_note from the persona gallery, or None."""
+        if message.media_kind not in (MediaKind.PHOTO, MediaKind.VIDEO_NOTE):
+            return None
+        url = message.media_url or ""
+        if not url.startswith("/api/media/") or self.media is None:
+            return None
+        name = url.removeprefix("/api/media/")
+        path = self.media.path(name)
+        if path is None:
+            return None
+        return path.read_bytes(), name, message.media_kind
+
+    async def _send_gallery(
+        self, port: object, thread: str, media: tuple[bytes, str, str], caption: str,
+    ) -> SendResult:
+        data, _name, kind = media
+        if kind == MediaKind.PHOTO:
+            if Capability.SEND_PHOTO not in getattr(port, "capabilities", frozenset()):
+                raise SendFailed("this channel cannot send photos")
+            return await port.send_photo(thread, data, caption)  # type: ignore[attr-defined]
+        if kind == MediaKind.VIDEO_NOTE:
+            if Capability.SEND_VIDEO_NOTE not in getattr(port, "capabilities", frozenset()):
+                raise SendFailed("this channel cannot send video notes")
+            return await port.send_video_note(thread, data)  # type: ignore[attr-defined]
+        raise SendFailed(f"unsupported gallery media kind: {kind}")
 
     async def mark_failed(self, message_id: int, error: str) -> None:
         message = await self.messages.get(message_id)

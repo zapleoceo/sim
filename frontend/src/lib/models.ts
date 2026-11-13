@@ -64,6 +64,18 @@ export interface Persona {
   created_at: string;
 }
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
+
+export type MediaKind = 'photo' | 'video' | 'video_note';
+export interface PersonaMedia {
+  id: number;
+  persona_id: number;
+  kind: MediaKind;
+  storage_name: string;
+  caption: string;
+  tags: string[];
+  file_url: string;
+  created_at: string;
+}
 export type VoiceMode = 'off' | 'mirror' | 'always';
 export type VoiceAmbience = 'off' | 'room' | 'street' | 'cafe' | 'random';
 

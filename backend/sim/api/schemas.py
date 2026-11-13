@@ -16,6 +16,7 @@ from sim.adapters.db.models import (
     Message,
     PartnerEvent,
     Persona,
+    PersonaMedia,
     SimBranch,
     SimMessage,
     Strategy,
@@ -25,6 +26,7 @@ from sim.domain.enums import (
     ChannelKind,
     ClientStatus,
     ContentKind,
+    MediaKind,
     Role,
     Stage,
     VoiceAmbience,
@@ -265,6 +267,15 @@ def connect_state_out(s: ConnectState) -> dict[str, Any]:
         if value is not None:
             out[key] = value
     return out
+
+
+def persona_media_out(m: PersonaMedia) -> dict[str, Any]:
+    return {
+        "id": m.id, "persona_id": m.persona_id, "kind": m.kind.value,
+        "storage_name": m.storage_name, "caption": m.caption, "tags": list(m.tags),
+        "file_url": f"/api/media/{m.storage_name}",
+        "created_at": dt(m.created_at),
+    }
 
 
 def guard_out(
