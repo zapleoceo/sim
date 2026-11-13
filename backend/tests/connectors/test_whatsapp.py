@@ -164,3 +164,14 @@ async def test_chat_action_is_an_evolution_presence():
     assert [b["presence"] for b in bodies] == ["composing", "recording"] and bodies[0]["number"] == JID
     s.mock(return_value=httpx.Response(500))
     await port.send_chat_action(JID, "typing")           # a failure is swallowed
+
+
+@respx.mock
+async def test_mark_read_is_an_evolution_read_mark():
+    s = respx.post(f"{EVO}/chat/markMessageAsRead/sim-3").mock(return_value=httpx.Response(201, json={}))
+    port = WhatsAppConnector().build_port(3, SESSION)
+    await port.mark_read(JID, "MID-1")
+    assert json.loads(s.calls[0].request.content) == {
+        "readMessages": [{"remoteJid": JID, "fromMe": False, "id": "MID-1"}]}
+    s.mock(return_value=httpx.Response(500))
+    await port.mark_read(JID, "MID-2")                  # a failure is swallowed

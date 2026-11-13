@@ -91,7 +91,8 @@ def create_payload(instance: str, url: str, secret: str) -> dict[str, Any]:
 
 class WhatsAppAdapter:
     kind: ChannelKind = ChannelKind.WHATSAPP
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.CHAT_ACTION})
+    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.CHAT_ACTION,
+                              Capability.MARK_READ})
 
     def __init__(self, transport: EvolutionTransport, *, instance: str) -> None:
         self._t = transport
@@ -119,6 +120,17 @@ class WhatsAppAdapter:
             )
         except Exception as exc:
             logger.debug("whatsapp presence failed: %s", type(exc).__name__)
+
+    async def mark_read(self, external_thread_id: str, external_message_id: str) -> None:
+        """Evolution v2 markMessageAsRead: blue ticks on the client's message (best effort)."""
+        try:
+            await self._t.request(
+                "POST", f"/chat/markMessageAsRead/{self._instance}",
+                {"readMessages": [{"remoteJid": external_thread_id, "fromMe": False,
+                                  "id": external_message_id}]},
+            )
+        except Exception as exc:
+            logger.debug("whatsapp mark read failed: %s", type(exc).__name__)
 
     async def send_voice(
         self, external_thread_id: str, audio: bytes, duration_s: float | None
