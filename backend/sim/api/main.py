@@ -17,6 +17,7 @@ from sim.api.routers import (
     catalog,
     channels,
     content,
+    events,
     hooks,
     inbox,
     reports,
@@ -28,6 +29,7 @@ from sim.api.routers import settings as settings_api
 from sim.api.tracing import install_request_tracing
 from sim.config import Settings, parse_telegram_ids
 from sim.config import settings as get_settings
+from sim.services import live
 from sim.services.admin_bot import admin_bot_secret, register_webhook
 from sim.wiring import Container, build_container
 
@@ -89,7 +91,8 @@ def create_app(settings: Settings | None = None, container: Container | None = N
                 if changed := await c.auth(s).sync_superadmins(ids):
                     log.info("superadmins synced from settings: %d changed", changed)
         await register_admin_bot_webhook(c)
-        yield
+        async with live.listen(c.engine):   # PostgreSQL NOTIFY -> open /api/events streams
+            yield
         if owns_container:
             await c.aclose()
 
@@ -107,6 +110,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
         reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
         settings_api.router,
+        events.router,
     ):
         app.include_router(router)
     install_request_tracing(app)
