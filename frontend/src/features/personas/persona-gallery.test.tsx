@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
 import type { Persona, PersonaMedia } from '@/lib/models';
-import { fakeApi, reply } from '@/test/fake-api';
+import { fakeApi } from '@/test/fake-api';
 import { renderApp } from '@/test/render-app';
 
 const MARINA: Persona = {
