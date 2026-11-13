@@ -11,7 +11,6 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-from alembic import command
 from sqlalchemy import select
 
 from sim.adapters.channels.capabilities import CallListener, Capability
@@ -38,7 +37,6 @@ from sim.services.prompt import DialogContext, PersonaProfile, StrategyProfile, 
 from sim.worker.loop import Worker
 from tests.conftest import inbound
 from tests.test_ingest import ingest
-from tests.test_migrations import alembic_config, columns
 
 
 def pcm(*samples: int) -> bytes:
@@ -58,7 +56,7 @@ def test_downsampling_by_an_integer_factor_averages_each_group():
 
 def test_upsampling_interpolates_linearly():
     assert resample(pcm(0, 100), 24000, 48000) == pcm(0, 50, 100, 100)
-    assert len(resample(pcm(*range(480)), 24000, 48000)) == frame_bytes(48000)
+    assert len(resample(pcm(*range(240)), 24000, 48000)) == frame_bytes(48000)   # 10 ms
 
 
 def test_buffer_hands_out_whole_frames_and_pads_the_tail():
@@ -651,12 +649,3 @@ async def test_persona_api_round_trips_accept_calls_and_needs_a_voice(api):
     resp = await api.put(f"/api/personas/{created['id']}",
                          json={"name": "Марина", "accept_calls": True}, headers=h)
     assert resp.status_code == 422
-
-
-def test_0019_adds_accept_calls_and_roundtrips(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    assert "accept_calls" in columns(db, "persona")
-    command.downgrade(cfg, "0018")
-    assert "accept_calls" not in columns(db, "persona")

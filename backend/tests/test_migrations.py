@@ -299,3 +299,12 @@ def test_0014_folds_shared_rules_into_each_persona_and_wraps_the_guard_rules(tmp
     assert "ПРАВИЛА:\n1. правило владельца\n\nВЕРДИКТЫ:" in guard and '"verdict"' in guard
     command.downgrade(cfg, "0013")
     command.upgrade(cfg, "head")
+
+
+def test_0019_adds_accept_calls_and_roundtrips(tmp_path):
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "head")
+    assert "accept_calls" in columns(db, "persona")
+    command.downgrade(cfg, "0018")
+    assert "accept_calls" not in columns(db, "persona")
