@@ -27,6 +27,7 @@ export const qk = {
   studio: ['studio'] as const,
   settings: ['settings'] as const,
   settingsFixed: ['settings', 'fixed'] as const,
+  personaMedia: (id: number) => ['persona-media', id] as const,
   personaPrompt: (id: number) => ['persona-prompt', id] as const,
   dialogs: (filter: unknown) => ['dialogs', filter] as const,
   dialog: (id: number) => ['dialog', id] as const,

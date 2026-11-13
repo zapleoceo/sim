@@ -91,6 +91,12 @@ class PartnerEventKind(StrEnum):
     PAYMENT = "payment"
 
 
+class MediaKind(StrEnum):
+    PHOTO = "photo"
+    VIDEO = "video"
+    VIDEO_NOTE = "video_note"
+
+
 class ContentKind(StrEnum):
     PHOTO = "photo"
     VIDEO = "video"

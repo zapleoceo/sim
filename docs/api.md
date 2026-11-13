@@ -160,6 +160,29 @@ language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id,
 (попадают в системный промпт, раздел «Чего нельзя никогда»; охраннику не передаются; по умолчанию пусто, в админке поля нет: ограничения настраиваются в симуляторе). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).
 
+## Медиа-галерея персонажа
+
+Фото, видео и видео-кружочки (video notes), привязанные к персонажу. Файлы хранятся в
+`settings.media_dir` и раздаются через `/api/media/{name}`.
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| POST | `/api/personas/{id}/media` | multipart: `file`, `kind` (`photo`/`video`/`video_note`), `caption?`, `tags?` (через запятую) | `PersonaMedia` (201) |
+| GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует) |
+| DELETE | `/api/personas/{id}/media/{media_id}` | — | 204 |
+| GET | `/api/personas/{id}/media/{media_id}/file` | — | файл (inline для изображений/видео, download для остального) |
+
+`PersonaMedia`: `{id, persona_id, kind, storage_name, caption, tags: string[], file_url, created_at}`.
+`file_url` = `/api/media/{storage_name}`.
+MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/webm`; до 50 МБ.
+Загрузка и удаление — только owner/superadmin.
+
+### Telegram capabilities
+
+`SEND_PHOTO` — отправка фото с подписью (`client.send_file(entity, photo, caption=…)`).
+`SEND_VIDEO_NOTE` — кружочек (`client.send_file(entity, video, video_note=True)`).
+Оба добавлены в `TelegramUserAdapter.capabilities`.
+
 ## Промпты и настройки (`/api/settings`)
 
 Общие для всех персонажей тексты промптов и параметры хранятся в таблице `app_setting`;
