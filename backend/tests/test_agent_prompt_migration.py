@@ -10,11 +10,11 @@ def test_agent_prompt_single_head_upgrade_downgrade(tmp_path):
     cfg = alembic_config(db)
     script = ScriptDirectory.from_config(cfg)
     assert script.get_heads() == ["0019_agent_prompt"]
-    command.upgrade(cfg, "0018")
+    command.upgrade(cfg, "0019")
     assert "agent_prompt" not in columns(db, "persona")
     command.upgrade(cfg, "head")
     assert "agent_prompt" in columns(db, "persona")
-    command.downgrade(cfg, "0018")
+    command.downgrade(cfg, "0019")
     assert "agent_prompt" not in columns(db, "persona")
     command.upgrade(cfg, "head")
     assert "agent_prompt" in columns(db, "persona")

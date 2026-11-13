@@ -25,12 +25,14 @@ def test_unified_prompt_is_authoritative_for_every_builder_caller():
     p = PersonaProfile(name="name", description="OLD DESCRIPTION", agent_prompt="  exact text\n ")
     s = StrategyProfile(name="OLD NAME", prompt="OLD STRATEGY", rules=["OLD RULE"])
     texts = PromptTexts(contract="JSON CONTRACT")
-    ctx = DialogContext(Stage.ENGAGED, "active", "client", "preview", "REF", datetime(2026, 1, 1))
+    ctx = DialogContext(Stage.ENGAGED, "active", "client", "preview", "REF", datetime(2026, 1, 1),
+                        persona_facts="ROUTINE: current place and next event")
     messages = build_messages(p, s, [Turn("user", "hi")], ctx, texts=texts)
     assert messages[0]["content"] == "\n\n".join((p.agent_prompt, LINK_CONTRACT, texts.contract))
     assert "OLD" not in messages[0]["content"]
     assert messages[1] == {"role": "user", "content": "hi"}
     assert "client" in messages[-1]["content"]
+    assert "ROUTINE: current place and next event" in messages[-1]["content"]
     assert editable_agent_prompt(p, s) == p.agent_prompt
 
 

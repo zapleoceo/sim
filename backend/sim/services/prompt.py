@@ -18,6 +18,7 @@ from urllib.parse import quote
 
 from sim.domain.enums import ChannelKind, Stage
 from sim.services.humanize import plain_punctuation
+from sim.services.persona_routine import routine_block
 
 HISTORY_LIMIT = 40
 MAX_NEEDS = 12
@@ -82,6 +83,7 @@ class PersonaProfile:
     prohibitions: str = ""    # one rule per line
     language: str = "ru"
     agent_prompt: str | None = None
+    routine: str = ""        # weekly routine lines (sim.services.persona_routine)
 
 
 @dataclass(frozen=True)
@@ -193,11 +195,13 @@ def editable_agent_prompt(persona: PersonaProfile, strategy: StrategyProfile) ->
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
-    """Persona prompt (the owner's one text) + the strategy + the answer
+    """Persona prompt (the owner's one text) + her routine + the strategy + the answer
     format. The order is fixed; nothing else is added."""
     if persona.agent_prompt is not None:
         return "\n\n".join((persona.agent_prompt, LINK_CONTRACT, texts.contract.strip()))
     lines: list[str] = [persona.description.strip() or f"Ты {persona.name}."]
+    if block := routine_block(persona.routine):
+        lines += ["", block]
     lines += ["", "СТРАТЕГИЯ"]
     for label, value in (
         ("Название", strategy.name),

@@ -3,7 +3,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0019_agent_prompt"
-down_revision = "0018"
+down_revision = "0019"
 branch_labels = None
 depends_on = None
 

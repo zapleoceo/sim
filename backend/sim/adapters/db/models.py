@@ -125,6 +125,9 @@ class Persona(Base):
     # (sim.services.persona_clock) and given to the model, never left to its arithmetic.
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Kyiv", server_default="Europe/Kyiv")
+    # Weekly routine, one entry per line ("пн-пт 09:00-13:00 консультации"): where she is now, was and
+    # will be is computed by code (sim.services.persona_routine), so her answers always agree.
+    routine: Mapped[str] = mapped_column(Text, default="", server_default="")
     gender: Mapped[str] = mapped_column(String(32), default="")
     avatar_url: Mapped[str] = mapped_column(Text, default="")
     # Free text: who she is, character, biography, how she writes (Markdown-ish).

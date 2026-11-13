@@ -54,6 +54,30 @@
 возраст, знак зодиака и дни до дня рождения и кладёт их в динамический контекст блоком «ТВОИ ТОЧНЫЕ
 ДАННЫЕ НА СЕЙЧАС». Модель эти цифры не считает, а берёт готовыми.
 
+### Распорядок дня
+
+Чтобы на «где ты была вчера в обед?» и «что делаешь в субботу?» персонаж всегда отвечал одинаково,
+у персонажа есть поле «Распорядок недели» (`routine`, миграция 0019): строка на дело.
+
+```
+пн-пт 06:30-07:15 пробежка вдоль Эльбы
+пн-пт 09:00-13:00 консультации с клиентами, из дома
+сб,вс 09:00-10:30 долгий завтрак с Андреем
+ежедневно 23:00-06:30 сплю
+2026-11-20 10:00-11:00 стоматолог
+```
+
+Дни: `пн`…`вс`, диапазон `пн-пт`, список `сб,вс` (без пробелов), `ежедневно` (`каждый день`) или дата
+`ГГГГ-ММ-ДД` для разового дела. Разовое дело заменяет дела недели, с которыми пересекается по времени.
+Дело через полночь (`23:00-06:30`) продолжается в следующий день. Строки с `#` это заметки. API не примет
+строку, которую не понял (`422` с этой строкой).
+
+`services/persona_routine.py` делает две вещи:
+- в постоянную часть промпта сразу после текста персонажа идёт блок «ТВОЙ РАСПОРЯДОК» со всеми делами
+  недели и правилом отвечать о том, где была и будет, строго по нему;
+- в «ТВОИ ТОЧНЫЕ ДАННЫЕ НА СЕЙЧАС» по её местному времени код добавляет: где она сейчас, что уже было
+  сегодня, что дальше, весь вчерашний и весь завтрашний день.
+
 ## Марина Светлова, 45 — описание персоны
 
 Мне 45, я Марина. Двадцать лет руководила проектами и учила взрослых, а после сорока сама
@@ -122,8 +146,10 @@ SIM boundary must not be advertised as the complete provider-native system promp
 The screen discloses postprocessing (including terminal punctuation removal), technical
 handoff and retry text instead of pretending those are user-authored behavioural text.
 
-Migration 0019_agent_prompt (parent 0018) adds a nullable column only. Rollback of the migration drops that new column;
+Migration 0019_agent_prompt (parent 0019) adds a nullable column only. Rollback of the migration drops that new column;
 back up its saved values before downgrading. No live persona is switched by migration.
 CI must run backend/PostgreSQL, frontend and tests/docs gates on the published commit.
 
-Integration order: this migration is independent of unmerged routine/media work. Later migrations branching from 0018 must be rebased onto 0019_agent_prompt (or explicitly merged) before release; never deploy multiple Alembic heads.
+Integration order: this migration is independent of unmerged routine/media work. Later migrations branching from 0019 must be rebased onto 0019_agent_prompt (or explicitly merged) before release; never deploy multiple Alembic heads.
+
+Routine support from main is preserved: computed current/yesterday/tomorrow facts still enter the dynamic message in unified mode. The exact preview capture includes those facts. The editor materializes the existing routine block when switching from compatibility mode; future edits to that stored text are explicit.

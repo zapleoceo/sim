@@ -32,6 +32,7 @@ from sim.domain.enums import (
 )
 from sim.domain.voice import GEMINI_VOICES
 from sim.services.channels import ConnectState
+from sim.services.persona_routine import MAX_ROUTINE_LEN, invalid_lines
 
 
 def dt(value: datetime | None) -> str | None:
@@ -76,6 +77,7 @@ class PersonaIn(Body):
     age: int | None = Field(default=None, ge=0, le=120)
     birth_date: date | None = None
     timezone: str = Field(default="Europe/Kyiv", max_length=64)
+    routine: str = Field(default="", max_length=MAX_ROUTINE_LEN)
     gender: Literal["female", "male", "other"] = "other"
     avatar_url: str = Field(default="", max_length=500)
     description: str = ""
@@ -96,6 +98,14 @@ class PersonaIn(Body):
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError) as e:
             raise ValueError("Unknown time zone: use an IANA name like Europe/Kyiv") from e
+        return value
+
+    @field_validator("routine")
+    @classmethod
+    def parseable_routine(cls, value: str) -> str:
+        if bad := invalid_lines(value):
+            raise ValueError("Routine lines must look like \"пн-пт 09:00-13:00 what\"; not understood: "
+                             + " | ".join(bad[:5]))
         return value
 
     @field_validator("voice_id")
@@ -236,7 +246,7 @@ def admin_out(u: AdminUser) -> dict[str, Any]:
 def persona_out(p: Persona) -> dict[str, Any]:
     return {
         "id": p.id, "name": p.name, "age": p.age, "birth_date": p.birth_date.isoformat() if p.birth_date else None,
-        "timezone": p.timezone, "gender": p.gender, "avatar_url": p.avatar_url,
+        "timezone": p.timezone, "routine": p.routine, "gender": p.gender, "avatar_url": p.avatar_url,
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
