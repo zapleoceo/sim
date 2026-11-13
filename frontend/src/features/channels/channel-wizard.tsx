@@ -13,7 +13,7 @@ import type { Channel, ChannelKind, ConnectState, Persona } from '@/lib/models';
 import { CHANNEL_KINDS, CHANNEL_LABELS } from '@/lib/stages';
 import { cn } from '@/lib/utils';
 import {
-  EMPTY_CONNECT, QR_POLL_MS, connectBody, nextStep, pollingDone, prefillConnect, validateConnect, verifyValue,
+  EMPTY_CONNECT, QR_POLL_MS, connectBody, nextStep, pollingDone, prefillConnect, sameValues, validateConnect, verifyValue,
   type ConnectErrors, type ConnectValues, type WizardStep,
 } from './channel-wizard-logic';
 
@@ -64,7 +64,7 @@ export function ChannelWizard({
     channelsApi
       .credentials(existing.id)
       .then((saved) => {
-        if (live) setCreds((c) => (Object.values(c).some((x) => x !== '') ? c : prefillConnect(saved)));
+        if (live) setCreds((c) => (sameValues(c, EMPTY_CONNECT) ? prefillConnect(saved) : c));
       })
       .catch(() => undefined);
     return () => {
@@ -109,6 +109,7 @@ export function ChannelWizard({
           setMessage(humanizeChannelError(s.message));
           if (s.status === 'active') setStep('done');
           else if (pollingDone(s)) setStep('connect');
+          else if (s.need) setStep(nextStep(s, channel.kind, 'qr'));     // QR scanned, 2FA password next
           else if (s.qr_data_uri) setQr(s.qr_data_uri);
         })
         .catch(() => undefined);
@@ -246,17 +247,41 @@ export function ChannelWizard({
             <HowTo>
               <li>Откройте <strong>my.telegram.org</strong>, войдите по номеру и выберите <strong>API development tools</strong>.</li>
               <li>Создайте приложение (любое название) и скопируйте <code>api_id</code> и <code>api_hash</code> сюда.</li>
-              <li>Telegram отправит код входа в приложение или по SMS — он понадобится на следующем шаге.</li>
+              <li>
+                {creds.method === 'qr'
+                  ? 'Затем отсканируйте QR-код в Telegram на телефоне: Настройки → Устройства → Подключить устройство.'
+                  : 'Telegram пришлёт код входа в приложение (чат «Telegram») — он понадобится на следующем шаге.'}
+              </li>
             </HowTo>
+            <div role="radiogroup" aria-label="Как войти" className="grid grid-cols-2 gap-2 text-sm">
+              {([['qr', 'По QR-коду', 'без кода, рекомендуется'], ['code', 'По коду', 'код придёт в Telegram']] as const).map(([value, label, hint]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={creds.method === value}
+                  onClick={() => setCreds((c) => ({ ...c, method: value }))}
+                  className={cn(
+                    'flex flex-col items-start rounded-lg border p-2.5 text-left',
+                    creds.method === value ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+                  )}
+                >
+                  <span className="font-medium">{label}</span>
+                  <span className="text-xs text-muted-foreground">{hint}</span>
+                </button>
+              ))}
+            </div>
             <Field label="api_id" error={credErrors.api_id}>
               <Input value={creds.api_id} onChange={setCred('api_id')} inputMode="numeric" autoComplete="off" />
             </Field>
             <Field label="api_hash" error={credErrors.api_hash}>
               <Input value={creds.api_hash} onChange={setCred('api_hash')} autoComplete="off" spellCheck={false} />
             </Field>
-            <Field label="Телефон аккаунта" error={credErrors.phone}>
-              <Input type="tel" value={creds.phone} onChange={setCred('phone')} placeholder="+380501234567" autoComplete="off" />
-            </Field>
+            {creds.method !== 'qr' && (
+              <Field label="Телефон аккаунта" error={credErrors.phone}>
+                <Input type="tel" value={creds.phone} onChange={setCred('phone')} placeholder="+380501234567" autoComplete="off" />
+              </Field>
+            )}
             <Field label="Прокси (необязательно)" error={credErrors.proxy}>
               <Input value={creds.proxy} onChange={setCred('proxy')} placeholder="socks5://user:pass@host:port" autoComplete="off" />
             </Field>
@@ -294,7 +319,7 @@ export function ChannelWizard({
         {step === 'qr' && (
           <div className="flex flex-col items-center gap-3 text-center text-sm">
             {qr ? (
-              <img src={qr} alt="QR-код для привязки WhatsApp" width={260} height={260} className="rounded-lg bg-white p-2" />
+              <img src={qr} alt={`QR-код для привязки ${CHANNEL_LABELS[kind]}`} width={260} height={260} className="rounded-lg bg-white p-2" />
             ) : (
               <div className="size-[260px] animate-pulse rounded-lg bg-muted" aria-hidden="true" />
             )}
