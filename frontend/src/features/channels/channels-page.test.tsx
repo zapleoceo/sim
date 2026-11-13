@@ -7,7 +7,7 @@ import { channelVm } from './channels-page';
 
 const persona: Persona = {
   id: 3, name: 'Марина', age: 30, gender: 'female', avatar_url: '', description: 'd', prohibitions: '', language: 'ru',
-  model: '', voice_id: '', voice_mode: 'off', voice_style: '', voice_ambience: 'off', accept_calls: false, strategy_id: null, is_active: true, created_at: '2026-01-01T00:00:00Z', birth_date: null, timezone: 'Europe/Kyiv',
+  model: '', voice_id: '', voice_mode: 'off', voice_style: '', voice_ambience: 'off', accept_calls: false, strategy_id: null, is_active: true, created_at: '2026-01-01T00:00:00Z', birth_date: null, timezone: 'Europe/Kyiv', routine: '',
 };
 const igChannel: Channel = {
   id: 4, kind: 'instagram', name: 'Insta', persona_id: 3, status: 'challenge', account_label: '@marina',

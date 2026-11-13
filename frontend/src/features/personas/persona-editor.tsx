@@ -107,6 +107,17 @@ export function PersonaEditor({
           placeholder="Ты Марина, 45 лет, из Днепра… Как живёшь в роли, как пишешь, чего не делаешь."
         />
       </Field>
+      <Field
+        label="Распорядок недели"
+        hint="Строка на дело: дни, время, что делает. Дни: пн…вс, пн-пт, сб,вс, ежедневно или дата 2026-11-20 (разовое дело). Где она сейчас, что было вчера и будет завтра, считает код, поэтому ответы всегда совпадают."
+        error={errors.routine?.message}
+      >
+        <Textarea
+          {...register('routine')}
+          className="min-h-48 font-mono text-[13px] md:text-[13px]"
+          placeholder={'пн-пт 06:30-07:15 пробежка вдоль Эльбы\nпн-пт 09:00-13:00 консультации с клиентами, из дома\nвс 13:00-16:00 обед у мамы\nежедневно 23:00-06:30 сплю'}
+        />
+      </Field>
       {persona && <PersonaFullPrompt personaId={persona.id} />}
 
       <FormGrid className="lg:grid-cols-2">

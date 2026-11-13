@@ -95,6 +95,7 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
+        routine=p.routine,
     )
 
 
@@ -109,6 +110,12 @@ def strategy_profile(s: Strategy) -> StrategyProfile:
         stage_playbook=dict(s.stage_playbook or {}),
         rules=list(s.rules or []),
     )
+
+
+def with_persona_facts(persona: Persona, ctx: DialogContext) -> DialogContext:
+    """Her exact age, local time and where she is now, computed by code for this moment."""
+    return replace(ctx, persona_facts=persona_facts(
+        persona.birth_date, persona.timezone, ctx.now, persona.routine))
 
 
 def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
@@ -180,7 +187,7 @@ class ConversationService:
         self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
     ) -> list[dict[str, Any]]:
         cfg = await self.config()
-        ctx = replace(ctx, persona_facts=persona_facts(persona.birth_date, persona.timezone, ctx.now))
+        ctx = with_persona_facts(persona, ctx)
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
             texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
@@ -237,8 +244,7 @@ class ConversationService:
         cfg = await self.config()
         strategy = await self.strategy_for(persona.id)
         recent = await self.messages.recent_visible(dialog.id, cfg.history_limit)
-        ctx = await self.dialog_context(dialog, persona)
-        ctx = replace(ctx, persona_facts=persona_facts(persona.birth_date, persona.timezone, ctx.now))
+        ctx = with_persona_facts(persona, await self.dialog_context(dialog, persona))
         return call_system_prompt(persona_profile(persona), strategy_profile(strategy),
                                   history_turns(recent), ctx)
 

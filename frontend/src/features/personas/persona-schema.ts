@@ -4,11 +4,15 @@ import { GEMINI_VOICES } from './persona-voices';
 
 export const AVATAR_URL_PATTERN = /^(https?:\/\/|\/)\S+$/i;
 
+/** Как backend `persona_routine.MAX_ROUTINE_LEN`; формат строк проверяет API. */
+export const ROUTINE_MAX = 4000;
+
 export const EMPTY_PERSONA: PersonaIn = {
   name: '',
   age: null,
   birth_date: null,
   timezone: 'Europe/Kyiv',
+  routine: '',
   gender: 'female',
   avatar_url: '',
   description: '',
@@ -50,6 +54,7 @@ export const personaSchema = z.object({
   }, '18–100'),
   birth_date: z.string().refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1976-12-09'),
   timezone: z.string().refine(notBlank, 'Укажите часовой пояс').refine((v) => v.length <= 64, 'Не длиннее 64 символов'),
+  routine: z.string().max(ROUTINE_MAX, `Не длиннее ${ROUTINE_MAX} символов`),
   gender: z.string(),
   avatar_url: z
     .string()
@@ -94,6 +99,7 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
     age: p.age == null ? '' : String(p.age),
     birth_date: p.birth_date ?? '',
     timezone: p.timezone || 'Europe/Kyiv',
+    routine: p.routine ?? '',
     gender: p.gender || 'female',
     avatar_url: p.avatar_url ?? '',
     description: p.description,
@@ -117,6 +123,7 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
     age: v.age.trim() === '' ? null : Number(v.age),
     birth_date: v.birth_date || null,
     timezone: v.timezone.trim(),
+    routine: v.routine,
     gender: v.gender || 'female',
     avatar_url: v.avatar_url.trim(),
     description: v.description,
@@ -139,6 +146,7 @@ export function personaToInput(p: Persona): PersonaIn {
     age: p.age,
     birth_date: p.birth_date ?? null,
     timezone: p.timezone || 'Europe/Kyiv',
+    routine: p.routine ?? '',
     gender: p.gender,
     avatar_url: p.avatar_url,
     description: p.description,
