@@ -111,8 +111,8 @@ describe('SettingsPage', () => {
       'GET /api/settings': { items: [STYLE, GUARD, PASSPORT], fixed: { persona: 'p', guard: 'ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность' } },
     });
     await renderApp('/agents');
-    expect(await screen.findByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Промпт охранника')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Промпт охранника')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
     expect(screen.getByLabelText('Инструкция паспортистки')).toHaveValue('веди паспорт');
     expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
     // the fixed honesty rule sits in the guard card, not in the passport keeper card
