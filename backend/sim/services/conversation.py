@@ -25,7 +25,7 @@ from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
-from sim.services.humanize import messenger_touches
+from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.passport import PASSPORT_DELAY_S
@@ -184,10 +184,12 @@ class ConversationService:
         )
 
     async def touched(self, guard: GuardOutcome) -> GuardOutcome:
-        """The approved text with a person's messenger habits (typos, case), applied by code."""
+        """The approved text with a person's messenger habits (typos, case), applied by code to
+        each short message of the reply separately."""
         cfg = await self.config()
-        return replace(guard, text=messenger_touches(
-            guard.text, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent))
+        return replace(guard, text="\n\n".join(
+            messenger_touches(part, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent)
+            for part in bubbles(guard.text)))
 
     async def system_prompt(self, persona: Persona) -> str:
         """The exact stable system message this persona sends to its model (for the admin)."""
@@ -434,10 +436,16 @@ class ConversationService:
             await self.followups.cancel(dialog.id)
 
         decision = replace(decision, reply=guard.text)
-        message = await self.outbound.queue_ai(
-            dialog, guard.text, result,
-            final=stop or decision.handoff_to_operator, guard=guard, voice=voice,
-        )
+        # A voice note is one message; text goes as 1-3 messages with a typing pause between them.
+        parts = [guard.text] if voice else bubbles(guard.text)
+        delay = 0.0
+        for i, part in enumerate(parts):
+            if i:
+                delay += typing_pause_s(part)
+            message = await self.outbound.queue_ai(
+                dialog, part, result if i == 0 else None,
+                final=stop or decision.handoff_to_operator, guard=guard, voice=voice, delay_s=delay,
+            )
         if not followup and not stop and not decision.handoff_to_operator:
             dialog.followup_step = 0
             await self.followups.schedule(dialog, strategy, 0, message)

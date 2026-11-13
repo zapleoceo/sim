@@ -71,3 +71,24 @@ def messenger_touches(text: str, *, typo_percent: int, lowercase_percent: int) -
             m = rng.choice(words)
             text = text[:m.start()] + typo(m.group(0), rng) + text[m.end():]
     return text
+
+
+# ---- several short messages instead of one block ----------------------------------------------
+# The model separates messages with a blank line; code sends them one by one with a typing pause.
+BUBBLE_GAP = re.compile(r"\n[ \t]*\n")
+MAX_BUBBLES = 3
+TYPING_CHARS_PER_S = 7.0
+TYPING_MIN_S, TYPING_MAX_S = 1.5, 8.0
+
+
+def bubbles(text: str) -> list[str]:
+    """A reply split into at most MAX_BUBBLES messages (extra parts stay in the last one)."""
+    parts = [p.strip() for p in BUBBLE_GAP.split(text) if p.strip()]
+    if len(parts) > MAX_BUBBLES:
+        parts = [*parts[:MAX_BUBBLES - 1], "\n".join(parts[MAX_BUBBLES - 1:])]
+    return parts or [text.strip()]
+
+
+def typing_pause_s(text: str) -> float:
+    """How long a person would type this message before it appears."""
+    return min(TYPING_MAX_S, max(TYPING_MIN_S, len(text) / TYPING_CHARS_PER_S))
