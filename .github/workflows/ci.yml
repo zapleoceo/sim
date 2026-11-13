@@ -2,7 +2,7 @@ name: SIM CI
 
 on:
   pull_request:
-    branches: [main]
+    # any base branch, so stacked pull requests are verified too; deploy stays push-to-main only
   push:
     branches: [main]
 

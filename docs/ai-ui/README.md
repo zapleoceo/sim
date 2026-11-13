@@ -28,7 +28,7 @@ You only ever invoke `/implement-ui`. The supporting stages run automatically.
 - `design-dna.md` — the project's actual UI system (Phase 2).
 - `component-catalog.md`, `page-patterns.md` — reusable building blocks (grow over time).
 - `decisions.md` — durable architectural/UI decisions log.
-- `tasks/<slug>/` — task-context, prototype-spec, component-reuse, implementation-plan, final-report.
+- `tasks/<slug>/` — task-context, prototype-spec, component-reuse, implementation-plan, final-report. Finished tasks move to `docs/history/<slug>/`.
 - `evidence/<slug>/` — rendered screenshots, diffs, overlays (git-ignored).
 
 ## Refreshing stale knowledge

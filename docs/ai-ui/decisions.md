@@ -19,7 +19,7 @@ task folder, not here.
   client timeline and activity. Consolidate by existing persona-scoped client identity.
   Reply through a concrete source dialog. Keep persisted message status and individual
   LLM attempts as separate views; unknown metadata remains unknown.
-- **Evidence:** `tasks/unified-client-admin/backend-contract.md`, `prototype-spec.md`,
+- **Evidence:** `../history/unified-client-admin/backend-contract.md`, `prototype-spec.md`,
   `component-reuse.md`; `backend/sim/api/activity_schemas.py` and frontend activity module.
 - **Scope:** Conversation and activity modules.
 - **Consequences:** No name-based identity merging, no inferred historical author/delivery

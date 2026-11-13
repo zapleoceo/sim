@@ -40,6 +40,7 @@ from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 from sim.services.passport import PassportService
+from sim.services.persona_media import PersonaMediaService
 from sim.services.preview_media import PreviewAttachments
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
@@ -167,6 +168,9 @@ class Container:
 
     def media_service(self, s: AsyncSession) -> MediaService:
         return MediaService(s, self.registry, self.box, self.llm, self.media)
+
+    def persona_media(self, s: AsyncSession) -> PersonaMediaService:
+        return PersonaMediaService(s, self.media, clock=self.clock)
 
     def channels(self, s: AsyncSession) -> ChannelService:
         return ChannelService(s, self.registry, self.box, clock=self.clock)

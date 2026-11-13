@@ -199,7 +199,7 @@ async def send_operator_attachment(
             data.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise HTTPException(422, "Text attachment must be UTF-8") from exc
-    name = c.media.save(data, suffix.lstrip("."))
+    name = await c.media.save(data, suffix.lstrip("."))
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
     message = await c.outbound(s).send_manual(
@@ -251,7 +251,7 @@ async def send_operator_voice(
         audio = await c.encoder.to_voice_note(data)
     except AudioError as exc:
         raise HTTPException(422, "Audio conversion failed") from exc
-    name = c.media.save(audio, "ogg")
+    name = await c.media.save(audio, "ogg")
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
     message = await c.outbound(s).send_manual(
