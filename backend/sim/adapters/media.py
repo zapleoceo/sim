@@ -56,3 +56,10 @@ class MediaStore:
             return None
         target = self.root / name
         return target if target.is_file() else None
+
+    def remove(self, name: str) -> bool:
+        """Delete a stored file; False when the name is not a stored file (nothing to delete)."""
+        if (target := self.path(name)) is None:
+            return False
+        target.unlink(missing_ok=True)
+        return True

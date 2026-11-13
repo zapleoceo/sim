@@ -164,15 +164,18 @@ language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id,
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| POST | `/api/personas/{id}/media` | multipart: `file`, `kind` (`photo`/`video`/`video_note`), `caption?`, `tags?` (через запятую) | `PersonaMedia` (201) |
-| GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует) |
-| DELETE | `/api/personas/{id}/media/{media_id}` | — | 204 |
+| POST | `/api/personas/{id}/media` | multipart: `file`, `kind` (`photo`/`video`/`video_note`), `caption?` (до 500 символов), `tags?` (через запятую) | `PersonaMedia` (201); `413` больше 50 МБ; `422` неверный `kind`, тип не из списка или содержимое файла не того типа |
+| GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует, неизвестный — `422`) |
+| DELETE | `/api/personas/{id}/media/{media_id}` | — | 204; удаляет и строку, и файл |
 | GET | `/api/personas/{id}/media/{media_id}/file` | — | файл (inline для изображений/видео, download для остального) |
 
 `PersonaMedia`: `{id, persona_id, kind, storage_name, caption, tags: string[], file_url, created_at}`.
-`file_url` = `/api/media/{storage_name}`.
+`file_url` = `/api/media/{storage_name}`. Неизвестный персонаж или медиа другого персонажа — `404`.
 MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/webm`; до 50 МБ.
-Загрузка и удаление — только owner/superadmin.
+Заявленный тип должен совпасть с сигнатурой файла (библиотека `filetype`), иначе `422`.
+Ответ с файлом несёт те же заголовки, что `/api/media/{name}` (`Content-Security-Policy: sandbox`,
+`nosniff`; `api/media_files.py`). Логика — `services/persona_media.py` (`PersonaMediaService`),
+загрузка и удаление — только owner/superadmin.
 
 ### Telegram capabilities
 
@@ -384,7 +387,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Дополнения реализации (аддитивные поля)
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
-`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`).
+`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`; заголовки — `api/media_files.py`).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
 
 
