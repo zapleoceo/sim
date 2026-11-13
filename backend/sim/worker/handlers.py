@@ -76,6 +76,11 @@ async def run_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -
     )}
 
 
+async def run_passport(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    """The passportist agent rewrites the lead passport after a persona reply."""
+    return {"updated": await c.passport(s).update(int(payload["dialog_id"]))}
+
+
 async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
     await c.outbound(s).deliver(int(payload["message_id"]), final=bool(payload.get("final")))
 
@@ -133,6 +138,7 @@ HANDLERS: dict[str, Handler] = {
     jobkinds.MEDIA: Handler(run_media, giveup_media),
     jobkinds.FOLLOWUP: Handler(run_followup, giveup_followup),
     jobkinds.SEND: Handler(run_send, giveup_send),
+    jobkinds.PASSPORT: Handler(run_passport),
     jobkinds.CONTENT_PUBLISH: Handler(run_content_publish),
     jobkinds.SIM_REPLY: Handler(run_sim_reply, giveup_sim_reply),
 }

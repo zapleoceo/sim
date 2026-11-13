@@ -301,6 +301,7 @@ def client_out(c: Client, channels: list[dict[str, Any]]) -> dict[str, Any]:
         "next_step": c.next_step, "next_step_at": dt(c.next_step_at), "notes": c.notes,
         "needs": c.needs or [], "channels": channels, "ref_code": c.ref_code,
         "last_contact_at": dt(c.last_contact_at), "created_at": dt(c.created_at),
+        "passport": c.passport or "", "passport_updated_at": dt(c.passport_updated_at),
     }
 
 

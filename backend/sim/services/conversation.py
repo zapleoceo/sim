@@ -27,6 +27,7 @@ from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
+from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.prompt import (
     Decision,
     DialogContext,
@@ -333,6 +334,7 @@ class ConversationService:
             needs=list(client.needs or []),
             notes=client.notes,
             next_step=client.next_step,
+            passport=client.passport or "",
             instruction=instruction,
             handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
         )
@@ -430,6 +432,11 @@ class ConversationService:
         if not followup and not stop and not decision.handoff_to_operator:
             dialog.followup_step = 0
             await self.followups.schedule(dialog, strategy, 0, message)
+        # The passportist updates the lead passport (one job per dialog, coalesced).
+        await self.jobs.upsert_pending(
+            jobkinds.PASSPORT, {"dialog_id": dialog.id},
+            self.clock() + timedelta(seconds=PASSPORT_DELAY_S), jobkinds.passport_key(dialog.id),
+        )
         return ReplyOutcome("sent", decision, message)
 
     # ---- drafts shared with preview and admin simulations --------------------------------

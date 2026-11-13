@@ -176,6 +176,9 @@ class Client(Base):
     next_step: Mapped[str] = mapped_column(Text, default="")
     next_step_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    # The lead passport kept by the passportist agent (sim.services.passport).
+    passport: Mapped[str] = mapped_column(Text, default="")
+    passport_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     needs: Mapped[list[str]] = mapped_column(JSON, default=list)
     no_followups: Mapped[bool] = mapped_column(Boolean, default=False)
     last_contact_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

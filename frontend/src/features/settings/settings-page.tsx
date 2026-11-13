@@ -119,7 +119,7 @@ function SettingField({ item }: { item: AppSettingItem }) {
 }
 
 /** Settings of one or more groups on one page; every field is open, no hidden sections. */
-function SettingsView({ title, subtitle, only, except, keys, footer }: {
+function SettingsView({ title, subtitle, only, except, keys, footer, groupFooters }: {
   title: string;
   subtitle: string;
   /** Show only these groups (by name). */
@@ -130,6 +130,8 @@ function SettingsView({ title, subtitle, only, except, keys, footer }: {
   keys?: readonly string[];
   /** Shown after the settings (read-only notes). */
   footer?: ReactNode;
+  /** Shown at the end of a group's card, by group name (read-only notes of that group). */
+  groupFooters?: Readonly<Record<string, ReactNode>>;
 }) {
   const query = useQuery({ queryKey: qk.settings, queryFn: settingsApi.list });
   const groups = groupSettings(pickSettings(query.data ?? [], keys)).filter(
@@ -154,6 +156,7 @@ function SettingsView({ title, subtitle, only, except, keys, footer }: {
             {g.items.map((item) => (
               <SettingField key={`${item.key}:${item.updated_at ?? ''}:${String(item.is_default)}`} item={item} />
             ))}
+            {groupFooters?.[g.name]}
           </div>
           </Card>
         </section>
@@ -163,37 +166,42 @@ function SettingsView({ title, subtitle, only, except, keys, footer }: {
   );
 }
 
-/** The pre-send guard is its own role with its own prompt and Broker route. */
+/** The agents: each has its own group, model and instruction (the guard, the passport keeper). */
 export const GUARD_GROUP = 'Охранник';
+export const PASSPORT_GROUP = 'Паспортистка';
+export const AGENT_GROUPS = [GUARD_GROUP, PASSPORT_GROUP] as const;
 
-/** Shared rules for every persona (the guard has its own page). */
+/** Shared rules for every persona (the agents have their own page). */
 export function SettingsPage() {
   return (
     <SettingsView
       title="Общие правила"
       subtitle="Служебные промпты и параметры, общие для всех персонажей. Промпт самого персонажа на его странице. Хранятся в базе: деплой их не сбрасывает."
-      except={[GUARD_GROUP]}
+      except={AGENT_GROUPS}
     />
   );
 }
 
-/** What the guard page shows: the model and the one guard prompt; Broker routes stay a backend fallback. */
-export const GUARD_KEYS = ['guard_model', 'guard_prompt'] as const;
+/** What the agents page shows: each agent's model and its one instruction; Broker routes stay a backend fallback. */
+export const AGENT_KEYS = ['guard_model', 'guard_prompt', 'passport_model', 'passport_prompt'] as const;
 
 function GuardHonesty() {
   const fixed = useQuery({ queryKey: qk.settingsFixed, queryFn: settingsApi.fixed });
   return fixed.data?.guard ? <FixedPrompt text={fixed.data.guard} where="после промпта охранника" /> : null;
 }
 
-/** The guard: checks every reply before it is sent, with one prompt. */
-export function GuardPage() {
+/**
+ * The agents around the persona: the guard checks every reply before it is sent; the passport
+ * keeper updates what the persona knows about each lead after every reply.
+ */
+export function AgentsPage() {
   return (
     <SettingsView
-      title="Охранник"
-      subtitle="Проверяет каждый ответ перед отправкой. Весь его промпт один текст ниже."
-      only={[GUARD_GROUP]}
-      keys={GUARD_KEYS}
-      footer={<GuardHonesty />}
+      title="Агенты"
+      subtitle="Помощники персонажа, у каждого своя модель и своя инструкция. Охранник проверяет каждый ответ перед отправкой. Паспортистка после каждого ответа обновляет паспорт собеседника: что персонаж о нём знает."
+      only={AGENT_GROUPS}
+      keys={AGENT_KEYS}
+      groupFooters={{ [GUARD_GROUP]: <GuardHonesty /> }}
     />
   );
 }

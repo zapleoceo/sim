@@ -201,6 +201,9 @@ export interface Client {
   channels: { kind: ChannelKind; dialog_id: number }[];
   last_contact_at: string | null;
   created_at: string;
+  /** What the persona knows about the lead; the passport keeper agent updates it after every reply. */
+  passport?: string;
+  passport_updated_at?: string | null;
 }
 export type ClientMini = Pick<Client, 'id' | 'display_name' | 'avatar_url' | 'stage' | 'status'> &
   Partial<Pick<Client, 'last_contact_at' | 'needs' | 'channels' | 'next_step'>>;

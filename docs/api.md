@@ -164,7 +164,7 @@ language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id,
 
 Общие для всех персонажей тексты промптов и параметры хранятся в таблице `app_setting`;
 нет строки — действует значение по умолчанию из кода. Деплой их не сбрасывает.
-Читать может любой вошедший, менять `owner`+ (с CSRF). Страницы админки: «Общие правила» (всё, кроме группы «Охранник») и «Охранник» (группа «Охранник»).
+Читать может любой вошедший, менять `owner`+ (с CSRF). Страницы админки: «Общие правила» (всё, кроме групп агентов) и «Агенты» (группы «Охранник» и «Паспортистка»).
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
@@ -178,7 +178,9 @@ is_default, updated_at, updated_by_id}`.
 Ключи: `history_limit` (6–100) — сколько реплик видят персонаж и охранник; `guard_prompt` — весь
 промпт охранника одним текстом (роль, вход, правила, вердикты, JSON-формат), `guard_model` (точная
 модель Broker, пусто: решает маршрут; запасной маршрут модель не закрепляет), `guard_capability`,
-`guard_fallback_capability` — охранник (группа «Охранник»); `output_contract` — формат ответа
+`guard_fallback_capability` — охранник (группа «Охранник»); `passport_prompt` (инструкция агента
+«паспортистка»), `passport_model` (точная модель Broker, пусто: маршрут `chat:sales`) — паспорт лида (группа
+«Паспортистка»); `output_contract` — формат ответа
 персонажа (JSON, добавляется в конец её промпта), `retry_nudge` — что сказать модели, если ответ не
 разобрался (группа «Служебные промпты»); `reply_debounce_s` (0–300) — пауза перед ответом;
 `caption_rules` — подписи постов; `trace_retention_days`. Значения по умолчанию для
@@ -259,7 +261,7 @@ last_message: {text, direction, at}, unread: number, ai_paused}`.
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
 | GET | `/api/clients` | `stage?, status?, persona_id?, q?` | `{items: Client[], total}` |
-| GET | `/api/clients/{id}` | — | `ClientCard` |
+| GET | `/api/clients/{id}` | — | `ClientCard` (в т.ч. `passport` — паспорт лида от паспортистки, `passport_updated_at`) |
 | PATCH | `/api/clients/{id}` | `{notes?, next_step?, next_step_at?, display_name?}` | `Client` |
 | POST | `/api/clients/{id}/stage` | `{stage?, status?, reason?}` | `Client` (оператор; `registered`/`paid` вручную запрещены → 422) |
 

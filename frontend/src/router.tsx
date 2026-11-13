@@ -121,11 +121,20 @@ const settingsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'SettingsPage'),
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agents',
+  beforeLoad: ownerOnly,
+  component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'AgentsPage'),
+});
+
+/** The old guard page: the guard now lives on «Агенты». */
 const guardRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/guard',
-  beforeLoad: ownerOnly,
-  component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'GuardPage'),
+  beforeLoad: () => {
+    throw redirect({ to: '/agents' });
+  },
 });
 
 const strategiesRoute = createRoute({
@@ -197,7 +206,7 @@ export const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
     indexRoute, studioRoute, inboxRoute, clientsRoute, clientRoute, activityRoute, funnelRoute, dashboardRoute,
-    personasRoute, personaNewRoute, personaRoute, settingsRoute, guardRoute, strategiesRoute, strategyNewRoute, strategyRoute, simulationsRoute,
+    personasRoute, personaNewRoute, personaRoute, settingsRoute, agentsRoute, guardRoute, strategiesRoute, strategyNewRoute, strategyRoute, simulationsRoute,
     channelsRoute, contentRoute, partnerRoute, adminsRoute, fallbackRoute,
   ]),
 ]);

@@ -73,12 +73,12 @@ describe('SettingsPage', () => {
     expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
   });
 
-  it('the guard has its own page with only its settings, and resets to default', async () => {
+  it('the agents page shows the guard settings only, and resets to default', async () => {
     fakeApi({
       'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
       'DELETE /api/settings/guard_prompt': { ...GUARD, value: 'исходный', is_default: true, updated_at: null },
     });
-    await renderApp('/guard');
+    await renderApp('/agents');
     const user = userEvent.setup();
     const prompt = await screen.findByLabelText('Промпт охранника');
     expect(prompt).toHaveValue('свой');
@@ -88,14 +88,14 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(screen.getByLabelText('Промпт охранника')).toHaveValue('исходный'));
   });
 
-  it('the guard page shows only the model picker and the instructions', async () => {
+  it('the agents page shows only the model pickers and the instructions', async () => {
     const MODEL = item({ key: 'guard_model', group: 'Охранник', label: 'Модель', kind: 'model', value: 'codex-sub/gpt-6.1-terra', default: '' });
     const ROUTE = item({ key: 'guard_capability', group: 'Охранник', label: 'Маршрут Broker', kind: 'capability', value: 'structured' });
     fakeApi({
       'GET /api/settings': { items: [GUARD, MODEL, ROUTE], fixed: { persona: 'p', guard: 'ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность' } },
       'GET /api/models': { items: [{ id: 'codex-sub/gpt-6.1-terra', name: 'GPT 6.1 Terra', available: true, subscription: true }] },
     });
-    await renderApp('/guard');
+    await renderApp('/agents');
     expect(await screen.findByLabelText('Промпт охранника')).toBeInTheDocument();
     const model = screen.getByRole('combobox', { name: 'Модель' });
     await waitFor(() => expect(model).toHaveTextContent('GPT 6.1 Terra'));
@@ -103,6 +103,37 @@ describe('SettingsPage', () => {
     // the one fixed text is visible, read-only
     expect(await screen.findByText('ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность')).toBeInTheDocument();
     expect(screen.getByText(/не редактируется/)).toBeInTheDocument();
+  });
+
+  it('the agents page has the guard and the passport keeper, each with its own instruction', async () => {
+    const PASSPORT = item({ key: 'passport_prompt', group: 'Паспортистка', label: 'Инструкция паспортистки', value: 'веди паспорт' });
+    fakeApi({
+      'GET /api/settings': { items: [STYLE, GUARD, PASSPORT], fixed: { persona: 'p', guard: 'ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность' } },
+    });
+    await renderApp('/agents');
+    expect(await screen.findByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Промпт охранника')).toBeInTheDocument();
+    expect(screen.getByLabelText('Инструкция паспортистки')).toHaveValue('веди паспорт');
+    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
+    // the fixed honesty rule sits in the guard card, not in the passport keeper card
+    const guardCard = screen.getByRole('region', { name: 'Охранник' });
+    expect(await within(guardCard).findByText('ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: честность')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Паспортистка' })).queryByText(/честность/)).not.toBeInTheDocument();
+  });
+
+  it('the old guard address leads to the agents page', async () => {
+    fakeApi({ 'GET /api/settings': { items: [GUARD] } });
+    await renderApp('/guard');
+    expect(await screen.findByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
+  });
+
+  it('the shared rules page hides the agents', async () => {
+    const PASSPORT = item({ key: 'passport_prompt', group: 'Паспортистка', label: 'Инструкция паспортистки' });
+    fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, PASSPORT] } });
+    await renderApp('/settings');
+    expect(await screen.findByLabelText('Манера письма')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Инструкция паспортистки')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();
   });
 
   it('rejects a non-integer before calling the API', async () => {
