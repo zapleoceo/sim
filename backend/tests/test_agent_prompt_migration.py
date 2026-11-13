@@ -10,6 +10,8 @@ def test_agent_prompt_single_head_upgrade_downgrade(tmp_path):
     cfg = alembic_config(db)
     script = ScriptDirectory.from_config(cfg)
     assert script.get_heads() == ["0019_agent_prompt"]
+    # Do not let Alembic fileConfig disable application loggers in later tests.
+    cfg.config_file_name = None
     command.upgrade(cfg, "0019")
     assert "agent_prompt" not in columns(db, "persona")
     command.upgrade(cfg, "head")
