@@ -542,7 +542,7 @@ class FakeQr:
         self.outcome = outcome
         self.recreated = 0
 
-    async def wait(self, timeout=None):
+    async def wait(self, timeout=None):  # noqa: ASYNC109 — mirrors Telethon QRLogin.wait
         if isinstance(self.outcome, BaseException):
             raise self.outcome
         return self.outcome
