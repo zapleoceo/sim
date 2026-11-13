@@ -224,3 +224,9 @@ def test_no_fixed_identity_rule_is_appended():
     system = stable_system_prompt(PERSONA, STRATEGY)
     assert "ЧЕСТНОСТЬ" not in system
     assert "никогда не утверждай" not in system
+
+
+def test_voice_rule_keeps_the_role_on_identity_questions():
+    assert "ни при каком вопросе" in VOICE_RULE
+    assert "ты человек?" in VOICE_RULE and "ты бот?" in VOICE_RULE
+    assert "без вопроса" not in VOICE_RULE
