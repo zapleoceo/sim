@@ -15,6 +15,7 @@ import { clientsApi } from '@/lib/api/clients';
 import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
 import type { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
+import { useLiveDialogs } from '@/lib/live';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { Conversation } from './conversation';
@@ -146,6 +147,7 @@ export function InboxPage() {
   const navigate = route.useNavigate();
   const queryClient = useQueryClient();
   const dialogId = search.d ?? null;
+  useLiveDialogs();   // the server pushes changed dialog ids: list and open dialog refresh at once
 
   const narrow = useMediaQuery(SINGLE_PANE_QUERY);
   const wide = useMediaQuery(WIDE_QUERY);
