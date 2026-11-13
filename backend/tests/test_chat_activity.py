@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import asyncio
 
+from sqlalchemy import select
+
 from sim.adapters.channels.capabilities import RECORD_VOICE, TYPING, Capability
+from sim.adapters.db.models import Message
+from sim.domain.enums import Direction
 from sim.services import chat_activity
-from sim.services.chat_activity import showing
+from sim.services.chat_activity import mark_read, showing
 from tests.conftest import FakePort
 from tests.test_voice import FakeEncoder, FakeSpeech, deliver, reply_to, voiced_world
 
@@ -36,12 +40,39 @@ async def test_no_capability_or_no_port_shows_nothing():
     assert plain.actions == []
 
 
-async def test_a_reply_shows_typing_and_a_voice_note_shows_recording(container, world, connector):
+async def test_a_voice_answer_shows_recording_never_typing(container, world, connector):
     await voiced_world(container, world, connector, speech=FakeSpeech(), encoder=FakeEncoder())
     connector.port.capabilities = connector.port.capabilities | {Capability.CHAT_ACTION}
     queued = await reply_to(container, world, client_voice=True)
-    assert ("chat-1", TYPING) in connector.port.actions          # while the model wrote it
-    await deliver(container, queued.id)
-    assert ("chat-1", RECORD_VOICE) in connector.port.actions    # while the voice was rendered
+    assert connector.port.actions and set(connector.port.actions) == {("chat-1", RECORD_VOICE)}
+    await deliver(container, queued.id)                          # and while it is rendered
+    assert set(connector.port.actions) == {("chat-1", RECORD_VOICE)}
+
+
+async def test_a_text_answer_shows_typing(container, world, connector):
+    await voiced_world(container, world, connector, speech=FakeSpeech(), encoder=FakeEncoder())
+    connector.port.capabilities = connector.port.capabilities | {Capability.CHAT_ACTION}
+    await reply_to(container, world, client_voice=False)         # mirror: text gets text
+    assert connector.port.actions and set(connector.port.actions) == {("chat-1", TYPING)}
+
+
+async def test_she_reads_the_client_message_before_typing(container, world, connector):
+    connector.port.capabilities = frozenset({Capability.CHAT_ACTION, Capability.MARK_READ})
+    queued = await reply_to(container, world, client_voice=False)
+    async with container.factory() as s:
+        last_in = (await s.scalars(select(Message).where(Message.direction == Direction.IN)
+                                   .order_by(Message.id.desc()))).first()
+    assert queued is not None and last_in.external_id
+    assert connector.port.reads == [("chat-1", last_in.external_id)]
+
+
+async def test_mark_read_needs_the_capability_and_an_id():
+    plain, reader = FakePort(), FakePort()
+    reader.capabilities = frozenset({Capability.MARK_READ})
+    await mark_read(plain, "chat-1", "m-1")
+    await mark_read(reader, "chat-1", None)
+    await mark_read(None, "chat-1", "m-1")
+    await mark_read(reader, "chat-1", "m-1")
+    assert plain.reads == [] and reader.reads == [("chat-1", "m-1")]
 
 

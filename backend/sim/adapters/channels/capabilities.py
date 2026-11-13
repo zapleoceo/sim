@@ -16,6 +16,7 @@ class Capability(StrEnum):
     SEND_VOICE = "send_voice"           # port.send_voice(thread, ogg_opus, duration_s) -> SendResult
     SEND_ATTACHMENT = "send_attachment"  # port.send_attachment(thread, bytes, name, mime, caption)
     CHAT_ACTION = "chat_action"          # port.send_chat_action(thread, "typing" | "record_voice")
+    MARK_READ = "mark_read"              # port.mark_read(thread, external_message_id)
     # Incoming voice calls reach the worker: its connector takes `listen_calls(handler)` and
     # hands every call over as an IncomingCall (sim.services.calls answers it).
     ACCEPT_CALL = "accept_call"
@@ -32,6 +33,14 @@ class ChatActionSender(Protocol):
     (Telegram ~5 s), callers repeat it while the work goes on."""
 
     async def send_chat_action(self, external_thread_id: str, action: str) -> None: ...
+
+
+@runtime_checkable
+class ReadMarker(Protocol):
+    """Marks the client's messages up to this one as read (the client sees "прочитано"). Best
+    effort like chat actions: implementations swallow their errors."""
+
+    async def mark_read(self, external_thread_id: str, external_message_id: str) -> None: ...
 
 
 @runtime_checkable

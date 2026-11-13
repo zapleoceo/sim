@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.channels.capabilities import TYPING
+from sim.adapters.channels.capabilities import RECORD_VOICE, TYPING
 from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
 from sim.adapters.db.models import Dialog, Message, Persona, Strategy
 from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo, StrategyRepo
@@ -24,7 +24,7 @@ from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
-from sim.services.chat_activity import showing
+from sim.services.chat_activity import mark_read, showing
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
@@ -85,6 +85,13 @@ class PreviewResult:
     latency_ms: int
     guard: GuardOutcome | None = None
     context: dict[str, Any] | None = None
+
+
+def will_speak(persona: Persona, followup: bool, inbound: Message | None) -> bool:
+    """Whether this answer goes out as a voice note. A follow-up answers no client message,
+    so "mirror" never voices it."""
+    kind = None if followup or inbound is None else inbound.media_kind
+    return speaks(persona.voice_mode, persona.voice_id, kind)
 
 
 def persona_profile(p: Persona) -> PersonaProfile:
@@ -375,8 +382,13 @@ class ConversationService:
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
         ctx = await self.dialog_context(dialog, persona, instruction=instruction)
-        # "Марина печатает…" in the chat while the model writes and the guard checks the reply.
-        async with showing(self.outbound.try_port(dialog.channel), dialog.external_thread_id, TYPING):
+        # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
+        # answer will be a voice note) while the model writes and the guard checks the reply.
+        port = self.outbound.try_port(dialog.channel)
+        if not followup:
+            await mark_read(port, dialog.external_thread_id, last.external_id)
+        action = RECORD_VOICE if will_speak(persona, followup, last) else TYPING
+        async with showing(port, dialog.external_thread_id, action):
             draft = await self.draft_reply(
                 persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id
             )
@@ -395,9 +407,7 @@ class ConversationService:
             return ReplyOutcome("superseded")
         if draft.decision is None or draft.guard is None or not draft.guard.allowed:
             return await self.handoff_failed(dialog, draft)
-        # A follow-up answers no client message, so "mirror" never voices it.
-        voice = speaks(persona.voice_mode, persona.voice_id,
-                       None if followup or newer is None else newer.media_kind)
+        voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
 
