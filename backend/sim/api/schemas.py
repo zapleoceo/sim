@@ -251,7 +251,6 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
         "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
-        "is_game": p.is_game,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
     }
 

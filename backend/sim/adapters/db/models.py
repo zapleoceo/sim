@@ -146,9 +146,6 @@ class Persona(Base):
     )
     # Answer incoming Telegram calls with her live voice (same `voice_id`; sim.services.calls).
     accept_calls: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
-    # The role-game persona (sim.services.game): she answers only inside a dialog whose
-    # interlocutor started the game, never as a channel's everyday persona. Set by the seed.
-    is_game: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )
@@ -247,10 +244,6 @@ class Dialog(Base):
     )
     unread: Mapped[int] = mapped_column(Integer, default=0)
     followup_step: Mapped[int] = mapped_column(Integer, default=0)
-    # The role game in this dialog (sim.domain.game.GameState) and when the interlocutor
-    # confirmed the consent screen (no age is stored).
-    game_state: Mapped[str] = mapped_column(String(8), default="", server_default="")
-    game_consent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_message_text: Mapped[str] = mapped_column(Text, default="")
     last_message_direction: Mapped[Direction | None] = mapped_column(
         enum_col(Direction), nullable=True

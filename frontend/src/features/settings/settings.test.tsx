@@ -136,23 +136,6 @@ describe('SettingsPage', () => {
     expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();
   });
 
-  it('the shared rules page shows the game settings with the read-only command vocabulary', async () => {
-    const CHANNEL = item({ key: 'game_channel_id', group: 'Игра Sim1', label: 'Канал игры', kind: 'int', min: 0, max: 1000000000, value: 0, default: 0 });
-    const OWNER = item({ key: 'game_owner_telegram_id', group: 'Игра Sim1', label: 'Telegram id владельца', kind: 'int', min: 0, max: 9999999999999, value: 0, default: 0 });
-    fakeApi({
-      'GET /api/settings': { items: [STYLE, CHANNEL, OWNER], fixed: { persona: '', guard: 'g', game: 'НИ («начать игру»): подключает персонажа игры.' } },
-    });
-    await renderApp('/settings');
-    const card = await screen.findByRole('region', { name: 'Игра Sim1' });
-    expect(within(card).getByLabelText('Канал игры')).toHaveValue('0');
-    expect(within(card).getByLabelText('Telegram id владельца')).toHaveValue('0');
-    expect(await within(card).findByText(/НИ \(«начать игру»\)/)).toBeInTheDocument();
-    expect(within(card).getByText(/Словарь команд игры/)).toBeInTheDocument();
-    // the vocabulary is a text, not a field, and belongs to the game card only
-    expect(within(card).queryByRole('textbox', { name: /Словарь/ })).not.toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Стиль' })).queryByText(/Словарь команд игры/)).not.toBeInTheDocument();
-  });
-
   it('rejects a non-integer before calling the API', async () => {
     const log = fakeApi({ 'GET /api/settings': { items: [DELAY] } });
     await renderApp('/settings');

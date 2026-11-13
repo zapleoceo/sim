@@ -166,24 +166,17 @@ class CallService:
             channel = await ChannelRepo(s).get(channel_id)
             if channel is None or channel.is_archived:
                 return "no_channel"
-            base = await PersonaRepo(s).get(channel.persona_id)
-            if base is None or not base.is_active:
-                return "calls_off"
-            conversation = self.conversation(s)
-            dialog = await DialogRepo(s).by_thread(channel_id, thread_id)
-            # In a running role game the game persona takes the owner's calls and nobody else's.
-            persona = base if dialog is None else await conversation.game.caller(dialog, base)
-            if persona is None:
-                return "not_owner"
-            if not persona.accept_calls:
+            persona = await PersonaRepo(s).get(channel.persona_id)
+            if persona is None or not persona.is_active or not persona.accept_calls:
                 return "calls_off"
             if persona.voice_id not in GEMINI_VOICES:
                 return "no_voice"
+            dialog = await DialogRepo(s).by_thread(channel_id, thread_id)
             if dialog is None:
                 return "unknown_caller"
             if dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED:
                 return "operator_dialog"
-            system = await conversation.call_prompt(dialog, persona)
+            system = await self.conversation(s).call_prompt(dialog, persona)
             return CallPlan(dialog.id, persona.voice_id, system,
                             language_code(persona.language), greeting(persona.name))
 

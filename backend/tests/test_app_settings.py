@@ -5,7 +5,6 @@ import pytest
 
 from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
-from sim.domain.game import vocabulary_text
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
 from sim.services.guard import GUARD_CONTROL, GUARD_PROMPT
 from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE
@@ -81,7 +80,7 @@ async def test_the_retry_nudge_comes_from_the_settings(container, world, fake_ll
 async def test_api_exposes_no_fixed_persona_rule_and_keeps_guard_control(api, world):
     await login(api, OWNER[0])
     fixed = (await api.get("/api/settings")).json()["fixed"]
-    assert fixed == {"persona": "", "guard": GUARD_CONTROL, "game": vocabulary_text()}
+    assert fixed == {"persona": "", "guard": GUARD_CONTROL}
     body = (await api.get(f"/api/personas/{world.persona.id}/prompt")).json()
     assert body["fixed"] == "" and "ЧЕСТНОСТЬ" not in body["system"]
     assert body["system"].endswith(OUTPUT_CONTRACT)

@@ -27,7 +27,6 @@ from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
-from sim.services.game import GameService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.llm_audit import AuditedLLM
@@ -62,8 +61,7 @@ class ConversationError(Exception):
 
 @dataclass(frozen=True)
 class ReplyOutcome:
-    # sent | empty | skipped | needs_operator | waiting_media | busy | superseded | game
-    status: str
+    status: str  # sent | empty | skipped | needs_operator | waiting_media | busy | superseded
     decision: Decision | None = None
     message: Message | None = None
 
@@ -138,13 +136,6 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
     ]
 
 
-def unanswered(messages: list[Message], answered: Message | None) -> list[str]:
-    """The interlocutor's messages after our last one (`answered`: sent, queued or blocked),
-    oldest first: what this reply answers."""
-    after = answered.id if answered is not None else 0
-    return [m.text for m in messages if m.direction is Direction.IN and m.id > after]
-
-
 def history_turns(messages: list[Message]) -> list[Turn]:
     """Client -> user turn; AI and operator -> assistant turn."""
     return visible_turns(
@@ -178,7 +169,6 @@ class ConversationService:
         self.jobs = JobRepo(session)
         self.funnel = FunnelService(session)
         self.followups = FollowupService(session, clock=clock)
-        self.game = GameService(session, clock=clock)
 
     # ---- shared pieces -------------------------------------------------------------------
     async def config(self) -> AppSettings:
@@ -383,27 +373,15 @@ class ConversationService:
             # A voice message is still being downloaded / transcribed: answer once it is text.
             await self.defer_reply(dialog_id, MEDIA_WAIT_S)
             return ReplyOutcome("waiting_media")
-        base = await self.personas.get(client.persona_id)
-        if base is None or not base.is_active:
+        persona = await self.personas.get(client.persona_id)
+        if persona is None or not persona.is_active:
             return ReplyOutcome("skipped")
-        recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
-        if not followup:
-            answered = await self.messages.last(dialog_id, Direction.OUT)
-            notice = await self.game.play(dialog, base, unanswered(recent, answered))
-            if notice is not None:
-                return await self.notify(dialog, notice)
-        speaker = await self.game.speaker(dialog, base)
-        if speaker is None:
-            return ReplyOutcome("skipped")  # a game persona answers only inside a running game
-        persona = speaker.persona
         strategy = await self.strategy_for(persona.id)
 
+        recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
-        ctx = await self.dialog_context(
-            dialog, persona,
-            instruction="\n\n".join(part for part in (instruction, speaker.identity()) if part),
-        )
+        ctx = await self.dialog_context(dialog, persona, instruction=instruction)
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
         port = self.outbound.try_port(dialog.channel)
@@ -429,18 +407,9 @@ class ConversationService:
             return ReplyOutcome("superseded")
         if draft.decision is None or draft.guard is None or not draft.guard.allowed:
             return await self.handoff_failed(dialog, draft)
-        if speaker.playing and draft.decision.handoff_to_operator:
-            # In a game there is no operator to call: she asks to stop the game instead.
-            return await self.notify(dialog, self.game.leave(dialog))
         voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
-
-    async def notify(self, dialog: Dialog, notice: str) -> ReplyOutcome:
-        """Send a fixed notice of the role game (sim.services.game) as the whole answer: the text
-        is written by code, so neither the model nor the guard is involved."""
-        await self.followups.cancel(dialog.id)
-        return ReplyOutcome("game", message=await self.outbound.queue_ai(dialog, notice, None))
 
     async def handoff_failed(self, dialog: Dialog, draft: Draft) -> ReplyOutcome:
         """Two rejected decisions: one neutral reply, then a visible manager handoff."""
