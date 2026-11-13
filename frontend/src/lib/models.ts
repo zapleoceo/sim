@@ -203,6 +203,8 @@ export interface Dialog {
   send_capabilities?: { text: boolean; voice: boolean; attachment: boolean };
 }
 export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
+/** DELETE /api/dialogs/{id}/messages: the dialog after «Очистить чат» and how many messages went. */
+export interface ClearedDialog extends DialogDetail { deleted_messages: number }
 export interface DialogFilter {
   source: '' | 'real' | 'test';
   avatar: '' | 'with' | 'without';

@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import {
-  ArrowLeft, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, SendHorizontal, Square, User,
+  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, SendHorizontal, Square, User,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
@@ -33,6 +33,8 @@ export function Conversation({
   onSendVoice,
   onSendAttachment,
   onChangeStage,
+  onClearChat,
+  clearing = false,
 }: {
   detail: DialogDetail;
   narrow: boolean;
@@ -48,6 +50,9 @@ export function Conversation({
   onSendVoice?: (audio: Blob, filename: string, requestId: string) => Promise<boolean>;
   onSendAttachment?: (file: File, caption: string, requestId: string) => Promise<boolean>;
   onChangeStage?: (stage: Stage) => Promise<boolean>;
+  /** «Очистить чат»: passed only for the owner (the page asks for confirmation first). */
+  onClearChat?: () => void;
+  clearing?: boolean;
 }) {
   const { dialog, client, messages } = detail;
   const [text, setText] = useState('');
@@ -130,6 +135,13 @@ export function Conversation({
           <Tip label="Снять отметку «нужен оператор»">
             <Button variant="outline" size="sm" onClick={onResolve}>
               Обработано
+            </Button>
+          </Tip>
+        )}
+        {onClearChat && (
+          <Tip label="Удалить историю этого диалога в SIM (в мессенджере она останется)">
+            <Button variant="ghost" size="icon-sm" aria-label="Очистить чат" disabled={clearing} onClick={onClearChat}>
+              <Eraser />
             </Button>
           </Tip>
         )}

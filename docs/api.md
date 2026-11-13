@@ -271,6 +271,7 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 | POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`) |
 | POST | `/api/dialogs/{id}/resolve` | — | `Dialog` — снимает `needs_operator`, не меняя паузу ИИ. Флаг также снимается ответом оператора и возобновлением ИИ |
 | POST | `/api/dialogs/{id}/read` | — | `204` |
+| DELETE | `/api/dialogs/{id}/messages` | — (только owner/superadmin, CSRF) | `{dialog, client, messages: [], deleted_messages}` — «Очистить чат», необратимо: удаляет все сообщения диалога в базе SIM, отменяет ждущие ответ, напоминание и обновление паспорта этого диалога, обнуляет счётчики (`unread`, шаг напоминаний, `needs_operator`, последнее сообщение). Следующий ответ персонажа строится без прошлой истории. Клиент, паспорт, этап, статус, пауза ИИ и состояние игры не меняются; в мессенджере ничего не удаляется и ничего не отправляется. Operator → 403, нет диалога → 404 |
 
 `DialogRow`: `{id, channel_kind, persona: {id, name, avatar_url}, client: {id, display_name, avatar_url, stage, status},
 last_message: {text, direction, at}, unread: number, ai_paused}`.
@@ -292,6 +293,11 @@ last_message: {text, direction, at}, unread: number, ai_paused}`.
 | GET | `/api/clients/{id}` | — | `ClientCard` (в т.ч. `passport` — паспорт лида от паспортистки, `passport_updated_at`) |
 | PATCH | `/api/clients/{id}` | `{notes?, next_step?, next_step_at?, display_name?}` | `Client` |
 | POST | `/api/clients/{id}/stage` | `{stage?, status?, reason?}` | `Client` (оператор; `registered`/`paid` вручную запрещены → 422) |
+| DELETE | `/api/clients/{id}/passport` | — (только owner/superadmin, CSRF) | `Client` — «Очистить паспорт», необратимо: стирает собранное о клиенте (`passport`, `passport_updated_at`, `needs`, `notes`, `next_step`, `next_step_at`) и отменяет ждущие обновления паспорта во всех его диалогах. Клиент, его каналы, диалоги и сообщения, этап и статус остаются; после следующего ответа персонажа паспортистка заполняет паспорт заново по последним сообщениям. Operator → 403, нет клиента → 404 |
+
+Обе очистки и сброс из чата (`/reset`, `НСН` в игре, [game.md](game.md)) — одна служба
+`services/dialog_reset.py`: `clear_chat` (чат), `clear_passport` (паспорт), `reset` (оба + этап
+и статус к началу).
 
 `Client`: `{id, display_name, avatar_url, persona_id, stage, status, next_step, next_step_at, notes,
 needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.

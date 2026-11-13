@@ -1,8 +1,8 @@
 import userEvent from '@testing-library/user-event';
-import { waitFor } from '@testing-library/react';
+import { waitFor, within } from '@testing-library/react';
 import type { Client, DialogDetail, DialogRow } from '@/lib/models';
-import { fakeApi } from '@/test/fake-api';
-import { CSRF, renderApp, screen } from '@/test/render-app';
+import { fakeApi, type FakeReply } from '@/test/fake-api';
+import { CSRF, renderApp, screen, testUser } from '@/test/render-app';
 
 const client: Client = {
   id: 7,
@@ -39,7 +39,7 @@ const detail: DialogDetail = {
   ],
 };
 
-function api() {
+function api(extra: Record<string, FakeReply> = {}) {
   return fakeApi({
     'GET /api/personas': { items: [{ id: 1, name: 'Марина', is_active: true }] },
     'GET /api/channels': { items: [{ id: 4, kind: 'telegram', name: 'Марина TG',
@@ -71,6 +71,7 @@ function api() {
       created_at: '2026-11-11T09:05:00Z',
       delivery: 'queued',
     }),
+    ...extra,
   });
 }
 
@@ -134,5 +135,57 @@ describe('InboxPage', () => {
     await waitFor(() =>
       expect(log.some((r) => r.path === '/api/dialogs' && r.query.get('unread_only') === 'true')).toBe(true),
     );
+  });
+});
+
+describe('InboxPage «Очистить чат»', () => {
+  /** The server state: the dialog has its history until the DELETE. */
+  function clearableApi() {
+    let cleared = false;
+    const emptied = (): DialogDetail => ({ ...detail, dialog: { ...detail.dialog, needs_operator: false }, messages: [] });
+    return api({
+      'GET /api/dialogs/1': () => (cleared ? emptied() : detail),
+      'DELETE /api/dialogs/1/messages': () => {
+        cleared = true;
+        return { ...emptied(), deleted_messages: 1 };
+      },
+    });
+  }
+
+  it('asks first, then wipes the history with CSRF and shows the empty dialog without a reload', async () => {
+    const log = clearableApi();
+    await renderApp('/inbox?d=1');
+    const chatLog = await screen.findByRole('log', { name: 'Сообщения' });
+    expect(within(chatLog).getByText('Здравствуйте')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Очистить чат' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('без возможности восстановления');
+    expect(dialog).toHaveTextContent(/В Telegram .*сообщения останутся/);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Очистить чат' }));
+
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'DELETE' && r.path === '/api/dialogs/1/messages');
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+    expect(await screen.findByText('Сообщений пока нет')).toBeInTheDocument();
+    expect(within(screen.getByRole('log', { name: 'Сообщения' })).queryByText('Здравствуйте')).not.toBeInTheDocument();
+  });
+
+  it('does nothing when the owner cancels', async () => {
+    const log = clearableApi();
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Очистить чат' }));
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(log.some((r) => r.method === 'DELETE')).toBe(false);
+    expect(within(screen.getByRole('log', { name: 'Сообщения' })).getByText('Здравствуйте')).toBeInTheDocument();
+  });
+
+  it('is not shown to an operator', async () => {
+    clearableApi();
+    await renderApp('/inbox?d=1', { user: testUser('operator') });
+    await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
+    expect(screen.queryByRole('button', { name: 'Очистить чат' })).not.toBeInTheDocument();
   });
 });

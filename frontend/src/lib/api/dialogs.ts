@@ -1,4 +1,4 @@
-import type { Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message } from '../models';
+import type { ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message } from '../models';
 import { DEFAULT_PAGE, http, type PageRequest } from './http';
 
 export const dialogsApi = {
@@ -24,4 +24,6 @@ export const dialogsApi = {
   /** Operator handled it: clears «needs operator» (the AI pause is unchanged). */
   resolve: (id: number) => http.post<Dialog>(`/api/dialogs/${id}/resolve`, {}),
   markRead: (id: number) => http.post<void>(`/api/dialogs/${id}/read`, {}, { silent: true }),
+  /** Owner only, irreversible: wipes the dialog's history in SIM (not in the messenger). */
+  clearChat: (id: number) => http.delete<ClearedDialog>(`/api/dialogs/${id}/messages`),
 };

@@ -1,9 +1,9 @@
 import userEvent from '@testing-library/user-event';
-import { waitFor } from '@testing-library/react';
+import { waitFor, within } from '@testing-library/react';
 import type { MessageActivity } from '@/lib/activity-models';
 import type { ClientCard } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
-import { renderApp, screen } from '@/test/render-app';
+import { CSRF, renderApp, screen, testUser } from '@/test/render-app';
 import { CHAT_PAGE } from './client-chat';
 
 const card: ClientCard = {
@@ -121,5 +121,47 @@ describe('ClientPage', () => {
     await waitFor(() =>
       expect(log.filter((r) => r.path === '/api/clients/7/messages').at(-1)?.query.get('limit')).toBe(String(CHAT_PAGE * 2)),
     );
+  });
+});
+
+describe('ClientPage «Очистить паспорт»', () => {
+  const full: ClientCard = {
+    ...card, passport: 'Кто он: Анна, двое детей.', passport_updated_at: '2026-11-12T09:00:00Z', next_step: 'дать ссылку',
+  };
+  const emptied = { ...full, passport: '', passport_updated_at: null, needs: [], notes: '', next_step: '', next_step_at: null };
+
+  it('asks first, then forgets the passport with CSRF and shows the emptied card without a reload', async () => {
+    let cleared = false;
+    const log = fakeApi({
+      ...common,
+      'GET /api/clients/7': () => (cleared ? emptied : full),
+      'DELETE /api/clients/7/passport': () => {
+        cleared = true;
+        return emptied;
+      },
+    });
+    await renderApp('/clients/7');
+    await userEvent.click(await screen.findByRole('button', { name: /Очистить паспорт/ }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Восстановить их нельзя');
+    expect(dialog).toHaveTextContent('Клиент, его диалоги и сообщения');
+    expect(dialog).toHaveTextContent('В Telegram ничего не удаляется');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Очистить паспорт' }));
+
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'DELETE' && r.path === '/api/clients/7/passport');
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+    expect(await screen.findByText(/паспортистка заполнит его/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Заметки')).toHaveValue('');
+    expect(screen.queryByText('доход')).not.toBeInTheDocument();
+    expect(screen.getByText('Привет')).toBeInTheDocument();   // the chat stays
+  });
+
+  it('is not shown to an operator', async () => {
+    fakeApi({ ...common, 'GET /api/clients/7': full });
+    await renderApp('/clients/7', { user: testUser('operator') });
+    await screen.findByText('Привет');
+    expect(screen.queryByRole('button', { name: /Очистить паспорт/ })).not.toBeInTheDocument();
   });
 });
