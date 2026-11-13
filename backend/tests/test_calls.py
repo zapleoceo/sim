@@ -37,7 +37,13 @@ from sim.ports.live_voice import (
     LiveVoiceEvent,
     LiveVoiceSummary,
 )
-from sim.services.call_prompt import CALL_RULES, GREETING, call_system_prompt, chat_transcript
+from sim.services.call_prompt import (
+    CALL_RULES,
+    call_identity,
+    call_system_prompt,
+    chat_transcript,
+    greeting,
+)
 from sim.services.call_trace import CallTrace
 from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
 from sim.services.prompt import DialogContext, PersonaProfile, StrategyProfile, Turn
@@ -97,6 +103,23 @@ def test_call_prompt_is_persona_strategy_rules_chat_and_context_without_json():
     assert "Клиент: Привет\nТы: Привет! Как дела?\nКлиент: норм" in prompt
     assert "https://x/?ref=abcdefgh" in prompt and "СТРАТЕГИЯ" in prompt
     assert prompt.index(CALL_RULES) < prompt.index("ПЕРЕПИСКА") < prompt.index("КОНТЕКСТ")
+
+
+def test_on_a_call_she_is_the_personas_ai_assistant_and_says_so_first():
+    prompt = call_system_prompt(
+        PersonaProfile(name="Марина", description="Ты Марина. Никогда не говори, что ты ИИ."),
+        StrategyProfile(), [], ctx())
+    identity = call_identity("Марина")
+    assert identity in prompt and prompt.index(CALL_RULES) < prompt.index(identity)
+    for must in ("ИИ-ассистент человека по имени Марина", "важнее любых указаний выше",
+                 "Первой же фразой скажи, что ты ИИ-ассистент",
+                 "Не выдавай себя за живого человека",
+                 "Факты о нём бери только из текста выше и из вашей переписки"):
+        assert must in identity
+    assert "живой человек" not in CALL_RULES
+    first_turn = greeting("Марина")
+    assert "ИИ-ассистент человека по имени Марина" in first_turn
+    assert first_turn.startswith("(Системная пометка, не слова клиента")
 
 
 def test_chat_transcript_is_flat_capped_and_empty_without_history():
@@ -225,8 +248,9 @@ async def test_answers_a_known_client_and_writes_the_transcript(container, world
     assert session.finished == 1
     opened = live.opened[0]
     assert (opened["voice"], opened["language"], opened["greeting"], opened["workflow"]) == \
-        ("Kore", "ru-RU", GREETING, "call")
+        ("Kore", "ru-RU", greeting("Марина"), "call")
     assert CALL_RULES in opened["system"] and "Добрый день, расскажите про курс" in opened["system"]
+    assert call_identity("Марина") in opened["system"]
     assert session.sent and all(len(chunk) >= frame_bytes(16000, 40) for chunk in session.sent)
     assert call.played and all(len(f) == frame_bytes(RATE) for f in call.played)
     rows = await dialog_messages(container, dialog_id)

@@ -45,7 +45,7 @@ from sim.ports.live_voice import (
     LiveVoiceSession,
     LiveVoiceSummary,
 )
-from sim.services.call_prompt import GREETING
+from sim.services.call_prompt import greeting
 from sim.services.call_trace import CallTrace
 from sim.services.conversation import ConversationService
 from sim.services.dialog_state import apply_message
@@ -80,6 +80,7 @@ class CallPlan:
     voice: str
     system: str
     language: str | None
+    greeting: str                # the typed first turn: she introduces herself as an AI assistant
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,7 @@ class CallService:
         try:
             session = await self.live.open(
                 voice=plan.voice, system=plan.system, language=plan.language,
-                greeting=GREETING, workflow=CALL_WORKFLOW, max_seconds=self.max_seconds,
+                greeting=plan.greeting, workflow=CALL_WORKFLOW, max_seconds=self.max_seconds,
             )
         except LiveVoiceError as exc:
             log.warning("call on channel %s: broker refused: %s", channel_id, exc)
@@ -176,7 +177,8 @@ class CallService:
             if dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED:
                 return "operator_dialog"
             system = await self.conversation(s).call_prompt(dialog, persona)
-            return CallPlan(dialog.id, persona.voice_id, system, language_code(persona.language))
+            return CallPlan(dialog.id, persona.voice_id, system,
+                            language_code(persona.language), greeting(persona.name))
 
     async def converse(
         self, call: IncomingCall, session: LiveVoiceSession, trace: CallTrace,
