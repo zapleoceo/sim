@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from array import array
 from datetime import datetime
 from types import SimpleNamespace
@@ -15,7 +16,12 @@ from sqlalchemy import select
 
 from sim.adapters.channels.capabilities import CallListener, Capability
 from sim.adapters.channels.telegram_user import TelegramUserAdapter, TelethonTransport, TGUserState
-from sim.adapters.channels.tg_calls import TelegramCallBridge, has_status
+from sim.adapters.channels.tg_calls import (
+    ANSWER_TIMEOUT_S,
+    CallGone,
+    TelegramCallBridge,
+    has_status,
+)
 from sim.adapters.db.models import Dialog, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
@@ -32,7 +38,8 @@ from sim.ports.live_voice import (
     LiveVoiceSummary,
 )
 from sim.services.call_prompt import CALL_RULES, GREETING, call_system_prompt, chat_transcript
-from sim.services.calls import CALL_KIND, CallService, clock_text, language_code
+from sim.services.call_trace import CallTrace
+from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
 from sim.services.prompt import DialogContext, PersonaProfile, StrategyProfile, Turn
 from sim.worker.loop import Worker
 from tests.conftest import inbound
@@ -114,12 +121,13 @@ FRAME = b"\x01\x00" * (RATE // 100)          # 10 ms at 48 kHz
 
 class FakeCall:
     def __init__(self, thread: str = "chat-1", frames: int = 6, gap: float = 0.02,
-                 fail_answer: bool = False) -> None:
+                 fail_answer: bool = False, fail_play: bool = False) -> None:
         self.external_thread_id = thread
         self.rate_hz = RATE
         self.n = frames
         self.gap = gap
         self.fail_answer = fail_answer
+        self.fail_play = fail_play
         self.answered = False
         self.hung_up = False
         self.played: list[bytes] = []
@@ -135,6 +143,8 @@ class FakeCall:
             yield FRAME
 
     async def play(self, data: bytes) -> None:
+        if self.fail_play:
+            raise RuntimeError("not in a call")
         self.played.append(data)
 
     async def hangup(self) -> None:
@@ -308,6 +318,119 @@ async def test_a_call_without_words_is_still_recorded(container, world):
     assert (last.media_kind, last.text) == (CALL_KIND, "Входящий звонок · 0:04")
 
 
+async def test_a_dead_pacer_ends_the_call_loudly_instead_of_a_silent_line(
+        container, world, caplog):
+    dialog_id = await chatting_world(container, world)
+    session = FakeSession([LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 2400)])
+    call = FakeCall(frames=1000, gap=0.05, fail_play=True)
+    caplog.set_level(logging.WARNING)
+    outcome = await asyncio.wait_for(
+        service(container, FakeLive(session)).handle(world.channel.id, call), 5)
+    assert outcome.status == "answered" and call.hung_up and session.finished == 1
+    assert "pacer stopped: RuntimeError: not in a call" in caplog.text
+    assert "the caller never heard her (model audio 4800 bytes" in caplog.text
+    assert (await dialog_messages(container, dialog_id))[-3].media_kind == CALL_KIND
+
+
+async def test_a_failed_answer_is_logged_with_its_reason(container, world, caplog):
+    await chatting_world(container, world)
+    caplog.set_level(logging.WARNING)
+    await service(container, FakeLive()).handle(world.channel.id, FakeCall(fail_answer=True))
+    assert "answer failed: RuntimeError: no call" in caplog.text
+
+
+async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, world, caplog):
+    await chatting_world(container, world)
+    caplog.set_level(logging.INFO, logger="sim.calls.trace")
+
+    def session() -> FakeSession:
+        return FakeSession([LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240),
+                            LiveVoiceEvent(INTERRUPTED), LiveVoiceEvent(TURN_COMPLETE),
+                            LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240)])
+
+    await service(container, FakeLive(session())).handle(world.channel.id, FakeCall())
+    assert "sim.calls.trace" not in {r.name for r in caplog.records}      # off by default
+
+    container.settings.call_diagnostics = True
+    await service(container, FakeLive(session())).handle(world.channel.id, FakeCall())
+    lines = [r.getMessage() for r in caplog.records if r.name == "sim.calls.trace"]
+    moments = [line.split()[3] for line in lines]
+    assert moments[:5] == ["ringing", "plan_ready", "session_opened", "answer_sent", "answered"]
+    assert moments[-3:] == ["conversation_over", "ended", "summary"]
+    for moment in ("first_model_audio", "interrupted", "first_frame_sent", "first_caller_audio"):
+        assert moments.count(moment) == 1
+    assert all(line.startswith(f"call ch={world.channel.id} +") for line in lines)
+    assert "by=uplink" in lines[-3] and "end_reason=caller_hung_up" in lines[-2]
+    for counter in ("frames_in=6", "frames_out=", "interruptions=1", "model_audio_bytes=960",
+                    "model_turns=1", "uplink_chunks="):
+        assert counter in lines[-1]
+
+
+def test_call_trace_times_moments_and_reports_a_first_once(caplog):
+    caplog.set_level(logging.INFO, logger="sim.calls.trace")
+    now = [10.0]
+    trace = CallTrace(True, 3, lambda: now[0])
+    now[0] = 11.84
+    trace.first("first_frame_sent", bytes=960)
+    trace.first("first_frame_sent", bytes=960)
+    trace.count("frames_out")
+    trace.count("model_audio_bytes", 480)
+    trace.summary()
+    silent = CallTrace(False, 3)
+    silent.event("answered")
+    silent.count("frames_out", 2)
+    assert [r.getMessage() for r in caplog.records] == [
+        "call ch=3 +1840ms first_frame_sent bytes=960",
+        "call ch=3 +1840ms summary frames_out=1 model_audio_bytes=480"]
+    assert silent.counters["frames_out"] == 2          # counted even when nothing is logged
+
+
+class Played(Exception):
+    """Stops a pacer driven by a fake clock once its buffer is empty."""
+
+
+def paced(frames: int, overshoot: float, stall_after: int | None = None):
+    """The pacer over `frames` buffered frames on a fake clock whose every sleep is `overshoot`
+    late: (the coroutine, the times each frame was sent at, the trace)."""
+    now = [0.0]
+    out = PcmBuffer(frame_bytes(RATE))
+    out.push(FRAME * frames)
+    sent: list[float] = []
+
+    class Call:
+        async def play(self, data: bytes) -> None:
+            sent.append(now[0])
+            if len(sent) == stall_after:
+                now[0] += 1.0                      # the event loop was busy for a second
+
+    async def sleep(seconds: float) -> None:
+        if not len(out):
+            raise Played
+        now[0] += seconds + overshoot
+
+    trace = CallTrace(False, 1)
+    svc = CallService(None, None, None, sleep=sleep, monotonic=lambda: now[0])
+    return svc.pace(Call(), out, trace), sent, trace
+
+
+async def test_pacer_makes_up_for_late_wakeups_so_speech_does_not_fall_behind():
+    run, sent, trace = paced(frames=50, overshoot=0.004)
+    with pytest.raises(Played):
+        await run
+    assert len(sent) == 50
+    assert sent[-1] == pytest.approx(49 * 0.010 + 0.004)      # not 49 x 14 ms
+    assert trace.counters["frames_out"] == 50 and not trace.counters["pacer_restarts"]
+
+
+async def test_pacer_restarts_after_a_stall_instead_of_sending_a_burst():
+    run, sent, trace = paced(frames=20, overshoot=0.0, stall_after=5)
+    with pytest.raises(Played):
+        await run
+    gaps = [b - a for a, b in zip(sent, sent[1:], strict=False)]
+    assert gaps[4] > MAX_LAG_S and trace.counters["pacer_restarts"] == 1
+    assert all(gap == pytest.approx(0.010) for gap in gaps[5:])  # real time again, no catch-up
+
+
 # ---- Broker /v1/live client -----------------------------------------------------------------
 
 class FakeSocket:
@@ -405,6 +528,15 @@ async def test_a_dropped_broker_socket_ends_the_session():
     assert (session.input_rate_hz, session.output_rate_hz) == (16000, 24000)
 
 
+async def test_a_broker_error_in_the_middle_of_a_session_is_logged(caplog):
+    ws = FakeSocket({"type": "ready"}, [{"type": "error", "code": 502, "detail": "live failed"},
+                                         b"PCM"])
+    caplog.set_level(logging.WARNING)
+    session = await broker(ws)[0].open(voice="Kore", system="")
+    assert [e.kind async for e in session.events()] == [AUDIO]
+    assert "live session failed at the broker: 502: live failed" in caplog.text
+
+
 @pytest.mark.parametrize("ws, match", [
     (FakeSocket({"type": "error", "code": 503, "detail": "no paid gemini key"}), "503"),
     (FakeSocket(["not a dict"]), "refused"),
@@ -445,6 +577,7 @@ class FakeTgCalls:
         self.client = client
         self.handler = None
         self.log: list = []
+        self.hold: asyncio.Event | None = None      # set: play() waits for the caller's side
 
     def on_update(self, filters=None):
         def register(func):
@@ -455,8 +588,10 @@ class FakeTgCalls:
     async def start(self) -> None:
         self.log.append("start")
 
-    async def play(self, chat_id, stream) -> None:
-        self.log.append(("play", chat_id, stream))
+    async def play(self, chat_id, stream, config) -> None:
+        self.log.append(("play", chat_id, stream, config))
+        if self.hold is not None:
+            await self.hold.wait()
 
     async def record(self, chat_id, stream) -> None:
         self.log.append(("record", chat_id, stream))
@@ -472,6 +607,7 @@ LIB = SimpleNamespace(
     PyTgCalls=FakeTgCalls, ChatUpdate=FakeChatUpdate, StreamFrames=FakeFrames,
     Device=SimpleNamespace(MICROPHONE="mic"), Direction=SimpleNamespace(INCOMING="in"),
     ExternalMedia=SimpleNamespace(AUDIO="ext-audio"),
+    CallConfig=lambda timeout: ("config", timeout),
     MediaStream=lambda kind, params: ("media", kind, params),
     RecordStream=lambda audio, params: ("record", audio, params),
     AudioParameters=lambda rate, channels: (rate, channels),
@@ -496,7 +632,7 @@ async def test_bridge_answers_streams_and_hangs_up():
     assert calls.log == ["start"] and calls.handler == bridge.on_update
     await bridge.on_update(None, FakeChatUpdate(42, Status.INCOMING_CALL))
     await bridge.on_update(None, FakeChatUpdate(42, Status.INCOMING_CALL))   # duplicate ring
-    await asyncio.sleep(0)
+    await asyncio.sleep(0.01)                             # she picks up
     await bridge.on_update(None, FakeFrames(42, [b"A", b"B"]))
     await bridge.on_update(None, FakeFrames(42, [b"X"], direction="out"))     # her own audio
     await bridge.on_update(None, FakeFrames(7, [b"Z"]))                       # no such call
@@ -505,7 +641,8 @@ async def test_bridge_answers_streams_and_hangs_up():
     await asyncio.wait_for(release.wait(), 1)
     await asyncio.gather(*bridge.tasks)
     assert got == [b"A", b"B"]
-    assert ("play", 42, ("media", "ext-audio", (48000, 1))) in calls.log
+    assert ("play", 42, ("media", "ext-audio", (48000, 1)), ("config", ANSWER_TIMEOUT_S)) \
+        in calls.log
     assert ("record", 42, ("record", True, (48000, 1))) in calls.log
     assert ("frame", 42, "mic", b"OUT") in calls.log
     assert ("leave", 42) not in calls.log                 # the caller hung up first
@@ -528,6 +665,72 @@ async def test_bridge_hangs_up_an_answered_call_and_leaves_an_unanswered_one_rin
         await asyncio.gather(*bridge.tasks)
         assert (("leave", 5) in bridge.calls.log) is left
         assert bridge.active == {}
+
+
+async def ringing(handler, chat_id: int = 42) -> TelegramCallBridge:
+    bridge = TelegramCallBridge("client", handler, lib=LIB)
+    await bridge.on_update(None, FakeChatUpdate(chat_id, Status.INCOMING_CALL))
+    await asyncio.sleep(0)
+    return bridge
+
+
+async def test_a_caller_who_hangs_up_while_she_picks_up_cancels_the_answer_at_once():
+    failures: list = []
+
+    async def on_call(call):
+        try:
+            await call.answer()
+        except CallGone as exc:
+            failures.append(str(exc))
+
+    bridge = TelegramCallBridge("client", on_call, lib=LIB)
+    bridge.calls.hold = asyncio.Event()                   # the caller's side never confirms
+    await bridge.on_update(None, FakeChatUpdate(42, Status.INCOMING_CALL))
+    await asyncio.sleep(0.01)
+    assert [entry[0] for entry in bridge.calls.log] == ["play"]
+    await bridge.on_update(None, FakeChatUpdate(42, Status.DISCARDED_CALL))
+    await asyncio.wait_for(asyncio.gather(*bridge.tasks), 1)
+    assert failures == ["the caller hung up while the call was being picked up"]
+    assert [entry[0] for entry in bridge.calls.log] == ["play", "leave"]   # no record, cleaned
+    assert bridge.active == {}
+
+
+async def test_a_call_that_ended_before_she_picks_up_is_not_answered():
+    seen: list = []
+
+    async def on_call(call):
+        await asyncio.sleep(0.01)                         # the Broker session is opening
+        with pytest.raises(CallGone, match="before"):
+            await call.answer()
+        seen.append(call.answered)
+
+    bridge = await ringing(on_call)
+    await bridge.on_update(None, FakeChatUpdate(42, Status.DISCARDED_CALL))
+    await asyncio.gather(*bridge.tasks)
+    assert seen == [False] and bridge.calls.log == []
+
+
+async def test_an_old_call_finishing_does_not_forget_the_same_callers_new_ring():
+    done = [asyncio.Event(), asyncio.Event()]             # each call's handler waits for its own
+    calls: list = []
+
+    async def on_call(call):
+        calls.append(call)
+        await done[len(calls) - 1].wait()
+
+    bridge = await ringing(on_call)
+    await bridge.on_update(None, FakeChatUpdate(42, Status.DISCARDED_CALL))
+    await bridge.on_update(None, FakeChatUpdate(42, Status.INCOMING_CALL))   # the redial
+    await asyncio.sleep(0)
+    done[0].set()                                         # the first call wraps up only now
+    await asyncio.sleep(0.01)
+    old, new = calls
+    assert old.ended and not new.ended and bridge.active == {42: new}
+    await bridge.on_update(None, FakeFrames(42, [b"A"]))
+    assert new.inbox.get_nowait() == b"A"                 # the redial still gets its audio
+    done[1].set()
+    await asyncio.gather(*bridge.tasks)
+    assert bridge.active == {}
 
 
 # ---- wiring ---------------------------------------------------------------------------------

@@ -108,6 +108,10 @@ class BrokerLiveSession:
                 if message.get("type") == "done":
                     self.summary = summary_of(message)
                     break
+                if message.get("type") == "error":   # after `ready`: the call goes quiet
+                    log.warning("live session failed at the broker: %s: %s",
+                                message.get("code"), str(message.get("detail"))[:200])
+                    continue
                 event = event_of(message)
                 if event is not None:
                     self.queue.put_nowait(event)

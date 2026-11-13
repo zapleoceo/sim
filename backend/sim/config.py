@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     call_max_seconds: float = 540.0
     # Kill switch: off = the worker never attaches the call library to userbot accounts.
     calls_enabled: bool = True
+    # Call diagnostics in the worker log (logger sim.calls.trace): session opened, answer sent,
+    # first frame, first model audio, counters. Off: only failures are logged.
+    call_diagnostics: bool = False
 
     evolution_url: str = "http://evolution:8080"
     evolution_api_key: str = ""
