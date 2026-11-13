@@ -58,6 +58,15 @@ describe('ClientPage', () => {
     expect(screen.getByRole('link', { name: /Открыть диалог/ })).toHaveAttribute('href', '/inbox?d=1');
   });
 
+  it('scrolls the chat inside its own box, so the page keeps the header in view', async () => {
+    fakeApi({ ...common, 'GET /api/clients/7': card });
+    await renderApp('/clients/7');
+    const bubble = await screen.findByText('Привет');
+    const box = bubble.closest('.overflow-y-auto');
+    expect(box).not.toBeNull();
+    expect(screen.getByRole('heading', { name: /Анна Клиентова/ })).toBeInTheDocument();
+  });
+
   it('saves notes and the next step by themselves when the field loses focus', async () => {
     const log = fakeApi({
       ...common,
