@@ -80,6 +80,7 @@ export interface GuardInfo {
 export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
 export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
 export interface PreviewResponse {
+  requests?: PromptRequest[];
   reply: string;
   decision: unknown;
   guard: GuardInfo | null;
@@ -329,7 +330,16 @@ export interface SimBranchDetail extends SimBranchRow {
 /** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
 /** The persona's full system prompt as the model gets it; `fixed` is empty for compatibility. */
-export interface PersonaPrompt { system: string; fixed: string }
+export interface PersonaPrompt {
+  system: string; fixed: string; mode: 'legacy' | 'unified'; agent_prompt: string;
+  technical: { links: string; output_contract: string; retry_nudge: string };
+  guard_system: string; followup_example: string; boundary: string;
+  postprocessing: { typo_percent: number; lowercase_percent: number };
+}
+export interface PromptRequest {
+  workflow: string; capability: string; model: string | null; json_mode: boolean;
+  messages: { role: string; content: unknown }[];
+}
 export interface AppSettingItem {
   key: string;
   group: string;
@@ -344,3 +354,4 @@ export interface AppSettingItem {
   updated_at: string | null;
   updated_by_id: number | null;
 }
+

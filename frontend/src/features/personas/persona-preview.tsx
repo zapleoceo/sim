@@ -116,6 +116,17 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             )}
             <GuardBadge guard={m.guard} />
             {m.meta && <span className="text-[11px] text-muted-foreground">{m.meta}</span>}
+            {m.requests && (
+              <details className="max-w-full text-xs">
+                <summary>Фактически отправленные запросы SIM → Broker</summary>
+                <p>Генератор, повторы и контролёр раздельно. История и контекст показаны точно на момент запроса. Внутренние инструкции провайдера не доступны.</p>
+                {m.requests.map((request, index) => (
+                  <pre key={index} className="max-h-96 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {JSON.stringify(request, null, 2)}
+                  </pre>
+                ))}
+              </details>
+            )}
             {m.decision != null && (
               <details className="max-w-full text-xs">
                 <summary className="cursor-pointer text-muted-foreground">Решение модели</summary>
@@ -209,3 +220,4 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
     </section>
   );
 }
+

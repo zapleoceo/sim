@@ -51,6 +51,8 @@ log = logging.getLogger(__name__)
 
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
+GUARD_RETRY_TEMPLATE = ("Контролёр отклонил черновик: {feedback}. Пересоздай полный JSON-ответ, "
+                        "включая управляющие поля. Не повторяй ошибку.")
 NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
 
 
@@ -94,6 +96,7 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
+        agent_prompt=p.agent_prompt,
     )
 
 
@@ -493,8 +496,7 @@ class ConversationService:
                     *prompt,
                     {"role": "assistant", "content": result.text[:4000]},
                     {"role": "system", "content":
-                     "Контролёр отклонил черновик: " + feedback +
-                     ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
+                     GUARD_RETRY_TEMPLATE.format(feedback=feedback)},
                 ]
         return Draft(decision, result, guard, rejection)
 
@@ -529,3 +531,4 @@ class ConversationService:
         }
         return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms,
                              draft.guard, context)
+

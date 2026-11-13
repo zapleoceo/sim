@@ -112,6 +112,10 @@ class PersonaIn(Body):
         return self
 
 
+class AgentPromptIn(BaseModel):
+    text: str = Field(min_length=1, max_length=100000)
+
+
 class SimStartIn(Body):
     persona_id: int = Field(gt=0)
 
@@ -395,3 +399,4 @@ def sim_message_out(m: SimMessage) -> dict[str, Any]:
         "id": m.id, "role": m.role, "text": m.text, "model": m.model, "created_at": dt(m.created_at),
         "guard": guard_out(m.guard_verdict, m.guard_violations, None, m.original_text),
     }
+

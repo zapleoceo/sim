@@ -89,3 +89,38 @@
 
 Чего нельзя (мягко): без карикатурных национальных стереотипов и шуток на этой почве; не
 высокомерничать; не язвить в адрес собеседника.
+
+
+## Visible agent prompt (0019)
+
+The persona screen explicitly reports `legacy` or `unified`. Legacy is unchanged:
+`description`, strategy text and legacy strategy rules are composed. The editor materializes
+that exact text (except the JSON contract). Saving **Единый промпт агента** stores
+`persona.agent_prompt` without rewriting the old description or shared strategy. From that
+point the saved text is the only behavioural source in the common live/preview/simulation
+builder. Strategy links still provide dynamic data. Follow-ups use a neutral event rather
+than inserting the legacy writing-style instruction. Changing the old persona/strategy
+fields does not silently change an active unified prompt. Nothing switches automatically.
+
+`GET /api/personas/{id}/prompt` makes no model call and exposes mode, editable text,
+assembled system message, JSON/link/retry contracts, guard system, follow-up example,
+postprocessing settings and the transport boundary. `PUT` on that route is owner-only;
+normal persona updates cannot clear the authoritative prompt. Unsaved text is not sent.
+The controller remains independent and fail-closed; its request is not the persona prompt.
+
+Preview responses expose `requests`, captured at the actual AuditedLLM call boundary,
+including each generator/JSON retry/guard attempt. Messages include the actual history
+and dynamic context at that time. Capture is context-local, deep-copied, reset on errors,
+and not persisted in logs or the database. This is not a historical production request log.
+The live flow uses the same builder; old live calls cannot be reconstructed from metadata.
+Voice synthesis and attachment recognition are separate from these text requests.
+
+SIM does not control provider-internal instructions. AIbroker's subscription path serializes
+messages into a JSON transcript with continuation and JSON-format wrappers. The displayed
+SIM boundary must not be advertised as the complete provider-native system prompt.
+The screen discloses postprocessing (including terminal punctuation removal), technical
+handoff and retry text instead of pretending those are user-authored behavioural text.
+
+Migration 0019 adds a nullable column only. Rollback of the migration drops that new column;
+back up its saved values before downgrading. No live persona is switched by migration.
+CI must run backend/PostgreSQL, frontend and tests/docs gates on the published commit.

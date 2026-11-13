@@ -11,6 +11,7 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
 from sim.api.schemas import (
+    AgentPromptIn,
     PersonaIn,
     PreviewIn,
     StrategyIn,
@@ -21,11 +22,19 @@ from sim.api.schemas import (
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
-from sim.services.conversation import ConversationError
-from sim.services.guard import GuardOutcome
+from sim.services.conversation import (
+    GUARD_RETRY_TEMPLATE,
+    NEUTRAL_HANDOFF_REPLY,
+    ConversationError,
+    persona_profile,
+    strategy_profile,
+)
+from sim.services.followup import followup_instruction
+from sim.services.guard import GuardOutcome, guard_system_prompt
+from sim.services.llm_audit import capture_requests
 from sim.services.models import catalog_items
 from sim.services.preview_media import MAX_BYTES, AttachmentError
-from sim.services.prompt import Turn
+from sim.services.prompt import LINK_CONTRACT, Turn, editable_agent_prompt
 from sim.wiring import Container
 
 personas = APIRouter(prefix="/api/personas", tags=["personas"], dependencies=[Depends(authed)])
@@ -108,7 +117,31 @@ async def persona_prompt(persona_id: int, c: App, s: Db):
     empty fixed field for compatibility. Client history and the per-dialog context follow
     it in a real call."""
     persona = await persona_or_404(s, persona_id)
-    return {"system": await c.conversation(s).system_prompt(persona), "fixed": ""}
+    service = c.conversation(s)
+    cfg = await service.config()
+    strategy = await service.strategy_for(persona.id)
+    return {
+        "system": await service.system_prompt(persona), "fixed": "",
+        "mode": "unified" if persona.agent_prompt is not None else "legacy",
+        "agent_prompt": editable_agent_prompt(persona_profile(persona), strategy_profile(strategy)),
+        "technical": {"links": LINK_CONTRACT, "output_contract": cfg.output_contract,
+                      "retry_nudge": cfg.retry_nudge, "guard_retry": GUARD_RETRY_TEMPLATE,
+                      "neutral_handoff": NEUTRAL_HANDOFF_REPLY},
+        "guard_system": guard_system_prompt(cfg.guard_prompt),
+        "followup_example": followup_instruction([24], 0, unified=persona.agent_prompt is not None),
+        "postprocessing": {"typo_percent": cfg.typo_percent, "lowercase_percent": cfg.lowercase_percent},
+        "boundary": "SIM messages before AIbroker transport. Subscription transport serializes roles "
+                    "as a JSON transcript and adds continuation/JSON instructions. Provider-internal "
+                    "instructions are not exposed here. No model call is made by this endpoint.",
+    }
+
+
+@personas.put("/{persona_id}/prompt")
+async def save_agent_prompt(persona_id: int, body: AgentPromptIn, s: Db, _: Owner):
+    persona = await persona_or_404(s, persona_id)
+    persona.agent_prompt = body.text
+    await s.flush()
+    return {"mode": "unified", "agent_prompt": persona.agent_prompt}
 
 
 @personas.post("/{persona_id}/preview/attachment")
@@ -151,16 +184,18 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
     persona = await persona_or_404(s, persona_id)
     history = [Turn(h.role, h.text) for h in body.history]
     try:
-        result = await c.conversation(s).preview(
-            persona, body.message, history, stage=body.stage, status=body.status,
-            needs=body.needs, next_step=body.next_step,
-        )
+        with capture_requests() as requests:
+            result = await c.conversation(s).preview(
+                persona, body.message, history, stage=body.stage, status=body.status,
+                needs=body.needs, next_step=body.next_step,
+            )
     except ConversationError as exc:
         raise HTTPException(422, str(exc)) from exc
     except LLMError as exc:
         raise HTTPException(502, f"Broker error: {exc}") from exc
     d = result.decision
     return {
+        "requests": requests,
         "voice": await preview_voice(c, persona, result.reply, body.voice_input),
         "reply": result.reply,
         "decision": None
@@ -223,3 +258,4 @@ async def list_models(c: App):
     except LLMError as exc:
         raise HTTPException(502, f"Broker error: {exc}") from exc
     return {"items": catalog_items(rows)}
+

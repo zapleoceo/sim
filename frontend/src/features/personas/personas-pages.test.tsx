@@ -18,6 +18,9 @@ const MARINA: Persona = {
 function backend(extra: Record<string, unknown> = {}) {
   return fakeApi({
     'GET /api/personas': { items: [MARINA] },
+    'GET /api/personas/1/prompt': { system: 'Ты Марина.\n\nСТРАТЕГИЯ', fixed: '', mode: 'legacy',
+      agent_prompt: 'Ты Марина.', technical: { links: 'links', output_contract: 'JSON', retry_nudge: 'retry' },
+      guard_system: 'guard', followup_example: 'followup', postprocessing: { typo_percent: 0, lowercase_percent: 0 } },
     'GET /api/strategies': { items: [] },
     'GET /api/models': { items: [{ id: 'gpt-x', name: 'GPT X', subscription: true, available: true }] },
     ...extra,
@@ -81,15 +84,20 @@ describe('personas pages', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas/7'));
   });
 
-  it('shows the full prompt the model gets, without an appended identity block', async () => {
-    const log = backend({
-      'GET /api/personas/1/prompt': { system: 'Ты Марина.\n\nСТРАТЕГИЯ', fixed: '' },
-    });
+  it('shows active mode and saves only the authoritative prompt', async () => {
+    const log = backend({ 'PUT /api/personas/1/prompt': { mode: 'unified', agent_prompt: 'New instructions' } });
     await renderApp('/personas/1');
-    expect(log.some((r) => r.path === '/api/personas/1/prompt')).toBe(false);     // loaded on demand
-    await userEvent.click(await screen.findByText('Полный промпт, который получает модель'));
-    expect(await screen.findByLabelText('Полный промпт')).toHaveTextContent('СТРАТЕГИЯ');
-    expect(screen.queryByText(/не редактируется/)).not.toBeInTheDocument();
+    const editor = await screen.findByLabelText('Единый промпт агента');
+    expect(await screen.findByText(/Активен совместимый режим/)).toBeInTheDocument();
+    await userEvent.clear(editor);
+    await userEvent.type(editor, 'New instructions');
+    expect(log.some((r) => r.method === 'PUT')).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить единый промпт' }));
+    await waitFor(() => expect(log.some((r) => r.path === '/api/personas/1/prompt' && r.method === 'PUT')).toBe(true));
+    const put = log.find((r) => r.method === 'PUT');
+    expect(put?.body).toEqual({ text: 'New instructions' });
+    expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
+    expect(log.some((r) => r.path === '/api/personas/1' && r.method === 'PUT')).toBe(false);
   });
 
   it('says when the persona does not exist (Broker models unavailable is not fatal)', async () => {
@@ -107,3 +115,4 @@ describe('personas pages', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas'));
   });
 });
+

@@ -80,6 +80,7 @@ class PersonaProfile:
     description: str = ""     # who she is, character, biography, how she writes
     prohibitions: str = ""    # one rule per line
     language: str = "ru"
+    agent_prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -175,11 +176,26 @@ class PromptTexts:
 DEFAULT_TEXTS = PromptTexts()
 
 
+LINK_CONTRACT = (
+    "Личная ссылка регистрации и ссылки перехода в другие каналы даны в контексте. "
+    "Используй только эти ссылки, не выдумывай другие."
+)
+
+
+def editable_agent_prompt(persona: PersonaProfile, strategy: StrategyProfile) -> str:
+    """Compatibility mode is explicit: materialize existing instructions, without JSON schema."""
+    if persona.agent_prompt is not None:
+        return persona.agent_prompt
+    return stable_system_prompt(persona, strategy, PromptTexts(contract="")).rstrip()
+
+
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
     """Persona prompt (the owner's one text) + the strategy + the answer
     format. The order is fixed; nothing else is added."""
+    if persona.agent_prompt is not None:
+        return "\n\n".join((persona.agent_prompt, LINK_CONTRACT, texts.contract.strip()))
     lines: list[str] = [persona.description.strip() or f"Ты {persona.name}."]
     lines += ["", "СТРАТЕГИЯ"]
     for label, value in (
@@ -351,3 +367,4 @@ def parse_decision(raw: str) -> Decision | None:
         refused=as_bool(obj.get("refused")),
         stop_contact=as_bool(obj.get("stop_contact")),
     )
+

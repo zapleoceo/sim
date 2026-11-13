@@ -115,6 +115,9 @@ class Strategy(Base):
 class Persona(Base):
     __tablename__ = "persona"
 
+    # NULL preserves the existing composed prompt; a saved text is authoritative.
+    agent_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -492,3 +495,4 @@ class SimAdminPref(Base):
         ForeignKey("admin_user.id", ondelete="CASCADE"), primary_key=True
     )
     debug: Mapped[bool] = mapped_column(Boolean, default=True)
+

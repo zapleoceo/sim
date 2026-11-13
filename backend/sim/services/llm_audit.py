@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -20,6 +23,20 @@ from sim.services import tracing
 from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
+
+
+_request_capture: ContextVar[list[dict[str, Any]] | None] = ContextVar("request_capture", default=None)
+
+
+@contextmanager
+def capture_requests() -> Iterator[list[dict[str, Any]]]:
+    """Request-local diagnostic. No logs/DB, no sharing between simultaneous previews."""
+    requests: list[dict[str, Any]] = []
+    token = _request_capture.set(requests)
+    try:
+        yield requests
+    finally:
+        _request_capture.reset(token)
 
 
 def step_kind(workflow: str) -> str:
@@ -54,6 +71,13 @@ class AuditedLLM:
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> LLMResult:
+        captured = _request_capture.get()
+        if captured is not None:
+            captured.append({
+                "workflow": workflow, "capability": capability, "model": model,
+                "json_mode": json_mode, "max_tokens": max_tokens, "temperature": temperature,
+                "messages": deepcopy(messages),
+            })
         started_at, start = self.clock(), time.perf_counter()
         try:
             result = await self.llm.chat(
@@ -119,3 +143,4 @@ class AuditedLLM:
 
 
 AuditFactory = Callable[[], AuditedLLM]
+
