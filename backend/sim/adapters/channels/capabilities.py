@@ -26,6 +26,7 @@ class Capability(StrEnum):
 
 TYPING = "typing"                  # "печатает…"
 RECORD_VOICE = "record_voice"      # "записывает голосовое…"
+CANCEL = "cancel"                  # clears the action at once (where the messenger supports it)
 
 
 @runtime_checkable
