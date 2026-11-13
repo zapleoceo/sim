@@ -176,7 +176,10 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 Затем, пока модель пишет ответ и его проверяет охранник, в чате висит статус по тому, как уйдёт ответ: «записывает
 голосовое…», если ответ будет голосовым (то же правило `will_speak` / `domain.voice.speaks`, что решает голос),
 иначе «печатает…». Пока синтезируется голосовое (`OutboundService.voice_note`), тоже «записывает голосовое…».
-Статус живёт в мессенджере несколько секунд, поэтому `showing` повторяет его каждые ~4 с до конца работы.
+Статус живёт в мессенджере несколько секунд, поэтому `showing` повторяет его каждые ~4 с до конца работы, но
+не дольше `MAX_SHOW_S` (60 с): зависший шаг (медленная модель, задание Broker в очереди) не оставляет «печатает…»
+висеть. По окончании работы статус сразу снимается действием `cancel`: Telegram-аккаунт — `SendMessageCancelAction`,
+WhatsApp — presence `paused`; у Telegram-бота отмены нет, статус гаснет сам за ~5 с.
 Каналы с `Capability.CHAT_ACTION`: Telegram-бот (`sendChatAction` typing / record_voice), Telegram-аккаунт
 (`messages.setTyping`), WhatsApp (Evolution `chat/sendPresence` composing / recording). Instagram без статуса.
 Каналы с `Capability.MARK_READ`: Telegram-аккаунт (`messages.readHistory` до id сообщения) и WhatsApp (Evolution

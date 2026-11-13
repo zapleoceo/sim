@@ -25,7 +25,7 @@ from telethon import types as tl_types
 from telethon.events import NewMessage
 
 from sim.adapters.channels._http import MEDIA_MAX_BYTES
-from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
+from sim.adapters.channels.capabilities import CANCEL, RECORD_VOICE, Capability
 from sim.adapters.channels.telegram import chunk_text
 from sim.adapters.channels.tg_calls import TelegramCallBridge
 from sim.clock import utcnow
@@ -349,12 +349,14 @@ class TelegramUserAdapter:
     # --- outbound --------------------------------------------------------------------------
 
     async def send_chat_action(self, external_thread_id: str, action: str) -> None:
-        """messages.setTyping: "печатает" or "записывает голосовое" for ~5 s (best effort)."""
+        """messages.setTyping: "печатает" or "записывает голосовое" for ~5 s, or `cancel` to
+        clear it at once (best effort)."""
         try:
             peer = int(external_thread_id)
             client = await self.t.ready()
             entity = await self.t.entity(client, peer)
-            kind = (tl_types.SendMessageRecordAudioAction() if action == RECORD_VOICE
+            kind = (tl_types.SendMessageCancelAction() if action == CANCEL
+                    else tl_types.SendMessageRecordAudioAction() if action == RECORD_VOICE
                     else tl_types.SendMessageTypingAction())
             await client(tl_functions.messages.SetTypingRequest(peer=entity, action=kind))
         except Exception as exc:

@@ -10,7 +10,7 @@ import logging
 from typing import Any, Protocol
 
 from sim.adapters.channels._http import API_TIMEOUT, MEDIA_MAX_BYTES
-from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
+from sim.adapters.channels.capabilities import CANCEL, RECORD_VOICE, Capability
 from sim.adapters.channels.wa_parse import WA_MEDIA_PREFIX
 from sim.domain.enums import ChannelKind, SessionStatus
 from sim.ports.channel import SendResult
@@ -111,8 +111,9 @@ class WhatsAppAdapter:
 
     async def send_chat_action(self, external_thread_id: str, action: str) -> None:
         """Evolution v2 sendPresence: `composing` ("печатает") or `recording` ("записывает
-        аудио") for a few seconds (best effort)."""
-        presence = "recording" if action == RECORD_VOICE else "composing"
+        аудио") for a few seconds, `paused` for `cancel` (best effort)."""
+        presence = ("paused" if action == CANCEL
+                    else "recording" if action == RECORD_VOICE else "composing")
         try:
             await self._t.request(
                 "POST", f"/chat/sendPresence/{self._instance}",
