@@ -18,15 +18,24 @@ log = logging.getLogger(__name__)
 REPEAT_S = 4.0
 
 
-async def keep_showing(port: object, thread: str, action: str, every: float = REPEAT_S) -> None:
-    """Send `action` now and then every `every` seconds until cancelled."""
+async def send_once(port: object, thread: str, action: str) -> None:
+    try:
+        await port.send_chat_action(thread, action)  # type: ignore[attr-defined]
+    except Exception as exc:  # adapters already swallow; this is the last guard
+        log.debug("chat action failed: %s", type(exc).__name__)
+
+
+async def keep_showing(
+    port: object, thread: str, action: str, every: float = REPEAT_S, *, first: bool = True
+) -> None:
+    """Send `action` (now, unless `first` is False) and then every `every` seconds until
+    cancelled."""
+    if not first:
+        await asyncio.sleep(every)
     while True:
         started = time.monotonic()
-        try:
-            await port.send_chat_action(thread, action)  # type: ignore[attr-defined]
-        except Exception as exc:  # adapters already swallow; this is the last guard
-            log.debug("chat action failed: %s", type(exc).__name__)
-        await asyncio.sleep(max(0.5, every - (time.monotonic() - started)))
+        await send_once(port, thread, action)
+        await asyncio.sleep(max(0.0, every - (time.monotonic() - started)))
 
 
 @contextlib.asynccontextmanager
@@ -35,7 +44,9 @@ async def showing(port: object | None, thread: str, action: str) -> AsyncIterato
     if port is None or Capability.CHAT_ACTION not in getattr(port, "capabilities", frozenset()):
         yield
         return
-    task = asyncio.create_task(keep_showing(port, thread, action, REPEAT_S))
+    # The first action goes out before the work starts, so even a fast step shows it once.
+    await send_once(port, thread, action)
+    task = asyncio.create_task(keep_showing(port, thread, action, REPEAT_S, first=False))
     try:
         yield
     finally:
