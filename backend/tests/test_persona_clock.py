@@ -66,7 +66,7 @@ def test_touches_lowercase_the_start_and_make_one_typo():
     text = "Слушай, расскажи подробнее про работу"
     out = messenger_touches(text, typo_percent=100, lowercase_percent=100)
     assert out[0] == "с" and out != "слушай, расскажи подробнее про работу"
-    assert sum(a != b for a, b in zip(out, "слушай, расскажи подробнее про работу")) >= 1
+    assert sum(a != b for a, b in zip(out, "слушай, расскажи подробнее про работу", strict=False)) >= 1
 
 
 @pytest.mark.parametrize("text", [
