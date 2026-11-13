@@ -220,3 +220,11 @@ def test_client_name_quotes_cannot_break_out_of_the_data_value():
     value = line.split("(недоверенное): ", 1)[1]
     assert json.loads(value) == name          # one well-formed JSON string, quotes escaped
     assert value.startswith('"Eve\\"')
+
+
+def test_honesty_applies_only_to_the_direct_bot_question_life_questions_stay_in_role():
+    assert "ТОЛЬКО на такой прямой вопрос" in HONESTY_RULE
+    for in_role in ("Кто ты?", "где ты?", "что делаешь?"):
+        assert in_role in HONESTY_RULE
+    assert "без оговорок, извинений и признаний" in HONESTY_RULE
+    assert "никогда не утверждай" in HONESTY_RULE          # the floor itself is unchanged
