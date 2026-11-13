@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors as tge
 
+from sim.adapters.channels.capabilities import Capability
 from sim.adapters.channels.telegram_user import (
     MEDIA_PREFIX,
     TelegramUserAdapter,
@@ -657,3 +658,21 @@ async def test_chat_action_sets_typing_or_recording_on_the_peer():
     assert client.requests == [("SetTypingRequest", "SendMessageTypingAction"),
                                ("SetTypingRequest", "SendMessageRecordAudioAction")]
     await port.send_chat_action("not-a-peer", "typing")  # bad thread id: swallowed
+
+
+async def test_mark_read_reads_the_history_up_to_the_message():
+    class ReadingClient(FakeClient):
+        def __init__(self):
+            super().__init__("SESS")
+            self.requests = []
+
+        async def __call__(self, request):
+            self.requests.append((type(request).__name__, request.max_id))
+
+    client = ReadingClient()
+    port = TelegramUserAdapter(TelethonTransport(lambda: client), TGUserState())
+    assert Capability.MARK_READ in port.capabilities
+    await port.mark_read("777", "777:42")
+    assert client.requests == [("ReadHistoryRequest", 42)]
+    await port.mark_read("777", "broken")              # bad id: swallowed
+    assert len(client.requests) == 1

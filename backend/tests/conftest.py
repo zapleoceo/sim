@@ -149,9 +149,14 @@ class FakePort:
     downloads: list[str] = field(default_factory=list)
     voices: list[tuple[str, bytes, float | None]] = field(default_factory=list)
     actions: list[tuple[str, str]] = field(default_factory=list)      # "печатает" / "записывает"
+    reads: list[tuple[str, str]] = field(default_factory=list)        # "прочитано" up to an id
 
     async def send_chat_action(self, external_thread_id: str, action: str) -> None:
         self.actions.append((external_thread_id, action))
+
+    async def mark_read(self, external_thread_id: str, external_message_id: str) -> None:
+        """Used only when a test grants Capability.MARK_READ."""
+        self.reads.append((external_thread_id, external_message_id))
 
     async def download_media(self, ref: str) -> bytes:
         """Like the real adapters: a marker (tg-file:/wa-msg:), never a fetchable URL."""

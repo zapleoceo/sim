@@ -1,4 +1,5 @@
-"""«Марина печатает…» / «записывает голосовое…» while the persona works on a reply.
+"""«Марина печатает…» / «записывает голосовое…» while the persona works on a reply, and the
+"прочитано" mark on the client's message when she takes it up.
 
 A messenger shows a chat action for a few seconds only, so it is re-sent every REPEAT_S until the
 work is done. Best effort: no capability, a missing port or a failing call never affects the
@@ -36,6 +37,17 @@ async def keep_showing(
         started = time.monotonic()
         await send_once(port, thread, action)
         await asyncio.sleep(max(0.0, every - (time.monotonic() - started)))
+
+
+async def mark_read(port: object | None, thread: str, external_message_id: str | None) -> None:
+    """Shows the client his messages as read up to this one (no capability or id: nothing)."""
+    if (port is None or not external_message_id
+            or Capability.MARK_READ not in getattr(port, "capabilities", frozenset())):
+        return
+    try:
+        await port.mark_read(thread, external_message_id)  # type: ignore[attr-defined]
+    except Exception as exc:  # adapters already swallow; this is the last guard
+        log.debug("mark read failed: %s", type(exc).__name__)
 
 
 @contextlib.asynccontextmanager
