@@ -13,6 +13,9 @@ export interface ConnectBody {
   proxy?: string;
 }
 
+/** Saved connect data for the reconnect form: non-secret values, secrets only by name. */
+export interface SavedCredentials { fields: Partial<Record<string, string>>; saved_secrets: string[] }
+
 export const channelsApi = {
   list: () => http.get<ListResponse<Channel>>('/api/channels').then((r) => r.items),
   create: (body: ChannelIn) => http.post<Channel>('/api/channels', body),
@@ -20,6 +23,6 @@ export const channelsApi = {
   connect: (id: number, body: ConnectBody) => http.post<ConnectState>(`/api/channels/${id}/connect`, body),
   verify: (id: number, code: string) => http.post<ConnectState>(`/api/channels/${id}/verify`, { code }),
   /** Saved connect credentials (owner-only), to prefill the connect form. */
-  credentials: (id: number) => http.get<Partial<Record<string, string>>>(`/api/channels/${id}/credentials`, { silent: true }),
+  credentials: (id: number) => http.get<SavedCredentials>(`/api/channels/${id}/credentials`, { silent: true }),
   state: (id: number) => http.get<ConnectState>(`/api/channels/${id}/state`, { silent: true }),
 };

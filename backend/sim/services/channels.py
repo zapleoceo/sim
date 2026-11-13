@@ -40,6 +40,18 @@ def saved_credentials(session: Mapping[str, object] | None) -> dict[str, str]:
     return {}
 
 
+# Never sent back to the browser: they work outside SIM (bot token, Instagram password, API hash,
+# a proxy URL with its password). The form shows them as "saved" and leaves the field empty.
+SECRET_KEYS = frozenset({"bot_token", "password", "api_hash", "proxy"})
+
+
+def public_view(saved: Mapping[str, str]) -> dict[str, object]:
+    return {
+        "fields": {k: v for k, v in saved.items() if k not in SECRET_KEYS},
+        "saved_secrets": sorted(k for k in saved if k in SECRET_KEYS),
+    }
+
+
 def merge_credentials(saved: Mapping[str, str], typed: Mapping[str, str]) -> dict[str, str]:
     """Typed non-empty fields win; empty ones fall back to the saved values."""
     return {**saved, **{k: v for k, v in typed.items() if str(v).strip()}}
@@ -88,12 +100,22 @@ class ChannelService:
             raise ChannelError(f"channel kind {kind.value} is not available")
         return await self.channels.add(Channel(kind=kind, persona_id=persona_id, name=name))
 
-    def saved(self, channel: Channel) -> dict[str, str]:
-        """The credentials a reconnect reuses (owner-only: the connect form shows them)."""
-        return saved_credentials(self.box.decrypt_json(channel.session_enc))
+    def saved_public(self, channel: Channel) -> dict[str, object]:
+        """What the connect form may show: the non-secret saved fields, plus the names of the saved
+        secrets (never their values; a reconnect with an empty field reuses them server-side)."""
+        return public_view(saved_credentials(self.readable_session(channel)))
 
     def has_saved_credentials(self, channel: Channel) -> bool:
-        return bool(saved_credentials(self.box.decrypt_json(channel.session_enc)))
+        return bool(saved_credentials(self.readable_session(channel)))
+
+    def readable_session(self, channel: Channel) -> dict | None:
+        """The decrypted session, or None when it cannot be read (e.g. a rotated key): one bad
+        row must not break the channel list; the owner simply reconnects it."""
+        try:
+            return self.box.decrypt_json(channel.session_enc)
+        except Exception:
+            log.warning("channel %s session cannot be decrypted", channel.id)
+            return None
 
     async def connect(self, channel: Channel, credentials: Mapping[str, str]) -> ConnectState:
         """Empty fields reuse the credentials saved at the previous connect."""

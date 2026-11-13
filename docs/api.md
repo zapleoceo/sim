@@ -217,7 +217,7 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 |---|---|---|---|
 | GET | `/api/channels` | — | `{items: Channel[]}`; у канала `has_saved_credentials`: прошлое подключение сохранило данные, переподключить можно без ввода |
 | POST | `/api/channels` | `{kind, persona_id, name}` | `Channel` |
-| GET | `/api/channels/{id}/credentials` | — (owner) | сохранённые данные подключения в открытом виде, чтобы форма «Подключить» их подставила (`{}`, если ничего не сохранено). В лог не пишутся |
+| GET | `/api/channels/{id}/credentials` | — (owner) | `{fields, saved_secrets}` для формы «Подключить»: несекретные поля (api_id, телефон, логин) значениями, секреты (`bot_token`, `password`, `api_hash`, `proxy`) только именами, их значения в браузер не уходят (пустое поле при подключении берёт сохранённое на сервере). `Cache-Control: no-store` |
 | DELETE | `/api/channels/{id}` | — | `204` (отвязывает сессию) |
 | POST | `/api/channels/{id}/connect` | по kind: telegram `{bot_token}`; telegram_user `{api_id, api_hash, method: "qr"|"code", phone (для code), proxy?}` (qr: ответ `pending` с `qr_data_uri`, затем опрос `state`) (все значения строками); instagram `{username, password, proxy?}`; whatsapp `{}` | `ConnectState`. Введённые данные сохраняются зашифрованно (`SIM_SECRET_KEY`, в той же `channel.session_enc` под `saved_credentials`): при повторном подключении форма подставляет сохранённое (`GET /api/channels/{id}/credentials`), пустое поле берётся из сохранённого, введённое заменяет его. У каналов, где вход прервался до этой версии, данные берутся из незавершённого входа (`pending`) |
 | POST | `/api/channels/{id}/verify` | telegram_user `{code}` (код входа, затем пароль 2FA тем же полем); instagram `{code}` (2FA / challenge) | `ConnectState` |
@@ -361,7 +361,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Дополнения реализации (аддитивные поля)
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
-`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия).
+`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
 
 

@@ -57,6 +57,10 @@ export function ChannelWizard({
   const [setupTried, setSetupTried] = useState(false);
 
   const [creds, setCreds] = useState<ConnectValues>(EMPTY_CONNECT);
+  // Secrets saved on the server (token, password, api_hash, proxy): never sent back, shown as 'saved'.
+  const [savedSecrets, setSavedSecrets] = useState<string[]>([]);
+  const savedHint = (key: string, fallback?: string): string | undefined =>
+    savedSecrets.includes(key) ? 'сохранено, оставьте пустым' : fallback;
   // A reconnect starts with the credentials saved at the last connect (encrypted on the server).
   useEffect(() => {
     if (!existing?.has_saved_credentials) return;
@@ -64,7 +68,9 @@ export function ChannelWizard({
     channelsApi
       .credentials(existing.id)
       .then((saved) => {
-        if (live) setCreds((c) => (sameValues(c, EMPTY_CONNECT) ? prefillConnect(saved) : c));
+        if (!live) return;
+        setSavedSecrets(saved.saved_secrets);
+        setCreds((c) => (sameValues(c, EMPTY_CONNECT) ? prefillConnect(saved.fields) : c));
       })
       .catch(() => undefined);
     return () => {
@@ -221,7 +227,7 @@ export function ChannelWizard({
 
         {step === 'connect' && channel?.has_saved_credentials && (
           <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm" role="status">
-            Данные прошлого подключения сохранены (зашифрованы) и подставлены в форму. Проверьте их, особенно номер, и нажмите «Подключить».
+            Данные прошлого подключения сохранены (зашифрованы). Номер и api_id подставлены, секреты (api_hash, токен, пароль, прокси) остаются на сервере: оставьте эти поля пустыми или введите новые.
           </p>
         )}
         {step === 'connect' && kind === 'telegram' && (
@@ -232,7 +238,7 @@ export function ChannelWizard({
               <li>BotFather пришлёт токен вида <code>123456:ABC-…</code>. Скопируйте его сюда.</li>
             </HowTo>
             <Field label="Токен бота" error={credErrors.bot_token}>
-              <Input value={creds.bot_token} onChange={setCred('bot_token')} autoComplete="off" spellCheck={false} />
+              <Input value={creds.bot_token} onChange={setCred('bot_token')} placeholder={savedHint('bot_token')} autoComplete="off" spellCheck={false} />
             </Field>
             {msg}
           </form>
@@ -275,7 +281,7 @@ export function ChannelWizard({
               <Input value={creds.api_id} onChange={setCred('api_id')} inputMode="numeric" autoComplete="off" />
             </Field>
             <Field label="api_hash" error={credErrors.api_hash}>
-              <Input value={creds.api_hash} onChange={setCred('api_hash')} autoComplete="off" spellCheck={false} />
+              <Input value={creds.api_hash} onChange={setCred('api_hash')} placeholder={savedHint('api_hash')} autoComplete="off" spellCheck={false} />
             </Field>
             {creds.method !== 'qr' && (
               <Field label="Телефон аккаунта" error={credErrors.phone}>
@@ -283,7 +289,7 @@ export function ChannelWizard({
               </Field>
             )}
             <Field label="Прокси (необязательно)" error={credErrors.proxy}>
-              <Input value={creds.proxy} onChange={setCred('proxy')} placeholder="socks5://user:pass@host:port" autoComplete="off" />
+              <Input value={creds.proxy} onChange={setCred('proxy')} placeholder={savedHint('proxy', 'socks5://user:pass@host:port')} autoComplete="off" />
             </Field>
             {msg}
           </form>
@@ -307,7 +313,7 @@ export function ChannelWizard({
               <Input value={creds.username} onChange={setCred('username')} autoComplete="off" />
             </Field>
             <Field label="Пароль" error={credErrors.password}>
-              <Input type="password" value={creds.password} onChange={setCred('password')} autoComplete="new-password" />
+              <Input type="password" value={creds.password} onChange={setCred('password')} placeholder={savedHint('password')} autoComplete="new-password" />
             </Field>
             <Field label="Прокси (необязательно)" error={credErrors.proxy}>
               <Input value={creds.proxy} onChange={setCred('proxy')} placeholder="http://user:pass@host:port" autoComplete="off" />

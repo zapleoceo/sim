@@ -44,8 +44,29 @@ async def test_owner_reads_the_saved_credentials_to_prefill_the_form(api, world)
     h = await owner(api)
     ch = (await api.post("/api/channels", json={"kind": "telegram", "persona_id": world.persona.id,
                                                 "name": "bot"}, headers=h)).json()
-    assert (await api.get(f"/api/channels/{ch['id']}/credentials")).json() == {}
+    assert (await api.get(f"/api/channels/{ch['id']}/credentials")).json() == {"fields": {}, "saved_secrets": []}
     await api.post(f"/api/channels/{ch['id']}/connect", json={"bot_token": "123:abc"}, headers=h)
-    assert (await api.get(f"/api/channels/{ch['id']}/credentials")).json() == {"bot_token": "123:abc"}
+    got = await api.get(f"/api/channels/{ch['id']}/credentials")
+    assert got.json() == {"fields": {}, "saved_secrets": ["bot_token"]}       # the token never comes back
+    assert got.headers["cache-control"] == "no-store"
     await login(api, OPERATOR[0])
     assert (await api.get(f"/api/channels/{ch['id']}/credentials")).status_code == 403
+
+
+def test_public_view_shows_ids_and_phone_but_only_names_of_secrets():
+    from sim.services.channels import public_view
+
+    saved = {"api_id": "1", "api_hash": "h", "phone": "+1", "proxy": "socks5://u:p@h:1", "password": "pw",
+             "username": "me"}
+    assert public_view(saved) == {"fields": {"api_id": "1", "phone": "+1", "username": "me"},
+                                  "saved_secrets": ["api_hash", "password", "proxy"]}
+
+
+async def test_an_undecryptable_session_does_not_break_the_channel_list(api, world, container):
+    async with container.factory() as s:
+        row = await s.get(Channel, world.channel.id)
+        row.session_enc = "not-a-fernet-token"
+        await s.commit()
+    await owner(api)
+    listed = (await api.get("/api/channels")).json()["items"]
+    assert any(c["id"] == world.channel.id and c["has_saved_credentials"] is False for c in listed)

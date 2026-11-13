@@ -72,8 +72,9 @@ async def channel_state(channel_id: int, c: App, s: Db):
 
 
 @router.get("/{channel_id}/credentials", dependencies=[Depends(owner_only)])
-async def channel_credentials(channel_id: int, c: App, s: Db):
-    """The saved connect credentials (decrypted for the owner), so the connect form is prefilled.
-    Owner-only and never logged; `{}` when nothing is saved."""
+async def channel_credentials(channel_id: int, c: App, s: Db, response: Response):
+    """For the reconnect form: `{fields, saved_secrets}`. Non-secret fields (api_id, phone, login)
+    come back; secrets (token, password, api_hash, proxy) only by name. Owner-only, `no-store`."""
     channel = await channel_or_404(s, channel_id)
-    return c.channels(s).saved(channel)
+    response.headers["Cache-Control"] = "no-store"
+    return c.channels(s).saved_public(channel)
