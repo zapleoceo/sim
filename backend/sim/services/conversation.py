@@ -186,12 +186,11 @@ class ConversationService:
         )
 
     async def touched(self, guard: GuardOutcome) -> GuardOutcome:
-        """The approved text with a person's messenger habits (typos, case), applied by code to
-        each short message of the reply separately."""
+        """The approved text with a person's messenger habits (case, one rare slip), applied by
+        code to the whole reply of 1-3 short messages."""
         cfg = await self.config()
-        return replace(guard, text="\n\n".join(
-            messenger_touches(part, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent)
-            for part in bubbles(guard.text)))
+        return replace(guard, text=messenger_touches(
+            guard.text, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent))
 
     async def system_prompt(self, persona: Persona) -> str:
         """The exact stable system message this persona sends to its model (for the admin)."""

@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     guard_capability: str = "structured"
     guard_fallback_capability: str = "prefilter"
 
-    typo_percent: int = 20             # defaults of the owner settings (messenger touches by code)
+    typo_percent: int = 12             # defaults of the owner settings (messenger touches by code)
     lowercase_percent: int = 30
     reply_debounce_s: int = 8          # wait for a burst of client messages before answering
     worker_tick_s: float = 2.0

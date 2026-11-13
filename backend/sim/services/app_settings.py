@@ -96,8 +96,8 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("passport_prompt", "Паспортистка", "Инструкция паспортистки",
                 "Как вести паспорт лида: что собирать и в каком виде. Персонаж читает паспорт перед каждым ответом.",
                 "text", PASSPORT_PROMPT),
-    SettingSpec("typo_percent", "Стиль сообщений", "Опечатки, % сообщений",
-                "Как часто код делает в ответе одну мелкую опечатку (не в именах, ссылках и цифрах). 0: никогда.",
+    SettingSpec("typo_percent", "Стиль сообщений", "Опечатки, % ответов",
+                "Как часто код делает в ответе одну оплошность: пропущенную запятую или опечатку (не в именах, ссылках и цифрах). Не больше одной на весь ответ. 0: никогда.",
                 "int", None, 0, 100),
     SettingSpec("lowercase_percent", "Стиль сообщений", "С маленькой буквы, % сообщений",
                 "Как часто ответ начинается с маленькой буквы. Точку в самом конце код убирает всегда.",
@@ -135,7 +135,7 @@ def env_defaults(settings: Settings) -> dict[str, Any]:
 
 
 FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "prefilter",
-                "reply_debounce_s": 8, "trace_retention_days": 30, "typo_percent": 20, "lowercase_percent": 30}
+                "reply_debounce_s": 8, "trace_retention_days": 30, "typo_percent": 12, "lowercase_percent": 30}
 
 
 @dataclass(frozen=True)
