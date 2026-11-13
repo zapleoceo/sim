@@ -122,7 +122,7 @@ async def test_persona_api_round_trips_the_routine_and_rejects_bad_lines(api):
     assert created["routine"] == ""
     upd = (await api.put(f"/api/personas/{created['id']}", json={"name": "Марина", "routine": ROUTINE},
                          headers=h)).json()
-    assert upd["routine"] == ROUTINE
+    assert upd["routine"] == ROUTINE.strip()       # bodies are stripped
     for bad in ("понедельник с утра бегаю", "пн 9-13 работа", "x" * 4001):
         resp = await api.put(f"/api/personas/{created['id']}", json={"name": "Марина", "routine": bad}, headers=h)
         assert resp.status_code == 422, bad

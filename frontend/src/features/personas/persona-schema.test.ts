@@ -44,8 +44,7 @@ describe('persona form validation', () => {
   });
 
   it('keeps the weekly routine as typed and limits its length', () => {
-    const routine = 'пн-пт 09:00-13:00 консультации
-ежедневно 23:00-06:30 сплю';
+    const routine = 'пн-пт 09:00-13:00 консультации\nежедневно 23:00-06:30 сплю';
     expect(personaFromForm({ ...valid, routine }).routine).toBe(routine);
     expect(personaErrors({ ...valid, routine: 'x'.repeat(ROUTINE_MAX + 1) }).routine).toBe(`Не длиннее ${ROUTINE_MAX} символов`);
     expect(personaFromForm(valid).routine).toBe('');

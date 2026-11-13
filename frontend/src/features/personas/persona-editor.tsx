@@ -115,10 +115,7 @@ export function PersonaEditor({
         <Textarea
           {...register('routine')}
           className="min-h-48 font-mono text-[13px] md:text-[13px]"
-          placeholder={'пн-пт 06:30-07:15 пробежка вдоль Эльбы
-пн-пт 09:00-13:00 консультации с клиентами, из дома
-вс 13:00-16:00 обед у мамы
-ежедневно 23:00-06:30 сплю'}
+          placeholder={'пн-пт 06:30-07:15 пробежка вдоль Эльбы\nпн-пт 09:00-13:00 консультации с клиентами, из дома\nвс 13:00-16:00 обед у мамы\nежедневно 23:00-06:30 сплю'}
         />
       </Field>
       {persona && <PersonaFullPrompt personaId={persona.id} />}
