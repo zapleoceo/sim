@@ -67,8 +67,9 @@ def test_speaks(mode, voice, last, expected):
     assert speaks(mode, voice, last) is expected
 
 
-def test_voice_list_is_the_one_voice_the_owner_chose():
-    assert GEMINI_VOICES == ("Kore",)
+def test_voice_list_is_the_voices_the_owner_chose():
+    assert GEMINI_VOICES == ("Kore", "Vindemiatrix")
+    assert speaks(VoiceMode.ALWAYS, "Vindemiatrix", None)
     assert not speaks(VoiceMode.ALWAYS, "Aoede", None)       # the other voices are gone
     assert not speaks(VoiceMode.ALWAYS, "Puck", None)
 
