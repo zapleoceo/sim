@@ -55,5 +55,5 @@ Offset-страницы не являются снимком при паралл
 backup/restore и затем проверка каждого реального подключаемого канала. Локальный
 интерфейс не доказывает доставку внешним транспортом.
 
-Руководство: [admin-activity.md](../../../admin-activity.md).
+Руководство: [admin-activity.md](../../admin-activity.md).
 Детальные проверки: `backend-validation.md`, `functional-validation.md`, `frontend-validation.md`.

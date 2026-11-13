@@ -1,6 +1,6 @@
 # SIM project instructions
 
-- Do not run local verification commands on a laptop or dot PC, including pytest, Karma, migration/concurrency smoke, lint, typecheck or build. Run them only in CI/CD on a published Git commit or pull request.
+- Do not run local verification commands on a laptop or dot PC, including pytest, Vitest, migration/concurrency smoke, lint, typecheck or build. Run them only in CI/CD on a published Git commit or pull request.
 - Use the GitHub Actions workflow in `.github/workflows/ci.yml` as the verification gate. Do not describe a local build, lint command, YAML file or queued workflow as a passed test. Report the exact workflow run and job conclusions.
 - Keep CI isolated: temporary PostgreSQL, fake or mocked transports, no production database, real connector accounts or channel sends. The only exception is the `deploy` job in `ci.yml`: it runs only for pushes to `main` after backend and frontend pass, uses the dedicated `SIM_DEPLOY_*` secrets (a deploy-only SSH key pinned to the server host key), and takes a database backup before rollout.
 - A change is ready for Git merge only after required CI jobs pass for the exact head SHA. Preserve branch protection and existing security boundaries. Production rollout gates: fresh backup (`/usr/local/bin/sim-backup.sh`), old worker stopped before migrations, migrations applied before new code, readiness smoke. Keep the `deploy` job's gates intact.

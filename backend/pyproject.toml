@@ -18,6 +18,7 @@ dependencies = [
     "telethon==1.45.0",
     "python-socks[asyncio]>=3.2.1",
     "segno>=1.6",
+    "filetype>=1.2",        # upload content checks by file signature
     "py-tgcalls>=3.0,<4",   # private Telegram calls of the userbot (ntgcalls native wheels)
 ]
 

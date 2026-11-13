@@ -8,17 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 
-from sim.adapters.media import serving
 from sim.api.deps import App, authed
+from sim.api.media_files import stored_file_response
 
 router = APIRouter(tags=["system"])
-
-# A stored file is never a page: no script, no plugins, no MIME sniffing, no shared caches.
-MEDIA_HEADERS = {
-    "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "sandbox; default-src 'none'",
-    "Cache-Control": "private, max-age=3600",
-}
 
 HEALTH_BROKER_TIMEOUT_S = 3.0
 READINESS_DB_TIMEOUT_S = 3.0
@@ -72,10 +65,4 @@ async def media(name: str, c: App) -> FileResponse:
     path = c.media.path(name)
     if path is None:
         raise HTTPException(404, "Not found")
-    media_type, inline = serving(name)
-    return FileResponse(
-        path, media_type=media_type,
-        content_disposition_type="inline" if inline else "attachment",
-        filename=None if inline else name,
-        headers=MEDIA_HEADERS,
-    )
+    return stored_file_response(path, name)

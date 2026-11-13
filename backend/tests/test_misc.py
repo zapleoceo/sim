@@ -34,9 +34,9 @@ def test_secretbox_roundtrip_and_rotation():
         SecretBox("")
 
 
-def test_media_store_rejects_path_traversal(tmp_path):
+async def test_media_store_rejects_path_traversal(tmp_path):
     store = MediaStore(tmp_path)
-    name = store.save(b"x", "ogg")
+    name = await store.save(b"x", "ogg")
     assert store.path(name) is not None
     for bad in ("../secret.txt", "..%2f", "a/b.ogg", "x.ogg"):
         assert store.path(bad) is None
