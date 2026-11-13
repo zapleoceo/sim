@@ -194,3 +194,13 @@ async def test_send_voice_failure_is_result_without_token():
         400, json={"ok": False, "error_code": 400, "description": "VOICE_MESSAGES_FORBIDDEN"}))
     res = await TelegramConnector().build_port(1, SESSION).send_voice("42", b"OggS", None)
     assert not res.ok and "VOICE_MESSAGES_FORBIDDEN" in res.error and "TOKEN" not in res.error
+
+
+@respx.mock
+async def test_chat_action_shows_typing_and_never_raises():
+    route = respx.post(f"{API}/sendChatAction").mock(return_value=httpx.Response(200, json={"ok": True, "result": True}))
+    port = TelegramConnector().build_port(1, SESSION)
+    await port.send_chat_action("42", "record_voice")
+    assert json.loads(route.calls[0].request.content) == {"chat_id": "42", "action": "record_voice"}
+    route.mock(return_value=httpx.Response(400, json={"ok": False, "error_code": 400, "description": "x"}))
+    await port.send_chat_action("42", "typing")          # a failure is swallowed
