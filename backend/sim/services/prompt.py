@@ -18,6 +18,7 @@ from urllib.parse import quote
 
 from sim.domain.enums import ChannelKind, Stage
 from sim.services.humanize import plain_punctuation
+from sim.services.persona_routine import routine_block
 
 HISTORY_LIMIT = 40
 MAX_NEEDS = 12
@@ -80,6 +81,7 @@ class PersonaProfile:
     description: str = ""     # who she is, character, biography, how she writes
     prohibitions: str = ""    # one rule per line
     language: str = "ru"
+    routine: str = ""        # weekly routine lines (sim.services.persona_routine)
 
 
 @dataclass(frozen=True)
@@ -178,9 +180,11 @@ DEFAULT_TEXTS = PromptTexts()
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
-    """Persona prompt (the owner's one text) + the strategy + the answer
+    """Persona prompt (the owner's one text) + her routine + the strategy + the answer
     format. The order is fixed; nothing else is added."""
     lines: list[str] = [persona.description.strip() or f"Ты {persona.name}."]
+    if block := routine_block(persona.routine):
+        lines += ["", block]
     lines += ["", "СТРАТЕГИЯ"]
     for label, value in (
         ("Название", strategy.name),

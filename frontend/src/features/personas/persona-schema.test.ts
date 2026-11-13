@@ -1,6 +1,6 @@
 import type { Persona } from '@/lib/models';
 import {
-  EMPTY_PERSONA, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
+  EMPTY_PERSONA, ROUTINE_MAX, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
 } from './persona-schema';
 import { GEMINI_VOICES, VOICE_AMBIENCE_OPTIONS, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
@@ -41,6 +41,14 @@ describe('persona form validation', () => {
     expect(personaErrors({ ...valid, timezone: ' ' }).timezone).toBe('Укажите часовой пояс');
     expect(personaFromForm({ ...valid, birth_date: '1976-12-09' }).birth_date).toBe('1976-12-09');
     expect(personaFromForm(valid)).toMatchObject({ birth_date: null, timezone: 'Europe/Kyiv' });
+  });
+
+  it('keeps the weekly routine as typed and limits its length', () => {
+    const routine = 'пн-пт 09:00-13:00 консультации
+ежедневно 23:00-06:30 сплю';
+    expect(personaFromForm({ ...valid, routine }).routine).toBe(routine);
+    expect(personaErrors({ ...valid, routine: 'x'.repeat(ROUTINE_MAX + 1) }).routine).toBe(`Не длиннее ${ROUTINE_MAX} символов`);
+    expect(personaFromForm(valid).routine).toBe('');
   });
 
   it('passes hidden prohibitions through unchanged', () => {
