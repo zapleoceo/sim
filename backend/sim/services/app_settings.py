@@ -96,6 +96,12 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("passport_prompt", "Паспортистка", "Инструкция паспортистки",
                 "Как вести паспорт лида: что собирать и в каком виде. Персонаж читает паспорт перед каждым ответом.",
                 "text", PASSPORT_PROMPT),
+    SettingSpec("typo_percent", "Стиль сообщений", "Опечатки, % сообщений",
+                "Как часто код делает в ответе одну мелкую опечатку (не в именах, ссылках и цифрах). 0: никогда.",
+                "int", None, 0, 100),
+    SettingSpec("lowercase_percent", "Стиль сообщений", "С маленькой буквы, % сообщений",
+                "Как часто ответ начинается с маленькой буквы. Точку в самом конце код убирает всегда.",
+                "int", None, 0, 100),
     SettingSpec("reply_debounce_s", "Ответы", "Пауза перед ответом, сек",
                 "Сколько ждать новых сообщений клиента перед ответом (серия сообщений).",
                 "int", None, 0, 300),
@@ -122,12 +128,14 @@ def env_defaults(settings: Settings) -> dict[str, Any]:
         "guard_capability": settings.guard_capability,
         "guard_fallback_capability": settings.guard_fallback_capability,
         "reply_debounce_s": settings.reply_debounce_s,
+        "typo_percent": settings.typo_percent,
+        "lowercase_percent": settings.lowercase_percent,
         "trace_retention_days": settings.trace_retention_days,
     }
 
 
 FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "prefilter",
-                "reply_debounce_s": 8, "trace_retention_days": 30}
+                "reply_debounce_s": 8, "trace_retention_days": 30, "typo_percent": 20, "lowercase_percent": 30}
 
 
 @dataclass(frozen=True)
@@ -139,6 +147,8 @@ class AppSettings:
     guard_fallback_capability: str
     passport_model: str
     passport_prompt: str
+    typo_percent: int
+    lowercase_percent: int
     reply_debounce_s: int
     output_contract: str
     retry_nudge: str

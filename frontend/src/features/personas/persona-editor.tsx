@@ -83,6 +83,15 @@ export function PersonaEditor({
         </Field>
       </FormGrid>
 
+      <FormGrid>
+        <Field label="Дата рождения" hint="Возраст, знак зодиака и дни до дня рождения считает код и подсказывает модели" error={errors.birth_date?.message}>
+          <Input type="date" {...register('birth_date')} />
+        </Field>
+        <Field label="Часовой пояс" hint="Местное время персонажа, например Europe/Kyiv" error={errors.timezone?.message}>
+          <Input {...register('timezone')} autoComplete="off" />
+        </Field>
+      </FormGrid>
+
       <Field label="Ссылка на аватар" error={errors.avatar_url?.message}>
         <Input {...register('avatar_url')} placeholder="https://…" inputMode="url" />
       </Field>

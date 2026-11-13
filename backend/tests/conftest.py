@@ -223,6 +223,8 @@ def make_settings(tmp_path) -> Settings:
         media_dir=str(tmp_path / "media"),
         static_dir=str(tmp_path / "no-static"),
         reply_debounce_s=5,
+        typo_percent=0,        # exact texts in tests; the touches have their own tests
+        lowercase_percent=0,
         _env_file=None,  # type: ignore[call-arg]
     )
 

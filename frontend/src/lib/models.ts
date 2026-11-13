@@ -39,6 +39,10 @@ export interface Persona {
   id: number;
   name: string;
   age: number | null;
+  /** День рождения (YYYY-MM-DD): возраст, знак зодиака и дни до праздника считает код. */
+  birth_date: string | null;
+  /** Часовой пояс IANA (Europe/Kyiv): местное время персонажа считает код. */
+  timezone: string;
   gender: string;
   avatar_url: string;
   /** Свободный текст: кто она, характер, биография, как пишет. */

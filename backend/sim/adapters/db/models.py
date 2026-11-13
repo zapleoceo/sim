@@ -2,13 +2,14 @@
 conversation bookkeeping columns). Datetimes are naive UTC."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -117,6 +118,10 @@ class Persona(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Exact birthday and home time zone: age, zodiac and local time are computed by code
+    # (sim.services.persona_clock) and given to the model, never left to its arithmetic.
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Kyiv", server_default="Europe/Kyiv")
     gender: Mapped[str] = mapped_column(String(32), default="")
     avatar_url: Mapped[str] = mapped_column(Text, default="")
     # Free text: who she is, character, biography, how she writes (Markdown-ish).

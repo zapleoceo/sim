@@ -25,9 +25,11 @@ from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
+from sim.services.humanize import messenger_touches
 from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.passport import PASSPORT_DELAY_S
+from sim.services.persona_clock import persona_facts
 from sim.services.prompt import (
     Decision,
     DialogContext,
@@ -175,10 +177,17 @@ class ConversationService:
         self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
     ) -> list[dict[str, Any]]:
         cfg = await self.config()
+        ctx = replace(ctx, persona_facts=persona_facts(persona.birth_date, persona.timezone, ctx.now))
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
             texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
         )
+
+    async def touched(self, guard: GuardOutcome) -> GuardOutcome:
+        """The approved text with a person's messenger habits (typos, case), applied by code."""
+        cfg = await self.config()
+        return replace(guard, text=messenger_touches(
+            guard.text, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent))
 
     async def system_prompt(self, persona: Persona) -> str:
         """The exact stable system message this persona sends to its model (for the admin)."""
@@ -463,7 +472,7 @@ class ConversationService:
                     strategy, history, decision, result, ctx, dialog_id, guard_workflow
                 )
                 if guard.allowed:
-                    return Draft(decision, result, guard)
+                    return Draft(decision, result, await self.touched(guard))
                 rejection = "; ".join(guard.violations) or "контролёр отклонил решение"
             else:
                 rejection = "решение не содержит корректного ответа"

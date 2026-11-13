@@ -7,6 +7,8 @@ export const AVATAR_URL_PATTERN = /^(https?:\/\/|\/)\S+$/i;
 export const EMPTY_PERSONA: PersonaIn = {
   name: '',
   age: null,
+  birth_date: null,
+  timezone: 'Europe/Kyiv',
   gender: 'female',
   avatar_url: '',
   description: '',
@@ -33,7 +35,8 @@ const notBlank = (v: string): boolean => v.trim() !== '';
 
 /**
  * Persona form. The editor shows only name, model, strategy, avatar, description and voice: age,
- * gender, language and prohibitions are not edited here (age and origin live in the description,
+ * gender, language and prohibitions are not edited here (origin lives in the description; age, zodiac
+ * and local time come from the birth date and time zone, computed by code;
  * restrictions are set later in the simulator). Their saved values pass through unchanged; empty
  * gender/language fall back to female/ru. Required: name and description.
  */
@@ -44,6 +47,8 @@ export const personaSchema = z.object({
     const n = Number(v);
     return Number.isInteger(n) && n >= 18 && n <= 100;
   }, '18–100'),
+  birth_date: z.string().refine((v) => v === '' || (/^d{4}-d{2}-d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1976-12-09'),
+  timezone: z.string().refine(notBlank, 'Укажите часовой пояс').refine((v) => v.length <= 64, 'Не длиннее 64 символов'),
   gender: z.string(),
   avatar_url: z
     .string()
@@ -82,6 +87,8 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
   return {
     name: p.name,
     age: p.age == null ? '' : String(p.age),
+    birth_date: p.birth_date ?? '',
+    timezone: p.timezone || 'Europe/Kyiv',
     gender: p.gender || 'female',
     avatar_url: p.avatar_url ?? '',
     description: p.description,
@@ -102,6 +109,8 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
   return {
     name: v.name.trim(),
     age: v.age.trim() === '' ? null : Number(v.age),
+    birth_date: v.birth_date || null,
+    timezone: v.timezone.trim(),
     gender: v.gender || 'female',
     avatar_url: v.avatar_url.trim(),
     description: v.description,
@@ -121,6 +130,8 @@ export function personaToInput(p: Persona): PersonaIn {
   return {
     name: p.name,
     age: p.age,
+    birth_date: p.birth_date ?? null,
+    timezone: p.timezone || 'Europe/Kyiv',
     gender: p.gender,
     avatar_url: p.avatar_url,
     description: p.description,
