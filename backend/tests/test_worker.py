@@ -212,3 +212,30 @@ async def test_telegram_user_kind_is_storable(container, world):
     async with container.factory() as s:
         kinds = (await s.scalars(select(Channel.kind).order_by(Channel.id))).all()
     assert kinds[-1] is ChannelKind.TELEGRAM_USER
+
+
+async def test_a_push_event_wakes_the_poll_before_the_interval(container, world):
+    """A new Telegram message calls the connector's listener: the kind is polled on the next
+    tick, not after the (fallback) interval."""
+    tg = FakeConnector(ChannelKind.TELEGRAM_USER, polling=True)
+    tg.poll_interval_setting = "tg_user_poll_interval_s"
+    wakers = []
+    tg.listen = wakers.append
+    container.registry = {ChannelKind.TELEGRAM_USER: tg}
+    container.settings = container.settings.model_copy(update={"tg_user_poll_interval_s": 90})
+    worker = Worker(container)
+    assert len(wakers) == 1                              # the worker subscribed once
+    worker.maybe_start_poll(1000.0)
+    await asyncio.gather(*worker.poll_tasks.values())
+    worker.maybe_start_poll(1005.0)                      # +5 s, no event: not due
+    assert worker.last_poll[ChannelKind.TELEGRAM_USER] == 1000.0
+    wakers[0]()                                          # a new message arrived
+    worker.maybe_start_poll(1006.0)
+    assert worker.last_poll[ChannelKind.TELEGRAM_USER] == 1006.0 and not worker.wake
+    await asyncio.gather(*worker.poll_tasks.values())
+
+
+def test_the_telegram_user_fallback_sweep_is_slow():
+    from sim.config import Settings
+
+    assert Settings.model_fields["tg_user_poll_interval_s"].default == 90

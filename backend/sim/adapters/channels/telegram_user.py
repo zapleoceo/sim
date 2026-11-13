@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from telethon import errors as tg_errors
+from telethon.events import NewMessage
 
 from sim.adapters.channels._http import MEDIA_MAX_BYTES
 from sim.adapters.channels.capabilities import Capability
@@ -97,20 +98,35 @@ class TGUserState:
 
 
 class TelethonTransport:
-    """One lazily connected Telethon client, reused across polls/sends of a channel."""
+    """One lazily connected Telethon client, reused across polls/sends of a channel.
 
-    def __init__(self, client_factory: Callable[[], Any]) -> None:
+    With `on_new_message` (the worker) the client also listens: every new incoming private
+    message calls it, so the worker polls this channel at once instead of on the next sweep.
+    The poll itself reads the message, so nothing is ingested twice and a missed event only
+    delays the reply until the fallback sweep."""
+
+    def __init__(
+        self, client_factory: Callable[[], Any], on_new_message: Callable[[], None] | None = None
+    ) -> None:
         self._factory = client_factory
         self._client: Any | None = None
         self._connect_lock = asyncio.Lock()
+        self._on_new = on_new_message
 
     async def ready(self) -> Any:
         async with self._connect_lock:
             if self._client is None:
                 self._client = self._factory()
+                if self._on_new is not None:
+                    self._client.add_event_handler(self.new_message, NewMessage(incoming=True))
             if not self._client.is_connected():
                 await self._client.connect()
             return self._client
+
+    async def new_message(self, event: Any) -> None:
+        """Telethon NewMessage handler: only private chats with people wake the poll."""
+        if self._on_new is not None and getattr(event, "is_private", False):
+            self._on_new()
 
     @staticmethod
     async def entity(client: Any, peer_id: int) -> Any:

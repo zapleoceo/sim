@@ -63,12 +63,18 @@ class Worker:
         self.handlers = handlers if handlers is not None else HANDLERS
         self.stop = asyncio.Event()
         # One poll task per channel kind: a slow Instagram sweep (2-5 s per call) must not hold
-        # back the Telegram userbot, which polls every ~20 s.
+        # back the Telegram userbot (woken by new-message events, swept every ~90 s as a fallback).
         self.poll_tasks: dict[ChannelKind, asyncio.Task[None]] = {}
         self.last_poll: dict[ChannelKind, float] = {}
         self.job_tasks: dict[int, asyncio.Task[None]] = {}
         self.purge_task: asyncio.Task[int] | None = None
         self.last_purge = float("-inf")
+        # Channel kinds a push event (e.g. a new Telegram message) asked to poll right now.
+        self.wake: set[ChannelKind] = set()
+        for kind, conn in self.c.registry.items():
+            listen = getattr(conn, "listen", None)
+            if callable(listen):
+                listen(lambda k=kind: self.wake.add(k))
 
     # ---- jobs ----------------------------------------------------------------------------
     async def claim_jobs(self, limit: int) -> list[Claim]:
@@ -248,7 +254,9 @@ class Worker:
             task = self.poll_tasks.get(kind)
             busy = task is not None and not task.done()
             due = now - self.last_poll.get(kind, float("-inf")) >= self.poll_interval(kind)
-            if conn.polling and not busy and due:
+            woken = kind in self.wake
+            if conn.polling and not busy and (due or woken):
+                self.wake.discard(kind)
                 self.last_poll[kind] = now
                 self.poll_tasks[kind] = asyncio.create_task(self.poll_in_background(kind))
 

@@ -604,3 +604,38 @@ async def test_qr_login_lost_on_restart_asks_to_connect_again(conn):
     st = await conn.state(5, {"pending": {"step": "qr", "api_id": 1, "api_hash": "h"}})
     assert st.status is SessionStatus.ERROR and "Подключить" in st.message
     assert st.session["pending"] is None
+
+
+# --- new-message events (worker) -----------------------------------------------------------
+
+async def test_listening_transport_wakes_on_new_private_messages_only():
+    woken = []
+    handlers = []
+    client = FakeClient("SESS")
+    client.add_event_handler = lambda fn, ev: handlers.append((fn, ev))
+    transport = TelethonTransport(lambda: client, on_new_message=lambda: woken.append(1))
+    await transport.ready()
+    fn, ev = handlers[0]
+    assert type(ev).__name__ == "NewMessage"
+    await fn(SimpleNamespace(is_private=False))          # a group: ignored
+    await fn(SimpleNamespace(is_private=True))
+    assert woken == [1]
+    await transport.ready()                               # reconnects never add a second handler
+    assert len(handlers) == 1
+
+
+async def test_after_listen_the_connector_builds_listening_clients(made):
+    calls = []
+
+    def factory(string_session="", api_id=0, api_hash="", proxy="", **kw):
+        calls.append(kw)
+        c = FakeClient(string_session, api_id, api_hash, proxy)
+        c.add_event_handler = lambda fn, ev: None
+        made.append(c)
+        return c
+
+    conn = TelegramUserConnector(client_factory=factory)
+    conn.listen(lambda: None)
+    port = conn.build_port(5, {"api_id": 1, "api_hash": "h", "string_session": "SESS"})
+    await port.t.ready()
+    assert calls == [{"receive_updates": True}]

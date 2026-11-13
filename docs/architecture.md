@@ -250,7 +250,7 @@ worker ──▶ job(sim_reply): try_lock(NS_SIM, branch) → «печатает
 | Канал | Транспорт | Как подключается | Приём | Риски |
 |---|---|---|---|---|
 | Telegram (бот) | Bot API (официально) | токен бота от @BotFather | webhook `/hooks/telegram/{channel_id}` + `secret_token` | нет |
-| Telegram (аккаунт, `telegram_user`) | Telethon (MTProto, личный аккаунт, userbot) | `api_id`/`api_hash` с my.telegram.org → API development tools; вход по QR-коду (по умолчанию) или по телефону и коду; пароль 2FA | опрос раз в ~20 с в worker (`SIM_TG_USER_POLL_INTERVAL_S`) | ограничение/бан аккаунта при подозрительной активности; FloodWait |
+| Telegram (аккаунт, `telegram_user`) | Telethon (MTProto, личный аккаунт, userbot) | `api_id`/`api_hash` с my.telegram.org → API development tools; вход по QR-коду (по умолчанию) или по телефону и коду; пароль 2FA | по событию: клиент воркера слушает новые входящие в личке (Telethon `NewMessage`) и сразу запускает опрос канала; запасной опрос раз в ~90 с (`SIM_TG_USER_POLL_INTERVAL_S`) | ограничение/бан аккаунта при подозрительной активности; FloodWait |
 | WhatsApp | Evolution API v2 (Baileys, self-hosted) | QR-код в админке | webhook Evolution → `/hooks/evolution/{channel_id}` (внутренняя сеть, apikey) | неофициальный клиент, риск бана номера |
 | Instagram | instagrapi (private API) | логин/пароль (+2FA/challenge код) в админке | опрос раз в ~2 мин в worker | риск checkpoint/бана; прокси с geo как у логина |
 
@@ -265,6 +265,13 @@ Telegram-аккаунт (`telegram_user`): StringSession (api_id, api_hash, stri
 «сначала привяжите почту для входа») пишется в `pending.code_delivery`, в лог
 (`telegram_user code sent … via <тип>`) и в подсказку админке (`CODE_WHERE`). Для сторонних API-приложений
 код обычно приходит не по SMS, а в чат «Telegram» на других устройствах аккаунта.
+
+Приём сообщений по событию: в воркере `TelegramUserConnector.listen()` включает у клиентов поток обновлений
+(`receive_updates=True`), `TelethonTransport` подписан на `NewMessage(incoming=True)`, и новое сообщение в личном
+чате ставит канал в `Worker.wake`: опрос этого вида каналов запускается на ближайшем тике (≤ `worker_tick_s`, 2 с),
+а не через интервал. Сам опрос читает сообщение как обычно (курсор, дедупликация по `external_id`), поэтому
+пропущенное событие (обрыв, деплой) лишь откладывает ответ до запасного опроса раз в ~90 с. В API-процессе клиенты
+обновления не слушают.
 
 Вход по QR-коду (`method: "qr"`, по умолчанию в админке): номер и код не нужны. `connect` вызывает Telethon
 `qr_login()` и отдаёт `qr_data_uri` (SVG, `segno`) со статусом `pending`; админка опрашивает `state` раз в 3 с.

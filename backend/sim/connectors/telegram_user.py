@@ -124,6 +124,7 @@ class TelegramUserConnector:
         self._factory = client_factory
         self._live: dict[int, Any] = {}           # in-flight login clients
         self._qr: dict[int, QrLogin] = {}         # QR logins waiting for a scan (API process)
+        self._on_new: Callable[[], None] | None = None   # set by the worker: wake the poll
         self._runtime: dict[int, Runtime] = {}    # connected polling/sending clients
 
     # --- login -----------------------------------------------------------------------------
@@ -360,6 +361,13 @@ class TelegramUserConnector:
             self.build_port(channel_id, session)     # a runtime to log out through
         await self.drop(channel_id, logout=True)
 
+    def listen(self, on_new_message: Callable[[], None]) -> None:
+        """Called once by the worker: its clients receive updates, and a new incoming private
+        message calls `on_new_message` (the worker then polls this kind at once). Runtimes built
+        before are dropped so they come back listening."""
+        self._on_new = on_new_message
+        self._runtime.clear()
+
     def build_port(self, channel_id: int, session: Session) -> ChannelPort:
         string_session = str(session.get("string_session") or "")
         if not string_session:
@@ -368,8 +376,15 @@ class TelegramUserConnector:
         if rt is None or rt.fingerprint != string_session:
             api_id, api_hash = int(session["api_id"]), str(session["api_hash"])
             proxy = str(session.get("proxy") or "")
-            rt = Runtime(string_session, TelethonTransport(
-                lambda: self._factory(string_session, api_id, api_hash, proxy)))
+            if self._on_new is None:
+                transport = TelethonTransport(
+                    lambda: self._factory(string_session, api_id, api_hash, proxy))
+            else:     # the worker: the client keeps its update loop and wakes the poll
+                transport = TelethonTransport(
+                    lambda: self._factory(string_session, api_id, api_hash, proxy,
+                                          receive_updates=True),
+                    on_new_message=self._on_new)
+            rt = Runtime(string_session, transport)
             self._runtime[channel_id] = rt
         return TelegramUserAdapter(
             rt.transport, rt.state,
