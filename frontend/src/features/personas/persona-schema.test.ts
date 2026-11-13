@@ -102,6 +102,13 @@ describe('persona form validation', () => {
     expect(personaErrors({ ...valid, voice_style: 'x'.repeat(301) }).voice_style).toBe('Не длиннее 300 символов');
   });
 
+  it('phone calls are off by default, need a voice and round-trip to the API body', () => {
+    expect(valid.accept_calls).toBe(false);
+    expect(personaErrors({ ...valid, accept_calls: true }).voice_id).toBe('Для звонков выберите голос');
+    expect(personaErrors({ ...valid, accept_calls: true, voice_id: 'Kore' })).toEqual({});
+    expect(personaFromForm({ ...valid, accept_calls: true, voice_id: 'Kore' }).accept_calls).toBe(true);
+  });
+
   it('offers Kore and Vindemiatrix, the voices the owner chose, and three voice modes', () => {
     expect(GEMINI_VOICES.map((v) => v.id)).toEqual(['Kore', 'Vindemiatrix']);
     expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);

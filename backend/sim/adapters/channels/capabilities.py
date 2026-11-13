@@ -2,6 +2,7 @@
 beyond send/status/fetch is declared here and discovered via `port.capabilities`."""
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Awaitable, Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -16,6 +17,9 @@ class Capability(StrEnum):
     SEND_ATTACHMENT = "send_attachment"  # port.send_attachment(thread, bytes, name, mime, caption)
     CHAT_ACTION = "chat_action"          # port.send_chat_action(thread, "typing" | "record_voice")
     MARK_READ = "mark_read"              # port.mark_read(thread, external_message_id)
+    # Incoming voice calls reach the worker: its connector takes `listen_calls(handler)` and
+    # hands every call over as an IncomingCall (sim.services.calls answers it).
+    ACCEPT_CALL = "accept_call"
 
 
 TYPING = "typing"                  # "печатает…"
@@ -64,3 +68,33 @@ class AttachmentSender(Protocol):
         self, external_thread_id: str, data: bytes, filename: str,
         mime: str, caption: str,
     ) -> SendResult: ...
+
+
+class IncomingCall(Protocol):
+    """A voice call ringing on a channel account. Audio is 16-bit little-endian mono PCM at
+    `rate_hz`, in 10 ms frames both ways."""
+
+    external_thread_id: str   # the caller, as the channel's dialogs name the thread
+    rate_hz: int
+
+    async def answer(self) -> None: ...
+
+    def frames(self) -> AsyncIterator[bytes]:
+        """The caller's audio until the call ends (either side hangs up)."""
+        ...
+
+    async def play(self, pcm: bytes) -> None:
+        """One outgoing frame, sent at real-time pace by the caller of this method."""
+        ...
+
+    async def hangup(self) -> None: ...
+
+
+CallHandler = Callable[[int, IncomingCall], Awaitable[None]]   # (channel id, call)
+
+
+@runtime_checkable
+class CallListener(Protocol):
+    """Connector side of ACCEPT_CALL: the worker registers once, calls arrive per channel."""
+
+    def listen_calls(self, handler: CallHandler) -> None: ...
