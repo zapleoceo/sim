@@ -250,7 +250,7 @@ worker ──▶ job(sim_reply): try_lock(NS_SIM, branch) → «печатает
 | Канал | Транспорт | Как подключается | Приём | Риски |
 |---|---|---|---|---|
 | Telegram (бот) | Bot API (официально) | токен бота от @BotFather | webhook `/hooks/telegram/{channel_id}` + `secret_token` | нет |
-| Telegram (аккаунт, `telegram_user`) | Telethon (MTProto, личный аккаунт, userbot) | `api_id`/`api_hash` с my.telegram.org → API development tools, телефон, код, пароль 2FA | опрос раз в ~20 с в worker (`SIM_TG_USER_POLL_INTERVAL_S`) | ограничение/бан аккаунта при подозрительной активности; FloodWait |
+| Telegram (аккаунт, `telegram_user`) | Telethon (MTProto, личный аккаунт, userbot) | `api_id`/`api_hash` с my.telegram.org → API development tools; вход по QR-коду (по умолчанию) или по телефону и коду; пароль 2FA | опрос раз в ~20 с в worker (`SIM_TG_USER_POLL_INTERVAL_S`) | ограничение/бан аккаунта при подозрительной активности; FloodWait |
 | WhatsApp | Evolution API v2 (Baileys, self-hosted) | QR-код в админке | webhook Evolution → `/hooks/evolution/{channel_id}` (внутренняя сеть, apikey) | неофициальный клиент, риск бана номера |
 | Instagram | instagrapi (private API) | логин/пароль (+2FA/challenge код) в админке | опрос раз в ~2 мин в worker | риск checkpoint/бана; прокси с geo как у логина |
 
@@ -264,7 +264,14 @@ Telegram-аккаунт (`telegram_user`): StringSession (api_id, api_hash, stri
 (`auth.sentCode.type`: приложение Telegram на других устройствах, SMS, звонок, почта, Fragment или
 «сначала привяжите почту для входа») пишется в `pending.code_delivery`, в лог
 (`telegram_user code sent … via <тип>`) и в подсказку админке (`CODE_WHERE`). Для сторонних API-приложений
-код обычно приходит не по SMS, а в чат «Telegram» на других устройствах аккаунта. Клиент
+код обычно приходит не по SMS, а в чат «Telegram» на других устройствах аккаунта.
+
+Вход по QR-коду (`method: "qr"`, по умолчанию в админке): номер и код не нужны. `connect` вызывает Telethon
+`qr_login()` и отдаёт `qr_data_uri` (SVG, `segno`) со статусом `pending`; админка опрашивает `state` раз в 3 с.
+Владелец сканирует QR в Telegram на телефоне: Настройки → Устройства → Подключить устройство. Токен живёт ~30 с,
+просроченный `state` заменяет новым (`qr.recreate()`). После скана: `active`, или `challenge` с `need: "2fa"`, если
+на аккаунте облачный пароль (дальше обычный `verify`). Ожидание скана живёт в памяти API-процесса (`_qr`),
+после рестарта `state` просит нажать «Подключить» ещё раз. Клиент
 подключается без подписки на обновления (`receive_updates=False`) и ничего не помечает
 прочитанным; читаются только личные диалоги с людьми (без групп, каналов, ботов и 777000).
 Курсор по сообщениям (id на собеседника) живёт в памяти worker; после рестарта подхватываются

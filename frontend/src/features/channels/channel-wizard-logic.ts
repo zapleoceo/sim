@@ -45,10 +45,12 @@ export interface ConnectValues {
   username: string;
   password: string;
   proxy: string;
+  /** telegram_user login: 'qr' (default, no code) or 'code'. */
+  method: string;
 }
 
 export const EMPTY_CONNECT: ConnectValues = {
-  bot_token: '', api_id: '', api_hash: '', phone: '', username: '', password: '', proxy: '',
+  bot_token: '', api_id: '', api_hash: '', phone: '', username: '', password: '', proxy: '', method: 'qr',
 };
 
 export type ConnectErrors = Partial<Record<keyof ConnectValues, string>>;
@@ -73,7 +75,7 @@ export function validateConnect(kind: ChannelKind, v: ConnectValues, saved = fal
   } else if (kind === 'telegram_user') {
     if (!API_ID_RE.test(v.api_id.trim())) e.api_id = 'api_id — только цифры';
     if (!API_HASH_RE.test(v.api_hash.trim())) e.api_hash = 'api_hash — 32 символа (0-9, a-f)';
-    if (!PHONE_RE.test(v.phone.trim())) e.phone = 'Формат: +380501234567';
+    if (v.method !== 'qr' && !PHONE_RE.test(v.phone.trim())) e.phone = 'Формат: +380501234567';
     if (proxyBad) e.proxy = 'Формат: socks5://host:port';
   } else if (kind === 'instagram') {
     if (!v.username.trim()) e.username = 'Укажите логин';
@@ -90,7 +92,9 @@ export function connectBody(kind: ChannelKind, v: ConnectValues): ConnectBody {
     case 'telegram':
       return { bot_token: v.bot_token.trim() };
     case 'telegram_user':
-      return { api_id: v.api_id.trim(), api_hash: v.api_hash.trim(), phone: v.phone.trim(), ...proxy };
+      return v.method === 'qr'
+        ? { api_id: v.api_id.trim(), api_hash: v.api_hash.trim(), method: 'qr', ...proxy }
+        : { api_id: v.api_id.trim(), api_hash: v.api_hash.trim(), phone: v.phone.trim(), method: 'code', ...proxy };
     case 'instagram':
       return { username: v.username.trim(), password: v.password, ...proxy };
     case 'whatsapp':
@@ -113,4 +117,9 @@ export function prefillConnect(saved: Partial<Record<string, string>>): ConnectV
     if (typeof value === 'string') out[key] = value;
   }
   return out;
+}
+
+/** The form still holds its initial values (nothing typed yet). */
+export function sameValues(a: ConnectValues, b: ConnectValues): boolean {
+  return (Object.keys(b) as (keyof ConnectValues)[]).every((k) => a[k] === b[k]);
 }

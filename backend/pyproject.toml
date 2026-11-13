@@ -17,6 +17,7 @@ dependencies = [
     "instagrapi>=2.1",
     "telethon==1.45.0",
     "python-socks[asyncio]>=3.2.1",
+    "segno>=1.6",
 ]
 
 [dependency-groups]
