@@ -55,7 +55,7 @@ async def test_the_passportist_rewrites_the_passport_with_the_owner_instruction(
         svc = AppSettingsService(s)
         await svc.set("passport_model", "claude-sub/claude-haiku-5-5", None)
         await svc.set("passport_prompt", "Своя инструкция паспортистки", None)
-    fake_llm.replies = ["Кто он: Анна, Днепр, двое детей."]
+    fake_llm.passport_replies = ["Кто он: Анна, Днепр, двое детей."]
     assert await update_passport(container) is True
     client = await the_client(container)
     assert client.passport == "Кто он: Анна, Днепр, двое детей." and client.passport_updated_at is not None
@@ -67,10 +67,10 @@ async def test_the_passportist_rewrites_the_passport_with_the_owner_instruction(
 
 async def test_the_passport_is_capped_and_an_empty_answer_keeps_the_old_one(container, world, fake_llm):
     await start(container, world)
-    fake_llm.replies = ["я" * (PASSPORT_MAX + 50)]
+    fake_llm.passport_replies = ["я" * (PASSPORT_MAX + 50)]
     assert await update_passport(container)
     assert len((await the_client(container)).passport) == PASSPORT_MAX
-    fake_llm.replies = ["   "]
+    fake_llm.passport_replies = ["   "]
     assert await update_passport(container) is False
     assert len((await the_client(container)).passport) == PASSPORT_MAX
 
