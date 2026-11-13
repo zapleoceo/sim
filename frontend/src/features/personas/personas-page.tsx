@@ -45,14 +45,9 @@ export function PersonasPage() {
               >
                 <Avatar name={p.name} url={p.avatar_url} size={52} />
                 <span className="flex min-w-0 flex-col gap-1">
-                  <strong className="truncate font-medium">
-                    {p.name}
-                    {p.age ? `, ${p.age}` : ''}
-                  </strong>
-                  <span className="line-clamp-2 text-sm text-muted-foreground">{p.description}</span>
+                  <strong className="truncate font-medium">{p.name}</strong>
                   <span className="flex min-w-0 items-center gap-2 text-xs">
                     <Badge variant={p.is_active ? 'success' : 'muted'}>{p.is_active ? 'Активен' : 'Выключен'}</Badge>
-                    <span className="truncate text-muted-foreground">{p.model || 'авто'}</span>
                   </span>
                 </span>
               </Link>

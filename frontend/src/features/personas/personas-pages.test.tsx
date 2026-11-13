@@ -25,12 +25,14 @@ function backend(extra: Record<string, unknown> = {}) {
 }
 
 describe('personas pages', () => {
-  it('lists personas with status and model', async () => {
+  it('lists personas by name and status only: age, description and model live in the card', async () => {
     backend();
     await renderApp('/personas');
-    expect(await screen.findByText('Марина, 34')).toBeInTheDocument();
+    expect(await screen.findByText('Марина')).toBeInTheDocument();
     expect(screen.getByText('Активен')).toBeInTheDocument();
-    expect(screen.getByText('gpt-x')).toBeInTheDocument();
+    expect(screen.queryByText(/34/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Тёплая, энергичная')).not.toBeInTheDocument();
+    expect(screen.queryByText('gpt-x')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Новый персонаж/ })).toHaveAttribute('href', '/personas/new');
   });
 
