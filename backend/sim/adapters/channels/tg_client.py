@@ -35,12 +35,16 @@ def parse_proxy(url: str) -> dict[str, Any] | None:
     return proxy
 
 
-def build_tg_client(string_session: str, api_id: int, api_hash: str, proxy: str = "") -> Any:
+def build_tg_client(
+    string_session: str, api_id: int, api_hash: str, proxy: str = "", *, receive_updates: bool = False
+) -> Any:
+    """`receive_updates` only for the worker's listening client: logins, sends from the API and
+    one-off checks never need the update loop."""
     from telethon import TelegramClient  # noqa: PLC0415
     from telethon.sessions import StringSession  # noqa: PLC0415
 
     return TelegramClient(
         StringSession(string_session or None), api_id, api_hash,
-        proxy=parse_proxy(proxy), receive_updates=False, flood_sleep_threshold=0,
+        proxy=parse_proxy(proxy), receive_updates=receive_updates, flood_sleep_threshold=0,
         connection_retries=3, request_retries=3,
     )

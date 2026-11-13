@@ -37,7 +37,8 @@ class Settings(BaseSettings):
     ig_poll_interval_s: int = 120
 
     # Telegram userbot (personal account, MTProto)
-    tg_user_poll_interval_s: int = 20
+    # Fallback sweep only: new private messages wake the poll at once (Telethon NewMessage events).
+    tg_user_poll_interval_s: int = 90
     tg_user_min_send_interval_s: float = 3.0   # anti-ban: min gap between sends per account
 
     partner_webhook_secret: str = ""
