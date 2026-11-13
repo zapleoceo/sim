@@ -28,6 +28,9 @@ export function useLiveDialogs(enabled = true): void {
       void queryClient.invalidateQueries({ queryKey: ['dialogs'] });
       void queryClient.invalidateQueries({ queryKey: ['inbox-operator-queue'] });
       for (const id of ids) void queryClient.invalidateQueries({ queryKey: qk.dialog(id) });
+      // The client card: its chat and its stage/status follow the same events.
+      void queryClient.invalidateQueries({ queryKey: ['client-chat'] });
+      void queryClient.invalidateQueries({ queryKey: ['client'] });
     };
     source.addEventListener('dialogs', onDialogs as EventListener);
     return () => {
