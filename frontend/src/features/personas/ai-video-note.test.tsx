@@ -19,7 +19,7 @@ function backend(videoNote: FakeReply) {
     'GET /api/strategies': { items: [] },
     'GET /api/models': { items: [] },
     'GET /api/personas/1/media': { items: [] },
-    'GET /api/personas/1/prompt': { system: 'test', fixed: '' },
+    'GET /api/personas/1/prompt': { system: 'test', fixed: '', strategy_id: 1, context: '', parts: [], rules: [] },
     'POST /api/personas/1/video-note': videoNote,
   });
 }
