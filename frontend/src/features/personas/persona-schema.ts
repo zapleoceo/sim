@@ -39,11 +39,9 @@ const GEMINI_VOICE_IDS = new Set(GEMINI_VOICES.map((v) => v.id));
 const notBlank = (v: string): boolean => v.trim() !== '';
 
 /**
- * Persona form. The editor shows only name, model, strategy, avatar, description and voice: age,
- * gender, language and prohibitions are not edited here (origin lives in the description; age, zodiac
- * and local time come from the birth date and time zone, computed by code;
- * restrictions are set later in the simulator). Their saved values pass through unchanged; empty
- * gender/language fall back to female/ru. Required: name and description.
+ * Persona form: every field of the persona is edited on its page. The stored `age` is the only
+ * one without a control: the age comes from the birth date, computed by code. Empty gender and
+ * language fall back to female/ru. Required: name and description.
  */
 export const personaSchema = z.object({
   name: z.string().refine(notBlank, 'Укажите имя').refine((v) => v.length <= 80, 'Не длиннее 80 символов'),
@@ -161,4 +159,13 @@ export function personaToInput(p: Persona): PersonaIn {
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
+}
+
+/** Full years since the birth date (`YYYY-MM-DD`), as the backend counts them; null when the date is not set. */
+export function ageFromBirthDate(value: string, today: Date = new Date()): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const hadBirthday = today.getMonth() + 1 > month || (today.getMonth() + 1 === month && today.getDate() >= day);
+  return today.getFullYear() - year - (hadBirthday ? 0 : 1);
 }

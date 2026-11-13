@@ -44,8 +44,9 @@ from sim.services.prompt import (
     one_line,
     parse_decision,
     registration_link,
-    stable_system_prompt,
+    system_prompt_parts,
 )
+from sim.services.prompt_map import PromptMap, example_context, fixed_rules
 
 log = logging.getLogger(__name__)
 
@@ -207,12 +208,19 @@ class ConversationService:
         return replace(guard, text=messenger_touches(
             guard.text, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent))
 
-    async def system_prompt(self, persona: Persona) -> str:
-        """The exact stable system message this persona sends to its model (for the admin)."""
+    async def prompt_map(self, persona: Persona) -> PromptMap:
+        """Everything this persona's model gets, piece by piece with its source (for the admin):
+        the exact stable system message, an example of the per-reply context and the fixed rules."""
         cfg = await self.config()
         strategy = await self.strategy_for(persona.id)
-        return stable_system_prompt(
-            persona_profile(persona), strategy_profile(strategy), cfg.prompt_texts()
+        profile = strategy_profile(strategy)
+        now = self.clock()
+        facts = persona_facts(persona.birth_date, persona.timezone, now, persona.routine)
+        return PromptMap(
+            parts=system_prompt_parts(persona_profile(persona), profile, cfg.prompt_texts()),
+            context=example_context(now, facts, profile),
+            rules=fixed_rules(persona.name),
+            strategy_id=strategy.id,
         )
 
     async def strategy_for(self, persona_id: int) -> Strategy:

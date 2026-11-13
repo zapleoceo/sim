@@ -1,6 +1,7 @@
 import type { Persona } from '@/lib/models';
 import {
-  EMPTY_PERSONA, ROUTINE_MAX, personaErrors, personaFromForm, personaToForm, personaToInput, type PersonaFormValues,
+  EMPTY_PERSONA, ROUTINE_MAX, ageFromBirthDate, personaErrors, personaFromForm, personaToForm, personaToInput,
+  type PersonaFormValues,
 } from './persona-schema';
 import { GEMINI_VOICES, VOICE_AMBIENCE_OPTIONS, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
@@ -27,7 +28,7 @@ describe('persona form validation', () => {
     expect(personaErrors(valid)).toEqual({});
   });
 
-  it('does not block on hidden fields: empty language and gender fall back to ru and female', () => {
+  it('does not block on empty fields: empty language and gender fall back to ru and female', () => {
     expect(personaErrors({ ...valid, language: '', gender: '' })).toEqual({});
     const body = personaFromForm({ ...valid, language: ' ', gender: '' });
     expect(body.language).toBe('ru');
@@ -113,5 +114,21 @@ describe('persona form validation', () => {
     expect(GEMINI_VOICES.map((v) => v.id)).toEqual(['Kore', 'Vindemiatrix']);
     expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
     expect(VOICE_OPTIONS[0]).toEqual({ value: '', label: 'Без голоса' });
+  });
+});
+
+describe('ageFromBirthDate', () => {
+  const today = new Date(2026, 10, 14);   // 14 November 2026
+
+  it('counts full years and waits for the birthday', () => {
+    expect(ageFromBirthDate('1989-01-26', today)).toBe(37);
+    expect(ageFromBirthDate('1989-11-14', today)).toBe(37);
+    expect(ageFromBirthDate('1989-11-15', today)).toBe(36);
+    expect(ageFromBirthDate('1989-12-01', today)).toBe(36);
+  });
+
+  it('is unknown without a date', () => {
+    expect(ageFromBirthDate('', today)).toBeNull();
+    expect(ageFromBirthDate('26.01.1989', today)).toBeNull();
   });
 });

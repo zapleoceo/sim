@@ -45,3 +45,8 @@ export function settingHint(item: AppSettingItem): string {
 export function replaceSetting(items: readonly AppSettingItem[], updated: AppSettingItem): AppSettingItem[] {
   return items.map((i) => (i.key === updated.key ? updated : i));
 }
+
+/** React key of a setting's editor: a save or a reset remounts it, so its draft follows the stored value. */
+export function settingFieldKey(item: AppSettingItem): string {
+  return `${item.key}:${item.updated_at ?? ''}:${String(item.is_default)}`;
+}

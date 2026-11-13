@@ -40,6 +40,13 @@ log = logging.getLogger(__name__)
 
 OWNER_SETTING = "video_note_owner_telegram_id"
 AI_LABEL = "Сгенерировано ИИ"
+# The rule as the admin shows it on the persona page (read-only; the code below enforces it).
+AI_VIDEO_RULE = (
+    f"Перед кружочком отдельным сообщением уходит текст «{AI_LABEL}»; кружочек отправляется "
+    "только после того, как этот текст доставлен. Получатель один: личный чат Telegram с "
+    "аккаунтом из настройки «Кружочки ИИ» → «Telegram id получателя». Пока там 0, кружочки "
+    "не создаются и не отправляются никому."
+)
 AI_VIDEO_PREFIX = "aivn_"            # media names of generated video notes (the send gate keys on it)
 VIDEO_NOTE_WORKFLOW = "video-note"
 ASPECT_RATIO = "9:16"                # portrait: the face stays inside the centre crop

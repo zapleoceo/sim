@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type { AppSettingItem } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
 import { CSRF, renderApp, testUser } from '@/test/render-app';
-import { groupSettings, parseSettingValue, pickSettings, replaceSetting, settingHint } from './settings-logic';
+import { groupSettings, parseSettingValue, pickSettings, replaceSetting, settingFieldKey, settingHint } from './settings-logic';
 
 function item(patch: Partial<AppSettingItem>): AppSettingItem {
   return {
@@ -45,6 +45,8 @@ describe('settings logic', () => {
     expect(settingHint({ ...DELAY, help: 'Задержка' })).toBe('Задержка (0–600)');
     expect(settingHint(STYLE)).toBe('');
     expect(replaceSetting([STYLE, DELAY], { ...STYLE, value: 'x' }).map((i) => i.value)).toEqual(['x', 30]);
+    expect(settingFieldKey(GUARD)).toBe('guard_prompt:2026-11-11T10:00:00Z:false');
+    expect(settingFieldKey(STYLE)).toBe('style::true');
   });
 });
 

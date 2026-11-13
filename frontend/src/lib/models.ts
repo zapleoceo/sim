@@ -353,8 +353,23 @@ export interface SimBranchDetail extends SimBranchRow {
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 /** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
-/** The persona's full system prompt as the model gets it; `fixed` is empty for compatibility. */
-export interface PersonaPrompt { system: string; fixed: string }
+/** One piece of the persona's system prompt and whose field it comes from (`field`: that field or the setting key). */
+export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting'; field: string }
+/** A rule fixed in the code: shown read-only. */
+export interface FixedRule { key: string; title: string; text: string }
+/**
+ * The persona's prompt map: `system` is the stable system message as the model gets it, `parts` the same
+ * text piece by piece, `context` an example of the per-reply message code builds, `rules` what is fixed in
+ * the code. `fixed` is empty for compatibility.
+ */
+export interface PersonaPrompt {
+  system: string;
+  fixed: string;
+  strategy_id: number;
+  context: string;
+  parts: PromptPart[];
+  rules: FixedRule[];
+}
 export interface AppSettingItem {
   key: string;
   group: string;
