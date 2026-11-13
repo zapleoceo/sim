@@ -310,8 +310,10 @@ async def test_a_generated_photo_never_goes_out_without_the_ai_caption(container
                           delivery=Delivery.QUEUED)
         s.add(message)
         await s.flush()
+        message_id = message.id
         assert media_caption(message) == AI_LABEL
-        await container.outbound(s).deliver(message.id)
+    async with transaction(container.factory) as s:
+        await container.outbound(s).deliver(message_id)
     assert port.photos == [("chat-1", PNG, AI_LABEL)]
     plain = Message(text="подпись оператора", media_kind="photo", media_url=MEDIA_URL + "abcdefgh1234.jpg")
     assert media_caption(plain) == "подпись оператора"
