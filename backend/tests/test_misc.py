@@ -9,6 +9,7 @@ from sim.adapters.db.models import ContentPost, Persona, Strategy
 from sim.adapters.db.session import transaction
 from sim.adapters.media import MediaStore
 from sim.domain.enums import ContentStatus
+from sim.persona_prompts import STRATEGY_NAME
 from sim.seed import seed
 from sim.services.content import NOT_IMPLEMENTED
 from sim.services.conversation import persona_profile, strategy_profile
@@ -45,11 +46,12 @@ async def test_seed_is_idempotent_and_complete(container):
     container.settings.superadmin_telegram_ids = "42, junk"
     first = await seed(container, container.settings)
     second = await seed(container, container.settings)
-    assert first == {"strategies": 1, "personas": 2, "superadmins": 1}
+    assert first == {"strategies": 2, "personas": 3, "superadmins": 1}
     assert second == {"strategies": 0, "personas": 0, "superadmins": 0}
     async with container.factory() as s:
-        personas = (await s.scalars(select(Persona).order_by(Persona.id))).all()
-        strategy = (await s.scalars(select(Strategy))).one()
+        personas = (await s.scalars(
+            select(Persona).where(Persona.is_game.is_(False)).order_by(Persona.id))).all()
+        strategy = (await s.scalars(select(Strategy).where(Strategy.name == STRATEGY_NAME))).one()
     assert [p.name for p in personas] == ["Марина Светлова", "Ева Коган"]
     assert strategy.followup_hours == [24, 72, 168]
     assert "TO CONFIRM" in strategy.notes and "{ref}" in strategy.registration_url
@@ -77,13 +79,13 @@ async def test_publish_without_publisher_marks_failed(container, world):
 async def test_seed_fills_only_empty_persona_texts(container):
     await seed(container, container.settings)
     async with transaction(container.factory) as s:
-        marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
+        marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()[:2]
         marina.description = "Своё описание владельца"
         marina.prohibitions = ""
         eva.description = ""
     await seed(container, container.settings)
     async with container.factory() as s:
-        marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
+        marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()[:2]
     assert marina.description == "Своё описание владельца"     # owner edit survives
     assert marina.prohibitions == ""                                    # no default prohibitions
     assert eva.description.startswith("Ты Ева Коган.\n\nЯ Ева, мне 39")   # empty -> filled, one full prompt
@@ -96,7 +98,7 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
     async with transaction(container.factory) as s:
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
         marina.description = "правки владельца"
-        strategy = (await s.scalars(select(Strategy))).one()
+        strategy = (await s.scalars(select(Strategy).where(Strategy.name == STRATEGY_NAME))).one()
         strategy.prompt = ""
         strategy.rules = ["старое"]
     async with transaction(container.factory) as s:
@@ -105,7 +107,7 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
     assert {(c.target, c.field) for c in changes} >= {(MARINA, "description"), (f"strategy «{strategy.name}»", "prompt")}
     async with container.factory() as s:
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
-        strategy = (await s.scalars(select(Strategy))).one()
+        strategy = (await s.scalars(select(Strategy).where(Strategy.name == STRATEGY_NAME))).one()
     assert marina.description.startswith("Ты Марина Светлова.\n\nМне 45, я Марина")
     assert "РОЛЬ:" in marina.description and strategy.prompt == STRATEGY_PROMPT
     assert strategy.goal == "" and strategy.rules == [] and strategy.stage_playbook == {}   # one text

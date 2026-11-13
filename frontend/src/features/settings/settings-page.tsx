@@ -171,6 +171,16 @@ export const GUARD_GROUP = 'Охранник';
 export const PASSPORT_GROUP = 'Паспортистка';
 export const AGENT_GROUPS = [GUARD_GROUP, PASSPORT_GROUP] as const;
 
+/** The role game (Sim1): where it is on, who the owner is, and its command vocabulary. */
+export const GAME_GROUP = 'Игра Sim1';
+
+function GameVocabulary() {
+  const fixed = useQuery({ queryKey: qk.settingsFixed, queryFn: settingsApi.fixed });
+  return fixed.data?.game ? (
+    <FixedPrompt text={fixed.data.game} title="Словарь команд игры: задан в коде и не редактируется" />
+  ) : null;
+}
+
 /** Shared rules for every persona (the agents have their own page). */
 export function SettingsPage() {
   return (
@@ -178,6 +188,7 @@ export function SettingsPage() {
       title="Общие правила"
       subtitle="Служебные промпты и параметры, общие для всех персонажей. Промпт самого персонажа на его странице. Хранятся в базе: деплой их не сбрасывает."
       except={AGENT_GROUPS}
+      groupFooters={{ [GAME_GROUP]: <GameVocabulary /> }}
     />
   );
 }

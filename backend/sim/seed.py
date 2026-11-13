@@ -16,6 +16,9 @@ from sim.adapters.db.session import create_all, transaction
 from sim.config import Settings, parse_telegram_ids, settings
 from sim.persona_prompts import (
     EVA,
+    GAME_PERSONA,
+    GAME_STRATEGY,
+    GAME_STRATEGY_NAME,
     MARINA,
     PERSONA_TEXTS,
     STRATEGY_NAME,
@@ -45,11 +48,15 @@ STRATEGY: dict[str, Any] = {
     ),
 }
 
+STRATEGIES: list[dict[str, Any]] = [STRATEGY, GAME_STRATEGY]
+
+# "strategy": the name of the strategy a NEW persona is created with.
 PERSONAS: list[dict[str, Any]] = [
     {
         "name": MARINA,
         "age": 45,
         "gender": "female",
+        "strategy": STRATEGY_NAME,
         "language": "русский (переходит на украинский, если клиент пишет по-украински)",
         **PERSONA_TEXTS[MARINA],
     },
@@ -57,21 +64,26 @@ PERSONAS: list[dict[str, Any]] = [
         "name": EVA,
         "age": 39,
         "gender": "female",
+        "strategy": STRATEGY_NAME,
         "language": "русский и украинский (отвечает на языке клиента)",
         **PERSONA_TEXTS[EVA],
     },
+    {**GAME_PERSONA, "strategy": GAME_STRATEGY_NAME},
 ]
 
 
 async def seed_catalog(session: AsyncSession) -> dict[str, int]:
     strategies, personas = StrategyRepo(session), PersonaRepo(session)
     created = {"strategies": 0, "personas": 0}
-    strategy = await strategies.by_name(STRATEGY_NAME)
-    if strategy is None:
-        strategy = await strategies.add(Strategy(**STRATEGY))
-        created["strategies"] += 1
-    elif not strategy.prompt.strip():
-        strategy.prompt = STRATEGY_PROMPT   # added in 0005: fill once, owner edits win after that
+    strategy_ids: dict[str, int] = {}
+    for fields in STRATEGIES:
+        strategy = await strategies.by_name(fields["name"])
+        if strategy is None:
+            strategy = await strategies.add(Strategy(**fields))
+            created["strategies"] += 1
+        elif not strategy.prompt.strip():
+            strategy.prompt = fields["prompt"]   # fill once, owner edits win after that
+        strategy_ids[strategy.name] = strategy.id
     for data in PERSONAS:
         existing = await personas.by_name(data["name"])
         if existing is not None:
@@ -80,11 +92,12 @@ async def seed_catalog(session: AsyncSession) -> dict[str, int]:
                 if not getattr(existing, column).strip():
                     setattr(existing, column, data[column])
         else:
+            fields = {k: v for k, v in data.items() if k != "strategy"}
             await personas.add(
                 Persona(
-                    **data,
+                    **fields,
                     model="",  # empty = Broker chain chat:sales
-                    strategy_id=strategy.id,
+                    strategy_id=strategy_ids[data["strategy"]],
                     is_active=True,
                 )
             )
