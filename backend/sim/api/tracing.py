@@ -14,7 +14,8 @@ from sim.services.tracing import Tracer, mask
 
 TRACE_HEADER = "X-Trace-Id"
 TRACED_PREFIXES = ("/api/", "/hooks/")
-QUIET_GETS = ("/api/activity/log", "/api/activity/traces", "/api/live", "/api/ready", "/api/health")
+QUIET_GETS = ("/api/activity/log", "/api/activity/traces", "/api/live", "/api/ready", "/api/health",
+              "/api/events")
 
 
 def is_quiet(method: str, path: str) -> bool:

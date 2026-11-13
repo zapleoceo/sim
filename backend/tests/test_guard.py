@@ -397,3 +397,9 @@ async def test_dialog_api_and_analytics_expose_the_guard(api, container, world, 
     day = utcnow().date().isoformat()
     summary = (await api.get("/api/analytics/summary", params={"from": day, "to": day})).json()
     assert summary["guard"] == {"ok": 0, "rewritten": 0, "blocked": 1}
+
+
+def test_guard_honesty_does_not_turn_in_role_answers_into_confessions():
+    from sim.services.guard import GUARD_HONESTY
+
+    assert "Только этот прямой вопрос" in GUARD_HONESTY and "ЗАБЛОКИРОВАТЬ" in GUARD_HONESTY

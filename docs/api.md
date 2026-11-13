@@ -217,6 +217,7 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 ## Каналы
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
+| GET | `/api/events` | — (вошедший админ) | поток Server-Sent Events: `event: dialogs` с `{"dialogs": [id…]}` при каждом изменении диалога или его сообщений (только номера), комментарий `: ping` каждые 15 с, `retry: 3000`. Админка по событию перечитывает данные обычным API |
 | GET | `/api/channels` | — | `{items: Channel[]}`; у канала `has_saved_credentials`: прошлое подключение сохранило данные, переподключить можно без ввода |
 | POST | `/api/channels` | `{kind, persona_id, name}` | `Channel` |
 | GET | `/api/channels/{id}/credentials` | — (owner) | `{fields, saved_secrets}` для формы «Подключить»: несекретные поля (api_id, телефон, логин) значениями, секреты (`bot_token`, `password`, `api_hash`, `proxy`) только именами, их значения в браузер не уходят (пустое поле при подключении берёт сохранённое на сервере). `Cache-Control: no-store` |

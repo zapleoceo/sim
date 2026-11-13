@@ -31,6 +31,7 @@ from sim.services.conversation import ConversationService
 from sim.services.followup import FollowupService
 from sim.services.ingest import IngestService
 from sim.services.instagram_content import InstagramContentPublisher
+from sim.services.live import track_dialog_changes
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
@@ -176,6 +177,7 @@ class Container:
 
 
 def build_container(settings: Settings, *, registry: Registry | None = None) -> Container:
+    track_dialog_changes()      # every process that writes dialogs announces the change (live inbox)
     engine = make_engine(settings.database_url)
     broker = BrokerLLM(
         settings.broker_url,
