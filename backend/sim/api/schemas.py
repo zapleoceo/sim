@@ -26,7 +26,6 @@ from sim.domain.enums import (
     ChannelKind,
     ClientStatus,
     ContentKind,
-    MediaKind,
     Role,
     Stage,
     VoiceAmbience,

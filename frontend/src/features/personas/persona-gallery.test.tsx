@@ -39,7 +39,7 @@ describe('persona gallery', () => {
     backend();
     await renderApp('/personas/1');
     expect(await screen.findByText('Галерея')).toBeInTheDocument();
-    expect(screen.getByText('Пока пусто')).toBeInTheDocument();
+    expect(await screen.findByText('Пока пусто')).toBeInTheDocument();
   });
 
   it('lists media items with filter buttons', async () => {

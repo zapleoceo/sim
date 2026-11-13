@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.audio import AudioError
 from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
-from sim.domain.enums import MediaKind
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
@@ -22,8 +21,9 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
-from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction
+from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction, MediaKind
 from sim.domain.voice import GEMINI_VOICES
+from sim.ports.channel import SendResult
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing

@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from sim.adapters.db.models import PersonaMedia
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.persona_media import PersonaMediaRepo
-from sim.adapters.media import MediaStore, serving
+from sim.adapters.media import serving
 from sim.api.deps import App, Db, Owner, authed
 from sim.api.schemas import persona_media_out
 from sim.clock import utcnow
@@ -66,7 +66,7 @@ async def upload_media(
     try:
         media_kind = MediaKind(kind)
     except ValueError:
-        raise HTTPException(422, f"kind must be one of: {', '.join(v.value for v in MediaKind)}")
+        raise HTTPException(422, f"kind must be one of: {', '.join(v.value for v in MediaKind)}") from None
     mime = (file.content_type or "").split(";")[0].strip().lower()
     if mime not in ALLOWED_MIME:
         raise HTTPException(422, f"File type '{mime}' is not allowed")
@@ -100,7 +100,7 @@ async def list_media(
         try:
             mk = MediaKind(kind)
         except ValueError:
-            raise HTTPException(422, f"kind must be one of: {', '.join(v.value for v in MediaKind)}")
+            raise HTTPException(422, f"kind must be one of: {', '.join(v.value for v in MediaKind)}") from None
     items = await PersonaMediaRepo(s).for_persona(persona_id, kind=mk)
     return {"items": [persona_media_out(m) for m in items]}
 
