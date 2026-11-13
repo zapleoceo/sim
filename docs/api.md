@@ -99,7 +99,10 @@ Secure, SameSite=Lax) + заголовок `X-CSRF-Token` на POST/PUT/PATCH/DE
 `/api/health`, `/api/auth/config`, `/api/auth/telegram`, `/api/auth/link` и вебхуки `/hooks/*`
 (у них своя проверка секрета); `POST /api/auth/logout` без сессии лишь стирает cookie (`204`).
 Остальные маршруты без сессии отвечают `401`; это проверяет `backend/tests/test_auth_required.py`.
-Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx.
+Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx. Ошибки сервисов переводятся в коды в одном месте
+(`api/errors.py`): `ChannelError`, `ContentError`, `ConversationError`, `AttachmentError`, `MediaRejected` → `422`,
+`ContentConflict` (состояние поста не позволяет) → `409`, `MediaTooLarge` → `413`, `MediaNotFound` → `404`,
+ошибка Broker (`LLMError`) → `502` `Broker error: …`, если маршрут не обработал её сам.
 Списки: `{"items": [...], "total": N}`, параметры `limit` (≤200, по умолчанию 50), `offset`.
 
 ## Auth

@@ -8,6 +8,7 @@ authenticated /api/media/{name} route; the original URL is not kept (a channel f
 embed a bot token)."""
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from pathlib import Path
@@ -44,12 +45,16 @@ class MediaStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
 
-    def save(self, data: bytes, suffix: str) -> str:
-        suffix = safe_suffix(suffix)
-        name = f"{secrets.token_urlsafe(12)}.{suffix}"
+    async def save(self, data: bytes, suffix: str) -> str:
+        """Store the bytes under a new random name; the disk write runs in a worker thread so
+        a large upload does not block the event loop."""
+        name = f"{secrets.token_urlsafe(12)}.{safe_suffix(suffix)}"
+        await asyncio.to_thread(self._write, name, data)
+        return name
+
+    def _write(self, name: str, data: bytes) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / name).write_bytes(data)
-        return name
 
     def path(self, name: str) -> Path | None:
         if not SAFE_NAME.match(name):

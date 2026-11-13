@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from sim.adapters.db.session import create_all, transaction
+from sim.api.errors import install_error_handlers
 from sim.api.routers import (
     activity,
     admins,
@@ -117,6 +118,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     )
     for router in ROUTERS:
         app.include_router(router)
+    install_error_handlers(app)
     install_request_tracing(app)
     if (static := resolve_static_dir(cfg.static_dir)) is not None:
         mount_spa(app, static)

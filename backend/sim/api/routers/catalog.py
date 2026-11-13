@@ -19,12 +19,10 @@ from sim.api.schemas import (
     strategy_out,
 )
 from sim.domain.voice import speaks
-from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
-from sim.services.conversation import ConversationError
 from sim.services.guard import GuardOutcome
 from sim.services.models import catalog_items
-from sim.services.preview_media import MAX_BYTES, AttachmentError
+from sim.services.preview_media import MAX_BYTES
 from sim.services.prompt import Turn
 from sim.wiring import Container
 
@@ -120,12 +118,9 @@ async def preview_attachment(
     """A voice note recorded in the admin or an attached file → text the persona reads."""
     await persona_or_404(s, persona_id)
     data = await file.read(MAX_BYTES + 1)
-    try:
-        att = await c.preview_attachments().read(
-            data, file.filename or "file", file.content_type or "", voice=voice
-        )
-    except AttachmentError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    att = await c.preview_attachments().read(
+        data, file.filename or "file", file.content_type or "", voice=voice
+    )
     return {"kind": att.kind, "name": att.name, "text": att.text, "media_url": att.media_url}
 
 
@@ -150,15 +145,10 @@ async def preview_voice(
 async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Authed):
     persona = await persona_or_404(s, persona_id)
     history = [Turn(h.role, h.text) for h in body.history]
-    try:
-        result = await c.conversation(s).preview(
-            persona, body.message, history, stage=body.stage, status=body.status,
-            needs=body.needs, next_step=body.next_step,
-        )
-    except ConversationError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    except LLMError as exc:
-        raise HTTPException(502, f"Broker error: {exc}") from exc
+    result = await c.conversation(s).preview(
+        persona, body.message, history, stage=body.stage, status=body.status,
+        needs=body.needs, next_step=body.next_step,
+    )
     d = result.decision
     return {
         "voice": await preview_voice(c, persona, result.reply, body.voice_input),
@@ -218,8 +208,4 @@ async def delete_strategy(strategy_id: int, s: Db, _: Owner) -> Response:
 # ---- models -------------------------------------------------------------------------------
 @models.get("")
 async def list_models(c: App):
-    try:
-        rows = await c.llm.list_models()
-    except LLMError as exc:
-        raise HTTPException(502, f"Broker error: {exc}") from exc
-    return {"items": catalog_items(rows)}
+    return {"items": catalog_items(await c.llm.list_models())}

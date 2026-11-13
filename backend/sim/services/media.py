@@ -83,7 +83,7 @@ class MediaService:
         if message is None:
             return
         data = await self.download(message.dialog_id, ref)
-        name = self.store.save(data, guess_suffix(kind))
+        name = await self.store.save(data, guess_suffix(kind))
         message.media_url = f"/api/media/{name}"
         if transcribe:
             message.text = await self.transcribe(data)

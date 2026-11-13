@@ -72,7 +72,7 @@ class PersonaMediaService:
         caption: str = "", tags: str = "",
     ) -> PersonaMedia:
         media_kind = parse_kind(kind)
-        name = self.store.save(data, checked_suffix(data, content_type))
+        name = await self.store.save(data, checked_suffix(data, content_type))
         row = PersonaMedia(
             persona_id=persona_id, kind=media_kind, storage_name=name,
             caption=caption[:CAPTION_LIMIT], tags=parse_tags(tags), created_at=self.clock(),

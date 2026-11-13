@@ -27,7 +27,7 @@ async def photo(container, world):
     port.publish_photo = publish
     container.registry = {ChannelKind.INSTAGRAM: SimpleNamespace(build_port=build)}
     container.settings.ig_content_enabled = True
-    name = container.media.save(b"\xff\xd8\xffphoto", "jpg")
+    name = await container.media.save(b"\xff\xd8\xffphoto", "jpg")
     async with container.factory() as s, s.begin():
         channel = Channel(persona_id=world.persona.id, kind=ChannelKind.INSTAGRAM,
                           status=SessionStatus.ACTIVE,

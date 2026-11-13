@@ -21,7 +21,11 @@ EDITABLE = (ContentStatus.DRAFT, ContentStatus.APPROVED, ContentStatus.SCHEDULED
 
 
 class ContentError(Exception):
-    """Operation not allowed in the post's current state."""
+    """The request cannot be carried out (missing persona, publication rules)."""
+
+
+class ContentConflict(ContentError):
+    """Operation not allowed in the post's current state (or the post is gone)."""
 
 
 class ContentPublisher(Protocol):
@@ -75,9 +79,9 @@ class ContentService:
         text nobody approved, so the post goes back to DRAFT and its publish job is cancelled."""
         post = await self.lock_post(post)
         if await self.session.get(ContentPublishIntent, post.id) is not None:
-            raise ContentError("Publication already attempted; reconciliation required")
+            raise ContentConflict("Publication already attempted; reconciliation required")
         if post.status not in EDITABLE:
-            raise ContentError(f"a {post.status.value} post cannot be edited")
+            raise ContentConflict(f"a {post.status.value} post cannot be edited")
         for key, value in self.normalise(fields).items():
             setattr(post, key, value)
         if post.status in (ContentStatus.APPROVED, ContentStatus.SCHEDULED):
@@ -93,15 +97,15 @@ class ContentService:
     async def lock_post(self, post: ContentPost) -> ContentPost:
         locked = await self.posts.for_publish(post.id)
         if locked is None:
-            raise ContentError("post not found")
+            raise ContentConflict("post not found")
         return locked
 
     async def approve(self, post: ContentPost) -> ContentPost:
         post = await self.lock_post(post)
         if await self.session.get(ContentPublishIntent, post.id) is not None:
-            raise ContentError("Publication already attempted; reconciliation required")
+            raise ContentConflict("Publication already attempted; reconciliation required")
         if post.status not in (ContentStatus.DRAFT, ContentStatus.FAILED):
-            raise ContentError(f"a {post.status.value} post cannot be approved")
+            raise ContentConflict(f"a {post.status.value} post cannot be approved")
         post.status, post.error = ContentStatus.APPROVED, None
         await self.plan(post)
         return post

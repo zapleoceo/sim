@@ -190,7 +190,7 @@ async def test_list_rejects_unknown_kind(api, world):
 
 
 async def test_media_store_remove(container):
-    name = container.media.save(b"data", "txt")
+    name = await container.media.save(b"data", "txt")
     assert container.media.remove(name) is True
     assert container.media.path(name) is None
     assert container.media.remove(name) is False
