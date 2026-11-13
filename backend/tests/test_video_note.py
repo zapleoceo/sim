@@ -447,14 +447,19 @@ async def test_api_queues_the_note_for_the_allowlisted_account(api, container, s
 
 # ---- encoder -------------------------------------------------------------------------------
 
+def fake_ffmpeg(args) -> None:
+    """What ffmpeg does for the encoder: read the input file, write the output file."""
+    src, dst = args[args.index("-i") + 1], args[-1]
+    assert Path(src).read_bytes() == MP4
+    Path(dst).write_bytes(NOTE)
+
+
 async def test_encoder_crops_to_a_square_and_keeps_the_audio_track():
     seen = {}
 
     async def runner(args, data, limit_s):
         seen.update(args=args, data=data, limit_s=limit_s)
-        src, dst = args[args.index("-i") + 1], args[-1]
-        assert Path(src).read_bytes() == MP4
-        Path(dst).write_bytes(NOTE)
+        fake_ffmpeg(args)
         return 0, b"", b""
 
     assert await VideoNoteEncoder(runner, timeout_s=7).to_video_note(MP4) == NOTE
