@@ -73,7 +73,7 @@ def test_voice_and_style_aim_at_a_human_messenger_voice():
     assert "на такие вопросы отвечай из биографии" in system
     assert "милениал" in system and "не используй длинные тире" in system
     assert "мелкую естественную опечатку" in system and "никогда в именах, ссылках, цифрах и ценах" in system
-    assert "без заготовленных фраз" in system and "ЕДИНСТВЕННОЕ исключение из РОЛИ" in system
+    assert "ЕДИНСТВЕННОЕ исключение из РОЛИ" not in system
     # the rules practise what they preach: no long dashes or guillemets to imitate
     for rule in (VOICE_RULE, STYLE_RULE):
         assert not set(rule) & {"—", "–", "«", "»"}
@@ -93,7 +93,7 @@ def test_description_and_prohibitions_sections():
     assert system.index("Чего нельзя никогда") < system.index("СТРАТЕГИЯ") < system.index("ПРАВИЛА:")
 
 
-def test_the_persona_prompt_is_the_owner_text_then_honesty_strategy_and_format():
+def test_the_persona_prompt_is_the_owner_text_then_strategy_and_format():
     own = PersonaProfile(name="Х", description="Мой промпт целиком.", prohibitions="не трогать")
     system = stable_system_prompt(own, STRATEGY, PromptTexts(contract="ФОРМАТ: мой"))
     assert system.startswith("Мой промпт целиком.\n\nСТРАТЕГИЯ")
