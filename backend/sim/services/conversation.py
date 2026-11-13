@@ -94,6 +94,7 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
+        routine=p.routine,
     )
 
 
@@ -179,7 +180,8 @@ class ConversationService:
         self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
     ) -> list[dict[str, Any]]:
         cfg = await self.config()
-        ctx = replace(ctx, persona_facts=persona_facts(persona.birth_date, persona.timezone, ctx.now))
+        ctx = replace(ctx, persona_facts=persona_facts(
+            persona.birth_date, persona.timezone, ctx.now, persona.routine))
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
             texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
