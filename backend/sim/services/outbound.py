@@ -7,6 +7,7 @@ import logging
 import mimetypes
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -115,6 +116,7 @@ class OutboundService:
         final: bool = False,
         guard: GuardOutcome | None = None,
         voice: bool = False,
+        delay_s: float = 0.0,
     ) -> Message:
         """Queue an AI reply (`text` is the final, guard-approved text; `guard` is recorded). `final` = the last thing the AI says before stepping back (a
         refusal farewell, a hand-off note): it is still delivered although the dialog is
@@ -141,7 +143,9 @@ class OutboundService:
         await self.jobs.enqueue(
             jobkinds.SEND,
             {"message_id": message.id, "final": final},
-            now,  # no artificial delay: generation already takes seconds
+            # No artificial delay for the first message (generation already takes seconds); the
+            # next short messages of one reply wait a typing pause (`delay_s`).
+            now + timedelta(seconds=delay_s),
             dedup_key=send_key(message.id),
         )
         return message

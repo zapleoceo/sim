@@ -1,8 +1,9 @@
 """Request bodies (pydantic) and response serialisers (plain dicts, shapes from docs/api.md)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -73,6 +74,8 @@ class AdminPatchIn(Body):
 class PersonaIn(Body):
     name: str = Field(min_length=1, max_length=120)
     age: int | None = Field(default=None, ge=0, le=120)
+    birth_date: date | None = None
+    timezone: str = Field(default="Europe/Kyiv", max_length=64)
     gender: Literal["female", "male", "other"] = "other"
     avatar_url: str = Field(default="", max_length=500)
     description: str = ""
@@ -85,6 +88,15 @@ class PersonaIn(Body):
     voice_ambience: VoiceAmbience = VoiceAmbience.OFF
     strategy_id: int | None = None
     is_active: bool = True
+
+    @field_validator("timezone")
+    @classmethod
+    def known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError("Unknown time zone: use an IANA name like Europe/Kyiv") from e
+        return value
 
     @field_validator("voice_id")
     @classmethod
@@ -219,7 +231,8 @@ def admin_out(u: AdminUser) -> dict[str, Any]:
 
 def persona_out(p: Persona) -> dict[str, Any]:
     return {
-        "id": p.id, "name": p.name, "age": p.age, "gender": p.gender, "avatar_url": p.avatar_url,
+        "id": p.id, "name": p.name, "age": p.age, "birth_date": p.birth_date.isoformat() if p.birth_date else None,
+        "timezone": p.timezone, "gender": p.gender, "avatar_url": p.avatar_url,
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,

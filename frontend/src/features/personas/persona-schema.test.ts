@@ -35,6 +35,14 @@ describe('persona form validation', () => {
     expect(personaErrors({ ...valid, name: 'x'.repeat(81) }).name).toBeDefined();
   });
 
+  it('takes an exact birth date and a time zone; an empty date is null', () => {
+    expect(personaErrors({ ...valid, birth_date: '1976-12-09' })).toEqual({});
+    expect(personaErrors({ ...valid, birth_date: '09.12.1976' }).birth_date).toBe('Дата вида 1976-12-09');
+    expect(personaErrors({ ...valid, timezone: ' ' }).timezone).toBe('Укажите часовой пояс');
+    expect(personaFromForm({ ...valid, birth_date: '1976-12-09' }).birth_date).toBe('1976-12-09');
+    expect(personaFromForm(valid)).toMatchObject({ birth_date: null, timezone: 'Europe/Kyiv' });
+  });
+
   it('passes hidden prohibitions through unchanged', () => {
     expect(personaFromForm({ ...valid, prohibitions: 'старое правило' }).prohibitions).toBe('старое правило');
   });

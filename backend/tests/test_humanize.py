@@ -17,6 +17,9 @@ from sim.services.humanize import plain_punctuation
         ("а   б", "а б"),
         ("обычный текст, без изменений!", "обычный текст, без изменений!"),
         ("https://rcipm.com/?ref=ab-12", "https://rcipm.com/?ref=ab-12"),
+        ("стратегичeскому", "стратегическому"),       # Latin e inside a Russian word
+        ("pаз и ок, OK", "раз и ок, OK"),              # Latin p at the start; Latin words stay
+        ("RCIPM про мышление", "RCIPM про мышление"),
     ],
 )
 def test_plain_punctuation(raw: str, typed: str) -> None:

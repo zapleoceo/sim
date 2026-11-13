@@ -20,6 +20,7 @@ from sim.domain.enums import ClientStatus, Stage
 from sim.domain.funnel import advance_by_ai
 from sim.services.conversation import ConversationService, visible_turns
 from sim.services.guard import BLOCKED, REWRITTEN
+from sim.services.humanize import bubbles
 from sim.services.prompt import MAX_NEEDS, Decision, DialogContext
 
 SIM_WORKFLOW = "sim"
@@ -138,18 +139,20 @@ class SimulationService:
         blocked = not guard.allowed
         if not blocked:
             self.apply_decision(branch, draft.decision)
-        await self.messages.add(
-            SimMessage(
-                branch_id=branch.id,
-                role=AI,
-                text=guard.text,
-                guard_verdict=guard.verdict,
-                guard_violations=list(guard.violations) or None,
-                original_text=guard.original_text if guard.verdict == REWRITTEN else None,
-                model=draft.result.model,
-                created_at=self.clock(),
+        # As in a channel: an approved reply is 1-3 short messages (a blocked draft stays whole).
+        for part in [guard.text] if blocked else bubbles(guard.text):
+            await self.messages.add(
+                SimMessage(
+                    branch_id=branch.id,
+                    role=AI,
+                    text=part,
+                    guard_verdict=guard.verdict,
+                    guard_violations=list(guard.violations) or None,
+                    original_text=guard.original_text if guard.verdict == REWRITTEN else None,
+                    model=draft.result.model,
+                    created_at=self.clock(),
+                )
             )
-        )
         branch.last_active_at = self.clock()
         return SimReply(
             BLOCKED if blocked else "sent",
