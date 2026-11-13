@@ -60,7 +60,8 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
     async with transaction(container.factory) as s:
         await container.conversation(s).preview(await s.get(Persona, world.persona.id), "Привет!")
     system = fake_llm.gen_calls[0][0][0]["content"]
-    assert system.startswith("PERSONA PROMPT FROM DB\n\nСТРАТЕГИЯ")
+    assert system.startswith(
+        "PERSONA PROMPT FROM DB\n\nЧего нельзя никогда:\n- не обещать доход\n- не просить пароли\n\nСТРАТЕГИЯ")
     assert system.endswith('FORMAT FROM DB: {"reply": "", "stage": ""}') and OUTPUT_CONTRACT not in system
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
     assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}"
