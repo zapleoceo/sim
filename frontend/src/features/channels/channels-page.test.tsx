@@ -100,7 +100,7 @@ describe('ChannelsPage', () => {
     const log = fakeApi({
       'GET /api/channels': { items: [tgUser] },
       'GET /api/personas': { items: [persona] },
-      'GET /api/channels/6/credentials': { api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567' },
+      'GET /api/channels/6/credentials': { fields: { api_id: '12345', phone: '+380501234567' }, saved_secrets: ['api_hash'] },
       'POST /api/channels/6/connect': { status: 'challenge', need: 'code', message: 'Код отправлен в приложение Telegram' },
     });
     const user = userEvent.setup();
@@ -110,8 +110,11 @@ describe('ChannelsPage', () => {
     expect(within(dialog).getByRole('status')).toHaveTextContent('Данные прошлого подключения сохранены');
     await waitFor(() => expect(within(dialog).getByLabelText('api_id')).toHaveValue('12345'));
     expect(within(dialog).getByLabelText('Телефон аккаунта')).toHaveValue('+380501234567');
+    // the secret never comes back to the browser: the field stays empty, marked as saved
+    expect(within(dialog).getByLabelText('api_hash')).toHaveValue('');
+    expect(within(dialog).getByLabelText('api_hash')).toHaveAttribute('placeholder', 'сохранено, оставьте пустым');
     await user.click(within(dialog).getByRole('button', { name: 'Подключить' }));
     expect(await within(dialog).findByLabelText('Код')).toBeInTheDocument();
-    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '12345', api_hash: 'a'.repeat(32), phone: '+380501234567' });
+    expect(log.find((r) => r.path === '/api/channels/6/connect')!.body).toEqual({ api_id: '12345', api_hash: '', phone: '+380501234567' });
   });
 });
