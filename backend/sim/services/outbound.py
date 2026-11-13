@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sim.adapters.audio import AudioError
 from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
 from sim.adapters.crypto import SecretBox
-from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
+from sim.adapters.db.models import AdminUser, Channel, Dialog, Message
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.media import MediaStore
@@ -29,6 +29,7 @@ from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing
 from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
+from sim.services.game import GameService
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
@@ -364,7 +365,7 @@ class OutboundService:
             return VoiceNote(path.read_bytes(), None, None, message.media_url or "")
         if message.author is not Author.AI:
             return None
-        persona = await self.session.get(Persona, dialog.client.persona_id)
+        persona = await GameService(self.session).voice(dialog)
         reason = None
         if self.voice is None:
             reason = "voice rendering is not configured"

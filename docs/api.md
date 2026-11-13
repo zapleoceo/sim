@@ -195,7 +195,7 @@ MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/api/settings` | — | `{items: Setting[], fixed: {persona, guard}}`: настройки в фиксированном порядке и служебный контракт контролёра (`guard`); `persona` пуст для совместимости |
+| GET | `/api/settings` | — | `{items: Setting[], fixed: {persona, guard, game}}`: настройки в фиксированном порядке, служебный контракт контролёра (`guard`) и словарь команд игры Sim1 (`game`, только для чтения, см. [game.md](game.md)); `persona` пуст для совместимости |
 | PUT | `/api/settings/{key}` | `{value}` | `Setting`; `404` неизвестный ключ, `422` неверное значение |
 | DELETE | `/api/settings/{key}` | — | `Setting` со значением по умолчанию |
 
@@ -210,7 +210,7 @@ is_default, updated_at, updated_by_id}`.
 «Паспортистка»); `output_contract` — формат ответа
 персонажа (JSON, добавляется в конец её промпта), `retry_nudge` — что сказать модели, если ответ не
 разобрался (группа «Служебные промпты»); `reply_debounce_s` (0–300) — пауза перед ответом; `typo_percent`, `lowercase_percent` (0–100, группа «Стиль сообщений», по умолчанию из `SIM_TYPO_PERCENT`=12 и `SIM_LOWERCASE_PERCENT`=30) — как часто код делает в ответе одну оплошность (пропущенная запятая или опечатка, не больше одной на весь ответ) и начинает сообщение с маленькой буквы;
-`caption_rules` — подписи постов; `trace_retention_days`. Значения по умолчанию для
+`caption_rules` — подписи постов; `trace_retention_days`; `game_channel_id` и `game_owner_telegram_id` (группа «Игра Sim1», по умолчанию 0: игра выключена, владельца нет; см. [game.md](game.md)). Значения по умолчанию для
 `guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
 `SIM_REPLY_DEBOUNCE_S`. Промпт персонажа — её поле `description` (см. `/api/personas`). Не
 редактируется контракт согласованности управляющих полей (`fixed.guard`); если сломать JSON-формат в `output_contract` или

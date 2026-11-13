@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 Kind = Literal["text", "int", "capability", "model"]
 TEXT_MAX = 20000
+GAME_GROUP = "Игра Sim1"
 CAPABILITY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,79}$")
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
 
@@ -118,6 +119,14 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("trace_retention_days", "Журнал", "Хранить журнал, дней",
                 "Сколько дней хранить записи журнала системы (Активность → Журнал). 0 — не удалять.",
                 "int", None, 0, 365),
+    SettingSpec("game_channel_id", GAME_GROUP, "Канал игры",
+                "Номер канала (id), где действует словарь игры и персонаж Sim1. 0: игра выключена "
+                "везде, Sim1 никому не отвечает.",
+                "int", 0, 0, 1_000_000_000),
+    SettingSpec("game_owner_telegram_id", GAME_GROUP, "Telegram id владельца",
+                "Числовой Telegram id владельца: ему игра включается без экрана согласия, и только "
+                "его звонки берёт Sim1. 0: владельца нет, экран согласия видят все.",
+                "int", 0, 0, 9_999_999_999_999),
     SettingSpec("video_note_owner_telegram_id", "Кружочки ИИ", "Telegram id получателя",
                 "Числовой Telegram id единственного аккаунта, которому можно отправлять "
                 "сгенерированные ИИ кружочки. 0: кружочки не отправляются никому.",
@@ -158,6 +167,8 @@ class AppSettings:
     retry_nudge: str
     caption_rules: str
     trace_retention_days: int
+    game_channel_id: int
+    game_owner_telegram_id: int
     video_note_owner_telegram_id: int
 
     def prompt_texts(self) -> PromptTexts:

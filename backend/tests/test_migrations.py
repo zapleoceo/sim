@@ -308,3 +308,15 @@ def test_0020_adds_accept_calls_and_roundtrips(tmp_path):
     assert "accept_calls" in columns(db, "persona")
     command.downgrade(cfg, "0019")
     assert "accept_calls" not in columns(db, "persona")
+
+
+def test_0022_adds_the_role_game_columns_and_roundtrips(tmp_path):
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "head")
+    assert "is_game" in columns(db, "persona")
+    assert {"game_state", "game_consent_at"} <= columns(db, "dialog")
+    command.downgrade(cfg, "0021")
+    assert "is_game" not in columns(db, "persona")
+    assert not {"game_state", "game_consent_at"} & columns(db, "dialog")
+    command.upgrade(cfg, "head")
