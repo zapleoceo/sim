@@ -53,24 +53,42 @@ def typo(word: str, rng: random.Random) -> str:
     return word[:i] + word[i] + word[i:]
 
 
-def messenger_touches(text: str, *, typo_percent: int, lowercase_percent: int) -> str:
-    """What a person's thumbs do to a message: no full stop at the very end, sometimes a small
-    first letter, sometimes one typo. Percentages are per message (owner settings)."""
-    text = text.strip()
-    if not text:
+COMMA = re.compile(r", (?=[а-яё])")
+COMMA_SLIP_PERCENT = 40
+
+
+def slip(text: str, rng: random.Random) -> str:
+    """One natural slip: more often a missing comma (what people really skip), otherwise a letter
+    swapped, dropped or doubled in one lowercase word."""
+    commas = list(COMMA.finditer(text))
+    if commas and rng.randrange(100) < COMMA_SLIP_PERCENT:
+        m = rng.choice(commas)
+        return text[:m.start()] + " " + text[m.end():]
+    words = list(TYPO_WORD.finditer(text))
+    if not words:
         return text
-    rng = random.Random(zlib.crc32(text.encode()))  # noqa: S311 - style, not security
-    if text.endswith(".") and not text.endswith(".."):
-        text = text[:-1]
-    first = text.split(maxsplit=1)[0]
-    if rng.randrange(100) < lowercase_percent and first[:1].isupper() and first[1:].islower():
-        text = text[0].lower() + text[1:]
+    m = rng.choice(words)
+    return text[:m.start()] + typo(m.group(0), rng) + text[m.end():]
+
+
+def messenger_touches(text: str, *, typo_percent: int, lowercase_percent: int) -> str:
+    """What a person's thumbs do to a reply of 1-3 short messages (separated by a blank line): no
+    full stop at the end of a message, sometimes a small first letter (`lowercase_percent` per
+    message) and at most ONE slip in the whole reply (`typo_percent` per reply): a slip in every
+    message is what a detector notices. Deterministic per text."""
+    rng = random.Random(zlib.crc32(text.strip().encode()))  # noqa: S311 - style, not security
+    out: list[str] = []
+    for part in bubbles(text):
+        if part.endswith(".") and not part.endswith(".."):
+            part = part[:-1]
+        first = part.split(maxsplit=1)[0] if part else ""
+        if rng.randrange(100) < lowercase_percent and first[:1].isupper() and first[1:].islower():
+            part = part[0].lower() + part[1:]
+        out.append(part)
     if rng.randrange(100) < typo_percent:
-        words = list(TYPO_WORD.finditer(text))
-        if words:
-            m = rng.choice(words)
-            text = text[:m.start()] + typo(m.group(0), rng) + text[m.end():]
-    return text
+        k = rng.randrange(len(out))
+        out[k] = slip(out[k], rng)
+    return "\n\n".join(out)
 
 
 # ---- several short messages instead of one block ----------------------------------------------
