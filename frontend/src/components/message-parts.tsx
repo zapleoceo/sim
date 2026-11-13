@@ -1,4 +1,4 @@
-import { FileText, Image, Mic, Paperclip, Video, type LucideIcon } from 'lucide-react';
+import { FileText, Image, Mic, Paperclip, Phone, Video, type LucideIcon } from 'lucide-react';
 import { formatInt, formatMoney } from '@/lib/format';
 import type { Message } from '@/lib/models';
 import { GuardBadge } from './guard-badge';
@@ -10,6 +10,7 @@ const MEDIA: Record<string, { icon: LucideIcon; label: string }> = {
   voice: { icon: Mic, label: 'Голосовое' },
   audio: { icon: Mic, label: 'Аудио' },
   document: { icon: FileText, label: 'Файл' },
+  call: { icon: Phone, label: 'Звонок' },
 };
 
 export function mediaMeta(kind: string | null | undefined): { icon: LucideIcon; label: string } | null {

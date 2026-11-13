@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -139,6 +140,8 @@ class Persona(Base):
     voice_ambience: Mapped[VoiceAmbience] = mapped_column(
         enum_col(VoiceAmbience), default=VoiceAmbience.OFF
     )
+    # Answer incoming Telegram calls with her live voice (same `voice_id`; sim.services.calls).
+    accept_calls: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )

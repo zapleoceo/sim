@@ -127,6 +127,23 @@ export function PersonaEditor({
         </Field>
       </FormGrid>
 
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <Controller
+            control={control}
+            name="accept_calls"
+            render={({ field }) => (
+              <Switch id="persona-accept-calls" checked={field.value} onCheckedChange={field.onChange} />
+            )}
+          />
+          <Label htmlFor="persona-accept-calls">Принимать звонки</Label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Отвечает на входящие звонки в Telegram живым голосом (тот же голос, Google Gemini Live через AIbroker), только
+          клиентам, с которыми уже есть переписка. Расшифровка звонка попадает в диалог.
+        </p>
+      </div>
+
       <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">
         {onRemove && (
           <Button variant="ghost-destructive" onClick={onRemove}>

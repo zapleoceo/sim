@@ -59,6 +59,8 @@ export interface Persona {
   voice_style: string;
   /** Обстановка голосовых: off — чистый звук, room/street/cafe — «запись на смартфон» там, random — случайно. */
   voice_ambience: VoiceAmbience;
+  /** Отвечать на входящие звонки в Telegram живым голосом (тот же voice_id, Gemini Live через AIbroker). */
+  accept_calls: boolean;
   strategy_id: number | null;
   is_active: boolean;
   created_at: string;

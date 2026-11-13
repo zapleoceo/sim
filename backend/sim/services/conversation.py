@@ -23,6 +23,7 @@ from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
+from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import showing
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
@@ -210,6 +211,37 @@ class ConversationService:
             raise ConversationError("no strategy configured")
         return strategy
 
+    async def dialog_context(
+        self, dialog: Dialog, persona: Persona, *, instruction: str = ""
+    ) -> DialogContext:
+        """What the system knows about this conversation right now (replies and phone calls)."""
+        client = dialog.client
+        return DialogContext(
+            stage=client.stage,
+            status=client.status.value,
+            client_name=client.display_name,
+            channel_kind=dialog.channel.kind.value,
+            ref_code=client.ref_code,
+            now=self.clock(),
+            needs=list(client.needs or []),
+            notes=client.notes,
+            next_step=client.next_step,
+            passport=client.passport or "",
+            instruction=instruction,
+            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
+        )
+
+    async def call_prompt(self, dialog: Dialog, persona: Persona) -> str:
+        """The live voice model's system prompt for a phone call in this dialog: the persona
+        prompt and strategy, the chat so far and the dialog context (sim.services.call_prompt)."""
+        cfg = await self.config()
+        strategy = await self.strategy_for(persona.id)
+        recent = await self.messages.recent_visible(dialog.id, cfg.history_limit)
+        ctx = await self.dialog_context(dialog, persona)
+        ctx = replace(ctx, persona_facts=persona_facts(persona.birth_date, persona.timezone, ctx.now))
+        return call_system_prompt(persona_profile(persona), strategy_profile(strategy),
+                                  history_turns(recent), ctx)
+
     async def handoff_links(self, persona: Persona, channel_id: int, ref_code: str) -> list[tuple[str, str]]:
         """Links to the persona's OTHER active channels that carry the client's ref code."""
         links = []
@@ -336,20 +368,7 @@ class ConversationService:
         recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
-        ctx = DialogContext(
-            stage=client.stage,
-            status=client.status.value,
-            client_name=client.display_name,
-            channel_kind=dialog.channel.kind.value,
-            ref_code=client.ref_code,
-            now=self.clock(),
-            needs=list(client.needs or []),
-            notes=client.notes,
-            next_step=client.next_step,
-            passport=client.passport or "",
-            instruction=instruction,
-            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
-        )
+        ctx = await self.dialog_context(dialog, persona, instruction=instruction)
         # "Марина печатает…" in the chat while the model writes and the guard checks the reply.
         async with showing(self.outbound.try_port(dialog.channel), dialog.external_thread_id, TYPING):
             draft = await self.draft_reply(

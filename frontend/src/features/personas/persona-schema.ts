@@ -19,6 +19,7 @@ export const EMPTY_PERSONA: PersonaIn = {
   voice_mode: 'off',
   voice_style: '',
   voice_ambience: 'off',
+  accept_calls: false,
   strategy_id: null,
   is_active: true,
 };
@@ -62,8 +63,12 @@ export const personaSchema = z.object({
   voice_mode: z.enum(['off', 'mirror', 'always']),
   voice_style: z.string().max(300, 'Не длиннее 300 символов'),
   voice_ambience: z.enum(['off', 'room', 'street', 'cafe', 'random']),
+  accept_calls: z.boolean(),
   strategy_id: z.number().nullable(),
   is_active: z.boolean(),
+}).refine((v) => !v.accept_calls || v.voice_id !== '', {
+  path: ['voice_id'],
+  message: 'Для звонков выберите голос',
 }).refine((v) => v.voice_mode === 'off' || v.voice_id !== '', {
   path: ['voice_id'],
   message: 'Для голосовых ответов выберите голос',
@@ -99,6 +104,7 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
     voice_mode: p.voice_mode ?? 'off',
     voice_style: p.voice_style ?? '',
     voice_ambience: p.voice_ambience ?? 'off',
+    accept_calls: p.accept_calls ?? false,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
@@ -121,6 +127,7 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
     voice_mode: v.voice_mode,
     voice_style: v.voice_style.trim(),
     voice_ambience: v.voice_ambience,
+    accept_calls: v.accept_calls,
     strategy_id: v.strategy_id,
     is_active: v.is_active,
   };
@@ -142,6 +149,7 @@ export function personaToInput(p: Persona): PersonaIn {
     voice_mode: p.voice_mode,
     voice_style: p.voice_style,
     voice_ambience: p.voice_ambience,
+    accept_calls: p.accept_calls ?? false,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };

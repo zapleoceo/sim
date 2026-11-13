@@ -13,18 +13,21 @@ from sim.adapters.channels.telegram import BotApiTransport, TelegramTransport
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.session import make_engine, make_session_factory
 from sim.adapters.llm.broker import BrokerLLM
+from sim.adapters.llm.broker_live import BrokerLiveVoice
 from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
 from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
 from sim.ports.llm import LLMPort
+from sim.ports.live_voice import LiveVoicePort
 from sim.ports.speech import SpeechPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
 from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
+from sim.services.calls import CallService
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
 from sim.services.conversation import ConversationService
@@ -81,6 +84,7 @@ class Container:
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
     speech: SpeechPort | None = None                       # persona voice notes (Broker TTS)
     encoder: VoiceEncoder = field(default_factory=OggOpusEncoder)
+    live_voice: LiveVoicePort | None = None                # persona phone calls (Broker /v1/live)
 
     async def aclose(self) -> None:
         """Shutdown: release the LLM adapter's pooled HTTP client and the DB engine."""
@@ -126,6 +130,11 @@ class Container:
             s, self.audited(), self.outbound(s), clock=self.clock,
             settings_env=env_defaults(self.settings),
         )
+
+    def calls(self) -> CallService:
+        """Answers persona phone calls; spans its own short sessions (none is open mid-call)."""
+        return CallService(self.factory, self.live_voice, self.conversation,
+                           max_seconds=self.settings.call_max_seconds, clock=self.clock)
 
     def simulation(self, s: AsyncSession) -> SimulationService:
         return SimulationService(s, self.conversation(s), clock=self.clock)
@@ -194,4 +203,5 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         box=make_box(settings),
         media=MediaStore(settings.media_dir),
         speech=broker,   # the same Broker client serves LLMPort and SpeechPort
+        live_voice=BrokerLiveVoice(settings.broker_url, settings.broker_project_key),
     )

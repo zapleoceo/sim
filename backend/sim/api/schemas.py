@@ -86,6 +86,7 @@ class PersonaIn(Body):
     voice_mode: VoiceMode = VoiceMode.OFF
     voice_style: str = Field(default="", max_length=300)
     voice_ambience: VoiceAmbience = VoiceAmbience.OFF
+    accept_calls: bool = False                           # answer Telegram calls live
     strategy_id: int | None = None
     is_active: bool = True
 
@@ -109,6 +110,8 @@ class PersonaIn(Body):
     def voice_needs_a_voice(self) -> PersonaIn:
         if self.voice_mode is not VoiceMode.OFF and not self.voice_id:
             raise ValueError("Voice replies need a voice")
+        if self.accept_calls and not self.voice_id:
+            raise ValueError("Phone calls need a voice")
         return self
 
 
@@ -236,7 +239,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
-        "voice_ambience": p.voice_ambience.value,
+        "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
     }
 

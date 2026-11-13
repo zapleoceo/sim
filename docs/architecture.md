@@ -70,7 +70,7 @@ backend/sim/
 | Таблица | Назначение |
 |---|---|
 | `admin_user` | `telegram_id` (уникальный, пусто до первого входа по приглашению), `tg_username`, имя, фото, роль (`superadmin`/`owner`/`operator`), активность; `used_login_hash` (одноразовые hash виджета), `login_link` (break-glass) |
-| `persona` | имя, возраст, `birth_date` и `timezone` (миграция 0018: возраст, знак и местное время считает `services/persona_clock.py`), пол, аватар, язык, модель, голос (`voice_id` — голос Google Gemini TTS, `voice_mode` off/mirror/always, `voice_style`, `voice_ambience` off/room/street/cafe/random; см. [voice.md](voice.md)), `strategy_id`, `is_active`; **`description`** — весь промпт персонажа одним текстом (кто она, легенда, роль, стиль, что можно и нельзя; миграция 0014 влила в него прежние общие правила и `prohibitions`); `prohibitions` больше не используется в промпте |
+| `persona` | имя, возраст, `birth_date` и `timezone` (миграция 0018: возраст, знак и местное время считает `services/persona_clock.py`), пол, аватар, язык, модель, голос (`voice_id` — голос Google Gemini TTS, `voice_mode` off/mirror/always, `voice_style`, `voice_ambience` off/room/street/cafe/random; см. [voice.md](voice.md); `accept_calls` — отвечать на звонки, миграция 0019, см. [calls.md](calls.md)), `strategy_id`, `is_active`; **`description`** — весь промпт персонажа одним текстом (кто она, легенда, роль, стиль, что можно и нельзя; миграция 0014 влила в него прежние общие правила и `prohibitions`); `prohibitions` больше не используется в промпте |
 | `strategy` | сценарий общения: цель (короткая формула), **`prompt`** (свободный текст: ориентиры разговора, не скрипт), подсказки по этапам, мягкие правила, оффер партнёра, ссылка регистрации |
 | `channel` | kind (`instagram`/`whatsapp`/`telegram`), persona_id, зашифрованные учётные данные, статус сессии |
 | `client` | человек; persona_id; этап воронки; статус (`active`/`paused`/`refused`/`no_response`); следующий шаг; заметки; `passport` и `passport_updated_at` (паспорт лида, см. «Паспорт лида и паспортистка», миграция 0017) |
@@ -179,6 +179,16 @@ worker ──▶ job(reply): ai_paused? → стоп; открытый media-job
 Каналы с `Capability.CHAT_ACTION`: Telegram-бот (`sendChatAction` typing / record_voice), Telegram-аккаунт
 (`messages.setTyping`), WhatsApp (Evolution `chat/sendPresence` composing / recording). Instagram без статуса.
 Ошибка статуса никогда не мешает ответу.
+
+## Звонки (Telegram-аккаунт, Gemini Live)
+
+Персонаж с `accept_calls` берёт трубку, когда ему звонит клиент, с которым уже есть переписка, и
+говорит голосом в реальном времени через Broker `/v1/live` (Google Gemini Live). Порт
+`ports/live_voice.py` (`LiveVoicePort`), адаптер `adapters/llm/broker_live.py`, мост py-tgcalls
+`adapters/channels/tg_calls.py` на том же Telethon-клиенте воркера (`Capability.ACCEPT_CALL`,
+`TelegramUserConnector.listen_calls`, `Worker.answer_call`), сервис `services/calls.py`, промпт
+`services/call_prompt.py`. Расшифровка звонка после разговора попадает в диалог. Подробно:
+[calls.md](calls.md).
 
 ## Команда `/reset` (тестирование с чистого листа)
 

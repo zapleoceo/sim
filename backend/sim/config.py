@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     broker_project_key: str = ""
     broker_poll_budget_s: float = 180.0
     broker_subscription_budget_s: float = 600.0
+    # Persona phone calls (Broker /v1/live, Gemini Live): the longest call; the Broker caps it at
+    # 540 s itself (Google closes one live session after ~10 min).
+    call_max_seconds: float = 540.0
+    # Kill switch: off = the worker never attaches the call library to userbot accounts.
+    calls_enabled: bool = True
 
     evolution_url: str = "http://evolution:8080"
     evolution_api_key: str = ""
