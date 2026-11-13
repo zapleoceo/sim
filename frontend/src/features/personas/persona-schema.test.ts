@@ -102,8 +102,8 @@ describe('persona form validation', () => {
     expect(personaFromForm({ ...valid, accept_calls: true, voice_id: 'Kore' }).accept_calls).toBe(true);
   });
 
-  it('offers only Kore, the voice the owner chose, and three voice modes', () => {
-    expect(GEMINI_VOICES.map((v) => v.id)).toEqual(['Kore']);
+  it('offers Kore and Vindemiatrix, the voices the owner chose, and three voice modes', () => {
+    expect(GEMINI_VOICES.map((v) => v.id)).toEqual(['Kore', 'Vindemiatrix']);
     expect(VOICE_MODES.map((m) => m.id)).toEqual(['off', 'mirror', 'always']);
     expect(VOICE_OPTIONS[0]).toEqual({ value: '', label: 'Без голоса' });
   });
