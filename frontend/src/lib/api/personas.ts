@@ -1,5 +1,5 @@
 import type {
-  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPrompt, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn,
+  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPrompt, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, VideoNoteQueued,
 } from '../models';
 import { http } from './http';
 
@@ -26,6 +26,10 @@ export const personasApi = {
   prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
+
+  /** Owner: queue an AI video note; it goes only to the account from the «Кружочки ИИ» setting. */
+  videoNote: (id: number, prompt: string) =>
+    http.post<VideoNoteQueued>(`/api/personas/${id}/video-note`, { prompt }),
 
   // ---- media gallery ---
   media: {

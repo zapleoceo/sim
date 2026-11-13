@@ -70,6 +70,13 @@ export interface Persona {
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
 
 export type MediaKind = 'photo' | 'video' | 'video_note';
+/** `POST /api/personas/{id}/video-note`: `cached` = the same request was already generated. */
+export interface VideoNoteQueued {
+  status: 'queued';
+  cached: boolean;
+  cache_key: string;
+  dialog_id: number;
+}
 export interface PersonaMedia {
   id: number;
   persona_id: number;

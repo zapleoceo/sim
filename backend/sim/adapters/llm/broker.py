@@ -4,6 +4,7 @@ chat():       POST {url}/v1/jobs?capability=X  ->  poll GET /v1/jobs/{id} until 
 transcribe(): POST {url}/v1/transcribe/jobs (multipart file) -> same poll.
 list_models():GET  {url}/v1/models.
 synthesize(): POST {url}/v1/speech (SpeechPort; synchronous, base64 audio in the answer).
+generate_video(): POST {url}/v1/video/jobs (VideoPort) -> same poll, base64 MP4 in the answer.
 
 Subscription models (claude-sub/*, codex-sub/*) reject non-default max_tokens/temperature, so
 those fields are never sent for them."""
@@ -22,6 +23,7 @@ import httpx
 
 from sim.ports.llm import LLMError, LLMResult
 from sim.ports.speech import SpeechError, SpeechResult
+from sim.ports.video import VideoError, VideoResult
 
 log = logging.getLogger(__name__)
 
@@ -94,12 +96,14 @@ class BrokerLLM:
         *,
         poll_budget_s: float = 180.0,
         subscription_budget_s: float = 600.0,
+        video_budget_s: float = 900.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.url = base_url.rstrip("/")
         self.key = project_key
         self.poll_budget_s = poll_budget_s
         self.subscription_budget_s = subscription_budget_s
+        self.video_budget_s = video_budget_s
         self.sleep = sleep
         self._client: httpx.AsyncClient | None = None
 
@@ -219,6 +223,40 @@ class BrokerLLM:
         duration = data.get("audio_s")
         return SpeechResult(
             audio=audio, mime_type=str(data.get("mime_type") or "audio/wav"),
+            duration_s=float(duration) if duration is not None else None,
+            model=data.get("model"), cost_usd=float(cost) if cost is not None else None,
+        )
+
+    # ---- VideoPort -----------------------------------------------------------------------
+    async def generate_video(
+        self, prompt: str, *, duration_s: int, resolution: str, aspect_ratio: str = "9:16",
+        image: bytes | None = None, image_mime: str | None = None, workflow: str | None = None,
+    ) -> VideoResult:
+        """`POST /v1/video/jobs`, then the job poll: a clip takes tens of seconds to minutes.
+        A project without the `llm:video` scope gets the Broker's 403 text in the error."""
+        body: dict[str, Any] = {"prompt": prompt, "duration_s": duration_s,
+                                "resolution": resolution, "aspect_ratio": aspect_ratio}
+        if image:
+            body["image_base64"] = base64.b64encode(image).decode()
+            body["image_mime"] = image_mime or "image/jpeg"
+        if workflow:
+            body["workflow"] = workflow
+        start = time.perf_counter()
+        try:
+            client = self.client
+            resp = await client.post(f"{self.url}/v1/video/jobs", headers=self.headers, json=body)
+            resp.raise_for_status()
+            data = await self.poll(client, resp.json(), "video", start + self.video_budget_s)
+            video = base64.b64decode(data["video_base64"], validate=True)
+        except LLMError as exc:
+            raise VideoError(str(exc)) from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, binascii.Error) as exc:
+            raise VideoError(f"video: {err_text(exc)}") from exc
+        if not video:
+            raise VideoError("video: broker returned no clip")
+        cost, duration = data.get("cost_usd"), data.get("video_s")
+        return VideoResult(
+            video=video, mime_type=str(data.get("mime_type") or "video/mp4"),
             duration_s=float(duration) if duration is not None else None,
             model=data.get("model"), cost_usd=float(cost) if cost is not None else None,
         )

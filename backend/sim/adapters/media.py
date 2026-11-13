@@ -51,6 +51,17 @@ class MediaStore:
         (self.root / name).write_bytes(data)
         return name
 
+    def save_as(self, name: str, data: bytes) -> str:
+        """Store under a caller-chosen name (a content-addressed cache entry); the name must
+        still be a safe media name. Written through a temp file so a reader never sees half."""
+        if not SAFE_NAME.match(name):
+            raise ValueError(f"unsafe media name: {name!r}")
+        self.root.mkdir(parents=True, exist_ok=True)
+        partial = self.root / f"{name}.{secrets.token_hex(4)}.part"
+        partial.write_bytes(data)
+        partial.replace(self.root / name)
+        return name
+
     def path(self, name: str) -> Path | None:
         if not SAFE_NAME.match(name):
             return None

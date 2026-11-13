@@ -118,6 +118,10 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("trace_retention_days", "Журнал", "Хранить журнал, дней",
                 "Сколько дней хранить записи журнала системы (Активность → Журнал). 0 — не удалять.",
                 "int", None, 0, 365),
+    SettingSpec("video_note_owner_telegram_id", "Кружочки ИИ", "Telegram id получателя",
+                "Числовой Telegram id единственного аккаунта, которому можно отправлять "
+                "сгенерированные ИИ кружочки. 0: кружочки не отправляются никому.",
+                "int", 0, 0, 9_999_999_999_999),
 )
 BY_KEY: Mapping[str, SettingSpec] = {spec.key: spec for spec in SPECS}
 
@@ -154,6 +158,7 @@ class AppSettings:
     retry_nudge: str
     caption_rules: str
     trace_retention_days: int
+    video_note_owner_telegram_id: int
 
     def prompt_texts(self) -> PromptTexts:
         return PromptTexts(contract=self.output_contract, retry_nudge=self.retry_nudge)
