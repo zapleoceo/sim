@@ -26,6 +26,7 @@ from sim.api.routers import (
     simulations,
     studio,
     system,
+    video_notes,
 )
 from sim.api.routers import settings as settings_api
 from sim.api.tracing import install_request_tracing
@@ -40,7 +41,7 @@ NOT_SPA_PREFIXES = ("api/", "hooks/")
 # Every router of the app; tests walk their routes (e.g. that only public ones skip the session).
 ROUTERS = (
     system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
-    persona_media.router,
+    persona_media.router, video_notes.router,
     channels.router, inbox.dialogs, inbox.clients, inbox.funnel, content.router,
     reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
     settings_api.router,

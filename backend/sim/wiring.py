@@ -15,6 +15,7 @@ from sim.adapters.db.session import make_engine, make_session_factory
 from sim.adapters.llm.broker import BrokerLLM
 from sim.adapters.llm.broker_live import BrokerLiveVoice
 from sim.adapters.media import MediaStore
+from sim.adapters.video import VideoNoteEncoder
 from sim.clock import Clock, utcnow
 from sim.config import Settings
 from sim.connectors.spec import Connector
@@ -22,6 +23,7 @@ from sim.domain.enums import ChannelKind
 from sim.ports.live_voice import LiveVoicePort
 from sim.ports.llm import LLMPort
 from sim.ports.speech import SpeechPort
+from sim.ports.video import VideoPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
@@ -44,6 +46,7 @@ from sim.services.persona_media import PersonaMediaService
 from sim.services.preview_media import PreviewAttachments
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
+from sim.services.video_note import OwnerVideoNotes, VideoNoteEncoderPort
 from sim.services.voice import VoiceEncoder, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -86,6 +89,8 @@ class Container:
     speech: SpeechPort | None = None                       # persona voice notes (Broker TTS)
     encoder: VoiceEncoder = field(default_factory=OggOpusEncoder)
     live_voice: LiveVoicePort | None = None                # persona phone calls (Broker /v1/live)
+    video: VideoPort | None = None                         # AI video notes (Broker /v1/video/jobs)
+    video_encoder: VideoNoteEncoderPort = field(default_factory=VideoNoteEncoder)
 
     async def aclose(self) -> None:
         """Shutdown: release the LLM adapter's pooled HTTP client and the DB engine."""
@@ -122,6 +127,10 @@ class Container:
         if self.speech is None:
             return None
         return VoiceRenderer(self.speech, self.encoder, self.media)
+
+    def video_notes(self, s: AsyncSession) -> OwnerVideoNotes:
+        """AI video notes for the one allowlisted owner account."""
+        return OwnerVideoNotes(s, self.video, self.video_encoder, self.media, clock=self.clock)
 
     def preview_attachments(self) -> PreviewAttachments:
         return PreviewAttachments(self.llm, self.audited(), self.media)
@@ -198,6 +207,7 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         settings.broker_project_key,
         poll_budget_s=settings.broker_poll_budget_s,
         subscription_budget_s=settings.broker_subscription_budget_s,
+        video_budget_s=settings.broker_video_budget_s,
     )
     return Container(
         settings=settings,
@@ -207,6 +217,7 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         registry=registry if registry is not None else default_registry(),
         box=make_box(settings),
         media=MediaStore(settings.media_dir),
-        speech=broker,   # the same Broker client serves LLMPort and SpeechPort
+        speech=broker,   # the same Broker client serves LLMPort, SpeechPort and VideoPort
+        video=broker,
         live_voice=BrokerLiveVoice(settings.broker_url, settings.broker_project_key),
     )

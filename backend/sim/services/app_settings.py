@@ -127,6 +127,10 @@ SPECS: tuple[SettingSpec, ...] = (
                 "Числовой Telegram id владельца: ему игра включается без экрана согласия, и только "
                 "его звонки берёт Sim1. 0: владельца нет, экран согласия видят все.",
                 "int", 0, 0, 9_999_999_999_999),
+    SettingSpec("video_note_owner_telegram_id", "Кружочки ИИ", "Telegram id получателя",
+                "Числовой Telegram id единственного аккаунта, которому можно отправлять "
+                "сгенерированные ИИ кружочки. 0: кружочки не отправляются никому.",
+                "int", 0, 0, 9_999_999_999_999),
 )
 BY_KEY: Mapping[str, SettingSpec] = {spec.key: spec for spec in SPECS}
 
@@ -165,6 +169,7 @@ class AppSettings:
     trace_retention_days: int
     game_channel_id: int
     game_owner_telegram_id: int
+    video_note_owner_telegram_id: int
 
     def prompt_texts(self) -> PromptTexts:
         return PromptTexts(contract=self.output_contract, retry_nudge=self.retry_nudge)

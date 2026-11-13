@@ -11,6 +11,7 @@ import { strategiesApi } from '@/lib/api/strategies';
 import type { Persona, PersonaIn } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { positiveInt, upsertById } from '@/lib/utils';
+import { AiVideoNote } from './ai-video-note';
 import { PersonaEditor } from './persona-editor';
 import { PersonaGallery } from './persona-gallery';
 import { PersonaPreview } from './persona-preview';
@@ -94,6 +95,7 @@ export function PersonaPage() {
               {persona && (
                 <div className="flex flex-col gap-5 xl:sticky xl:top-5">
                   <PersonaGallery personaId={persona.id} />
+                  <AiVideoNote personaId={persona.id} />
                   <div className="rounded-xl border bg-card p-4 shadow-xs sm:p-5">
                     <PersonaPreview key={persona.id} personaId={persona.id} />
                   </div>

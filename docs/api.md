@@ -171,6 +171,7 @@ language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id,
 | GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует, неизвестный — `422`) |
 | DELETE | `/api/personas/{id}/media/{media_id}` | — | 204; удаляет и строку, и файл |
 | GET | `/api/personas/{id}/media/{media_id}/file` | — | файл (inline для изображений/видео, download для остального) |
+| POST | `/api/personas/{id}/video-note` | `{prompt, duration_s?: 3..15 (5), resolution?: "360p"/"720p" ("360p"), reference_media_id?}` | `202 {status: "queued", cached, cache_key, dialog_id}` — кружочек ИИ только на аккаунт из настройки `video_note_owner_telegram_id` (по умолчанию 0: никому); `cached: true` — такой запрос уже сгенерирован, файл берётся из кеша. Только владелец. `409` — получатель не задан, нет личного диалога персоны с этим аккаунтом в `telegram_user`, нет персоны или негодный референс; `422` — параметры. Перед кружочком уходит сообщение «Сгенерировано ИИ» ([video-notes.md](video-notes.md)) |
 
 `PersonaMedia`: `{id, persona_id, kind, storage_name, caption, tags: string[], file_url, created_at}`.
 `file_url` = `/api/media/{storage_name}`. Неизвестный персонаж или медиа другого персонажа — `404`.
