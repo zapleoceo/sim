@@ -320,3 +320,20 @@ def test_0022_adds_the_role_game_columns_and_roundtrips(tmp_path):
     assert "is_game" not in columns(db, "persona")
     assert not {"game_state", "game_consent_at"} & columns(db, "dialog")
     command.upgrade(cfg, "head")
+
+
+def test_0023_sets_eva_birth_date_and_leaves_other_personas_alone(tmp_path):
+    db = tmp_path / "mig.db"
+    cfg = alembic_config(db)
+    command.upgrade(cfg, "0013")
+    with sqlite3.connect(db) as con:
+        for persona_id, name in ((1, "Ева Коган"), (2, "Марина")):
+            con.execute(
+                "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
+                "voice_id, voice_mode, voice_style, voice_ambience, is_active, created_at) VALUES "
+                f"({persona_id}, '{name}', '', '', 'd', '', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')"
+            )
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT birth_date, age FROM persona WHERE id = 1").fetchone() == ("1989-01-26", 37)
+        assert con.execute("SELECT birth_date FROM persona WHERE id = 2").fetchone() == (None,)
