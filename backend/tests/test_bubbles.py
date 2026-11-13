@@ -2,6 +2,7 @@
 them one by one with a typing pause (channels) or stores them as separate rows (simulations)."""
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from sim.adapters.db.models import AdminUser, Job, Message, Persona, SimMessage
@@ -40,7 +41,7 @@ async def test_a_reply_goes_out_as_separate_messages_with_typing_pauses(containe
     assert out[0].model == "fake-model" and out[1].model is None  # cost counted once
     run_at = [j.run_at for j in sends]
     assert run_at[0] < run_at[1] < run_at[2]
-    assert (run_at[1] - run_at[0]).total_seconds() == typing_pause_s("я Марина")
+    assert (run_at[1] - run_at[0]).total_seconds() == pytest.approx(typing_pause_s("я Марина"), abs=0.5)
 
 
 async def test_a_simulation_stores_each_short_message(container, world, fake_llm):

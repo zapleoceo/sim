@@ -47,7 +47,7 @@ export const personaSchema = z.object({
     const n = Number(v);
     return Number.isInteger(n) && n >= 18 && n <= 100;
   }, '18–100'),
-  birth_date: z.string().refine((v) => v === '' || (/^d{4}-d{2}-d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1976-12-09'),
+  birth_date: z.string().refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1976-12-09'),
   timezone: z.string().refine(notBlank, 'Укажите часовой пояс').refine((v) => v.length <= 64, 'Не длиннее 64 символов'),
   gender: z.string(),
   avatar_url: z

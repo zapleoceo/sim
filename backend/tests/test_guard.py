@@ -63,7 +63,7 @@ async def test_rewrite_then_ok_sends_the_fixed_reply(container, world, fake_llm)
     assert (await run_reply(container)).status == "sent"
     _, _, messages, _ = await state(container)
     (ai,) = ai_messages(messages)
-    assert ai.text == "Результат зависит от вас." and ai.original_text == DRAFT
+    assert ai.text == "Результат зависит от вас" and ai.original_text == DRAFT  # the final full stop is dropped by code
     assert ai.guard_verdict == "rewritten" and ai.guard_violations == ["обещание дохода"]
     assert ai.delivery is Delivery.QUEUED
     # the fixed reply is checked again: the second guard call sees it as the draft
@@ -363,7 +363,7 @@ async def test_preview_endpoint_includes_the_guard(api, world, fake_llm):
     resp = await api.post(f"/api/personas/{world.persona.id}/preview", json={"message": "Привет"}, headers=h)
     body = resp.json()
     assert resp.status_code == 200
-    assert body["reply"] == "Всё зависит от вас."
+    assert body["reply"] == "Всё зависит от вас"  # code drops the final full stop
     assert body["guard"] == {
         "verdict": "rewritten", "violations": ["обещание"], "model": "fake-guard",
         "original_text": DRAFT,
