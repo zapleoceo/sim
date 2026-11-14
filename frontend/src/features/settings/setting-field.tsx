@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Field } from '@/components/field';
+import { LongText } from '@/components/long-text';
 import { modelOptions } from '@/components/model-options';
 import { OptionSelect } from '@/components/option-select';
 import { Badge } from '@/components/ui/badge';
@@ -39,8 +40,11 @@ function ModelInput({ value, onChange, ...control }: {
   );
 }
 
-/** One setting: always open, own draft, «Сохранить» and «Вернуть по умолчанию». */
-export function SettingField({ item }: { item: AppSettingItem }) {
+/**
+ * One setting: always open, own draft, «Сохранить» and «Вернуть по умолчанию». `compact` shows a text
+ * setting as a short preview with the editor in a dialog (the persona page); the draft and saving are the same.
+ */
+export function SettingField({ item, compact = false }: { item: AppSettingItem; compact?: boolean }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(String(item.value));
   const [error, setError] = useState('');
@@ -75,6 +79,9 @@ export function SettingField({ item }: { item: AppSettingItem }) {
 
   return (
     <div className="flex flex-col gap-2">
+      {compact && item.kind === 'text' ? (
+        <LongText label={item.label} hint={settingHint(item)} error={error} value={draft} onChange={setDraft} />
+      ) : (
       <Field label={item.label} hint={settingHint(item)} error={error}>
         {item.kind === 'model' ? (
           <ModelInput value={draft} onChange={setDraft} />
@@ -93,6 +100,7 @@ export function SettingField({ item }: { item: AppSettingItem }) {
           />
         )}
       </Field>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {item.is_default ? (
           <Badge variant="muted">по умолчанию</Badge>

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
 import type { Persona, PersonaMedia } from '@/lib/models';
 import { fakeApi } from '@/test/fake-api';
+import { toggleBlock } from '@/test/persona-blocks';
 import { renderApp } from '@/test/render-app';
 
 const MARINA: Persona = {
@@ -38,6 +39,7 @@ describe('persona gallery', () => {
   it('shows gallery section on persona page', async () => {
     backend();
     await renderApp('/personas/1');
+    await toggleBlock('Фото и кружочки');
     expect(await screen.findByText('Галерея')).toBeInTheDocument();
     expect(await screen.findByText('Пока пусто')).toBeInTheDocument();
   });
@@ -45,6 +47,7 @@ describe('persona gallery', () => {
   it('lists media items with filter buttons', async () => {
     backend([PHOTO]);
     await renderApp('/personas/1');
+    await toggleBlock('Фото и кружочки');
     expect(await screen.findByText('Галерея')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByAltText('аватар')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Все' })).toBeInTheDocument();
@@ -57,6 +60,7 @@ describe('persona gallery', () => {
     const video: PersonaMedia = { ...PHOTO, id: 11, kind: 'video', storage_name: 'v.mp4', caption: 'ролик', file_url: '/api/media/v.mp4' };
     backend([PHOTO, video]);
     await renderApp('/personas/1');
+    await toggleBlock('Фото и кружочки');
     await waitFor(() => expect(screen.getByAltText('аватар')).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole('button', { name: 'Фото' }));

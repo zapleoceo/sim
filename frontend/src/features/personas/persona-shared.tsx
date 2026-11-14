@@ -35,7 +35,7 @@ export function PersonaShared() {
           <h3 className="text-sm font-medium">{group.title}</h3>
           {pickSettings(query.data, group.keys).map((item) => (
             <div key={settingFieldKey(item)} id={settingAnchor(item.key)} className="scroll-mt-4">
-              <SettingField item={item} />
+              <SettingField item={item} compact />
             </div>
           ))}
           {group.footer}

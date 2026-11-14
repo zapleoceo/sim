@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
 import type { AppSettingItem, Persona, Strategy } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
+import { blockButton, openLongText, toggleBlock, typeLongText } from '@/test/persona-blocks';
 import { CSRF, renderApp, testUser } from '@/test/render-app';
 
 const MARINA: Persona = {
@@ -47,7 +48,9 @@ describe('personas pages', () => {
     await renderApp('/personas/1');
     const name = await screen.findByLabelText('Имя');
     expect(screen.getByRole('heading', { name: 'Проверить персонажа' })).toBeInTheDocument();
-    // All fields are open (no «Дополнительно»); the API no longer has disclosure_text.
+    // Every field is on the page, in its block (no «Дополнительно»); the API no longer has disclosure_text.
+    expect(screen.getByText('Голосовые ответы')).not.toBeVisible();
+    await toggleBlock('Голос и звонки');
     expect(screen.getByText('Голосовые ответы')).toBeVisible();
     expect(screen.getByText('Голос (Google Gemini)')).toBeVisible();
     expect(screen.queryByText('Дополнительно')).not.toBeInTheDocument();
@@ -68,8 +71,11 @@ describe('personas pages', () => {
     const log = backend();
     await renderApp('/personas/new');
     await userEvent.click(await screen.findByRole('button', { name: 'Сохранить персонажа' }));
-    expect(await screen.findByText('Укажите имя')).toBeInTheDocument();
-    expect(screen.getByText('Опишите персонажа')).toBeInTheDocument();
+    expect(await screen.findByText('Укажите имя')).toBeVisible();
+    // the error is in a collapsed block: the block opens and is marked
+    await waitFor(() => expect(screen.getByText('Опишите персонажа')).toBeVisible());
+    expect(screen.getByRole('button', { name: /Характер и промпт/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /Характер и промпт/ })).toHaveTextContent('Проверьте поля');
     expect(log.some((r) => r.method === 'POST')).toBe(false);
     expect(screen.queryByRole('heading', { name: 'Проверить персонажа' })).not.toBeInTheDocument();
   });
@@ -78,7 +84,8 @@ describe('personas pages', () => {
     backend({ 'POST /api/personas': { ...MARINA, id: 7, name: 'Анна' } });
     const { router } = await renderApp('/personas/new');
     await userEvent.type(await screen.findByLabelText('Имя'), 'Анна');
-    await userEvent.type(screen.getByLabelText('Промпт персонажа'), 'Спокойная');
+    await toggleBlock('Характер и промпт');
+    await typeLongText('Промпт персонажа', 'Спокойная');
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить персонажа' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas/7'));
   });
@@ -91,8 +98,10 @@ describe('personas pages', () => {
     expect(profile.getByLabelText('Часовой пояс')).toHaveValue('Europe/Kyiv');
     await userEvent.clear(profile.getByLabelText('Язык'));
     await userEvent.type(profile.getByLabelText('Язык'), 'uk');
-    await userEvent.type(screen.getByLabelText('Запреты'), 'не обещать доход');
-    expect(screen.getByLabelText('Распорядок недели')).toBeVisible();
+    await toggleBlock('Характер и промпт');
+    await typeLongText('Запреты', 'не обещать доход');
+    await toggleBlock('Распорядок');
+    expect(screen.getByRole('button', { name: 'Редактировать: Распорядок недели' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить персонажа' }));
     await waitFor(() => expect(log.some((r) => r.method === 'PUT')).toBe(true));
     expect(log.find((r) => r.method === 'PUT')?.body).toMatchObject({ language: 'uk', prohibitions: 'не обещать доход', gender: 'female' });
@@ -113,7 +122,7 @@ describe('personas pages', () => {
     backend({ 'GET /api/models': never, 'GET /api/strategies': never, 'GET /api/settings': never });
     await renderApp('/personas/1');
     expect(await screen.findByLabelText('Имя')).toHaveValue('Марина');
-    expect(screen.getByRole('navigation', { name: 'Разделы персонажа' })).toHaveTextContent('Итоговый промпт');
+    expect(await blockButton('Итоговый промпт')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('shows the assembled prompt piece by piece: whose text it is and where to change it', async () => {
@@ -132,6 +141,7 @@ describe('personas pages', () => {
       },
     });
     await renderApp('/personas/1');
+    await toggleBlock('Итоговый промпт');
     const section = within(await screen.findByRole('region', { name: 'Итоговый промпт' }));
     const piece = async (title: string) => within(await section.findByRole('listitem', { name: title }));
 
@@ -159,6 +169,17 @@ describe('personas pages', () => {
     expect(section.queryByLabelText('Полный промпт')).not.toBeInTheDocument();
     await userEvent.click(section.getByRole('button', { name: /одним текстом/ }));
     expect(section.getByLabelText('Полный промпт')).toHaveTextContent('текст description текст strategy');
+
+    // «Изменить» points at a field of a collapsed block: the block opens and the page scrolls to the field
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const ownBlock = await blockButton('Характер и промпт');
+    expect(ownBlock).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(own.getByRole('link', { name: 'Изменить' }));
+    expect(ownBlock).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Редактировать: Промпт персонажа' })).toBeVisible();
+    await waitFor(() => expect(scroll.mock.contexts).toContain(document.getElementById('persona-description')));
+    await userEvent.click(context.getByRole('link', { name: 'Распорядок' }));
+    expect(await blockButton('Распорядок')).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('edits the shared instructions in place and refreshes the assembled prompt', async () => {
@@ -172,14 +193,15 @@ describe('personas pages', () => {
       'GET /api/personas/1/prompt': { system: '', fixed: '', strategy_id: 3, context: '', parts: [], rules: [] },
     });
     await renderApp('/personas/1');
+    await toggleBlock('Общие инструкции');
     const shared = within(await screen.findByRole('region', { name: 'Общие инструкции' }));
-    const field = await shared.findByLabelText('Формат ответа персонажа');
-    expect(field.closest('#setting-output_contract')).not.toBeNull();
+    const edit = await shared.findByRole('button', { name: 'Редактировать: Формат ответа персонажа' });
+    expect(edit.closest('#setting-output_contract')).not.toBeNull();
     expect(await shared.findByText('контракт охранника')).toBeInTheDocument();
     const loaded = (): number => log.filter((r) => r.path === '/api/personas/1/prompt').length;
     await waitFor(() => expect(loaded()).toBe(1));
 
-    await userEvent.type(field, ' строго');
+    await typeLongText('Формат ответа персонажа', ' строго');
     await userEvent.click(within(shared.getByRole('group', { name: 'Ответ персонажа' })).getByRole('button', { name: 'Сохранить' }));
     await waitFor(() => expect(log.find((r) => r.method === 'PUT')?.body).toEqual({ value: 'JSON строго' }));
     await waitFor(() => expect(loaded()).toBe(2));
@@ -197,6 +219,7 @@ describe('personas pages', () => {
       },
     });
     await renderApp('/personas/1');
+    await toggleBlock('Общие инструкции');
     const shared = within(await screen.findByRole('region', { name: 'Общие инструкции' }));
     const media = within(await shared.findByRole('group', { name: 'Фото и кружочки' }));
     expect(await media.findByLabelText('Пауза между медиа, мин')).toHaveValue('30');
@@ -215,11 +238,12 @@ describe('personas pages', () => {
       'PUT /api/strategies/3': (r: { body: unknown }) => ({ ...STRATEGY, ...(r.body as object) }),
     });
     await renderApp('/personas/1');
-    const scenario = await screen.findByLabelText('Сценарий стратегии «RCIPM»');
-    expect(scenario).toHaveValue('Сначала человек.');
-    const saveScenario = screen.getByRole('button', { name: 'Сохранить сценарий' });
+    await toggleBlock('Модель и стратегия');
+    const saveScenario = await screen.findByRole('button', { name: 'Сохранить сценарий' });
     expect(saveScenario).toBeDisabled();
-    await userEvent.type(scenario, ' Потом оффер.');
+    expect(await openLongText('Сценарий стратегии «RCIPM»')).toHaveValue('Сначала человек.');
+    await userEvent.keyboard('{Escape}');
+    await typeLongText('Сценарий стратегии «RCIPM»', ' Потом оффер.');
     await userEvent.click(saveScenario);
     await waitFor(() => expect(log.find((r) => r.method === 'PUT')?.body).toEqual({ name: 'RCIPM', prompt: 'Сначала человек. Потом оффер.' }));
     expect(log.some((r) => r.method === 'PUT' && r.path === '/api/personas/1')).toBe(false);   // the persona form was not submitted

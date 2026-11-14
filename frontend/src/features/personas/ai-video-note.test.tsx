@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
 import type { Persona } from '@/lib/models';
 import { fakeApi, reply, type FakeReply } from '@/test/fake-api';
+import { toggleBlock } from '@/test/persona-blocks';
 import { renderApp } from '@/test/render-app';
 
 const MARINA: Persona = {
@@ -28,6 +29,7 @@ describe('AI video note', () => {
   it('lets the owner request a note and posts the prompt', async () => {
     const log = backend(reply(202, { status: 'queued', cached: false, cache_key: 'k', dialog_id: 5 }));
     await renderApp('/personas/1');
+    await toggleBlock('Фото и кружочки');
     expect(await screen.findByText('Кружочек ИИ')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: 'Создать и отправить' });
     expect(button).toBeDisabled();
@@ -45,6 +47,7 @@ describe('AI video note', () => {
   it('shows the server reason when the request is refused', async () => {
     backend(reply(409, { detail: 'Получатель не задан: укажите Telegram id в настройке «Кружочки ИИ».' }));
     await renderApp('/personas/1');
+    await toggleBlock('Фото и кружочки');
     await userEvent.type(await screen.findByLabelText('Описание кружочка'), 'Марина машет рукой');
     await userEvent.click(screen.getByRole('button', { name: 'Создать и отправить' }));
     expect(await screen.findByText('Получатель не задан: укажите Telegram id в настройке «Кружочки ИИ».')).toBeInTheDocument();
@@ -54,6 +57,7 @@ describe('AI video note', () => {
   it('says when the same note comes from the cache', async () => {
     backend(reply(202, { status: 'queued', cached: true, cache_key: 'k', dialog_id: 5 }));
     await renderApp('/personas/1');
+    await toggleBlock('Фото и кружочки');
     await userEvent.type(await screen.findByLabelText('Описание кружочка'), 'Марина машет рукой');
     await userEvent.click(screen.getByRole('button', { name: 'Создать и отправить' }));
     expect(await screen.findByText('Такой кружочек уже есть: отправляется из кеша')).toBeInTheDocument();

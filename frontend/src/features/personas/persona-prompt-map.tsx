@@ -12,14 +12,16 @@ import { qk } from '@/lib/query';
 import { editTarget, personaFieldAnchor, rulePlace, settingAnchor, sourceLabel } from './persona-prompt-logic';
 
 const LINK = 'text-xs font-medium text-primary underline-offset-4 hover:underline';
+/** A link that stands on its own line of actions: a touch target of 40 px on a phone. */
+const ACTION = `${LINK} inline-flex items-center max-md:min-h-[40px]`;
 const TEXT = 'max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 text-[12px] whitespace-pre-wrap [overflow-wrap:anywhere]';
 
 function EditLink({ part, strategyId }: { part: PromptPart; strategyId: number }) {
   const target = editTarget(part, strategyId);
   return target.kind === 'anchor' ? (
-    <a href={`#${target.anchor}`} className={LINK}>Изменить</a>
+    <a href={`#${target.anchor}`} className={ACTION}>Изменить</a>
   ) : (
-    <Link to="/strategies/$id" params={{ id: String(target.strategyId) }} className={LINK}>Изменить в стратегии</Link>
+    <Link to="/strategies/$id" params={{ id: String(target.strategyId) }} className={ACTION}>Изменить в стратегии</Link>
   );
 }
 
@@ -73,10 +75,10 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
           badge="Собирает код на каждый ответ"
           text={map.context}
           action={
-            <span className="flex flex-wrap gap-2">
-              <a href={`#${personaFieldAnchor('birth_date')}`} className={LINK}>Дата рождения</a>
-              <a href={`#${personaFieldAnchor('timezone')}`} className={LINK}>Часовой пояс</a>
-              <a href={`#${personaFieldAnchor('routine')}`} className={LINK}>Распорядок</a>
+            <span className="flex flex-wrap gap-x-3">
+              <a href={`#${personaFieldAnchor('birth_date')}`} className={ACTION}>Дата рождения</a>
+              <a href={`#${personaFieldAnchor('timezone')}`} className={ACTION}>Часовой пояс</a>
+              <a href={`#${personaFieldAnchor('routine')}`} className={ACTION}>Распорядок</a>
             </span>
           }
         />
