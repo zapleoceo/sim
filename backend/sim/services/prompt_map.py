@@ -6,7 +6,11 @@ and where the owner edits it. Pure functions, no IO.
   for this moment (age from the birth date, local time, where she is by her routine) and
   placeholder client data;
 - `rules`: what is fixed in the code and not editable: the phone call rule, the AI video note
-  and AI photo rules, and the instruction of her own photo / video note tool."""
+  and AI photo rules, the instruction of her own photo / video note tool, and the service texts
+  of a reply (`reply_rules`): the retry after the guard rejects a draft, the neutral reply of a
+  handoff and the follow-up instruction;
+- `mode` / `agent_prompt`: whether the persona runs on her saved single prompt ("unified") or on
+  the prompt composed from her fields and the strategy ("legacy"), and the text the owner edits."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,6 +25,7 @@ from sim.services.video_note import AI_VIDEO_RULE
 
 EXAMPLE_CLIENT = "Имя клиента"
 EXAMPLE_REF = "КОД-КЛИЕНТА"
+LEGACY, UNIFIED = "legacy", "unified"
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,8 @@ class PromptMap:
     context: str
     rules: list[FixedRule]
     strategy_id: int
+    mode: str = LEGACY          # LEGACY | UNIFIED
+    agent_prompt: str = ""      # the single prompt as the owner edits it (prompt.editable_agent_prompt)
 
     @property
     def system(self) -> str:
@@ -61,4 +68,18 @@ def fixed_rules(persona_name: str) -> list[FixedRule]:
         FixedRule("media_tool", "Фото и кружочки по решению персонажа",
                   f"{Offer((MediaKind.PHOTO, MediaKind.VIDEO_NOTE)).brief()}\n\n"
                   f"Когда отправить нельзя, вместо этого:\n{NO_MEDIA}"),
+    ]
+
+
+def prompt_mode(agent_prompt: str | None) -> str:
+    """A saved single prompt, even an edited-down one, is authoritative; NULL keeps the old way."""
+    return LEGACY if agent_prompt is None else UNIFIED
+
+
+def reply_rules(guard_retry: str, neutral_handoff: str, followup: str) -> list[FixedRule]:
+    """The service texts code adds around a reply; the caller owns them (conversation, followup)."""
+    return [
+        FixedRule("guard_retry", "Повтор после отказа охранника", guard_retry),
+        FixedRule("neutral_handoff", "Нейтральный ответ при передаче оператору", neutral_handoff),
+        FixedRule("followup", "Напоминание молчащему клиенту (пример первого шага)", followup),
     ]

@@ -16,6 +16,7 @@ const TEXT = 'max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 text-[12px] whit
 
 function EditLink({ part, strategyId }: { part: PromptPart; strategyId: number }) {
   const target = editTarget(part, strategyId);
+  if (target === null) return null;
   return target.kind === 'anchor' ? (
     <a href={`#${target.anchor}`} className={LINK}>Изменить</a>
   ) : (

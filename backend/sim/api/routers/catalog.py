@@ -11,6 +11,7 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
 from sim.api.schemas import (
+    AgentPromptIn,
     PersonaIn,
     PreviewIn,
     StrategyIn,
@@ -22,9 +23,11 @@ from sim.api.schemas import (
 from sim.domain.voice import speaks
 from sim.ports.speech import SpeechError
 from sim.services.guard import GuardOutcome
+from sim.services.llm_audit import capture_requests
 from sim.services.models import catalog_items
 from sim.services.preview_media import MAX_BYTES
 from sim.services.prompt import Turn
+from sim.services.prompt_map import UNIFIED
 from sim.wiring import Container
 
 personas = APIRouter(prefix="/api/personas", tags=["personas"], dependencies=[Depends(authed)])
@@ -106,9 +109,22 @@ async def persona_prompt(persona_id: int, c: App, s: Db):
     """Exactly what the persona's model gets as its system prompt (saved settings), and the same
     text piece by piece with the place each piece is edited. `context` is an example of the
     per-reply message that follows the client history in a real call; `rules` are fixed in the
-    code. `fixed` is empty, kept for compatibility. No model is called."""
+    code. `mode` says whether she runs on her saved single prompt ("unified") or on the prompt
+    composed from her fields and the strategy ("legacy"); `agent_prompt` is the text the owner
+    edits as that single prompt. `fixed` is empty, kept for compatibility. No model is called."""
     persona = await persona_or_404(s, persona_id)
     return prompt_map_out(await c.conversation(s).prompt_map(persona))
+
+
+@personas.put("/{persona_id}/prompt")
+async def save_agent_prompt(persona_id: int, body: AgentPromptIn, s: Db, _: Owner):
+    """Owner only: save the single authoritative prompt. From now on the persona runs on this
+    text (unified mode); her other fields and the strategy stay as they are. Nothing else
+    switches a persona to this mode, and `PUT /api/personas/{id}` never touches the text."""
+    persona = await persona_or_404(s, persona_id)
+    persona.agent_prompt = body.text
+    await s.flush()
+    return {"mode": UNIFIED, "agent_prompt": persona.agent_prompt}
 
 
 @personas.post("/{persona_id}/preview/attachment")
@@ -147,12 +163,16 @@ async def preview_voice(
 async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Authed):
     persona = await persona_or_404(s, persona_id)
     history = [Turn(h.role, h.text) for h in body.history]
-    result = await c.conversation(s).preview(
-        persona, body.message, history, stage=body.stage, status=body.status,
-        needs=body.needs, next_step=body.next_step,
-    )
+    # `requests`: every call of this preview (generator, JSON retry, guard) as SIM sent it to
+    # the Broker. Kept for this response only.
+    with capture_requests() as requests:
+        result = await c.conversation(s).preview(
+            persona, body.message, history, stage=body.stage, status=body.status,
+            needs=body.needs, next_step=body.next_step,
+        )
     d = result.decision
     return {
+        "requests": requests,
         "voice": await preview_voice(c, persona, result.reply, body.voice_input),
         "reply": result.reply,
         "decision": None

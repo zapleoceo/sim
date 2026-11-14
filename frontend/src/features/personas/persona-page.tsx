@@ -13,6 +13,7 @@ import type { Persona, PersonaIn } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { positiveInt, upsertById } from '@/lib/utils';
 import { AiVideoNote } from './ai-video-note';
+import { PersonaAgentPrompt } from './persona-agent-prompt';
 import { PersonaEditor } from './persona-editor';
 import { PersonaGallery } from './persona-gallery';
 import { PersonaPreview } from './persona-preview';
@@ -21,7 +22,7 @@ import { Section, SectionNav, SECTIONS, type SectionId } from './persona-section
 import { PersonaShared } from './persona-shared';
 
 /** Sections that need a saved persona: the shared settings act on real replies, the prompt map is of saved data. */
-const SAVED_ONLY: readonly SectionId[] = ['shared', 'assembled'];
+const SAVED_ONLY: readonly SectionId[] = ['shared', 'agent', 'assembled'];
 
 /**
  * Persona page: `/personas/new` and `/personas/$id`. Everything of a persona in one place: her own data
@@ -112,6 +113,11 @@ export function PersonaPage() {
                     <Card>
                       <Section id="shared" hint="Общие для всех персонажей: правка здесь меняет их везде. Те же поля есть на страницах «Общие правила» и «Агенты».">
                         <PersonaShared />
+                      </Section>
+                    </Card>
+                    <Card>
+                      <Section id="agent" hint="Один текст вместо промпта персонажа, запретов и сценария стратегии. Включается только сохранением здесь.">
+                        <PersonaAgentPrompt personaId={persona.id} />
                       </Section>
                     </Card>
                     <Card>

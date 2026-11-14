@@ -26,7 +26,7 @@ from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
-from sim.services.followup import FollowupService
+from sim.services.followup import FollowupService, followup_instruction
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
@@ -42,19 +42,28 @@ from sim.services.prompt import (
     StrategyProfile,
     Turn,
     build_messages,
+    editable_agent_prompt,
     handoff_link,
     one_line,
     parse_decision,
     registration_link,
     system_prompt_parts,
 )
-from sim.services.prompt_map import PromptMap, example_context, fixed_rules
+from sim.services.prompt_map import (
+    PromptMap,
+    example_context,
+    fixed_rules,
+    prompt_mode,
+    reply_rules,
+)
 
 log = logging.getLogger(__name__)
 
 
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
+GUARD_RETRY_TEMPLATE = ("Контролёр отклонил черновик: {feedback}. Пересоздай полный JSON-ответ, "
+                        "включая управляющие поля. Не повторяй ошибку.")
 NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
 
 
@@ -105,6 +114,7 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
+        agent_prompt=p.agent_prompt,
         routine=p.routine,
     )
 
@@ -234,13 +244,21 @@ class ConversationService:
         cfg = await self.config()
         strategy = await self.strategy_for(persona.id)
         profile = strategy_profile(strategy)
+        who = persona_profile(persona)
+        mode = prompt_mode(persona.agent_prompt)
         now = self.clock()
         facts = persona_facts(persona.birth_date, persona.timezone, now, persona.routine)
         return PromptMap(
-            parts=system_prompt_parts(persona_profile(persona), profile, cfg.prompt_texts()),
+            parts=system_prompt_parts(who, profile, cfg.prompt_texts()),
             context=example_context(now, facts, profile),
-            rules=fixed_rules(persona.name),
+            rules=[*fixed_rules(persona.name), *reply_rules(
+                GUARD_RETRY_TEMPLATE, NEUTRAL_HANDOFF_REPLY,
+                followup_instruction([float(h) for h in strategy.followup_hours or []] or [24.0], 0,
+                                     unified=persona.agent_prompt is not None),
+            )],
             strategy_id=strategy.id,
+            mode=mode,
+            agent_prompt=editable_agent_prompt(who, profile),
         )
 
     async def strategy_for(self, persona_id: int) -> Strategy:
@@ -560,8 +578,7 @@ class ConversationService:
                     *prompt,
                     {"role": "assistant", "content": result.text[:4000]},
                     {"role": "system", "content":
-                     "Контролёр отклонил черновик: " + feedback +
-                     ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
+                     GUARD_RETRY_TEMPLATE.format(feedback=feedback)},
                 ]
         return Draft(decision, result, guard, rejection)
 

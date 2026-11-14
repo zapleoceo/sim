@@ -30,7 +30,7 @@ function backend(media: PersonaMedia[] = []) {
     'GET /api/strategies': { items: [] },
     'GET /api/models': { items: [] },
     'GET /api/personas/1/media': { items: media },
-    'GET /api/personas/1/prompt': { system: 'test', fixed: '', strategy_id: 1, context: '', parts: [], rules: [] },
+    'GET /api/personas/1/prompt': { system: 'test', fixed: '', strategy_id: 1, context: '', mode: 'legacy', agent_prompt: '', parts: [], rules: [] },
   });
 }
 

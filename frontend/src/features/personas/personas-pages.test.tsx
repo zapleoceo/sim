@@ -120,7 +120,7 @@ describe('personas pages', () => {
     const part = (key: string, source: string, field: string) => ({ key, title: `Кусок ${key}`, text: `текст ${key}`, source, field });
     backend({
       'GET /api/personas/1/prompt': {
-        system: 'текст description\n\nтекст strategy', fixed: '', strategy_id: 3, context: '- Тебе 45',
+        system: 'текст description\n\nтекст strategy', fixed: '', strategy_id: 3, context: '- Тебе 45', mode: 'legacy', agent_prompt: '',
         parts: [
           part('description', 'persona', 'description'), part('strategy', 'strategy', 'offer'),
           part('strategy_prompt', 'strategy', 'prompt'), part('output_contract', 'setting', 'output_contract'),
@@ -169,7 +169,7 @@ describe('personas pages', () => {
     const log = backend({
       'GET /api/settings': { items: [CONTRACT], fixed: { persona: '', guard: 'контракт охранника' } },
       'PUT /api/settings/output_contract': (r: { body: unknown }) => ({ ...CONTRACT, ...(r.body as object), is_default: false }),
-      'GET /api/personas/1/prompt': { system: '', fixed: '', strategy_id: 3, context: '', parts: [], rules: [] },
+      'GET /api/personas/1/prompt': { system: '', fixed: '', strategy_id: 3, context: '', mode: 'legacy', agent_prompt: '', parts: [], rules: [] },
     });
     await renderApp('/personas/1');
     const shared = within(await screen.findByRole('region', { name: 'Общие инструкции' }));
@@ -224,6 +224,62 @@ describe('personas pages', () => {
     await waitFor(() => expect(log.find((r) => r.method === 'PUT')?.body).toEqual({ name: 'RCIPM', prompt: 'Сначала человек. Потом оффер.' }));
     expect(log.some((r) => r.method === 'PUT' && r.path === '/api/personas/1')).toBe(false);   // the persona form was not submitted
     expect(screen.getByRole('link', { name: /в карточке стратегии/ })).toHaveAttribute('href', '/strategies/3');
+  });
+
+  it('saves the single prompt apart from the persona form, after the owner confirms the switch', async () => {
+    let saved: string | null = null;
+    const log = backend({
+      'GET /api/personas/1/prompt': () => ({
+        system: '', fixed: '', strategy_id: 3, context: '', parts: [], rules: [],
+        mode: saved === null ? 'legacy' : 'unified', agent_prompt: saved ?? 'Ты Марина.\n\nСТРАТЕГИЯ',
+      }),
+      'PUT /api/personas/1/prompt': (r: { body: unknown }) => {
+        saved = (r.body as { text: string }).text;
+        return { mode: 'unified', agent_prompt: saved };
+      },
+    });
+    await renderApp('/personas/1');
+    const section = within(await screen.findByRole('region', { name: 'Единый промпт агента' }));
+    const editor = await section.findByLabelText('Текст единого промпта');
+    expect(editor).toHaveValue('Ты Марина.\n\nСТРАТЕГИЯ');     // legacy: the composed instructions, offered for editing
+    expect(editor.closest('#persona-agent_prompt')).not.toBeNull();
+    expect(section.getByRole('status')).toHaveTextContent('совместимый режим');
+
+    await userEvent.clear(editor);
+    await userEvent.type(editor, 'Новые инструкции');
+    const save = section.getByRole('button', { name: 'Сохранить единый промпт' });
+    await userEvent.click(save);
+    expect(log.some((r) => r.method === 'PUT')).toBe(false);     // nothing is switched before the owner confirms
+    await userEvent.click(await screen.findByRole('button', { name: 'Включить' }));
+
+    await waitFor(() => expect(log.find((r) => r.method === 'PUT')?.path).toBe('/api/personas/1/prompt'));
+    const put = log.find((r) => r.method === 'PUT');
+    expect(put?.body).toEqual({ text: 'Новые инструкции' });
+    expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
+    expect(log.some((r) => r.method === 'PUT' && r.path === '/api/personas/1')).toBe(false);   // the persona form was not submitted
+    await waitFor(() => expect(section.getByRole('status')).toHaveTextContent('работает единый промпт'));
+    expect(editor).toHaveValue('Новые инструкции');
+    await waitFor(() => expect(save).toBeDisabled());                             // unified and unchanged: nothing to save
+  });
+
+  it('does not switch the persona when the owner cancels, and shows a code piece without an edit link', async () => {
+    const log = backend({
+      'GET /api/personas/1/prompt': {
+        system: 'Ты Марина.', fixed: '', strategy_id: 3, context: '', mode: 'legacy', agent_prompt: 'Ты Марина.', rules: [],
+        parts: [{ key: 'link_contract', title: 'Правило ссылок', text: 'только эти ссылки', source: 'code', field: '' }],
+      },
+    });
+    await renderApp('/personas/1');
+    const section = within(await screen.findByRole('region', { name: 'Единый промпт агента' }));
+    await userEvent.click(await section.findByRole('button', { name: 'Сохранить единый промпт' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Включить' })).not.toBeInTheDocument());
+    expect(log.some((r) => r.method === 'PUT')).toBe(false);
+
+    const assembled = within(screen.getByRole('region', { name: 'Итоговый промпт' }));
+    const piece = within(await assembled.findByRole('listitem', { name: 'Правило ссылок' }));
+    expect(piece.getByText('Фиксировано в коде')).toBeInTheDocument();
+    expect(piece.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('says when the persona does not exist (Broker models unavailable is not fatal)', async () => {

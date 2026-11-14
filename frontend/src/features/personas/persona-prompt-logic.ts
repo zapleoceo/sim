@@ -10,7 +10,9 @@ export const STRATEGY_PROMPT_ANCHOR = 'strategy-prompt';
 /** Where a piece of the prompt is edited: a place on this page, or the strategy's own page. */
 export type EditTarget = { kind: 'anchor'; anchor: string } | { kind: 'strategy'; strategyId: number };
 
-export function editTarget(part: Pick<PromptPart, 'source' | 'field'>, strategyId: number): EditTarget {
+/** `null`: the piece is fixed in the code, there is nothing to edit. */
+export function editTarget(part: Pick<PromptPart, 'source' | 'field'>, strategyId: number): EditTarget | null {
+  if (part.source === 'code') return null;
   if (part.source === 'persona') return { kind: 'anchor', anchor: personaFieldAnchor(part.field) };
   if (part.source === 'setting') return { kind: 'anchor', anchor: settingAnchor(part.field) };
   if (part.field === 'prompt') return { kind: 'anchor', anchor: STRATEGY_PROMPT_ANCHOR };
@@ -21,6 +23,7 @@ const SOURCE_LABELS: Record<PromptPart['source'], string> = {
   persona: 'Поле персонажа',
   strategy: 'Стратегия',
   setting: 'Общая настройка',
+  code: 'Фиксировано в коде',
 };
 
 export const sourceLabel = (source: PromptPart['source']): string => SOURCE_LABELS[source];
@@ -31,6 +34,9 @@ const RULE_PLACES: Record<string, string> = {
   video_note: 'к каждому кружочку',
   ai_photo: 'к каждому фото ИИ',
   media_tool: 'к контексту каждого ответа',
+  guard_retry: 'к повторному запросу после отказа охранника',
+  neutral_handoff: 'в диалог вместо ответа, который дважды не прошёл проверку,',
+  followup: 'к контексту напоминания',
 };
 
 export const rulePlace = (key: string): string => RULE_PLACES[key] ?? 'кодом';

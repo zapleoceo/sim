@@ -102,7 +102,19 @@ export interface GuardInfo {
 /** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
 export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
 export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
+/** One call of a preview as SIM sent it to the Broker: the generator, a JSON retry or the guard. */
+export interface PromptRequest {
+  workflow: string;
+  capability: string;
+  model: string | null;
+  json_mode: boolean;
+  max_tokens: number | null;
+  temperature: number | null;
+  messages: { role: string; content: unknown }[];
+}
 export interface PreviewResponse {
+  /** Every model call of this preview, in order, exactly as sent. Not stored anywhere. */
+  requests?: PromptRequest[];
   reply: string;
   decision: unknown;
   guard: GuardInfo | null;
@@ -353,16 +365,24 @@ export interface SimBranchDetail extends SimBranchRow {
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 /** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
-/** One piece of the persona's system prompt and whose field it comes from (`field`: that field or the setting key). */
-export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting'; field: string }
+/**
+ * One piece of the persona's system prompt and whose field it comes from (`field`: that field or the setting
+ * key). `code`: fixed in the code, nothing to edit, `field` is empty.
+ */
+export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting' | 'code'; field: string }
+/** `unified`: the persona runs on her saved single prompt; `legacy`: on the prompt composed from her fields and the strategy. */
+export type PromptMode = 'legacy' | 'unified';
 /** A rule fixed in the code: shown read-only. */
 export interface FixedRule { key: string; title: string; text: string }
 /**
  * The persona's prompt map: `system` is the stable system message as the model gets it, `parts` the same
  * text piece by piece, `context` an example of the per-reply message code builds, `rules` what is fixed in
- * the code. `fixed` is empty for compatibility.
+ * the code. `fixed` is empty for compatibility. `agent_prompt` is the text the owner edits as the single prompt:
+ * the saved one, or in `legacy` mode the composed instructions without the answer format.
  */
 export interface PersonaPrompt {
+  mode: PromptMode;
+  agent_prompt: string;
   system: string;
   fixed: string;
   strategy_id: number;

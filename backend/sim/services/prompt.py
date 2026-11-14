@@ -82,6 +82,7 @@ class PersonaProfile:
     description: str = ""     # who she is, character, biography, how she writes
     prohibitions: str = ""    # one rule per line
     language: str = "ru"
+    agent_prompt: str | None = None   # the owner's saved single prompt; None = composed from the fields
     routine: str = ""        # weekly routine lines (sim.services.persona_routine)
 
 
@@ -201,8 +202,8 @@ class PromptPart:
     key: str
     title: str
     text: str
-    source: str       # "persona" | "strategy" | "setting": whose field the text comes from
-    field: str        # the persona / strategy field, or the setting key
+    source: str       # "persona" | "strategy" | "setting": whose field the text comes from; "code": fixed
+    field: str        # the persona / strategy field, or the setting key; "" for a "code" piece
 
 
 LINK_RULES = (
@@ -210,6 +211,13 @@ LINK_RULES = (
     "используй ровно её и никогда другую.",
     "- Если удобнее продолжить в другом канале, предложи это и дай ровно ту ссылку, что "
     "указана для канала в сообщении с контекстом; никогда не выдумывай такие ссылки.",
+)
+
+
+# Unified mode: the strategy block with its link rules is not in the prompt, the rule stands alone.
+LINK_CONTRACT = (
+    "Личная ссылка регистрации и ссылки перехода в другие каналы даны в контексте. "
+    "Используй только эти ссылки, не выдумывай другие."
 )
 
 
@@ -238,7 +246,20 @@ def system_prompt_parts(
 ) -> list[PromptPart]:
     """The stable system prompt piece by piece, in its fixed order: the persona prompt (the
     owner's one text), her prohibitions and routine, the strategy, the answer format. Nothing
-    else is added. Empty pieces are left out, except the answer format that closes the prompt."""
+    else is added. Empty pieces are left out, except the answer format that closes the prompt.
+
+    A persona with a saved `agent_prompt` (unified mode) gets that text as it is, the link rule
+    and the answer format: her description, prohibitions, routine text and the strategy texts are
+    not mixed in."""
+    contract = PromptPart("output_contract", "Формат ответа персонажа", texts.contract.strip(),
+                          "setting", "output_contract")
+    if persona.agent_prompt is not None:
+        return [
+            PromptPart("agent_prompt", "Единый промпт агента", persona.agent_prompt,
+                       "persona", "agent_prompt"),
+            PromptPart("link_contract", "Правило ссылок", LINK_CONTRACT, "code", ""),
+            contract,
+        ]
     guidance = strategy.prompt.strip()
     parts = [
         PromptPart("description", "Промпт персонажа",
@@ -258,15 +279,21 @@ def system_prompt_parts(
         PromptPart("rules", "Правила стратегии",
                    strategy_rules(strategy.rules) if strategy.rules else "", "strategy", "rules"),
     ]
-    return [*(part for part in parts if part.text),
-            PromptPart("output_contract", "Формат ответа персонажа", texts.contract.strip(),
-                       "setting", "output_contract")]
+    return [*(part for part in parts if part.text), contract]
 
 
 def stable_system_prompt(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
 ) -> str:
     return "\n\n".join(part.text for part in system_prompt_parts(persona, strategy, texts))
+
+
+def editable_agent_prompt(persona: PersonaProfile, strategy: StrategyProfile) -> str:
+    """The text the owner edits as the single prompt: the saved one, or (legacy mode) the composed
+    instructions as the model gets them now, without the answer format."""
+    if persona.agent_prompt is not None:
+        return persona.agent_prompt
+    return stable_system_prompt(persona, strategy, PromptTexts(contract="")).rstrip()
 
 
 HANDOFF_GREETING = "Привет! Я по поводу нашего разговора"

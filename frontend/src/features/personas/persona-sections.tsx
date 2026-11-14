@@ -8,6 +8,7 @@ export const SECTIONS = [
   { id: 'strategy', label: 'Модель и стратегия' },
   { id: 'voice', label: 'Голос и звонки' },
   { id: 'shared', label: 'Общие инструкции' },
+  { id: 'agent', label: 'Единый промпт агента' },
   { id: 'assembled', label: 'Итоговый промпт' },
 ] as const;
 

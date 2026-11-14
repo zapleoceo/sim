@@ -9,6 +9,7 @@ export interface PreviewMsg {
   text: string;
   meta?: string;
   decision?: unknown;
+  requests?: PreviewResponse['requests'];
   guard?: GuardInfo | null;
   /** The client's voice note or file, shown above the text. */
   attachment?: PreviewAttachment;
@@ -52,7 +53,7 @@ export function historyOf(messages: readonly PreviewMsg[]): PreviewTurn[] {
 export function replyMessage(r: PreviewResponse): PreviewMsg {
   return {
     role: 'assistant', text: r.reply, meta: `${r.model} · ${r.latency_ms} мс`, decision: r.decision, guard: r.guard,
-    voice: r.voice ?? null,
+    voice: r.voice ?? null, requests: r.requests,
   };
 }
 

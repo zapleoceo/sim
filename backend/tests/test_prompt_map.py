@@ -45,5 +45,7 @@ async def test_api_returns_the_prompt_piece_by_piece(api, world, container):
     assert parts[-1] == {"key": "output_contract", "title": "Формат ответа персонажа",
                          "text": OUTPUT_CONTRACT, "source": "setting", "field": "output_contract"}
     assert "родилась 2 марта 1981" in body["context"] and "- Где ты сейчас по распорядку: дома" in body["context"]
-    assert [r["key"] for r in body["rules"]] == ["call", "video_note", "ai_photo", "media_tool"]
+    assert [r["key"] for r in body["rules"]] == [
+        "call", "video_note", "ai_photo", "media_tool", "guard_retry", "neutral_handoff", "followup"]
+    assert body["mode"] == "legacy" and body["agent_prompt"] == "\n\n".join(p["text"] for p in parts[:-1])
     assert all(r["title"] and r["text"] for r in body["rules"])

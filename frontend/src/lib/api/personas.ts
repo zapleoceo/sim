@@ -24,6 +24,9 @@ export const personasApi = {
   },
   /** The persona's full system prompt (saved settings), without an appended identity block. */
   prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
+  /** Owner: save the single authoritative prompt; the persona runs on it from now on. */
+  savePrompt: (id: number, text: string) =>
+    http.put<Pick<PersonaPrompt, 'mode' | 'agent_prompt'>>(`/api/personas/${id}/prompt`, { text }),
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
 

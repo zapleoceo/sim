@@ -29,8 +29,12 @@ def step_delay_h(hours: list[float], step: int) -> float:
     return max(float(hours[step]) - float(hours[step - 1]), MIN_GAP_H)
 
 
-def followup_instruction(hours: list[float], step: int) -> str:
+def followup_instruction(hours: list[float], step: int, *, unified: bool = False) -> str:
     last = step + 1 >= len(hours)
+    if unified:
+        return (f"СОБЫТИЕ: плановое напоминание {step + 1} из {len(hours)}; "
+                f"клиент не отвечает примерно {hours[step]:g} ч. Последнее: {'да' if last else 'нет'}. "
+                "Сформируй ответ по единому промпту агента.")
     text = (
         f"ЗАДАЧА НАПОМИНАНИЯ: клиент не отвечает примерно {hours[step]:g} ч. "
         f"Это напоминание {step + 1} из {len(hours)}. Напиши ОДНО короткое, дружелюбное, "
@@ -83,8 +87,11 @@ class FollowupService:
         hours = [float(h) for h in (strategy.followup_hours or [])]
         if step >= len(hours):
             return "no_such_step"
+        persona = await conversation.personas.get(client.persona_id)
         outcome = await conversation.run_reply(
-            dialog_id, instruction=followup_instruction(hours, step), workflow="followup"
+            dialog_id, instruction=followup_instruction(
+                hours, step, unified=persona is not None and persona.agent_prompt is not None,
+            ), workflow="followup"
         )
         if outcome.status != "sent" or outcome.message is None:
             return outcome.status

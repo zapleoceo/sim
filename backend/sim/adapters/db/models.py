@@ -133,6 +133,9 @@ class Persona(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     # What she must never write or do: one rule per line.
     prohibitions: Mapped[str] = mapped_column(Text, default="")
+    # The owner's single authoritative prompt (unified mode). NULL = legacy mode: the prompt is
+    # composed from the description, prohibitions, routine and the strategy.
+    agent_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
     # Google Gemini TTS prebuilt voice name (sim.domain.voice.GEMINI_VOICES), "" = no voice.
