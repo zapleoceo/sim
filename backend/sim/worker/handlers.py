@@ -28,7 +28,7 @@ class Handler:
 
 async def run_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     dialog_id = int(payload["dialog_id"])
-    outcome = await c.conversation(s).run_reply(dialog_id)
+    outcome = await c.conversation(s).run_reply(dialog_id, delay=payload.get("delay"))
     if outcome.reason == AI_PAUSED:   # not a silent skip: the journal names the dialog and message
         await c.reply_journal(s).paused(dialog_id, outcome.inbound_id, source="reply_job")
     return reply_detail(outcome)

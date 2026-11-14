@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { ArrowLeft, CheckCheck, Eraser, MoreVertical, Rows3, User, X } from 'lucide-react';
+import { ArrowLeft, CheckCheck, Eraser, MoreVertical, Rows3, User, X, Zap } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon, NeedsOperatorBadge, StageChip, StatusBadge } from '@/components/badges';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ export function CompactConversationHeader({
   clearing,
   onBack,
   onToggleAi,
+  onSetUrgent,
   onResolve,
   onChangeStage,
   onClearChat,
@@ -32,6 +33,7 @@ export function CompactConversationHeader({
   clearing: boolean;
   onBack: () => void;
   onToggleAi: (paused: boolean) => void;
+  onSetUrgent?: (urgent: boolean) => void;
   onResolve: () => void;
   onChangeStage?: (stage: Stage) => void;
   onClearChat?: () => void;
@@ -69,6 +71,12 @@ export function CompactConversationHeader({
             <DropdownMenuItem onSelect={onResolve}>
               <CheckCheck />
               Обработано
+            </DropdownMenuItem>
+          )}
+          {onSetUrgent && (
+            <DropdownMenuItem onSelect={() => onSetUrgent(!dialog.urgent)}>
+              <Zap />
+              {dialog.urgent ? 'Снять «срочный»' : 'Срочный: отвечать сразу'}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem asChild>

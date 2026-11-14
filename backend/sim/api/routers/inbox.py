@@ -27,6 +27,7 @@ from sim.api.schemas import (
     ClientPatchIn,
     OperatorMessageIn,
     StageChangeIn,
+    UrgentIn,
     client_mini,
     client_out,
     dialog_out,
@@ -34,6 +35,7 @@ from sim.api.schemas import (
     funnel_event_out,
     message_out,
     partner_event_out,
+    reply_plan_out,
     unanswered_out,
 )
 from sim.clock import to_naive_utc
@@ -128,7 +130,8 @@ async def dialog_detail(s: AsyncSession, c: App, dialog: Dialog) -> dict[str, An
     return {
         "dialog": {**dialog_out(dialog), "send_capabilities": send_capabilities(c, dialog),
                    "channel_status": dialog.channel.status.value,
-                   "unanswered": unanswered_out(await c.unanswered(s).of(dialog.id))},
+                   "unanswered": unanswered_out(await c.unanswered(s).of(dialog.id)),
+                   "reply_plan": reply_plan_out(await c.reply_scheduler(s).pending(dialog))},
         "client": client_out(dialog.client, await channels_of(s, dialog.client)),
         "messages": [message_out(m) for m in messages],
     }
@@ -291,6 +294,31 @@ async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
     recovery = await pause.resume(dialog)   # answers what the client wrote during the pause
     return {**dialog_out(dialog),
             "recovery": {"status": recovery.status, "messages": recovery.messages}}
+
+
+@dialogs.post("/{dialog_id}/reply-now")
+async def reply_now(dialog_id: int, c: App, s: Db):
+    """«Ответить сейчас»: the reply that waits for the persona's routine is due at once. An AI
+    pause is not lifted (409): that is the «ИИ» switch."""
+    await lock(s, NS_DIALOG, dialog_id)
+    dialog = await dialog_or_404(s, dialog_id)
+    if dialog.ai_paused:
+        raise HTTPException(409, "AI is paused in this dialog")
+    queued = await c.reply_scheduler(s).reply_now(dialog)
+    return {**dialog_out(dialog), "reply_plan": None, "queued": queued}
+
+
+@dialogs.post("/{dialog_id}/urgent")
+async def mark_urgent(dialog_id: int, body: UrgentIn, c: App, s: Db):
+    """«Срочный»: replies in this dialog never wait for the routine; a reply that is waiting now
+    becomes due at once. The AI pause is a different switch and is not touched."""
+    await lock(s, NS_DIALOG, dialog_id)
+    dialog = await dialog_or_404(s, dialog_id)
+    dialog.urgent = body.urgent
+    scheduler = c.reply_scheduler(s)
+    if body.urgent and not dialog.ai_paused and await scheduler.waits_until(dialog.id) is not None:
+        await scheduler.reply_now(dialog)
+    return {**dialog_out(dialog), "reply_plan": reply_plan_out(await scheduler.pending(dialog))}
 
 
 @dialogs.post("/{dialog_id}/resolve")

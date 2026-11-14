@@ -201,6 +201,10 @@ class AiToggleIn(Body):
     paused: bool
 
 
+class UrgentIn(Body):
+    urgent: bool
+
+
 class ClientPatchIn(Body):
     notes: str | None = None
     next_step: str | None = None
@@ -329,8 +333,13 @@ def dialog_out(d: Dialog) -> dict[str, Any]:
         "persona_id": d.client.persona_id, "client_id": d.client_id,
         "external_thread_id": d.external_thread_id, "ai_paused": d.ai_paused,
         "needs_operator": d.needs_operator, "operator_id": d.operator_id, "unread": d.unread,
-        "created_at": dt(d.created_at),
+        "urgent": d.urgent, "created_at": dt(d.created_at),
     }
+
+
+def reply_plan_out(plan: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The delayed reply of the dialog (sim.services.reply_schedule): when it is due and why."""
+    return {**plan, "at": dt(plan["at"])} if plan else None
 
 
 def unanswered_out(messages: list[Message]) -> dict[str, Any]:

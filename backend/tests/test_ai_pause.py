@@ -116,7 +116,7 @@ async def test_resume_answers_everything_left_unanswered_with_one_reply(
     assert resumed["ai_paused"] is False
     assert resumed["recovery"] == {"status": "queued", "messages": 3}
     (job,) = await pending_replies(container)                # ONE reply for the whole burst
-    assert job.payload == {"dialog_id": dialog_id}
+    assert job.payload == {"dialog_id": dialog_id, "delay": {"pause": True}}   # the prompt will know
     (step,) = await watch_steps(container, reply_journal.RECOVERED)
     assert step.status == tracing.OK and step.message_id == last.message.id
     assert step.detail == {"unanswered": 3}

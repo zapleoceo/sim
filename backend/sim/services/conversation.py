@@ -26,6 +26,7 @@ from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
+from sim.services.dialog_state import turns
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
@@ -49,7 +50,7 @@ from sim.services.prompt import (
     system_prompt_parts,
 )
 from sim.services.prompt_map import PromptMap, example_context, fixed_rules
-from sim.services.unanswered import turns
+from sim.services.reply_schedule import delay_note
 
 log = logging.getLogger(__name__)
 
@@ -373,9 +374,11 @@ class ConversationService:
 
     # ---- the reply job -------------------------------------------------------------------
     async def run_reply(
-        self, dialog_id: int, *, instruction: str = "", workflow: str = "reply"
+        self, dialog_id: int, *, instruction: str = "", workflow: str = "reply",
+        delay: Mapping[str, Any] | None = None,
     ) -> ReplyOutcome:
-        """Answer the client (or, with `instruction`, write a follow-up).
+        """Answer the client (or, with `instruction`, write a follow-up). `delay`: why the reply
+        job waited (her routine, an AI pause); the prompt gets one line of facts about it.
 
         Network/broker errors propagate as LLMError so the job retries with backoff."""
         dialog = await self.dialogs.get(dialog_id)
@@ -410,6 +413,10 @@ class ConversationService:
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
         ctx = await self.dialog_context(dialog, persona, instruction=instruction)
+        waiting = turns(await self.messages.unanswered(dialog_id))
+        if delay and waiting:
+            ctx = replace(ctx, delay_note=delay_note(
+                delay, waiting[0].created_at, self.clock(), persona.timezone))
         port = self.outbound.try_port(dialog.channel)
         if self.media_tool is not None:
             # What she may attach to this reply, or that she must not promise any media.

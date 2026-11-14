@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 Kind = Literal["text", "int", "capability", "model"]
 TEXT_MAX = 20000
 MEDIA_GROUP = "Фото и кружочки персонажа"
+SCHEDULE_GROUP = "Время ответа по распорядку"
 CAPABILITY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,79}$")
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
 
@@ -111,6 +112,47 @@ SPECS: tuple[SettingSpec, ...] = (
                 "оставшиеся без ответа, только если последнее из них не старше этого времени. "
                 "Более старые остаются оператору, в журнале запись «пропущено, устарело».",
                 "int", 120, 1, 10080),
+    SettingSpec("reply_schedule_enabled", SCHEDULE_GROUP, "Откладывать ответ по распорядку",
+                "1: когда по распорядку персонаж спит, работает, в дороге или занят, ответ ждёт, "
+                "пока он сможет заглянуть в чат. 0: отвечать сразу, как раньше.",
+                "int", 1, 0, 1),
+    SettingSpec("reply_check_sleep_min", SCHEDULE_GROUP, "Сон: заглядывает в чат раз в, мин",
+                "0: не отвечает до конца сна. Срочные слова сон не прерывают, только кнопки "
+                "«Срочный» и «Ответить сейчас» в диалоге.",
+                "int", 0, 0, 1440),
+    SettingSpec("reply_check_work_min", SCHEDULE_GROUP, "Работа: заглядывает в чат раз в, мин",
+                "Ответ уходит через столько минут или в конце дела, что раньше. 0: только в конце дела.",
+                "int", 30, 0, 1440),
+    SettingSpec("reply_check_road_min", SCHEDULE_GROUP, "Дорога: заглядывает в чат раз в, мин",
+                "Ответ уходит через столько минут или в конце дела, что раньше. 0: только в конце дела.",
+                "int", 15, 0, 1440),
+    SettingSpec("reply_check_busy_min", SCHEDULE_GROUP, "Другие дела: заглядывает в чат раз в, мин",
+                "Любое дело распорядка, которое не сон, не работа, не дорога и не свободное время. "
+                "0: только в конце дела.",
+                "int", 20, 0, 1440),
+    SettingSpec("reply_urgent_delay_min", SCHEDULE_GROUP, "Срочное: ответ через, мин",
+                "Срочный диалог получает ответ через столько минут, даже если дело ещё идёт (кроме сна). "
+                "0: сразу.",
+                "int", 2, 0, 120),
+    SettingSpec("reply_urgent_wait_min", SCHEDULE_GROUP, "Порог срочности: ждёт дольше, мин",
+                "Если клиент ждёт ответа дольше этого времени, диалог считается срочным. 0: не учитывать.",
+                "int", 60, 0, 1440),
+    SettingSpec("reply_urgent_words", SCHEDULE_GROUP, "Срочные слова",
+                "Через запятую, можно начало слова. Если такое слово есть в сообщениях клиента без "
+                "ответа, диалог срочный.",
+                "text", "срочно, оплат, предоплат, деньги, перевод, счёт, счет, цена, стоимость, договор, встреч"),
+    SettingSpec("reply_sleep_words", SCHEDULE_GROUP, "Слова сна в распорядке",
+                "Через запятую, можно начало слова. Дело распорядка с таким словом считается сном.",
+                "text", "сплю, сон, спать"),
+    SettingSpec("reply_work_words", SCHEDULE_GROUP, "Слова работы в распорядке",
+                "Через запятую, можно начало слова. Дело распорядка с таким словом считается работой.",
+                "text", "работ, консультац, совещан, клиент, офис, приём, прием, урок"),
+    SettingSpec("reply_road_words", SCHEDULE_GROUP, "Слова дороги в распорядке",
+                "Через запятую, можно начало слова. Дело распорядка с таким словом считается дорогой.",
+                "text", "дорог, еду, в пути, метро, за рулём, за рулем, автобус, поезд, самолёт, такси"),
+    SettingSpec("reply_free_words", SCHEDULE_GROUP, "Слова свободного времени в распорядке",
+                "Через запятую, можно начало слова. Во время такого дела персонаж отвечает сразу.",
+                "text", "свободн, отдых, дома, перерыв"),
     SettingSpec("output_contract", "Служебные промпты", "Формат ответа персонажа",
                 "Добавляется в конец промпта персонажа: какой JSON вернуть. Если сломать формат, "
                 "ответы перестанут разбираться.",
@@ -170,6 +212,18 @@ class AppSettings:
     lowercase_percent: int
     reply_debounce_s: int
     pause_recovery_window_min: int
+    reply_schedule_enabled: int
+    reply_check_sleep_min: int
+    reply_check_work_min: int
+    reply_check_road_min: int
+    reply_check_busy_min: int
+    reply_urgent_delay_min: int
+    reply_urgent_wait_min: int
+    reply_urgent_words: str
+    reply_sleep_words: str
+    reply_work_words: str
+    reply_road_words: str
+    reply_free_words: str
     output_contract: str
     retry_nudge: str
     caption_rules: str

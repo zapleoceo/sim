@@ -205,6 +205,74 @@ describe('InboxPage: ИИ на паузе', () => {
   });
 });
 
+describe('InboxPage: ответ отложен по распорядку', () => {
+  const plan = { at: '2026-11-11T09:40:00Z', reason: 'на работе: консультации с клиентами до 13:00', cls: 'work', urgent: null };
+
+  /** The server state: a reply planned for later until «Ответить сейчас» or «Срочный» releases it. */
+  function plannedApi() {
+    const state = { planned: true, urgent: false };
+    const dialog = () => ({ ...detail.dialog, needs_operator: false, urgent: state.urgent,
+      reply_plan: state.planned ? plan : null });
+    return api({
+      'GET /api/dialogs/1': () => ({ ...detail, dialog: dialog() }),
+      'POST /api/dialogs/1/reply-now': () => {
+        state.planned = false;
+        return { ...dialog(), queued: true };
+      },
+      'POST /api/dialogs/1/urgent': (req) => {
+        state.urgent = (req.body as { urgent: boolean }).urgent;
+        if (state.urgent) state.planned = false;
+        return dialog();
+      },
+    });
+  }
+
+  it('shows when the persona answers and why', async () => {
+    plannedApi();
+    await renderApp('/inbox?d=1');
+    const bar = await screen.findByRole('status', { name: 'Ответ отложен' });
+    expect(bar).toHaveTextContent(/Ответит в \d{2}:\d{2} — на работе: консультации с клиентами до 13:00/);
+    expect(within(bar).getByRole('button', { name: 'Ответить сейчас' })).toBeInTheDocument();
+    expect(screen.getByRole('switch')).toBeChecked();          // a delay is not an AI pause
+    expect(screen.getByRole('button', { name: 'Срочный диалог' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('«Ответить сейчас» releases the reply with CSRF and the bar goes away', async () => {
+    const log = plannedApi();
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Ответить сейчас' }));
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/reply-now');
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+    expect(await screen.findByText('Персонаж отвечает сейчас.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Ответ отложен' })).not.toBeInTheDocument());
+    expect(screen.getByRole('switch')).toBeChecked();
+  });
+
+  it('«Срочный» marks the dialog and the waiting reply is released', async () => {
+    const log = plannedApi();
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Срочный диалог' }));
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/urgent');
+      expect(sent?.body).toEqual({ urgent: true });
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Срочный диалог' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.queryByRole('status', { name: 'Ответ отложен' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Диалог срочный: персонаж отвечает без задержки.')).toBeInTheDocument();
+  });
+
+  it('has no plan bar when nothing is delayed', async () => {
+    api();
+    await renderApp('/inbox?d=1');
+    await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
+    expect(screen.queryByRole('status', { name: 'Ответ отложен' })).not.toBeInTheDocument();
+  });
+});
+
 describe('InboxPage «Очистить чат»', () => {
   /** The server state: the dialog has its history until the DELETE. */
   function clearableApi() {

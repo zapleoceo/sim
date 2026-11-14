@@ -48,6 +48,7 @@ from sim.services.persona_media import PersonaMediaService
 from sim.services.persona_media_tool import PersonaMediaTool
 from sim.services.preview_media import PreviewAttachments
 from sim.services.reply_journal import ReplyJournal
+from sim.services.reply_schedule import ReplyScheduler
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
 from sim.services.unanswered import UnansweredService
@@ -199,6 +200,10 @@ class Container:
             s, self.ingest(s), self.unanswered(s), self.reply_journal(s), clock=self.clock,
             settings_env=env_defaults(self.settings),
         )
+
+    def reply_scheduler(self, s: AsyncSession) -> ReplyScheduler:
+        """When the persona answers (her routine, urgency) and «Ответить сейчас»."""
+        return ReplyScheduler(s, clock=self.clock, settings_env=env_defaults(self.settings))
 
     def media_service(self, s: AsyncSession) -> MediaService:
         return MediaService(s, self.registry, self.box, self.llm, self.media)

@@ -1,6 +1,8 @@
 import type { ConfirmOptions } from '@/components/confirm';
 import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
-import type { AiRecovery, Delivery, Dialog, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, SimBranchRow } from '@/lib/models';
+import type {
+  AiRecovery, Delivery, Dialog, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, ReplyPlan, SimBranchRow,
+} from '@/lib/models';
 
 /** Fallback only: changes arrive live through /api/events (lib/live.ts). */
 export const POLL_MS = 30_000;
@@ -162,8 +164,20 @@ export function detailChanged(prev: DialogDetail | null | undefined, next: Dialo
     a?.delivery === b?.delivery &&
     prev.dialog.ai_paused === next.dialog.ai_paused &&
     prev.dialog.needs_operator === next.dialog.needs_operator &&
-    (prev.dialog.unanswered?.count ?? 0) === (next.dialog.unanswered?.count ?? 0)
+    (prev.dialog.unanswered?.count ?? 0) === (next.dialog.unanswered?.count ?? 0) &&
+    (prev.dialog.reply_plan?.at ?? null) === (next.dialog.reply_plan?.at ?? null) &&
+    !!prev.dialog.urgent === !!next.dialog.urgent
   );
+}
+
+/** «Ответит в 09:40 — на работе: консультации до 13:00» (the reason is built by the server). */
+export function replyPlanText(plan: ReplyPlan): string {
+  return `Ответит в ${formatTime(plan.at)} — ${plan.reason}`;
+}
+
+/** The delayed reply the dialog shows; nothing while the AI is paused (the pause is the news). */
+export function replyPlanNotice(dialog: Pick<Dialog, 'ai_paused' | 'reply_plan'>): string | null {
+  return dialog.ai_paused || !dialog.reply_plan ? null : replyPlanText(dialog.reply_plan);
 }
 
 /** 1 сообщение · 2 сообщения · 5 сообщений. */

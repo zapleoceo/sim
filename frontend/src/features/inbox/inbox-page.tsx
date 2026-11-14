@@ -16,7 +16,7 @@ import { channelsApi } from '@/lib/api/channels';
 import { clientsApi } from '@/lib/api/clients';
 import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
-import type { AiToggleResult, Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
+import type { AiToggleResult, ReplyPlanResult, Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
 import { useAuth } from '@/lib/auth';
 import { useLiveDialogs } from '@/lib/live';
 import { qk } from '@/lib/query';
@@ -341,6 +341,30 @@ export function InboxPage() {
     }).catch(() => undefined);
   };
 
+  /** The server's answer to «Ответить сейчас» / «Срочный»: the flag and the plan, shown at once. */
+  const applyPlan = (id: number, res: ReplyPlanResult): void => {
+    queryClient.setQueryData<DialogDetail>(qk.dialog(id), (d) =>
+      d ? { ...d, dialog: { ...d.dialog, urgent: !!res.urgent, reply_plan: res.reply_plan ?? null } } : d);
+  };
+
+  const replyNow = (): void => {
+    if (dialogId === null) return;
+    const id = dialogId;
+    dialogsApi.replyNow(id).then((res) => {
+      applyPlan(id, res);
+      toast.success(res.queued ? 'Персонаж отвечает сейчас.' : 'Отвечать не на что: все сообщения с ответом.');
+    }).catch(() => undefined);
+  };
+
+  const setUrgent = (urgent: boolean): void => {
+    if (dialogId === null) return;
+    const id = dialogId;
+    dialogsApi.setUrgent(id, urgent).then((res) => {
+      applyPlan(id, res);
+      toast.success(urgent ? 'Диалог срочный: персонаж отвечает без задержки.' : 'Отметка «срочный» снята.');
+    }).catch(() => undefined);
+  };
+
   const resolve = (): void => {
     if (dialogId === null) return;
     const id = dialogId;
@@ -410,6 +434,8 @@ export function InboxPage() {
               onBack={back}
               onToggleCard={() => setCardOpen((v) => !v)}
               onToggleAi={toggleAi}
+              onReplyNow={replyNow}
+              onSetUrgent={setUrgent}
               onResolve={resolve}
               onSend={(text, requestId) =>
                 sendMutation.mutateAsync({ id: detail.dialog.id, text, requestId })

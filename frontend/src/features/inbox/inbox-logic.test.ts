@@ -1,7 +1,7 @@
 import type { DialogDetail, DialogRow, Message } from '@/lib/models';
 import {
   CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, clearedRow, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
-  messagesWord, normalizeFilter, pauseNotice, recoveryToast, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
+  messagesWord, normalizeFilter, pauseNotice, recoveryToast, replyPlanNotice, replyPlanText, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
 } from './inbox-logic';
 
 function row(id: number, patch: Partial<DialogRow> = {}): DialogRow {
@@ -148,6 +148,32 @@ describe('AI pause', () => {
     expect(recoveryToast({ status: 'refused', messages: 1 }).tone).toBe('warning');
     expect(recoveryToast({ status: 'none', messages: 0 })).toEqual({ tone: 'success', text: 'ИИ включён.' });
     expect(recoveryToast(undefined).text).toBe('ИИ включён.');
+  });
+});
+
+describe('reply delayed by the persona routine', () => {
+  const plan = { at: '2026-11-13T09:40:00Z', reason: 'на работе: консультации до 13:00', cls: 'work', urgent: null };
+
+  it('says when she answers and why, in the viewer\'s local time', () => {
+    expect(replyPlanText(plan)).toMatch(/^Ответит в \d{2}:\d{2} — на работе: консультации до 13:00$/);
+  });
+
+  it('shows the plan only while the AI is on and a reply waits', () => {
+    expect(replyPlanNotice({ ai_paused: false, reply_plan: plan })).toBe(replyPlanText(plan));
+    expect(replyPlanNotice({ ai_paused: true, reply_plan: plan })).toBeNull();
+    expect(replyPlanNotice({ ai_paused: false, reply_plan: null })).toBeNull();
+    expect(replyPlanNotice({ ai_paused: false })).toBeNull();
+  });
+
+  it('re-renders a polled dialog when the plan or the urgent mark changes', () => {
+    const base: DialogDetail = {
+      dialog: { id: 1, ai_paused: false, needs_operator: false },
+      client: {} as DialogDetail['client'],
+      messages: [msg(1, '2026-01-01T10:00:00Z')],
+    };
+    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, urgent: false, reply_plan: null } })).toBe(false);
+    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, reply_plan: plan } })).toBe(true);
+    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, urgent: true } })).toBe(true);
   });
 });
 

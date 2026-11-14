@@ -239,6 +239,8 @@ class Dialog(Base):
     client_id: Mapped[int] = mapped_column(ForeignKey("client.id"), index=True)
     ai_paused: Mapped[bool] = mapped_column(Boolean, default=False)
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
+    # An operator marked the dialog urgent: replies never wait for the persona's routine.
+    urgent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     operator_id: Mapped[int | None] = mapped_column(
         ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True
     )
