@@ -65,7 +65,7 @@ export function PersonaGallery({ personaId }: { personaId: number }) {
   const filtered = filter ? (media.data ?? []).filter((m) => m.kind === filter) : (media.data ?? []);
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+    <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold">Галерея</h3>
         <div className="flex gap-1">

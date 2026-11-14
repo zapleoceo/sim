@@ -16,7 +16,7 @@ export function Page({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn('mx-auto flex w-full flex-col gap-5 px-4 py-5 sm:px-6 sm:py-6', WIDTHS[width], className)}>
+    <div className={cn('mx-auto flex w-full flex-col gap-4 px-3 py-3 sm:gap-5 sm:px-6 sm:py-6', WIDTHS[width], className)}>
       {children}
     </div>
   );
@@ -34,7 +34,7 @@ export function PageHeader({
   return (
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
+        <h1 className="text-lg font-semibold sm:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}

@@ -16,12 +16,14 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
+import { CompactConversationHeader, CompactOperatorBanner } from './conversation-compact';
 import { groupByDay, isSendKey } from './inbox-logic';
 
 
 export function Conversation({
   detail,
   narrow,
+  compact = false,
   wide,
   cardOpen,
   sending,
@@ -38,6 +40,8 @@ export function Conversation({
 }: {
   detail: DialogDetail;
   narrow: boolean;
+  /** Phone width: one-row header with the «⋮» menu, short banner, tighter composer. */
+  compact?: boolean;
   wide: boolean;
   cardOpen: boolean;
   sending: boolean;
@@ -58,6 +62,7 @@ export function Conversation({
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState('');
   const [stageBusy, setStageBusy] = useState(false);
+  const [bannerHidden, setBannerHidden] = useState(false);
   const recorder = useVoiceRecorder();
   const fileInput = useRef<HTMLInputElement>(null);
   const textRequest = useRef<{ text: string; id: string } | null>(null);
@@ -112,6 +117,18 @@ export function Conversation({
 
   return (
     <>
+      {compact ? (
+        <CompactConversationHeader
+          dialog={dialog}
+          client={client}
+          clearing={clearing}
+          onBack={onBack}
+          onToggleAi={onToggleAi}
+          onResolve={onResolve}
+          onChangeStage={onChangeStage ? (stage) => void changeStage(stage) : undefined}
+          onClearChat={onClearChat}
+        />
+      ) : (
       <header className="flex flex-none items-center gap-2 border-b px-3 py-2.5 sm:px-4">
         {narrow && (
           <Button variant="ghost" size="icon-sm" aria-label="Назад к списку" onClick={onBack}>
@@ -163,10 +180,12 @@ export function Conversation({
           </Button>
         )}
       </header>
-      {dialog.needs_operator && <div role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm font-semibold">
+      )}
+      {dialog.needs_operator && compact && !bannerHidden && <CompactOperatorBanner onDismiss={() => setBannerHidden(true)} />}
+      {dialog.needs_operator && !compact && <div role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm font-semibold">
         Требуется ответ менеджера. ИИ остановлен; проверьте переписку и ответьте клиенту.
       </div>}
-      <div className="flex-none border-b px-4 py-1.5">
+      {!compact && <div className="flex-none border-b px-4 py-1.5">
         <Link
           to="/clients/$id"
           params={{ id: String(client.id) }}
@@ -175,7 +194,7 @@ export function Conversation({
         >
           Лента клиента — все каналы
         </Link>
-      </div>
+      </div>}
 
       <div
         ref={scroller}
@@ -183,7 +202,7 @@ export function Conversation({
         role="log"
         aria-live="polite"
         aria-label="Сообщения"
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-muted/30 px-3 py-4 scrollbar-thin sm:px-6"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-muted/30 px-2 py-2 scrollbar-thin sm:px-6 sm:py-4"
       >
         {groups.length === 0 && <EmptyState icon={MessageCircle} title="Сообщений пока нет" />}
         {groups.map((g) => (
@@ -198,17 +217,17 @@ export function Conversation({
         ))}
       </div>
 
-      <footer className="flex flex-none flex-col gap-2 border-t bg-background px-3 py-3 sm:px-4">
+      <footer className="flex flex-none flex-col gap-1.5 border-t bg-background px-2 py-2 sm:gap-2 sm:px-4 sm:py-3">
         {!dialog.ai_paused && (
-          <p role="note" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Info className="size-3.5" />
+          <p role="note" className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground sm:text-xs">
+            <Info className="size-3.5 flex-none" />
             Ответ оператора поставит ИИ в этом диалоге на паузу.
           </p>
         )}
         {!capabilities.text && <p className="text-xs text-warning">Канал не подключён: отправка недоступна.</p>}
         {sendError && <p role="alert" className="text-xs text-destructive">{sendError}</p>}
         {recorder.error && <p role="alert" className="text-xs text-destructive">{recorder.error}</p>}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-1.5 sm:gap-2">
           <input ref={fileInput} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt" className="hidden"
             aria-label="Выбрать вложение" onChange={(event) => {
               const file = event.target.files?.[0];

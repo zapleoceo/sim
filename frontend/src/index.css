@@ -108,6 +108,37 @@
   --color-bubble-operator: var(--bubble-operator);
 }
 
+/*
+ * Phone layout (below Tailwind `md`). Desktop values are untouched.
+ * --bottom-nav: height of the bottom tab bar (0 on desktop and while the keyboard is open);
+ *   the shell pads <main> with it and sticky save bars sit on top of it.
+ * --app-vh / data-keyboard are set by hooks/use-viewport-vars.ts.
+ */
+:root {
+  --bottom-nav: 0px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --bottom-nav: calc(3rem + env(safe-area-inset-bottom));
+  }
+  /* One step smaller base: every rem-based text size, control height and gap shrinks together. */
+  html {
+    font-size: 15px;
+  }
+  html[data-keyboard='open'] {
+    --bottom-nav: 0px;
+  }
+  /* A screen that fills the viewport must not leave a scrollable tail under the keyboard. */
+  html[data-keyboard='open']:has([data-fit-viewport]) body {
+    height: var(--app-vh, 100dvh);
+    overflow: hidden;
+  }
+}
+
+/* `kb:` — styles while the phone keyboard is open. */
+@custom-variant kb (&:is([data-keyboard='open'] *));
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

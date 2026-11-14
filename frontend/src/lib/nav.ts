@@ -41,5 +41,5 @@ export function visibleNav(role: Role | undefined): NavItem[] {
   });
 }
 
-/** Phone bottom bar: the first work items; the rest live in the «Ещё» sheet. */
+/** Phone bottom bar: the first work items plus «Ещё» — five slots; the rest live in the «Ещё» sheet. */
 export const BOTTOM_COUNT = 4;
