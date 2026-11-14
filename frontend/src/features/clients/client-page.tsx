@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
-import { ChevronDown, Hourglass, Pencil, UserX } from 'lucide-react';
+import { ChevronDown, Eraser, Hourglass, Pencil, UserX } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon } from '@/components/badges';
+import { useConfirm } from '@/components/confirm';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { OptionSelect } from '@/components/option-select';
 import { BackLink, Page } from '@/components/page';
@@ -13,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { clientsApi } from '@/lib/api/clients';
 import { ApiError } from '@/lib/api/http';
+import { useAuth } from '@/lib/auth';
 import { formatDateTime, formatShort, isoToLocalInput, localInputToIso } from '@/lib/format';
 import { useLiveDialogs } from '@/lib/live';
 import type { ClientCard, ClientPatch, ClientStatus, Stage } from '@/lib/models';
@@ -20,7 +22,7 @@ import { qk } from '@/lib/query';
 import { PARTNER_ONLY_HINT, STAGES, STATUSES, STATUS_LABELS, stageMeta } from '@/lib/stages';
 import { positiveInt } from '@/lib/utils';
 import { ClientChat } from './client-chat';
-import { timelineWithDates } from './client-logic';
+import { CLEAR_PASSPORT_CONFIRM, timelineWithDates } from './client-logic';
 
 const route = getRouteApi('/_app/clients/$id');
 
@@ -129,7 +131,29 @@ function Header({ card }: { card: ClientCard }) {
   );
 }
 
+/** «Очистить паспорт» (owner only, irreversible): asks first, then shows the emptied card at once. */
+function ClearPassport({ card }: { card: ClientCard }) {
+  const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  const clear = useMutation({
+    mutationFn: () => clientsApi.clearPassport(card.id),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<ClientCard>(qk.client(card.id), (prev) => (prev ? { ...prev, ...updated } : prev));
+      void queryClient.invalidateQueries({ queryKey: ['dialog'] });   // the inbox side card shows needs and notes
+      toast.success('Паспорт очищен');
+    },
+  });
+  return (
+    <Button variant="outline" size="sm" className="w-fit text-destructive" disabled={clear.isPending}
+      onClick={() => void confirm(CLEAR_PASSPORT_CONFIRM).then((ok) => ok && clear.mutate())}>
+      <Eraser />
+      Очистить паспорт
+    </Button>
+  );
+}
+
 function SidePanel({ card, onChanged }: { card: ClientCard; onChanged: () => void }) {
+  const { isOwner } = useAuth();
   const patch = useClientPatch(card);
   const change = useMutation({
     mutationFn: (body: { stage?: Stage; status?: ClientStatus }) => clientsApi.changeStage(card.id, body),
@@ -216,6 +240,7 @@ function SidePanel({ card, onChanged }: { card: ClientCard; onChanged: () => voi
       </Fold>
 
       <p className="border-t pt-3 text-xs text-muted-foreground">В базе с {formatDateTime(card.created_at)}</p>
+      {isOwner && <ClearPassport card={card} />}
     </aside>
   );
 }

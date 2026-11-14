@@ -8,6 +8,7 @@ authenticated /api/media/{name} route; the original URL is not kept (a channel f
 embed a bot token)."""
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from pathlib import Path
@@ -44,15 +45,40 @@ class MediaStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
 
-    def save(self, data: bytes, suffix: str) -> str:
-        suffix = safe_suffix(suffix)
-        name = f"{secrets.token_urlsafe(12)}.{suffix}"
+    async def save(self, data: bytes, suffix: str) -> str:
+        """Store the bytes under a new random name; the disk write runs in a worker thread so
+        a large upload does not block the event loop."""
+        name = f"{secrets.token_urlsafe(12)}.{safe_suffix(suffix)}"
+        await asyncio.to_thread(self._write, name, data)
+        return name
+
+    def _write(self, name: str, data: bytes) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / name).write_bytes(data)
+
+    async def save_as(self, name: str, data: bytes) -> str:
+        """Store under a caller-chosen name (a content-addressed cache entry); the name must
+        still be a safe media name. Written through a temp file so a reader never sees half."""
+        if not SAFE_NAME.match(name):
+            raise ValueError(f"unsafe media name: {name!r}")
+        await asyncio.to_thread(self._replace, name, data)
         return name
+
+    def _replace(self, name: str, data: bytes) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        partial = self.root / f"{name}.{secrets.token_hex(4)}.part"
+        partial.write_bytes(data)
+        partial.replace(self.root / name)
 
     def path(self, name: str) -> Path | None:
         if not SAFE_NAME.match(name):
             return None
         target = self.root / name
         return target if target.is_file() else None
+
+    def remove(self, name: str) -> bool:
+        """Delete a stored file; False when the name is not a stored file (nothing to delete)."""
+        if (target := self.path(name)) is None:
+            return False
+        target.unlink(missing_ok=True)
+        return True

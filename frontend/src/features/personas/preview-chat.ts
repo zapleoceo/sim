@@ -177,4 +177,3 @@ export function usePreviewChat(personaId: number) {
 
   return { ...state, send, sendFile, retry, reset };
 }
-

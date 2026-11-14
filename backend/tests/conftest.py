@@ -262,6 +262,8 @@ async def container(tmp_path, fake_llm, connector) -> AsyncIterator[Container]:
     c = build_container(make_settings(tmp_path), registry={ChannelKind.TELEGRAM: connector})
     c.llm = fake_llm
     c.speech = None   # never the real Broker; voice tests inject a fake SpeechPort
+    c.video = None    # same for AI video notes (VideoPort)
+    c.image = None    # and for persona photos (ImagePort)
 
     await create_all(c.engine)
     yield c

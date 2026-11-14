@@ -33,7 +33,7 @@ def followup_instruction(hours: list[float], step: int, *, unified: bool = False
     last = step + 1 >= len(hours)
     if unified:
         return (f"СОБЫТИЕ: плановое напоминание {step + 1} из {len(hours)}; "
-                f"клиент не отвечает примерно {hours[step]:g} ч. Последнее: {last}. "
+                f"клиент не отвечает примерно {hours[step]:g} ч. Последнее: {'да' if last else 'нет'}. "
                 "Сформируй ответ по единому промпту агента.")
     text = (
         f"ЗАДАЧА НАПОМИНАНИЯ: клиент не отвечает примерно {hours[step]:g} ч. "
@@ -103,4 +103,3 @@ class FollowupService:
                 client, ClientStatus.NO_RESPONSE, Actor.SYSTEM, "follow-up ladder exhausted"
             )
         return "sent"
-

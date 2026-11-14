@@ -13,18 +13,24 @@ from sim.adapters.channels.telegram import BotApiTransport, TelegramTransport
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.session import make_engine, make_session_factory
 from sim.adapters.llm.broker import BrokerLLM
+from sim.adapters.llm.broker_live import BrokerLiveVoice
 from sim.adapters.media import MediaStore
+from sim.adapters.video import VideoNoteEncoder
 from sim.clock import Clock, utcnow
 from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
+from sim.ports.image import ImagePort
+from sim.ports.live_voice import LiveVoicePort
 from sim.ports.llm import LLMPort
 from sim.ports.speech import SpeechPort
+from sim.ports.video import VideoPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
 from sim.services.analytics import AnalyticsService
 from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
+from sim.services.calls import CallService
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
 from sim.services.conversation import ConversationService
@@ -37,9 +43,12 @@ from sim.services.media import MediaService
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 from sim.services.passport import PassportService
+from sim.services.persona_media import PersonaMediaService
+from sim.services.persona_media_tool import PersonaMediaTool
 from sim.services.preview_media import PreviewAttachments
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
+from sim.services.video_note import OwnerVideoNotes, VideoNoteEncoderPort
 from sim.services.voice import VoiceEncoder, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -81,6 +90,10 @@ class Container:
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
     speech: SpeechPort | None = None                       # persona voice notes (Broker TTS)
     encoder: VoiceEncoder = field(default_factory=OggOpusEncoder)
+    live_voice: LiveVoicePort | None = None                # persona phone calls (Broker /v1/live)
+    video: VideoPort | None = None                         # AI video notes (Broker /v1/video/jobs)
+    video_encoder: VideoNoteEncoderPort = field(default_factory=VideoNoteEncoder)
+    image: ImagePort | None = None                         # persona photos (Broker /v1/jobs, codex-sub)
 
     async def aclose(self) -> None:
         """Shutdown: release the LLM adapter's pooled HTTP client and the DB engine."""
@@ -118,14 +131,28 @@ class Container:
             return None
         return VoiceRenderer(self.speech, self.encoder, self.media)
 
+    def video_notes(self, s: AsyncSession) -> OwnerVideoNotes:
+        """AI video notes for the one allowlisted owner account."""
+        return OwnerVideoNotes(s, self.video, self.video_encoder, self.media, clock=self.clock)
+
+    def media_tool(self, s: AsyncSession) -> PersonaMediaTool:
+        """The persona's own photos and video notes, generated from her gallery."""
+        return PersonaMediaTool(s, self.image, self.video_notes(s), self.media, clock=self.clock)
+
     def preview_attachments(self) -> PreviewAttachments:
         return PreviewAttachments(self.llm, self.audited(), self.media)
 
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(
             s, self.audited(), self.outbound(s), clock=self.clock,
-            settings_env=env_defaults(self.settings),
+            settings_env=env_defaults(self.settings), media_tool=self.media_tool(s),
         )
+
+    def calls(self) -> CallService:
+        """Answers persona phone calls; spans its own short sessions (none is open mid-call)."""
+        return CallService(self.factory, self.live_voice, self.conversation,
+                           max_seconds=self.settings.call_max_seconds,
+                           diagnostics=self.settings.call_diagnostics, clock=self.clock)
 
     def simulation(self, s: AsyncSession) -> SimulationService:
         return SimulationService(s, self.conversation(s), clock=self.clock)
@@ -158,6 +185,9 @@ class Container:
     def media_service(self, s: AsyncSession) -> MediaService:
         return MediaService(s, self.registry, self.box, self.llm, self.media)
 
+    def persona_media(self, s: AsyncSession) -> PersonaMediaService:
+        return PersonaMediaService(s, self.media, clock=self.clock)
+
     def channels(self, s: AsyncSession) -> ChannelService:
         return ChannelService(s, self.registry, self.box, clock=self.clock)
 
@@ -184,6 +214,7 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         settings.broker_project_key,
         poll_budget_s=settings.broker_poll_budget_s,
         subscription_budget_s=settings.broker_subscription_budget_s,
+        video_budget_s=settings.broker_video_budget_s,
     )
     return Container(
         settings=settings,
@@ -193,5 +224,8 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         registry=registry if registry is not None else default_registry(),
         box=make_box(settings),
         media=MediaStore(settings.media_dir),
-        speech=broker,   # the same Broker client serves LLMPort and SpeechPort
+        speech=broker,   # the same Broker client serves LLMPort, SpeechPort, VideoPort and ImagePort
+        video=broker,
+        image=broker,
+        live_voice=BrokerLiveVoice(settings.broker_url, settings.broker_project_key),
     )

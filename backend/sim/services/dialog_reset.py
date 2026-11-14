@@ -1,17 +1,26 @@
-"""`/reset` from a client: wipe the dialog's history and everything the persona learned, so the
-next message starts a brand-new conversation (owner's request: testing personas from scratch).
+"""Wiping what SIM keeps about a conversation, in one place for every caller.
 
-What is wiped: every message of the dialog, the pending reply / follow-up jobs, the dialog
-counters, and the client's conversation context (stage, status, needs, notes, next step).
-Kept: the client row, its ref code and channel identities (the link to the person stays), the
-funnel and partner events (analytics), the request journal. Nothing is sent to the chat and
-nothing is deleted in the messenger itself."""
+Three operations, each a part of the next:
+
+- `clear_chat(dialog)`: every message of the dialog, its pending reply / follow-up / passport
+  jobs and the dialog counters, so the persona's next reply starts without the past history.
+  Used by the owner's «Очистить чат» in the admin (`DELETE /api/dialogs/{id}/messages`).
+- `clear_passport(client)`: what was collected about the person: the lead passport, needs,
+  notes, next step, and the pending passport updates of all the client's dialogs. Used by the
+  owner's «Очистить паспорт» (`DELETE /api/clients/{id}/passport`).
+- `reset(dialog, client)`: both, plus the funnel stage and status back to the start. Used by
+  `/reset` from a chat (owner's request: testing personas from scratch).
+
+Always kept: the client row, its ref code and channel identities (the link to the person stays),
+the funnel and partner events (analytics), the request journal. Nothing is sent
+to the chat and nothing is deleted in the messenger itself."""
 from __future__ import annotations
 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Client, Dialog, Message
+from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.domain.enums import ClientStatus, Stage
 from sim.services import jobkinds
@@ -30,8 +39,8 @@ class DialogReset:
         self.session = session
         self.jobs = JobRepo(session)
 
-    async def reset(self, dialog: Dialog, client: Client) -> int:
-        """Wipe the dialog (the caller holds the dialog lock). Returns deleted messages."""
+    async def clear_chat(self, dialog: Dialog) -> int:
+        """Wipe the dialog's history (the caller holds the dialog lock). Returns deleted messages."""
         for kind, key in ((jobkinds.REPLY, jobkinds.reply_key(dialog.id)),
                           (jobkinds.FOLLOWUP, jobkinds.followup_key(dialog.id)),
                           (jobkinds.PASSPORT, jobkinds.passport_key(dialog.id))):
@@ -43,13 +52,25 @@ class DialogReset:
         dialog.last_message_text = ""
         dialog.last_message_direction = None
         dialog.last_message_at = None
-        client.stage = Stage.FIRST_CONTACT
-        client.status = ClientStatus.ACTIVE
+        return int(res.rowcount or 0)  # type: ignore[attr-defined]
+
+    async def clear_passport(self, client: Client) -> None:
+        """Forget what was collected about the person; the client and its dialogs stay."""
+        for dialog in await DialogRepo(self.session).for_client(client.id):
+            await self.jobs.cancel_pending(jobkinds.PASSPORT, jobkinds.passport_key(dialog.id))
+        client.passport = ""
+        client.passport_updated_at = None
         client.needs = []
         client.notes = ""
         client.next_step = ""
         client.next_step_at = None
+
+    async def reset(self, dialog: Dialog, client: Client) -> int:
+        """Chat, passport and funnel position (the caller holds the dialog lock).
+        Returns deleted messages."""
+        wiped = await self.clear_chat(dialog)
+        await self.clear_passport(client)
+        client.stage = Stage.FIRST_CONTACT
+        client.status = ClientStatus.ACTIVE
         client.no_followups = False
-        client.passport = ""
-        client.passport_updated_at = None
-        return int(res.rowcount or 0)  # type: ignore[attr-defined]
+        return wiped

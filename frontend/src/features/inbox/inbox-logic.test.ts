@@ -1,6 +1,6 @@
 import type { DialogDetail, DialogRow, Message } from '@/lib/models';
 import {
-  DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
+  CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, clearedRow, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
   normalizeFilter, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
 } from './inbox-logic';
 
@@ -116,5 +116,19 @@ describe('test conversations in the inbox', () => {
     expect(visibleTestRows([branch], [], { ...filter, avatar: 'with' })).toHaveLength(0);
     expect(visibleTestRows([branch], [], { ...filter, channel_id: 4 })).toHaveLength(0);
     expect(combineDialogRows([row(1, { last_message: { text: 'real', direction: 'in', at: '2026-01-01T09:00:00Z' } })], test)[0].id).toBe(-7);
+  });
+});
+
+describe('clear chat', () => {
+  it('empties the list row of a cleared dialog and keeps who it is', () => {
+    const before = row(3, { unread: 4, needs_operator: true, ai_paused: true,
+      last_message: { text: 'старое', direction: 'in', at: '2026-01-01T09:00:00Z' } });
+    expect(clearedRow(before)).toEqual({ ...before, last_message: null, unread: 0, needs_operator: false });
+  });
+
+  it('warns that the wipe is final and that the messenger keeps its messages', () => {
+    expect(CLEAR_CHAT_CONFIRM.danger).toBe(true);
+    expect(CLEAR_CHAT_CONFIRM.message).toMatch(/без возможности восстановления/);
+    expect(CLEAR_CHAT_CONFIRM.message).toMatch(/В Telegram .*сообщения останутся/);
   });
 });

@@ -385,7 +385,7 @@ async def run(cfg: Settings) -> str:
         await c.aclose()
     print(f"Demo data loaded: {stats}")
     # The same one-time link as `python -m sim.cli login-link`; the base is SIM_PUBLIC_URL when set,
-    # otherwise the local Angular dev server (its proxy forwards /api to the backend).
+    # otherwise the local Vite dev server (its proxy forwards /api to the backend).
     base = cfg.public_url if "public_url" in cfg.model_fields_set else LOCAL_FRONTEND_URL
     return f"{base.rstrip('/')}/api/auth/link?token={token}"
 

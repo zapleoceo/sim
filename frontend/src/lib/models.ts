@@ -61,11 +61,32 @@ export interface Persona {
   voice_style: string;
   /** Обстановка голосовых: off — чистый звук, room/street/cafe — «запись на смартфон» там, random — случайно. */
   voice_ambience: VoiceAmbience;
+  /** Отвечать на входящие звонки в Telegram живым голосом (тот же voice_id, Gemini Live через AIbroker). */
+  accept_calls: boolean;
   strategy_id: number | null;
   is_active: boolean;
   created_at: string;
 }
 export type PersonaIn = Omit<Persona, 'id' | 'created_at'>;
+
+export type MediaKind = 'photo' | 'video' | 'video_note';
+/** `POST /api/personas/{id}/video-note`: `cached` = the same request was already generated. */
+export interface VideoNoteQueued {
+  status: 'queued';
+  cached: boolean;
+  cache_key: string;
+  dialog_id: number;
+}
+export interface PersonaMedia {
+  id: number;
+  persona_id: number;
+  kind: MediaKind;
+  storage_name: string;
+  caption: string;
+  tags: string[];
+  file_url: string;
+  created_at: string;
+}
 export type VoiceMode = 'off' | 'mirror' | 'always';
 export type VoiceAmbience = 'off' | 'room' | 'street' | 'cafe' | 'random';
 
@@ -81,7 +102,18 @@ export interface GuardInfo {
 /** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
 export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
 export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
+/** One call of a preview as SIM sent it to the Broker: the generator, a JSON retry or the guard. */
+export interface PromptRequest {
+  workflow: string;
+  capability: string;
+  model: string | null;
+  json_mode: boolean;
+  max_tokens: number | null;
+  temperature: number | null;
+  messages: { role: string; content: unknown }[];
+}
 export interface PreviewResponse {
+  /** Every model call of this preview, in order, exactly as sent. Not stored anywhere. */
   requests?: PromptRequest[];
   reply: string;
   decision: unknown;
@@ -181,6 +213,8 @@ export interface Dialog {
   send_capabilities?: { text: boolean; voice: boolean; attachment: boolean };
 }
 export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
+/** DELETE /api/dialogs/{id}/messages: the dialog after «Очистить чат» and how many messages went. */
+export interface ClearedDialog extends DialogDetail { deleted_messages: number }
 export interface DialogFilter {
   source: '' | 'real' | 'test';
   avatar: '' | 'with' | 'without';
@@ -331,16 +365,30 @@ export interface SimBranchDetail extends SimBranchRow {
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 /** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
-/** The persona's full system prompt as the model gets it; `fixed` is empty for compatibility. */
+/**
+ * One piece of the persona's system prompt and whose field it comes from (`field`: that field or the setting
+ * key). `code`: fixed in the code, nothing to edit, `field` is empty.
+ */
+export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting' | 'code'; field: string }
+/** `unified`: the persona runs on her saved single prompt; `legacy`: on the prompt composed from her fields and the strategy. */
+export type PromptMode = 'legacy' | 'unified';
+/** A rule fixed in the code: shown read-only. */
+export interface FixedRule { key: string; title: string; text: string }
+/**
+ * The persona's prompt map: `system` is the stable system message as the model gets it, `parts` the same
+ * text piece by piece, `context` an example of the per-reply message code builds, `rules` what is fixed in
+ * the code. `fixed` is empty for compatibility. `agent_prompt` is the text the owner edits as the single prompt:
+ * the saved one, or in `legacy` mode the composed instructions without the answer format.
+ */
 export interface PersonaPrompt {
-  system: string; fixed: string; mode: 'legacy' | 'unified'; agent_prompt: string;
-  technical: { links: string; output_contract: string; retry_nudge: string };
-  guard_system: string; followup_example: string; boundary: string;
-  postprocessing: { typo_percent: number; lowercase_percent: number };
-}
-export interface PromptRequest {
-  workflow: string; capability: string; model: string | null; json_mode: boolean;
-  messages: { role: string; content: unknown }[];
+  mode: PromptMode;
+  agent_prompt: string;
+  system: string;
+  fixed: string;
+  strategy_id: number;
+  context: string;
+  parts: PromptPart[];
+  rules: FixedRule[];
 }
 export interface AppSettingItem {
   key: string;
@@ -356,4 +404,3 @@ export interface AppSettingItem {
   updated_at: string | null;
   updated_by_id: number | null;
 }
-

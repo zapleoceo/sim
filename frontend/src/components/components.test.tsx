@@ -58,6 +58,12 @@ describe('shared components', () => {
     expect(screen.getByText('Голосовое')).toBeInTheDocument();
   });
 
+  it('a phone call header shows the call label next to its duration', () => {
+    render(<MessageContent message={{ ...base, direction: 'in', author: 'client', text: 'Входящий звонок · 2:31', media_kind: 'call', media_url: null }} />);
+    expect(screen.getByText('Звонок')).toBeInTheDocument();
+    expect(screen.getByText('Входящий звонок · 2:31')).toBeInTheDocument();
+  });
+
   it('field wires label, hint and error to the control', () => {
     const { rerender } = render(
       <Field label="Имя" hint="Как в паспорте">

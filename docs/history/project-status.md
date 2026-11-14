@@ -2,7 +2,7 @@
 
 База main `7ef50b1f2481f1ed9dde03c264075ea82ba86529`, PR #1–#13 слиты.
 Единая переписка и активность добавлены в PR #13; результаты проверок — в
-[задаче](ai-ui/tasks/unified-client-admin/task-context.md).
+[задаче](unified-client-admin/task-context.md).
 Read-only проверка production 2026-11-07 показала `b27a89b` и миграцию `0005`.
 Выкладка PR #13 не подтверждена.
 
@@ -30,7 +30,8 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 |---|---|---|
 | Разные персонажи | Реализовано в коде | Описание, ограничения, язык, модель, стратегия; начальные персонажи |
 | Аватары | Частично | Поле avatar_url и отображение; генерация и production-контент не проверены |
-| Индивидуальные голоса | Реализовано в коде | Google Gemini TTS через Broker `/v1/speech`, режимы off/mirror/always, отправка голосовых в Telegram (бот и аккаунт) и WhatsApp, откат в текст ([voice.md](voice.md)); маршрут Broker и scope `llm:speech` на production не активированы, видео Vivix нет |
+| Индивидуальные голоса | Реализовано в коде | Google Gemini TTS через Broker `/v1/speech`, режимы off/mirror/always, отправка голосовых в Telegram (бот и аккаунт) и WhatsApp, откат в текст ([voice.md](../voice.md)); маршрут Broker и scope `llm:speech` на production не активированы, видео Vivix нет |
+| Кружочки ИИ | Реализовано в коде | Генерация через Broker `/v1/video/jobs` (Gemini Omni Flash), кеш по хешу запроса, отправка только на один аккаунт из настройки владельца после сообщения «Сгенерировано ИИ» ([video-notes.md](../video-notes.md)); на живом ключе и в Telegram не проверено, качество русской и украинской речи не подтверждено |
 | Входящие голосовые | Реализовано в коде | Загрузка и транскрипция через Broker; внешнее выполнение не проверено |
 | Instagram диалоги | Реализовано в коде | instagrapi, polling, входящие запросы и личные сообщения |
 | Instagram публикации | Ограниченный выключенный пилот | Один локальный JPEG, два gate, явный post ID; долговечный intent/receipt, без автоматического retry неизвестного исхода; полноценный upload/UI и live-проверка отсутствуют |
@@ -50,21 +51,21 @@ SIM является личным проектом, не ITSTEP. Бриф опр
 2. Определить критерии готовности голосов, аватаров и публикаций Instagram.
 3. Выбрать ожидаемые задержки ответа и минимальный объём одновременных диалогов для нагрузочной проверки.
 
-Валютная политика и приём CSV уже определены в [API](api.md); повторное решение владельца
+Валютная политика и приём CSV уже определены в [API](../api.md); повторное решение владельца
 для них не требуется. Доставленные исходящие в `replied` исправлены в слитом PR #9. Nginx login routes исправлены в слитом PR #10:
 точные `/api/auth/telegram` и `/api/auth/link`, без ужесточения остальных auth/read routes.
 Проверка сервера 2026-11-07: `nginx -t` проходит с предупреждением proxy_headers hash;
 live-конфигурация ещё содержит старый `/api/auth/login`. Generation/CAS fencing слит в
 PR #11, intent/receipt исходящих — в PR #12. Lease renewal и универсальная защита побочных
 эффектов остаются открытыми, как и ограничения независимости guard. Старые worker нужно
-полностью вывести перед rollout. Подробности: [доставка](outbound-delivery.md).
+полностью вывести перед rollout. Подробности: [доставка](../outbound-delivery.md).
 
 ## Последняя локальная проверка
 Для PR #13 в облаке прошли 573 backend-теста, Ruff, frontend build, lint и TypeScript
 app/spec. Полный mypy сохраняет 18 прежних ошибок в шести файлах. На Windows локально
 прошли 91/91 ChromeHeadless-тестов; облачный запуск Chromium заблокирован socket policy.
-Детали и границы — в [задаче](ai-ui/tasks/unified-client-admin/task-context.md).
-Для пилота Instagram см. [условия включения](instagram-content-publishing.md) и
-[intent/receipt](publication-intents.md).
+Детали и границы — в [задаче](unified-client-admin/task-context.md).
+Для пилота Instagram см. [условия включения](../instagram-content-publishing.md) и
+[intent/receipt](../publication-intents.md).
 
 Источники: [описание проекта](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/README.md), [персонажи и стратегия](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/docs/personas.md), [API](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/docs/api.md), [ContentService](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/services/content.py), [сборка зависимостей](https://github.com/zapleoceo/sim/blob/42af69c0bdbb6ee9a24155b5feaca37c2b040b74/backend/sim/wiring.py).

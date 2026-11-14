@@ -18,6 +18,7 @@ export function Field({
   error,
   counter,
   className,
+  anchorId,
   children,
 }: {
   label: ReactNode;
@@ -25,6 +26,8 @@ export function Field({
   error?: ReactNode;
   counter?: ReactNode;
   className?: string;
+  /** `id` of the whole field, so a link elsewhere on the page can point at it. */
+  anchorId?: string;
   children: ReactElement<ControlProps>;
 }) {
   const id = useId();
@@ -38,7 +41,7 @@ export function Field({
       })
     : children;
   return (
-    <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
+    <div id={anchorId} className={cn('flex min-w-0 scroll-mt-4 flex-col gap-1.5', className)}>
       <Label htmlFor={children.props.id ?? id}>{label}</Label>
       {control}
       {(hasNote || counter) && (

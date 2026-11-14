@@ -21,6 +21,7 @@ from sim.services.prompt import (
     parse_decision,
     registration_link,
     stable_system_prompt,
+    system_prompt_parts,
 )
 
 PERSONA = PersonaProfile(
@@ -92,13 +93,33 @@ def test_description_and_prohibitions_sections():
     assert system.index("Чего нельзя никогда") < system.index("СТРАТЕГИЯ") < system.index("ПРАВИЛА:")
 
 
-def test_the_persona_prompt_is_the_owner_text_then_strategy_and_format():
-    own = PersonaProfile(name="Х", description="Мой промпт целиком.", prohibitions="не трогать")
+def test_the_persona_prompt_is_the_owner_text_her_prohibitions_then_strategy_and_format():
+    own = PersonaProfile(name="Х", description="Мой промпт целиком.", prohibitions="не трогать\n- не спорить")
     system = stable_system_prompt(own, STRATEGY, PromptTexts(contract="ФОРМАТ: мой"))
-    assert system.startswith("Мой промпт целиком.\n\nСТРАТЕГИЯ")
+    assert system.startswith(
+        "Мой промпт целиком.\n\nЧего нельзя никогда:\n- не трогать\n- не спорить\n\nСТРАТЕГИЯ\n- Название: S")
     assert system.endswith("ФОРМАТ: мой")
-    assert "не трогать" not in system            # prohibitions were folded into the text (0014)
     assert VOICE_RULE not in system and STYLE_RULE not in system   # no hidden shared rules
+
+
+def test_system_prompt_parts_are_the_prompt_and_name_where_each_piece_is_edited():
+    own = PersonaProfile(name="Х", description="Кто она.", prohibitions="не спорить",
+                         routine="пн-пт 09:00-13:00 работа")
+    strategy = StrategyProfile(name="S", offer="курс", prompt="Сначала человек.",
+                               stage_playbook={"engaged": "узнай"}, rules=["не дави"])
+    parts = system_prompt_parts(own, strategy, PromptTexts(contract="ФОРМАТ"))
+    assert "\n\n".join(p.text for p in parts) == stable_system_prompt(own, strategy, PromptTexts(contract="ФОРМАТ"))
+    assert [(p.key, p.source, p.field) for p in parts] == [
+        ("description", "persona", "description"), ("prohibitions", "persona", "prohibitions"),
+        ("routine", "persona", "routine"), ("strategy", "strategy", "offer"),
+        ("strategy_prompt", "strategy", "prompt"), ("stage_playbook", "strategy", "stage_playbook"),
+        ("rules", "strategy", "rules"), ("output_contract", "setting", "output_contract"),
+    ]
+    assert all(p.title and p.text for p in parts)
+    # empty pieces are left out; the answer format always closes the prompt
+    bare = system_prompt_parts(PersonaProfile(name="Х"), StrategyProfile(), PromptTexts(contract=""))
+    assert [p.key for p in bare] == ["description", "strategy", "output_contract"]
+    assert bare[0].text == "Ты Х."
 
 
 def test_compose_persona_prompt_puts_who_she_is_first():

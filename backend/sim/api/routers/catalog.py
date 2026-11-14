@@ -17,24 +17,17 @@ from sim.api.schemas import (
     StrategyIn,
     guard_out,
     persona_out,
+    prompt_map_out,
     strategy_out,
 )
 from sim.domain.voice import speaks
-from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
-from sim.services.conversation import (
-    GUARD_RETRY_TEMPLATE,
-    NEUTRAL_HANDOFF_REPLY,
-    ConversationError,
-    persona_profile,
-    strategy_profile,
-)
-from sim.services.followup import followup_instruction
-from sim.services.guard import GuardOutcome, guard_system_prompt
+from sim.services.guard import GuardOutcome
 from sim.services.llm_audit import capture_requests
 from sim.services.models import catalog_items
-from sim.services.preview_media import MAX_BYTES, AttachmentError
-from sim.services.prompt import LINK_CONTRACT, Turn, editable_agent_prompt
+from sim.services.preview_media import MAX_BYTES
+from sim.services.prompt import Turn
+from sim.services.prompt_map import UNIFIED
 from sim.wiring import Container
 
 personas = APIRouter(prefix="/api/personas", tags=["personas"], dependencies=[Depends(authed)])
@@ -113,35 +106,25 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
 
 @personas.get("/{persona_id}/prompt")
 async def persona_prompt(persona_id: int, c: App, s: Db):
-    """Exactly what the persona's model gets as its system prompt (saved settings), with an
-    empty fixed field for compatibility. Client history and the per-dialog context follow
-    it in a real call."""
+    """Exactly what the persona's model gets as its system prompt (saved settings), and the same
+    text piece by piece with the place each piece is edited. `context` is an example of the
+    per-reply message that follows the client history in a real call; `rules` are fixed in the
+    code. `mode` says whether she runs on her saved single prompt ("unified") or on the prompt
+    composed from her fields and the strategy ("legacy"); `agent_prompt` is the text the owner
+    edits as that single prompt. `fixed` is empty, kept for compatibility. No model is called."""
     persona = await persona_or_404(s, persona_id)
-    service = c.conversation(s)
-    cfg = await service.config()
-    strategy = await service.strategy_for(persona.id)
-    return {
-        "system": await service.system_prompt(persona), "fixed": "",
-        "mode": "unified" if persona.agent_prompt is not None else "legacy",
-        "agent_prompt": editable_agent_prompt(persona_profile(persona), strategy_profile(strategy)),
-        "technical": {"links": LINK_CONTRACT, "output_contract": cfg.output_contract,
-                      "retry_nudge": cfg.retry_nudge, "guard_retry": GUARD_RETRY_TEMPLATE,
-                      "neutral_handoff": NEUTRAL_HANDOFF_REPLY},
-        "guard_system": guard_system_prompt(cfg.guard_prompt),
-        "followup_example": followup_instruction([24], 0, unified=persona.agent_prompt is not None),
-        "postprocessing": {"typo_percent": cfg.typo_percent, "lowercase_percent": cfg.lowercase_percent},
-        "boundary": "SIM messages before AIbroker transport. Subscription transport serializes roles "
-                    "as a JSON transcript and adds continuation/JSON instructions. Provider-internal "
-                    "instructions are not exposed here. No model call is made by this endpoint.",
-    }
+    return prompt_map_out(await c.conversation(s).prompt_map(persona))
 
 
 @personas.put("/{persona_id}/prompt")
 async def save_agent_prompt(persona_id: int, body: AgentPromptIn, s: Db, _: Owner):
+    """Owner only: save the single authoritative prompt. From now on the persona runs on this
+    text (unified mode); her other fields and the strategy stay as they are. Nothing else
+    switches a persona to this mode, and `PUT /api/personas/{id}` never touches the text."""
     persona = await persona_or_404(s, persona_id)
     persona.agent_prompt = body.text
     await s.flush()
-    return {"mode": "unified", "agent_prompt": persona.agent_prompt}
+    return {"mode": UNIFIED, "agent_prompt": persona.agent_prompt}
 
 
 @personas.post("/{persona_id}/preview/attachment")
@@ -153,12 +136,9 @@ async def preview_attachment(
     """A voice note recorded in the admin or an attached file → text the persona reads."""
     await persona_or_404(s, persona_id)
     data = await file.read(MAX_BYTES + 1)
-    try:
-        att = await c.preview_attachments().read(
-            data, file.filename or "file", file.content_type or "", voice=voice
-        )
-    except AttachmentError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    att = await c.preview_attachments().read(
+        data, file.filename or "file", file.content_type or "", voice=voice
+    )
     return {"kind": att.kind, "name": att.name, "text": att.text, "media_url": att.media_url}
 
 
@@ -183,16 +163,13 @@ async def preview_voice(
 async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Authed):
     persona = await persona_or_404(s, persona_id)
     history = [Turn(h.role, h.text) for h in body.history]
-    try:
-        with capture_requests() as requests:
-            result = await c.conversation(s).preview(
-                persona, body.message, history, stage=body.stage, status=body.status,
-                needs=body.needs, next_step=body.next_step,
-            )
-    except ConversationError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    except LLMError as exc:
-        raise HTTPException(502, f"Broker error: {exc}") from exc
+    # `requests`: every call of this preview (generator, JSON retry, guard) as SIM sent it to
+    # the Broker. Kept for this response only.
+    with capture_requests() as requests:
+        result = await c.conversation(s).preview(
+            persona, body.message, history, stage=body.stage, status=body.status,
+            needs=body.needs, next_step=body.next_step,
+        )
     d = result.decision
     return {
         "requests": requests,
@@ -253,9 +230,4 @@ async def delete_strategy(strategy_id: int, s: Db, _: Owner) -> Response:
 # ---- models -------------------------------------------------------------------------------
 @models.get("")
 async def list_models(c: App):
-    try:
-        rows = await c.llm.list_models()
-    except LLMError as exc:
-        raise HTTPException(502, f"Broker error: {exc}") from exc
-    return {"items": catalog_items(rows)}
-
+    return {"items": catalog_items(await c.llm.list_models())}

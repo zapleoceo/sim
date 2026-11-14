@@ -66,6 +66,28 @@ describe('PersonaPreview', () => {
     expect(log.some((r) => r.path === '/api/personas/1/preview')).toBe(false);
   });
 
+  it('shows every request of the reply as SIM sent it to the Broker', async () => {
+    const request = (workflow: string, content: string) => ({
+      workflow, capability: 'chat', model: null, json_mode: true, max_tokens: null, temperature: null,
+      messages: [{ role: 'system', content }],
+    });
+    fakeApi({ 'POST /api/personas/1/preview': { ...ok, requests: [request('preview', 'ЕДИНЫЙ ПРОМПТ'), request('guard', 'ПРОМПТ ОХРАННИКА')] } });
+    render(<PersonaPreview personaId={1} />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'привет{Enter}');
+
+    expect(await screen.findByText('Запросы SIM → Broker (2)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Запрос 1: preview')).toHaveTextContent('ЕДИНЫЙ ПРОМПТ');
+    expect(screen.getByLabelText('Запрос 2: guard')).toHaveTextContent('ПРОМПТ ОХРАННИКА');
+  });
+
+  it('shows no request block for a reply without captured requests', async () => {
+    fakeApi({ 'POST /api/personas/1/preview': { ...ok, requests: [] } });
+    render(<PersonaPreview personaId={1} />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'привет{Enter}');
+    expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
+    expect(screen.queryByText(/Запросы SIM/)).not.toBeInTheDocument();
+  });
+
   it('shows a preview failure visibly and «Повторить» resends the same message', async () => {
     let calls = 0;
     const log = fakeApi({

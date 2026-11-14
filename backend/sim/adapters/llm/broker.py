@@ -4,6 +4,8 @@ chat():       POST {url}/v1/jobs?capability=X  ->  poll GET /v1/jobs/{id} until 
 transcribe(): POST {url}/v1/transcribe/jobs (multipart file) -> same poll.
 list_models():GET  {url}/v1/models.
 synthesize(): POST {url}/v1/speech (SpeechPort; synchronous, base64 audio in the answer).
+generate_video(): POST {url}/v1/video/jobs (VideoPort) -> same poll, base64 MP4 in the answer.
+generate_image(): POST {url}/v1/jobs with a codex-sub model (ImagePort) -> same poll, base64 PNG in `files`.
 
 Subscription models (claude-sub/*, codex-sub/*) reject non-default max_tokens/temperature, so
 those fields are never sent for them."""
@@ -14,14 +16,16 @@ import base64
 import binascii
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import date
 from typing import Any
 
 import httpx
 
+from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.ports.llm import LLMError, LLMResult
 from sim.ports.speech import SpeechError, SpeechResult
+from sim.ports.video import VideoError, VideoResult
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +38,8 @@ DEFAULT_MAX_TOKENS = 2048
 POLL_MAX_ERRORS = 5  # consecutive transient poll failures tolerated per job
 DEFAULT_POLL_AFTER_S = 2.0
 MAX_POLL_SLEEP_S = 15.0
+# Any chat capability carries a subscription model; the Broker documents this one for images.
+IMAGE_CAPABILITY = "chat:fast"
 
 
 def is_subscription_model(model: str | None) -> bool:
@@ -44,6 +50,22 @@ def err_text(exc: BaseException) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTP {exc.response.status_code}: {exc.response.text[:300]}"
     return f"{type(exc).__name__}: {exc}"[:400]
+
+
+def image_request(prompt: str) -> str:
+    """The wording the Broker documents for its image tool (docs/subscription-models.md)."""
+    return (f"$imagegen Generate exactly one real PNG image.\n\n{prompt}\n\n"
+            "Use the built-in GPT image generation tool; do not draw it with code or SVG.")
+
+
+def generated_png(files: Any) -> bytes:
+    """The first generated picture of a finished job; b"" when the job produced none (entries
+    may also be other changed files, skipped or expired ones)."""
+    for entry in files if isinstance(files, list) else []:
+        if (isinstance(entry, dict) and str(entry.get("path", "")).lower().endswith(".png")
+                and entry.get("content_b64")):
+            return base64.b64decode(entry["content_b64"], validate=True)
+    return b""
 
 
 def pick(data: dict[str, Any], meta: dict[str, Any], *names: str) -> Any:
@@ -94,12 +116,14 @@ class BrokerLLM:
         *,
         poll_budget_s: float = 180.0,
         subscription_budget_s: float = 600.0,
+        video_budget_s: float = 900.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.url = base_url.rstrip("/")
         self.key = project_key
         self.poll_budget_s = poll_budget_s
         self.subscription_budget_s = subscription_budget_s
+        self.video_budget_s = video_budget_s
         self.sleep = sleep
         self._client: httpx.AsyncClient | None = None
 
@@ -222,6 +246,78 @@ class BrokerLLM:
             duration_s=float(duration) if duration is not None else None,
             model=data.get("model"), cost_usd=float(cost) if cost is not None else None,
         )
+
+    # ---- VideoPort -----------------------------------------------------------------------
+    async def generate_video(
+        self, prompt: str, *, duration_s: int, resolution: str, aspect_ratio: str = "9:16",
+        image: bytes | None = None, image_mime: str | None = None, workflow: str | None = None,
+    ) -> VideoResult:
+        """`POST /v1/video/jobs`, then the job poll: a clip takes tens of seconds to minutes.
+        A project without the `llm:video` scope gets the Broker's 403 text in the error."""
+        body: dict[str, Any] = {"prompt": prompt, "duration_s": duration_s,
+                                "resolution": resolution, "aspect_ratio": aspect_ratio}
+        if image:
+            body["image_base64"] = base64.b64encode(image).decode()
+            body["image_mime"] = image_mime or "image/jpeg"
+        if workflow:
+            body["workflow"] = workflow
+        start = time.perf_counter()
+        try:
+            client = self.client
+            resp = await client.post(f"{self.url}/v1/video/jobs", headers=self.headers, json=body)
+            resp.raise_for_status()
+            data = await self.poll(client, resp.json(), "video", start + self.video_budget_s)
+            video = base64.b64decode(data["video_base64"], validate=True)
+        except LLMError as exc:
+            raise VideoError(str(exc)) from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, binascii.Error) as exc:
+            raise VideoError(f"video: {err_text(exc)}") from exc
+        if not video:
+            raise VideoError("video: broker returned no clip")
+        cost, duration = data.get("cost_usd"), data.get("video_s")
+        return VideoResult(
+            video=video, mime_type=str(data.get("mime_type") or "video/mp4"),
+            duration_s=float(duration) if duration is not None else None,
+            model=data.get("model"), cost_usd=float(cost) if cost is not None else None,
+        )
+
+    # ---- ImagePort -----------------------------------------------------------------------
+    async def generate_image(
+        self, prompt: str, *, model: str, references: Sequence[ImageReference] = (),
+        workflow: str | None = None,
+    ) -> ImageResult:
+        """`POST /v1/jobs` with a subscription model that has the image tool, then the job poll.
+        The picture comes back inline in the finished job (`files[]`, base64 PNG). A project
+        without the scope, or a model the Broker does not allow, gets the Broker's text in the
+        error. `no_shell` is never sent: it switches the image tool off."""
+        content: list[dict[str, Any]] = [{"type": "text", "text": image_request(prompt)}]
+        content += [
+            {"type": "image_url", "image_url": {
+                "url": f"data:{ref.mime};base64,{base64.b64encode(ref.data).decode()}"}}
+            for ref in references
+        ]
+        body: dict[str, Any] = {"model": model, "messages": [{"role": "user", "content": content}]}
+        params = {"capability": IMAGE_CAPABILITY}
+        if workflow:
+            params["workflow"] = workflow
+            body["workflow"] = workflow
+        start = time.perf_counter()
+        try:
+            client = self.client
+            resp = await client.post(
+                f"{self.url}/v1/jobs", params=params, headers=self.headers, json=body)
+            resp.raise_for_status()
+            data = await self.poll(client, resp.json(), "image", start + self.budget_for(model))
+            image = generated_png(data.get("files"))
+        except LLMError as exc:
+            raise ImageError(str(exc)) from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, binascii.Error) as exc:
+            raise ImageError(f"image: {err_text(exc)}") from exc
+        if not image:
+            raise ImageError("image: the job finished without a picture")
+        cost = data.get("cost_usd")
+        return ImageResult(image=image, model=data.get("model") or model,
+                           cost_usd=float(cost) if cost is not None else None)
 
     async def list_models(self) -> list[dict[str, Any]]:
         try:

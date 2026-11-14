@@ -23,6 +23,7 @@ export const EMPTY_PERSONA: PersonaIn = {
   voice_mode: 'off',
   voice_style: '',
   voice_ambience: 'off',
+  accept_calls: false,
   strategy_id: null,
   is_active: true,
 };
@@ -38,11 +39,9 @@ const GEMINI_VOICE_IDS = new Set(GEMINI_VOICES.map((v) => v.id));
 const notBlank = (v: string): boolean => v.trim() !== '';
 
 /**
- * Persona form. The editor shows only name, model, strategy, avatar, description and voice: age,
- * gender, language and prohibitions are not edited here (origin lives in the description; age, zodiac
- * and local time come from the birth date and time zone, computed by code;
- * restrictions are set later in the simulator). Their saved values pass through unchanged; empty
- * gender/language fall back to female/ru. Required: name and description.
+ * Persona form: every field of the persona is edited on its page. The stored `age` is the only
+ * one without a control: the age comes from the birth date, computed by code. Empty gender and
+ * language fall back to female/ru. Required: name and description.
  */
 export const personaSchema = z.object({
   name: z.string().refine(notBlank, 'Укажите имя').refine((v) => v.length <= 80, 'Не длиннее 80 символов'),
@@ -67,8 +66,12 @@ export const personaSchema = z.object({
   voice_mode: z.enum(['off', 'mirror', 'always']),
   voice_style: z.string().max(300, 'Не длиннее 300 символов'),
   voice_ambience: z.enum(['off', 'room', 'street', 'cafe', 'random']),
+  accept_calls: z.boolean(),
   strategy_id: z.number().nullable(),
   is_active: z.boolean(),
+}).refine((v) => !v.accept_calls || v.voice_id !== '', {
+  path: ['voice_id'],
+  message: 'Для звонков выберите голос',
 }).refine((v) => v.voice_mode === 'off' || v.voice_id !== '', {
   path: ['voice_id'],
   message: 'Для голосовых ответов выберите голос',
@@ -105,6 +108,7 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
     voice_mode: p.voice_mode ?? 'off',
     voice_style: p.voice_style ?? '',
     voice_ambience: p.voice_ambience ?? 'off',
+    accept_calls: p.accept_calls ?? false,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
@@ -128,6 +132,7 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
     voice_mode: v.voice_mode,
     voice_style: v.voice_style.trim(),
     voice_ambience: v.voice_ambience,
+    accept_calls: v.accept_calls,
     strategy_id: v.strategy_id,
     is_active: v.is_active,
   };
@@ -150,7 +155,17 @@ export function personaToInput(p: Persona): PersonaIn {
     voice_mode: p.voice_mode,
     voice_style: p.voice_style,
     voice_ambience: p.voice_ambience,
+    accept_calls: p.accept_calls ?? false,
     strategy_id: p.strategy_id,
     is_active: p.is_active,
   };
+}
+
+/** Full years since the birth date (`YYYY-MM-DD`), as the backend counts them; null when the date is not set. */
+export function ageFromBirthDate(value: string, today: Date = new Date()): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const hadBirthday = today.getMonth() + 1 > month || (today.getMonth() + 1 === month && today.getDate() >= day);
+  return today.getFullYear() - year - (hadBirthday ? 0 : 1);
 }

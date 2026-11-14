@@ -17,10 +17,17 @@
 легенда, роль, стиль, безопасность, что можно и нельзя. Общих текстов роли, стиля и безопасности
 больше нет: миграция 0014 влила их (и прежние «Чего нельзя») в промпт каждого персонажа, а у
 Марины и Евы по умолчанию промпт собирает `compose_persona_prompt` (их легенда + те же блоки
-роли, стиля и безопасности из `backend/sim/services/prompt.py`). После промпта модель получает
-стратегию и формат ответа (`output_contract`,
-правится на «Общих правилах»). Всё вместе видно на странице персонажа: «Полный промпт, который
-получает модель». Все промпты для моделей (персонаж, контекст
+роли, стиля и безопасности из `backend/sim/services/prompt.py`). Порядок сборки системного сообщения
+(`system_prompt_parts` в `backend/sim/services/prompt.py`): промпт персонажа, её запреты (поле
+«Запреты», `prohibitions`: раздел «Чего нельзя никогда», только если поле не пусто), распорядок
+недели, стратегия (что продаём и два правила ссылок из кода, затем сценарий), формат ответа
+(`output_contract`). Всё вместе видно и правится на странице персонажа: раздел «Итоговый промпт»
+показывает каждую часть, её источник и ссылку на поле, где она меняется, а общие настройки
+редактируются там же в разделе «Общие инструкции». Не редактируются правила из кода, например: на
+звонке голос первой фразой говорит, что он ИИ-ассистент (`services/call_prompt.py`), и перед
+кружочком уходит «Сгенерировано ИИ», а сам кружочек только на аккаунт из настройки «Кружочки ИИ»
+(`services/video_note.py`); страница показывает их только для чтения. Сохранённый единый промпт
+заменяет эту сборку целиком, см. «Единый промпт агента» ниже. Все промпты для моделей (персонаж, контекст
 разговора, контролер, напоминания, подписи к постам, студия) написаны на русском; на
 английском остаются только ключи JSON и коды этапов воронки, на которые опираются парсеры.
 По умолчанию:
@@ -48,6 +55,11 @@
 символов в секунду, от 1,5 до 8 с; задачи `send` с разным `run_at`). Стоимость и модель записаны у первого.
 Опечатки и регистр код накладывает на каждую часть отдельно. Голосовое всегда одно. В симуляциях каждая
 часть хранится отдельной строкой `sim_message`.
+
+В контекст каждого ответа в диалоге код добавляет блок «МЕДИА» (`DialogContext.media`): либо как
+приложить к ответу своё фото или кружочек (поле `media` в JSON-ответе), либо что сейчас их
+отправить нельзя и обещать не надо. Как персонаж решает, из чего собирается кадр и какие правила
+действуют при отправке: [persona-media.md](persona-media.md).
 
 Дата рождения и часовой пояс персонажа (`birth_date`, `timezone`) задаются в карточке персонажа. Код
 (`services/persona_clock.py`) перед каждым ответом считает её местные дату, день недели и время суток,
@@ -115,41 +127,89 @@
 Чего нельзя (мягко): без карикатурных национальных стереотипов и шуток на этой почве; не
 высокомерничать; не язвить в адрес собеседника.
 
+## Единый промпт агента (режимы legacy и unified)
 
-## Visible agent prompt (0019_agent_prompt)
+У персонажа два режима сборки системного сообщения. Режим задаёт одно поле `persona.agent_prompt`
+(миграция `0025`, nullable):
 
-The persona screen explicitly reports `legacy` or `unified`. Legacy is unchanged:
-`description`, strategy text and legacy strategy rules are composed. The editor materializes
-that exact text (except the JSON contract). Saving **Единый промпт агента** stores
-`persona.agent_prompt` without rewriting the old description or shared strategy. From that
-point the saved text is the only behavioural source in the common live/preview/simulation
-builder. Strategy links still provide dynamic data. Follow-ups use a neutral event rather
-than inserting the legacy writing-style instruction. Changing the old persona/strategy
-fields does not silently change an active unified prompt. Nothing switches automatically.
+- **legacy** (`agent_prompt IS NULL`, так у всех персонажей после миграции): системное сообщение
+  собирается из частей, как описано выше: промпт персонажа, запреты, распорядок, стратегия, формат
+  ответа.
+- **unified** (в `agent_prompt` сохранён текст): модель получает этот текст как он сохранён, без
+  обрезки пробелов, затем правило ссылок из кода (`LINK_CONTRACT`) и формат ответа
+  (`output_contract`). «Промпт персонажа», «Запреты», текст распорядка и тексты стратегии в
+  системное сообщение не попадают, их правка на ответы не влияет.
 
-`GET /api/personas/{id}/prompt` makes no model call and exposes mode, editable text,
-assembled system message, JSON/link/retry contracts, guard system, follow-up example,
-postprocessing settings and the transport boundary. `PUT` on that route is owner-only;
-normal persona updates cannot clear the authoritative prompt. Unsaved text is not sent.
-The controller remains independent and fail-closed; its request is not the persona prompt.
+Обе ветки собирает одна функция `system_prompt_parts` (`backend/sim/services/prompt.py`), поэтому
+режим действует везде, где строится промпт персонажа: ответ в диалоге, напоминание, пробный чат,
+симуляция и звонок (`call_system_prompt` берёт тот же текст без формата ответа и добавляет правила
+звонка). Режим определяет `prompt_mode` (`backend/sim/services/prompt_map.py`): только `NULL`
+означает legacy, сохранённый текст авторитетен, даже если он короткий.
 
-Preview responses expose `requests`, captured at the actual AuditedLLM call boundary,
-including each generator/JSON retry/guard attempt. Messages include the actual history
-and dynamic context at that time. Capture is context-local, deep-copied, reset on errors,
-and not persisted in logs or the database. This is not a historical production request log.
-The live flow uses the same builder; old live calls cannot be reconstructed from metadata.
-Voice synthesis and attachment recognition are separate from these text requests.
+Что в режиме unified работает как раньше:
 
-SIM does not control provider-internal instructions. AIbroker's subscription path serializes
-messages into a JSON transcript with continuation and JSON-format wrappers. The displayed
-SIM boundary must not be advertised as the complete provider-native system prompt.
-The screen discloses postprocessing (including terminal punctuation removal), technical
-handoff and retry text instead of pretending those are user-authored behavioural text.
+- контекст разговора (`dynamic_context`): этап, заметки, паспорт собеседника, ссылки, блок «МЕДИА»
+  и точные данные персонажа на сейчас. Распорядок недели по-прежнему даёт «где ты сейчас, что было
+  вчера и будет завтра»: это считает код из поля `routine`, а не текст промпта;
+- охранник: отдельный запрос со своим промптом, единый промпт в него не входит. Отказ охранника
+  по-прежнему закрывает ответ;
+- постобработка `humanize` (пунктуация, точка в конце, регистр, опечатки) и голос.
 
-Migration 0019_agent_prompt (parent 0019) adds a nullable column only. Rollback of the migration drops that new column;
-back up its saved values before downgrading. No live persona is switched by migration.
-CI must run backend/PostgreSQL, frontend and tests/docs gates on the published commit.
+Напоминание в режиме unified получает нейтральное событие («плановое напоминание N из M, клиент
+молчит примерно X ч, последнее: да/нет») вместо инструкции legacy, которая сама задаёт тон
+(«короткое, дружелюбное, ненавязчивое»): тон напоминания задаёт единый промпт
+(`followup_instruction(..., unified=True)` в `backend/sim/services/followup.py`).
 
-Integration order: this migration is independent of unmerged routine/media work. Later migrations branching from 0019 must be rebased onto 0019_agent_prompt (or explicitly merged) before release; never deploy multiple Alembic heads.
+### Как включается
 
-Routine support from main is preserved: computed current/yesterday/tomorrow facts still enter the dynamic message in unified mode. The exact preview capture includes those facts. The editor materializes the existing routine block when switching from compatibility mode; future edits to that stored text are explicit.
+Режим переключает только владелец, сохранив текст в разделе «Единый промпт агента» на странице
+персонажа (`PUT /api/personas/{id}/prompt`, `{text}`, от 1 до 100000 символов). В режиме legacy
+поле показывает нынешние инструкции одним текстом (`editable_agent_prompt`: системное сообщение
+без формата ответа), их можно сохранить как есть или сначала отредактировать. Перед первым
+сохранением админка просит подтверждения: с этого момента персонаж отвечает по новому тексту во
+всех каналах. Несохранённый текст модели не отправляется.
+
+Само ничего не переключается: миграция `0025` только добавляет колонку, а `PUT /api/personas/{id}`
+(форма персонажа) поле `agent_prompt` не читает и не меняет. Вернуть персонажа в legacy через API
+нельзя: пустой текст не принимается (`422`).
+
+Откат миграции `0025` удаляет колонку вместе с сохранёнными текстами: перед откатом их нужно
+сохранить отдельно.
+
+### Что видно на странице персонажа
+
+`GET /api/personas/{id}/prompt` модель не вызывает. К карте промпта добавлены:
+
+- `mode` (`legacy` / `unified`) и `agent_prompt` (текст для редактора);
+- в `parts` для режима unified три части: `agent_prompt` (источник «Поле персонажа», ссылка ведёт
+  к редактору), `link_contract` (источник `code`: «Фиксировано в коде», ссылки «Изменить» нет) и
+  `output_contract`;
+- в `rules` три служебных текста ответа, только для чтения (`reply_rules`): `guard_retry`
+  (сообщение генератору после отказа охранника, `{feedback}` заменяется замечанием),
+  `neutral_handoff` (нейтральный ответ клиенту, когда ответ дважды не прошёл проверку и диалог
+  уходит оператору) и `followup` (инструкция первого напоминания по часам стратегии персонажа, в
+  формулировке её режима).
+
+Промпт охранника с его фиксированным контрактом, формат ответа, повтор при неверном JSON и
+проценты опечаток и регистра отдельно не дублируются: они уже показаны и редактируются в разделе
+«Общие инструкции» той же страницы.
+
+### Точные запросы пробного чата
+
+Ответ `POST /api/personas/{id}/preview` содержит `requests`: все вызовы модели этого ответа в
+порядке отправки, как SIM передал их в AIbroker: генератор, повтор при неверном JSON, повтор после
+отказа охранника и сам охранник. У каждого `workflow`, `capability`, `model`, `json_mode`,
+`max_tokens`, `temperature` и `messages` целиком: системное сообщение, история и контекст на момент
+вызова. Запись идёт на границе `AuditedLLM.chat` (`capture_requests` в
+`backend/sim/services/llm_audit.py`): копия сообщений снимается до передачи транспорту, живёт
+только в рамках этого HTTP-запроса и не пишется ни в журнал, ни в базу. Пробный чат показывает
+их под ответом в блоке «Запросы SIM → Broker».
+
+Границы показанного:
+
+- это запросы SIM, а не то, что получает провайдер: AIbroker может обернуть сообщения по-своему, а
+  внутренние инструкции провайдера SIM не видит;
+- это не журнал боевых запросов: прошлые ответы в каналах так восстановить нельзя, блок есть только
+  у пробного ответа;
+- синтез голоса и распознавание вложений пробного чата идут отдельными вызовами и в `requests` не
+  входят.

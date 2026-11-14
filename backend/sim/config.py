@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     broker_project_key: str = ""
     broker_poll_budget_s: float = 180.0
     broker_subscription_budget_s: float = 600.0
+    # AI video notes (Broker /v1/video/jobs): how long one clip may stay queued + rendering.
+    broker_video_budget_s: float = 900.0
+    # Persona phone calls (Broker /v1/live, Gemini Live): the longest call; the Broker caps it at
+    # 540 s itself (Google closes one live session after ~10 min).
+    call_max_seconds: float = 540.0
+    # Kill switch: off = the worker never attaches the call library to userbot accounts.
+    calls_enabled: bool = True
+    # Call diagnostics in the worker log (logger sim.calls.trace): session opened, answer sent,
+    # first frame, first model audio, counters. Off: only failures are logged.
+    call_diagnostics: bool = False
 
     evolution_url: str = "http://evolution:8080"
     evolution_api_key: str = ""
@@ -62,7 +72,7 @@ class Settings(BaseSettings):
     trace_retention_days: int = 30
     trace_purge_interval_s: float = 3600.0
 
-    static_dir: str = "../frontend/dist/sim/browser"   # built Angular app (prod: /app/static)
+    static_dir: str = "../frontend/dist/sim/browser"   # built React admin (Vite; prod: /app/static)
     media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)
     # Private subscription studio: explicit account binding, disabled by default.
     studio_owner_telegram_id: int = 0

@@ -25,8 +25,9 @@ from telethon import types as tl_types
 from telethon.events import NewMessage
 
 from sim.adapters.channels._http import MEDIA_MAX_BYTES
-from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
+from sim.adapters.channels.capabilities import CANCEL, RECORD_VOICE, Capability
 from sim.adapters.channels.telegram import chunk_text
+from sim.adapters.channels.tg_calls import TelegramCallBridge
 from sim.clock import utcnow
 from sim.domain.enums import ChannelKind, SessionStatus
 from sim.ports.channel import InboundMessage, SendResult
@@ -108,12 +109,17 @@ class TelethonTransport:
     delays the reply until the fallback sweep."""
 
     def __init__(
-        self, client_factory: Callable[[], Any], on_new_message: Callable[[], None] | None = None
+        self, client_factory: Callable[[], Any], on_new_message: Callable[[], None] | None = None,
+        *, on_call: Callable[[Any], Awaitable[None]] | None = None,
+        call_bridge: Callable[..., Any] = TelegramCallBridge,
     ) -> None:
         self._factory = client_factory
         self._client: Any | None = None
         self._connect_lock = asyncio.Lock()
         self._on_new = on_new_message
+        self._on_call = on_call
+        self._call_bridge = call_bridge
+        self.calls: Any | None = None
 
     async def ready(self) -> Any:
         async with self._connect_lock:
@@ -123,7 +129,23 @@ class TelethonTransport:
                     self._client.add_event_handler(self.new_message, NewMessage(incoming=True))
             if not self._client.is_connected():
                 await self._client.connect()
+            if self._on_call is not None and self.calls is None:
+                await self.attach_calls(self._client)
             return self._client
+
+    async def attach_calls(self, client: Any) -> None:
+        """Voice calls ride the same client. A failure (no native library, an account that
+        cannot call) only disables calls: messaging must keep working."""
+        assert self._on_call is not None
+        try:
+            bridge = self._call_bridge(client, self._on_call)
+            await bridge.start()
+        except Exception as exc:
+            logger.warning("telegram_user calls disabled: %s: %s", type(exc).__name__,
+                           str(exc)[:200])
+            self._on_call = None
+            return
+        self.calls = bridge
 
     async def new_message(self, event: Any) -> None:
         """Telethon NewMessage handler: only private chats with people wake the poll."""
@@ -238,8 +260,11 @@ class TelethonTransport:
 
 class TelegramUserAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM_USER
-    capabilities = frozenset({Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
-                              Capability.CHAT_ACTION, Capability.MARK_READ})
+    capabilities = frozenset({
+        Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
+        Capability.SEND_PHOTO, Capability.SEND_VIDEO_NOTE, Capability.CHAT_ACTION,
+        Capability.MARK_READ, Capability.ACCEPT_CALL,
+    })
 
     def __init__(
         self,
@@ -324,12 +349,14 @@ class TelegramUserAdapter:
     # --- outbound --------------------------------------------------------------------------
 
     async def send_chat_action(self, external_thread_id: str, action: str) -> None:
-        """messages.setTyping: "печатает" or "записывает голосовое" for ~5 s (best effort)."""
+        """messages.setTyping: "печатает" or "записывает голосовое" for ~5 s, or `cancel` to
+        clear it at once (best effort)."""
         try:
             peer = int(external_thread_id)
             client = await self.t.ready()
             entity = await self.t.entity(client, peer)
-            kind = (tl_types.SendMessageRecordAudioAction() if action == RECORD_VOICE
+            kind = (tl_types.SendMessageCancelAction() if action == CANCEL
+                    else tl_types.SendMessageRecordAudioAction() if action == RECORD_VOICE
                     else tl_types.SendMessageTypingAction())
             await client(tl_functions.messages.SetTypingRequest(peer=entity, action=kind))
         except Exception as exc:
@@ -409,6 +436,58 @@ class TelegramUserAdapter:
             file.name = filename
             sent = await client.send_file(
                 await self.t.entity(client, peer), file, caption=caption[:1000],
+            )
+            return int(sent.id)
+        try:
+            mid = await self.throttled(send)
+        except tg_errors.FloodWaitError as exc:
+            return SendResult(ok=False,
+                              error=f"flood_wait:{int(getattr(exc, 'seconds', 0) or 0)}")
+        except Exception as exc:
+            return SendResult(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        ext = f"{peer}:{mid}"
+        self.s.remember_sent(ext)
+        return SendResult(ok=True, external_message_id=ext)
+
+    async def send_photo(
+        self, external_thread_id: str, data: bytes, caption: str,
+    ) -> SendResult:
+        try:
+            peer = int(external_thread_id)
+        except ValueError:
+            return SendResult(ok=False, error="bad thread id")
+        async def send() -> int:
+            client = await self.t.ready()
+            file = io.BytesIO(data)
+            file.name = "photo.jpg"
+            sent = await client.send_file(
+                await self.t.entity(client, peer), file, caption=caption[:1000],
+            )
+            return int(sent.id)
+        try:
+            mid = await self.throttled(send)
+        except tg_errors.FloodWaitError as exc:
+            return SendResult(ok=False,
+                              error=f"flood_wait:{int(getattr(exc, 'seconds', 0) or 0)}")
+        except Exception as exc:
+            return SendResult(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        ext = f"{peer}:{mid}"
+        self.s.remember_sent(ext)
+        return SendResult(ok=True, external_message_id=ext)
+
+    async def send_video_note(
+        self, external_thread_id: str, data: bytes,
+    ) -> SendResult:
+        try:
+            peer = int(external_thread_id)
+        except ValueError:
+            return SendResult(ok=False, error="bad thread id")
+        async def send() -> int:
+            client = await self.t.ready()
+            file = io.BytesIO(data)
+            file.name = "video_note.mp4"
+            sent = await client.send_file(
+                await self.t.entity(client, peer), file, video_note=True,
             )
             return int(sent.id)
         try:

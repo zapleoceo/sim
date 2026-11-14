@@ -24,13 +24,13 @@ def test_only_audio_images_and_video_are_inline():
 
 async def test_media_responses_are_sandboxed(api, container):
     await login(api, *OWNER)
-    page = container.media.save(b"<script>alert(1)</script>", "html")
+    page = await container.media.save(b"<script>alert(1)</script>", "html")
     assert page.endswith(".bin")
     r = await api.get(f"/api/media/{page}")
     assert r.headers["content-type"] == "application/octet-stream"
     assert r.headers["content-disposition"].startswith("attachment")
     assert "sandbox" in r.headers["content-security-policy"]
     assert r.headers["x-content-type-options"] == "nosniff"
-    voice = container.media.save(b"OggS", "ogg")
+    voice = await container.media.save(b"OggS", "ogg")
     v = await api.get(f"/api/media/{voice}")
     assert v.headers["content-type"].startswith("audio/ogg") and "attachment" not in v.headers.get("content-disposition", "")

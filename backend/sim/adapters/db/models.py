@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +33,7 @@ from sim.domain.enums import (
     ContentStatus,
     Delivery,
     Direction,
+    MediaKind,
     PartnerEventKind,
     Role,
     SessionStatus,
@@ -115,9 +117,6 @@ class Strategy(Base):
 class Persona(Base):
     __tablename__ = "persona"
 
-    # NULL preserves the existing composed prompt; a saved text is authoritative.
-    agent_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -134,6 +133,9 @@ class Persona(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     # What she must never write or do: one rule per line.
     prohibitions: Mapped[str] = mapped_column(Text, default="")
+    # The owner's single authoritative prompt (unified mode). NULL = legacy mode: the prompt is
+    # composed from the description, prohibitions, routine and the strategy.
+    agent_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
     # Google Gemini TTS prebuilt voice name (sim.domain.voice.GEMINI_VOICES), "" = no voice.
@@ -145,10 +147,24 @@ class Persona(Base):
     voice_ambience: Mapped[VoiceAmbience] = mapped_column(
         enum_col(VoiceAmbience), default=VoiceAmbience.OFF
     )
+    # Answer incoming Telegram calls with her live voice (same `voice_id`; sim.services.calls).
+    accept_calls: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategy.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PersonaMedia(Base):
+    __tablename__ = "persona_media"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"))
+    kind: Mapped[MediaKind] = mapped_column(enum_col(MediaKind))
+    storage_name: Mapped[str] = mapped_column(String(120))
+    caption: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -498,4 +514,3 @@ class SimAdminPref(Base):
         ForeignKey("admin_user.id", ondelete="CASCADE"), primary_key=True
     )
     debug: Mapped[bool] = mapped_column(Boolean, default=True)
-

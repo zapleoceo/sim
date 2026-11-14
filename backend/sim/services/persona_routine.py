@@ -126,14 +126,29 @@ def day_line(entries: list[Entry], day: date) -> str:
     return "; ".join(s.label() for s in items) if items else "ничего по распорядку, свободный день"
 
 
+def minute_of(local: datetime) -> int:
+    return local.hour * 60 + local.minute
+
+
+def covers(slot: Slot, minute: int) -> bool:
+    return slot.start <= minute < slot.end
+
+
+def doing_now(text: str, local: datetime) -> list[str]:
+    """What the routine has her doing at this moment (several when entries overlap; none when
+    the time is free or there is no routine)."""
+    slots = agenda(parse_routine(text), local.date())
+    return [s.what for s in slots if covers(s, minute_of(local))]
+
+
 def routine_facts(text: str, local: datetime) -> list[str]:
     """Lines for the 'exact data now' block: now, earlier today, later today, yesterday, tomorrow."""
     entries = parse_routine(text)
     if not entries:
         return []
-    today, now = local.date(), local.hour * 60 + local.minute
+    today, now = local.date(), minute_of(local)
     slots = agenda(entries, today)
-    current = [s for s in slots if s.start <= now < s.end]
+    current = [s for s in slots if covers(s, now)]
     done = [s for s in slots if s.end <= now]
     later = [s for s in slots if s.start > now]
     now_text = "; ".join(f"{s.what} (с {hhmm(s.start)} до {hhmm(s.end)})" for s in current) \

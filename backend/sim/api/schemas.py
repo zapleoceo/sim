@@ -1,6 +1,7 @@
 """Request bodies (pydantic) and response serialisers (plain dicts, shapes from docs/api.md)."""
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,6 +17,7 @@ from sim.adapters.db.models import (
     Message,
     PartnerEvent,
     Persona,
+    PersonaMedia,
     SimBranch,
     SimMessage,
     Strategy,
@@ -33,6 +35,7 @@ from sim.domain.enums import (
 from sim.domain.voice import GEMINI_VOICES
 from sim.services.channels import ConnectState
 from sim.services.persona_routine import MAX_ROUTINE_LEN, invalid_lines
+from sim.services.prompt_map import PromptMap
 
 
 def dt(value: datetime | None) -> str | None:
@@ -88,6 +91,7 @@ class PersonaIn(Body):
     voice_mode: VoiceMode = VoiceMode.OFF
     voice_style: str = Field(default="", max_length=300)
     voice_ambience: VoiceAmbience = VoiceAmbience.OFF
+    accept_calls: bool = False                           # answer Telegram calls live
     strategy_id: int | None = None
     is_active: bool = True
 
@@ -119,10 +123,14 @@ class PersonaIn(Body):
     def voice_needs_a_voice(self) -> PersonaIn:
         if self.voice_mode is not VoiceMode.OFF and not self.voice_id:
             raise ValueError("Voice replies need a voice")
+        if self.accept_calls and not self.voice_id:
+            raise ValueError("Phone calls need a voice")
         return self
 
 
 class AgentPromptIn(BaseModel):
+    """The single prompt as the owner typed it: not stripped, the model gets exactly this text."""
+
     text: str = Field(min_length=1, max_length=100000)
 
 
@@ -250,8 +258,17 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "description": p.description, "prohibitions": p.prohibitions,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
-        "voice_ambience": p.voice_ambience.value,
+        "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
+    }
+
+
+def prompt_map_out(m: PromptMap) -> dict[str, Any]:
+    return {
+        "system": m.system, "fixed": "", "strategy_id": m.strategy_id, "context": m.context,
+        "mode": m.mode, "agent_prompt": m.agent_prompt,
+        "parts": [asdict(part) for part in m.parts],
+        "rules": [asdict(rule) for rule in m.rules],
     }
 
 
@@ -279,6 +296,15 @@ def connect_state_out(s: ConnectState) -> dict[str, Any]:
         if value is not None:
             out[key] = value
     return out
+
+
+def persona_media_out(m: PersonaMedia) -> dict[str, Any]:
+    return {
+        "id": m.id, "persona_id": m.persona_id, "kind": m.kind.value,
+        "storage_name": m.storage_name, "caption": m.caption, "tags": list(m.tags),
+        "file_url": f"/api/media/{m.storage_name}",
+        "created_at": dt(m.created_at),
+    }
 
 
 def guard_out(
@@ -409,4 +435,3 @@ def sim_message_out(m: SimMessage) -> dict[str, Any]:
         "id": m.id, "role": m.role, "text": m.text, "model": m.model, "created_at": dt(m.created_at),
         "guard": guard_out(m.guard_verdict, m.guard_violations, None, m.original_text),
     }
-

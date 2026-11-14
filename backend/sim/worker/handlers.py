@@ -81,6 +81,16 @@ async def run_passport(c: Container, s: AsyncSession, payload: dict[str, Any]) -
     return {"updated": await c.passport(s).update(int(payload["dialog_id"]))}
 
 
+async def run_video_note(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    """An AI video note for the allowlisted owner account: cache or Broker, then label + note."""
+    return await c.video_notes(s).run(payload)
+
+
+async def run_persona_media(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    """The photo or video note a persona chose to attach to her reply: generate, then send."""
+    return await c.media_tool(s).run(payload)
+
+
 async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
     await c.outbound(s).deliver(int(payload["message_id"]), final=bool(payload.get("final")))
 
@@ -139,6 +149,8 @@ HANDLERS: dict[str, Handler] = {
     jobkinds.FOLLOWUP: Handler(run_followup, giveup_followup),
     jobkinds.SEND: Handler(run_send, giveup_send),
     jobkinds.PASSPORT: Handler(run_passport),
+    jobkinds.VIDEO_NOTE: Handler(run_video_note),
+    jobkinds.PERSONA_MEDIA: Handler(run_persona_media),
     jobkinds.CONTENT_PUBLISH: Handler(run_content_publish),
     jobkinds.SIM_REPLY: Handler(run_sim_reply, giveup_sim_reply),
 }

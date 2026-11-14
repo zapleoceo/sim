@@ -1,5 +1,5 @@
 import type {
-  BrokerModel, ListResponse, Persona, PersonaIn, PersonaPrompt, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn,
+  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPrompt, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, VideoNoteQueued,
 } from '../models';
 import { http } from './http';
 
@@ -24,8 +24,29 @@ export const personasApi = {
   },
   /** The persona's full system prompt (saved settings), without an appended identity block. */
   prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
-  savePrompt: (id: number, text: string) => http.put(`/api/personas/${id}/prompt`, { text }),
+  /** Owner: save the single authoritative prompt; the persona runs on it from now on. */
+  savePrompt: (id: number, text: string) =>
+    http.put<Pick<PersonaPrompt, 'mode' | 'agent_prompt'>>(`/api/personas/${id}/prompt`, { text }),
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
-};
 
+  /** Owner: queue an AI video note; it goes only to the account from the «Кружочки ИИ» setting. */
+  videoNote: (id: number, prompt: string) =>
+    http.post<VideoNoteQueued>(`/api/personas/${id}/video-note`, { prompt }, { silent: true }),
+
+  // ---- media gallery ---
+  media: {
+    list: (personaId: number, kind?: MediaKind) =>
+      http.get<ListResponse<PersonaMedia>>(`/api/personas/${personaId}/media`, { params: { kind: kind ?? '' } }).then((r) => r.items),
+    upload: (personaId: number, file: File, kind: MediaKind, caption = '', tags = '') => {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('kind', kind);
+      form.append('caption', caption);
+      form.append('tags', tags);
+      return http.post<PersonaMedia>(`/api/personas/${personaId}/media`, form);
+    },
+    remove: (personaId: number, mediaId: number) =>
+      http.delete(`/api/personas/${personaId}/media/${mediaId}`),
+  },
+};

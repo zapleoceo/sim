@@ -49,7 +49,7 @@ health-проверки не логируются.
 
 ## Единая админка: сообщения и журнал LLM
 
-Код слит в PR #13, схема `0008`; выкладка не подтверждена.
+Схема `0008`.
 
 - `GET /api/activity/messages` — сохранённые сообщения всех клиентов, все авторизованные роли.
 - `GET /api/clients/{client_id}/messages` — сообщения одного клиента по всем его каналам,
@@ -93,16 +93,16 @@ nullable `dialog_id` и контекст клиента/персоны/кана�
 и не предоставляет повторную отправку. Миграция `0008` добавляет снимок автора
 и индексы сортировки сообщений; откат не меняет постоянные receipt `0007`.
 
-Срез main `7ef50b1f2481f1ed9dde03c264075ea82ba86529`, PR #1–#13 слиты.
-Подтверждено состояние Git; production-версия и deployment не подтверждены.
-
-Fencing состояния job и постоянные outbound intent/receipt входят в эту базу.
-Unified admin описан выше как слитый исходный код. Проверки до выкладки:
-[backend validation](ai-ui/tasks/unified-client-admin/backend-validation.md).
-
 Базовый путь `/api`. JSON, даты ISO-8601 UTC. Авторизация — cookie `sim_session` (httpOnly,
 Secure, SameSite=Lax) + заголовок `X-CSRF-Token` на POST/PUT/PATCH/DELETE (значение из
-`GET /api/auth/me` → `csrf_token`). Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx.
+`GET /api/auth/me` → `csrf_token`). Без сессии публичны только `/api/live`, `/api/ready`,
+`/api/health`, `/api/auth/config`, `/api/auth/telegram`, `/api/auth/link` и вебхуки `/hooks/*`
+(у них своя проверка секрета); `POST /api/auth/logout` без сессии лишь стирает cookie (`204`).
+Остальные маршруты без сессии отвечают `401`; это проверяет `backend/tests/test_auth_required.py`.
+Ошибки: `{"detail": "<текст>"}` с кодом 4xx/5xx. Ошибки сервисов переводятся в коды в одном месте
+(`api/errors.py`): `ChannelError`, `ContentError`, `ConversationError`, `AttachmentError`, `MediaRejected` → `422`,
+`ContentConflict` (состояние поста не позволяет) → `409`, `MediaTooLarge` → `413`, `MediaNotFound` → `404`,
+ошибка Broker (`LLMError`) → `502` `Broker error: …`, если маршрут не обработал её сам.
 Списки: `{"items": [...], "total": N}`, параметры `limit` (≤200, по умолчанию 50), `offset`.
 
 ## Auth
@@ -148,17 +148,45 @@ superadmin нельзя удалить, понизить или деактиви
 | GET | `/api/personas` | — | `{items: Persona[]}` |
 | POST | `/api/personas` | `PersonaIn` | `Persona` |
 | GET/PUT/DELETE | `/api/personas/{id}` | `PersonaIn` | `Persona` / `204` (в т.ч. `birth_date` `YYYY-MM-DD` или `null`, `timezone` IANA, по умолчанию `Europe/Kyiv`; неизвестный пояс `422`; `routine` — распорядок недели, строка на дело `дни ЧЧ:ММ-ЧЧ:ММ что`, до 4000 символов, непонятная строка `422`, см. [persona-prompts.md](persona-prompts.md#распорядок-дня)) |
-| GET | `/api/personas/{id}/prompt` | — | `{system, fixed}` (`fixed` пуст для совместимости) — системный промпт персонажа ровно так, как его получает модель (по сохранённым настройкам): промпт персонажа (`description`), стратегия, формат ответа (`output_contract`). В реальном вызове за ним идут история диалога и контекст разговора |
+| GET | `/api/personas/{id}/prompt` | — | `{system, fixed, strategy_id, context, parts, rules, mode, agent_prompt}` — карта промпта персонажа по сохранённым данным, модель не вызывается. `mode`: `"legacy"` (промпт собирается из полей персонажа и стратегии) или `"unified"` (у персонажа сохранён единый промпт, [persona-prompts.md](persona-prompts.md)); `agent_prompt` — текст для редактора единого промпта: сохранённый, а в `legacy` нынешние инструкции одним текстом без формата ответа. В `unified` части другие: `agent_prompt` (`source: "persona"`), `link_contract` (`source: "code"`, `field: ""`: правило ссылок из кода, не редактируется) и `output_contract`. `system` — системное сообщение ровно так, как его получает модель; `parts: [{key, title, text, source, field}]` — тот же текст по частям в порядке сборки (`system` = части через пустую строку): `description`, `prohibitions`, `routine` (`source: "persona"`, `field` — поле персонажа), `strategy`, `strategy_prompt`, `stage_playbook`, `rules` (`source: "strategy"`, `field` — поле стратегии `strategy_id`), `output_contract` (`source: "setting"`, `field` — ключ настройки); пустые части не приходят. `context` — пример сообщения с контекстом, которое код собирает на каждый ответ: точные данные персонажа на эту минуту (возраст из `birth_date`, местное время из `timezone`, где она сейчас из `routine`) и условные данные клиента. `rules: [{key, title, text}]` — правила из кода, которые не редактируются: `call` (на звонке голос представляется ИИ-ассистентом), `video_note` (перед кружочком уходит «Сгенерировано ИИ», кружочек только на аккаунт из настройки «Кружочки ИИ»), `ai_photo` (у сгенерированного фото подпись «Сгенерировано ИИ») `media_tool` (текст блока «МЕДИА», который код добавляет в контекст ответа, см. [persona-media.md](persona-media.md)), `guard_retry` (сообщение генератору после отказа охранника), `neutral_handoff` (нейтральный ответ клиенту при передаче оператору) и `followup` (инструкция первого напоминания в формулировке режима персонажа). `fixed` пуст для совместимости. В реальном вызове за `system` идут история диалога и контекст разговора |
+| PUT | `/api/personas/{id}/prompt` | `{text}` (1–100000 символов, сохраняется как есть, без обрезки пробелов) | `{mode: "unified", agent_prompt}` — сохранить единый промпт персонажа: с этого момента её системное сообщение это этот текст, правило ссылок и формат ответа. Только владелец (`403` остальным), `422` на пустой текст. Другого способа включить режим нет: `PUT /api/personas/{id}` поле не меняет |
 | POST | `/api/personas/{id}/preview/attachment` | multipart: `file`, `voice?` (`true` для голосового, записанного в админке) | `{kind, name, text, media_url}` — голосовое или файл пробного чата в текст: голос и аудио распознаёт Broker (`/v1/transcribe`), изображения описывает Broker `vision` (журнал: workflow `preview-vision`), текстовые файлы (`txt`, `md`, `csv`, `json`…) читаются как есть (до 8000 символов). `kind`: `voice`/`audio`/`image`/`file`; `text` — то, что прочитает персона (у голосового это сама расшифровка, у остального пометка `[изображение: …]`, `[файл …]`); файл сохраняется в медиа, `media_url` для плеера. До 10 МБ; другой тип или пустой файл — `422` |
-| POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}], voice_input?: bool}` | `{reply, decision, guard, model, latency_ms, voice}` — пробный ответ без отправки, **с прогоном через контролера**; `reply` — то, что ушло бы клиенту (после исправления; `""`, если контролер заблокировал); `decision` = разобранный JSON-ответ генератора `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался; тогда `guard = null`); `guard` = `{verdict: "ok"/"rewritten"/"blocked", violations: string[], model, original_text}` (`original_text` — черновик для `rewritten`/`blocked`, иначе `null`); `voice` — голосовой ответ персоны по тому же правилу, что в каналах (`domain.voice.speaks`: режим «всегда», или «зеркально» при `voice_input: true`): `{media_url, duration_s, error}` (OGG/Opus; при ошибке синтеза `media_url: null` и текст ошибки, текстовый ответ остаётся), иначе `null` |
+| POST | `/api/personas/{id}/preview` | `{message, history?: [{role, text}], voice_input?: bool}` | `{reply, decision, guard, model, latency_ms, voice, requests}` — пробный ответ без отправки, **с прогоном через контролера**; `requests: [{workflow, capability, model, json_mode, max_tokens, temperature, messages}]` — все вызовы модели этого ответа (генератор, повторы, контролер) в порядке отправки, как SIM передал их в AIbroker; нигде не сохраняются; `reply` — то, что ушло бы клиенту (после исправления; `""`, если контролер заблокировал); `decision` = разобранный JSON-ответ генератора `{reply, stage, needs, next_step, handoff_to_operator, refused, stop_contact}` (или `null`, если не разобрался; тогда `guard = null`); `guard` = `{verdict: "ok"/"rewritten"/"blocked", violations: string[], model, original_text}` (`original_text` — черновик для `rewritten`/`blocked`, иначе `null`); `voice` — голосовой ответ персоны по тому же правилу, что в каналах (`domain.voice.speaks`: режим «всегда», или «зеркально» при `voice_input: true`): `{media_url, duration_s, error}` (OGG/Opus; при ошибке синтеза `media_url: null` и текст ошибки, текстовый ответ остаётся), иначе `null` |
 
 `Persona`: `{id, name, age, gender ("female"|"male"|"other"), avatar_url, description, prohibitions,
 language, model, voice_id, voice_mode, voice_style, voice_ambience, strategy_id, is_active, created_at}`. Поле `disclosure_text` удалено (миграция 0009).
 `voice_id` — голос Google Gemini TTS (`Kore`, `Aoede`, …) или `""`; `voice_mode` — `off` | `mirror` | `always`;
 `voice_style` — подсказка манеры речи (≤300). `voice_ambience` — шум записи голосовых: `off`/`room`/`street`/`cafe`/`random`. Неизвестный голос или `voice_mode ≠ off` без голоса → `422` ([voice.md](voice.md)).
 `description` — один свободный текст (кто она, характер, биография, как пишет); `prohibitions` — «чего нельзя», по правилу на строку
-(попадают в системный промпт, раздел «Чего нельзя никогда»; охраннику не передаются; по умолчанию пусто, в админке поля нет: ограничения настраиваются в симуляторе). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
+(попадают в системный промпт сразу после `description`, раздел «Чего нельзя никогда»; охраннику не передаются; по умолчанию пусто: миграция 0014 влила прежние запреты в `description`; редактируются на странице персонажа, поле «Запреты»). Прежние `tagline`/`character`/`backstory`/`communication_style` удалены (миграция 0004 свела их в `description`).
 `model`: `""` = цепочка Broker `chat:sales`; иначе точный id (`claude-sub/claude-sonnet-5-5`).
+
+## Медиа-галерея персонажа
+
+Фото, видео и видео-кружочки (video notes), привязанные к персонажу. Файлы хранятся в
+`settings.media_dir` и раздаются через `/api/media/{name}`.
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| POST | `/api/personas/{id}/media` | multipart: `file`, `kind` (`photo`/`video`/`video_note`), `caption?` (до 500 символов), `tags?` (через запятую) | `PersonaMedia` (201); `413` больше 50 МБ; `422` неверный `kind`, тип не из списка или содержимое файла не того типа |
+| GET | `/api/personas/{id}/media?kind=` | — | `{items: PersonaMedia[]}` (свежие сверху; `kind` фильтрует, неизвестный — `422`) |
+| DELETE | `/api/personas/{id}/media/{media_id}` | — | 204; удаляет и строку, и файл |
+| GET | `/api/personas/{id}/media/{media_id}/file` | — | файл (inline для изображений/видео, download для остального) |
+| POST | `/api/personas/{id}/video-note` | `{prompt, duration_s?: 3..15 (5), resolution?: "360p"/"720p" ("360p"), reference_media_id?}` | `202 {status: "queued", cached, cache_key, dialog_id}` — кружочек ИИ только на аккаунт из настройки `video_note_owner_telegram_id` (по умолчанию 0: никому); `cached: true` — такой запрос уже сгенерирован, файл берётся из кеша. Только владелец. `409` — получатель не задан, нет личного диалога персоны с этим аккаунтом в `telegram_user`, нет персоны или негодный референс; `422` — параметры. Перед кружочком уходит сообщение «Сгенерировано ИИ» ([video-notes.md](video-notes.md)) |
+
+`PersonaMedia`: `{id, persona_id, kind, storage_name, caption, tags: string[], file_url, created_at}`.
+`file_url` = `/api/media/{storage_name}`. Неизвестный персонаж или медиа другого персонажа — `404`.
+MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/webm`; до 50 МБ.
+Заявленный тип должен совпасть с сигнатурой файла (библиотека `filetype`), иначе `422`.
+Ответ с файлом несёт те же заголовки, что `/api/media/{name}` (`Content-Security-Policy: sandbox`,
+`nosniff`; `api/media_files.py`). Логика — `services/persona_media.py` (`PersonaMediaService`),
+загрузка и удаление — только owner/superadmin.
+
+### Telegram capabilities
+
+`SEND_PHOTO` — отправка фото с подписью (`client.send_file(entity, photo, caption=…)`).
+`SEND_VIDEO_NOTE` — кружочек (`client.send_file(entity, video, video_note=True)`).
+Оба добавлены в `TelegramUserAdapter.capabilities`.
 
 ## Промпты и настройки (`/api/settings`)
 
@@ -183,7 +211,7 @@ is_default, updated_at, updated_by_id}`.
 «Паспортистка»); `output_contract` — формат ответа
 персонажа (JSON, добавляется в конец её промпта), `retry_nudge` — что сказать модели, если ответ не
 разобрался (группа «Служебные промпты»); `reply_debounce_s` (0–300) — пауза перед ответом; `typo_percent`, `lowercase_percent` (0–100, группа «Стиль сообщений», по умолчанию из `SIM_TYPO_PERCENT`=12 и `SIM_LOWERCASE_PERCENT`=30) — как часто код делает в ответе одну оплошность (пропущенная запятая или опечатка, не больше одной на весь ответ) и начинает сообщение с маленькой буквы;
-`caption_rules` — подписи постов; `trace_retention_days`. Значения по умолчанию для
+`caption_rules` — подписи постов; `trace_retention_days`; `video_note_owner_telegram_id` (группа «Кружочки ИИ», 0: никому); `persona_photo_model` (модель Broker для фото персонажа, пусто: фото выключены) и `persona_media_gap_min` (0–1440, по умолчанию 30) — группа «Фото и кружочки персонажа», см. [persona-media.md](persona-media.md). Значения по умолчанию для
 `guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
 `SIM_REPLY_DEBOUNCE_S`. Промпт персонажа — её поле `description` (см. `/api/personas`). Не
 редактируется контракт согласованности управляющих полей (`fixed.guard`); если сломать JSON-формат в `output_contract` или
@@ -244,6 +272,7 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 | POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`) |
 | POST | `/api/dialogs/{id}/resolve` | — | `Dialog` — снимает `needs_operator`, не меняя паузу ИИ. Флаг также снимается ответом оператора и возобновлением ИИ |
 | POST | `/api/dialogs/{id}/read` | — | `204` |
+| DELETE | `/api/dialogs/{id}/messages` | — (только owner/superadmin, CSRF) | `{dialog, client, messages: [], deleted_messages}` — «Очистить чат», необратимо: удаляет все сообщения диалога в базе SIM, отменяет ждущие ответ, напоминание и обновление паспорта этого диалога, обнуляет счётчики (`unread`, шаг напоминаний, `needs_operator`, последнее сообщение). Следующий ответ персонажа строится без прошлой истории. Клиент, паспорт, этап, статус и пауза ИИ не меняются; в мессенджере ничего не удаляется и ничего не отправляется. Operator → 403, нет диалога → 404 |
 
 `DialogRow`: `{id, channel_kind, persona: {id, name, avatar_url}, client: {id, display_name, avatar_url, stage, status},
 last_message: {text, direction, at}, unread: number, ai_paused}`.
@@ -265,6 +294,11 @@ last_message: {text, direction, at}, unread: number, ai_paused}`.
 | GET | `/api/clients/{id}` | — | `ClientCard` (в т.ч. `passport` — паспорт лида от паспортистки, `passport_updated_at`) |
 | PATCH | `/api/clients/{id}` | `{notes?, next_step?, next_step_at?, display_name?}` | `Client` |
 | POST | `/api/clients/{id}/stage` | `{stage?, status?, reason?}` | `Client` (оператор; `registered`/`paid` вручную запрещены → 422) |
+| DELETE | `/api/clients/{id}/passport` | — (только owner/superadmin, CSRF) | `Client` — «Очистить паспорт», необратимо: стирает собранное о клиенте (`passport`, `passport_updated_at`, `needs`, `notes`, `next_step`, `next_step_at`) и отменяет ждущие обновления паспорта во всех его диалогах. Клиент, его каналы, диалоги и сообщения, этап и статус остаются; после следующего ответа персонажа паспортистка заполняет паспорт заново по последним сообщениям. Operator → 403, нет клиента → 404 |
+
+Обе очистки и сброс из чата (`/reset`) — одна служба
+`services/dialog_reset.py`: `clear_chat` (чат), `clear_passport` (паспорт), `reset` (оба + этап
+и статус к началу).
 
 `Client`: `{id, display_name, avatar_url, persona_id, stage, status, next_step, next_step_at, notes,
 needs: string[], channels: [{kind, dialog_id}], last_contact_at, created_at}`.
@@ -364,7 +398,7 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 
 ## Дополнения реализации (аддитивные поля)
 `DialogRow.needs_operator` (в админке — бейдж «нужен оператор» в списке и в шапке диалога), `Dialog` (`/api/dialogs/{id}` → `dialog`: `{id, channel_id, channel_kind, persona_id, client_id, external_thread_id, ai_paused, needs_operator, operator_id, unread, created_at}`),
-`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`).
+`Client.ref_code`, `Client.channels` содержит диалоги всех каналов клиента (лид остаётся у своей персоны; identity из других каналов той же персоны сливаются по ref-коду/телефону, см. architecture.md), `PUT /api/content/{id}` от оператора (не owner) для approved/scheduled поста возвращает его в `draft`, `Strategy.notes`, `Channel.name`. Медиа сообщений отдаётся через `GET /api/media/{name}` (нужна сессия). Хранятся только известные расширения (аудио, картинки без SVG, видео, txt/csv/json/md/pdf), остальное сохраняется как `.bin`. В браузере показываются только аудио, картинки и видео, всё прочее отдаётся как скачивание `application/octet-stream`; на всех ответах `Content-Security-Policy: sandbox; default-src 'none'` и `X-Content-Type-Options: nosniff` (`adapters/media.py`: `safe_suffix`, `serving`; заголовки — `api/media_files.py`).
 `GET /api/dialogs` фильтр по каналу — `channel_kind`. Заголовок `X-Silent` сервер игнорирует.
 
 
@@ -400,7 +434,7 @@ Job `send` использует независимые intent/receipt из ми�
 
 ### Fencing состояния очереди
 
-Входит в базу PR #1–#12; схема БД и HTTP API этим изменением не менялись. Существующий `attempts`, который
+Существующий `attempts`, который
 увеличивается при каждом claim, используется как поколение владения. Worker сохраняет
 `claim_attempt` из результата claim до выполнения handler и передаёт именно его в
 `complete`/`fail`, а не значение из повторно загруженной job. Эти методы меняют строку
@@ -424,18 +458,12 @@ Job `send` использует независимые intent/receipt из ми�
 Смешанный rollout старых и новых worker небезопасен: старые процессы всё ещё могут
 обновлять очередь без проверки поколения. Перед применением требуются остановка новых
 claim у старых worker и полное завершение/остановка их текущих job; затем запуск только
-новой версии. Отсутствие миграции не делает смешанный rollout безопасным. В этой работе
-rollout не выполнялся. Исторический backend-прогон fencing: 502 теста и Ruff прошли;
-это не текущая проверка production. PostgreSQL-конкурентность и внешние эффекты не проверены.
+новой версии. Отсутствие миграции не делает смешанный rollout безопасным.
 
-## Срез и известные ограничения аналитики
+## Известные ограничения аналитики
 
-База контракта: main `349dc6648fb6808ff18c982260b40d138e3244e6` (PR #1–#12).
-Описанные возможности не подтверждают текущую production-версию. В PR #9 `replied`
-учитывает только `sent`, не guard-blocked исходящие перед входящим; точный контракт
+`replied` учитывает только `sent`, не guard-blocked исходящие перед входящим; точный контракт
 и сохранённое приближение по `created_at` приведены в разделе «Аналитика» выше.
-История ИИ уже была исправлена в PR #3, финансовая группировка валют в PR #8;
-эти контракты сохраняются. Счётчики `guard` по-прежнему включают сохранённые вердикты
-неотправленных сообщений. PR #9 слит; production-выкладка не подтверждена.
-Подробнее: [состояние проекта](project-status.md), [ревью](review-2026-11-07.md) и
+Финансовые суммы группируются по валюте без конвертации. Счётчики `guard` включают
+сохранённые вердикты неотправленных сообщений. См. также
 [durable publication intent/receipt](publication-intents.md).

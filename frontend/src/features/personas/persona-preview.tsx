@@ -116,12 +116,19 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             )}
             <GuardBadge guard={m.guard} />
             {m.meta && <span className="text-[11px] text-muted-foreground">{m.meta}</span>}
-            {m.requests && (
+            {m.requests && m.requests.length > 0 && (
               <details className="max-w-full text-xs">
-                <summary>Фактически отправленные запросы SIM → Broker</summary>
-                <p>Генератор, повторы и контролёр раздельно. История и контекст показаны точно на момент запроса. Внутренние инструкции провайдера не доступны.</p>
+                <summary className="cursor-pointer text-muted-foreground">Запросы SIM → Broker ({m.requests.length})</summary>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Каждый вызов модели для этого ответа, как его отправил SIM: генератор, повторы и охранник отдельно, с
+                  историей и контекстом на момент запроса. Что добавляют Broker и провайдер, здесь не видно.
+                </p>
                 {m.requests.map((request, index) => (
-                  <pre key={index} className="max-h-96 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  <pre
+                    key={index}
+                    aria-label={`Запрос ${index + 1}: ${request.workflow}`}
+                    className="mt-1 max-h-96 overflow-auto text-[11px] whitespace-pre-wrap [overflow-wrap:anywhere]"
+                  >
                     {JSON.stringify(request, null, 2)}
                   </pre>
                 ))}
@@ -220,4 +227,3 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
     </section>
   );
 }
-

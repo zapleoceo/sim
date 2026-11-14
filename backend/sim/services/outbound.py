@@ -21,16 +21,19 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
 from sim.connectors.spec import Connector
-from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction
+from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction, MediaKind
 from sim.domain.voice import GEMINI_VOICES
+from sim.ports.channel import SendResult
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing
+from sim.services.ai_media import AI_LABEL, is_ai_photo, is_ai_video
 from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
+from sim.services.video_note import label_delivered, owner_allowed, owner_telegram_id
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -40,8 +43,7 @@ class SendFailed(Exception):
     """Delivery did not succeed; the worker retries with backoff."""
 
 
-def send_key(message_id: int) -> str:
-    return f"send:{message_id}"
+send_key = jobkinds.send_key
 
 
 async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -> int:
@@ -62,6 +64,12 @@ async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -
         message.error = reason[:500]
         await jobs.cancel_pending(jobkinds.SEND, send_key(message.id))
     return len(rows)
+
+
+def media_caption(message: Message) -> str:
+    """The caption a photo or note goes out with. A generated photo always carries the AI label,
+    whoever queued it and whatever its text says (sim.services.ai_media)."""
+    return AI_LABEL if is_ai_photo(message.media_url) else message.text
 
 
 def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
@@ -236,6 +244,8 @@ class OutboundService:
             message.delivery = Delivery.CANCELLED
             message.error = "cancelled: AI paused or client refused before sending"
             return
+        if not await self.ai_video_gate(message, dialog):
+            return
         channel = dialog.channel
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
@@ -259,12 +269,17 @@ class OutboundService:
 
         note = await self.voice_note(message, dialog, port)
         attachment = self.attachment(message, port)
+        gallery_media = self.gallery_media(message, port)
         await self.receipts.claim(message.id, fingerprint)
         async with self.send_step(channel, message, voice=note is not None) as step:
             try:
                 if note is not None:
                     result = await port.send_voice(  # type: ignore[attr-defined]
                         dialog.external_thread_id, note.audio, note.duration_s,
+                    )
+                elif gallery_media is not None:
+                    result = await self._send_gallery(
+                        port, dialog.external_thread_id, gallery_media, media_caption(message),
                     )
                 elif attachment is not None:
                     data, filename, mime = attachment
@@ -285,6 +300,21 @@ class OutboundService:
                 raise SendUncertain(UNCERTAIN_SEND) from None
             step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
+
+    async def ai_video_gate(self, message: Message, dialog: Dialog) -> bool:
+        """Hard allowlist for generated video notes (sim.services.video_note), whoever queued
+        the message: False = cancelled, it is not for this dialog. Raises SendFailed (retried)
+        while the "Сгенерировано ИИ" label before it has not been delivered."""
+        if not is_ai_video(message.media_url):
+            return True
+        if not owner_allowed(dialog, await owner_telegram_id(self.session)):
+            message.delivery = Delivery.CANCELLED
+            message.error = "cancelled: AI video notes go only to the allowlisted owner account"
+            log.warning("message %s: AI video note refused for dialog %s", message.id, dialog.id)
+            return False
+        if not await label_delivered(self.session, message):
+            raise SendFailed("the AI label before the video note is not delivered yet")
+        return True
 
     def try_port(self, channel: Channel) -> object | None:
         """The channel port for side signals (typing indicator), or None when it cannot be built.
@@ -366,6 +396,33 @@ class OutboundService:
         log.warning("message %s goes out as text, not voice: %s", message.id, reason)
         message.media_kind = None
         return None
+
+    def gallery_media(self, message: Message, port: object) -> tuple[bytes, str, str] | None:
+        """A photo or video_note from the persona gallery, or None."""
+        if message.media_kind not in (MediaKind.PHOTO, MediaKind.VIDEO_NOTE):
+            return None
+        url = message.media_url or ""
+        if not url.startswith("/api/media/") or self.media is None:
+            return None
+        name = url.removeprefix("/api/media/")
+        path = self.media.path(name)
+        if path is None:
+            return None
+        return path.read_bytes(), name, message.media_kind
+
+    async def _send_gallery(
+        self, port: object, thread: str, media: tuple[bytes, str, str], caption: str,
+    ) -> SendResult:
+        data, _name, kind = media
+        if kind == MediaKind.PHOTO:
+            if Capability.SEND_PHOTO not in getattr(port, "capabilities", frozenset()):
+                raise SendFailed("this channel cannot send photos")
+            return await port.send_photo(thread, data, caption)  # type: ignore[attr-defined]
+        if kind == MediaKind.VIDEO_NOTE:
+            if Capability.SEND_VIDEO_NOTE not in getattr(port, "capabilities", frozenset()):
+                raise SendFailed("this channel cannot send video notes")
+            return await port.send_video_note(thread, data)  # type: ignore[attr-defined]
+        raise SendFailed(f"unsupported gallery media kind: {kind}")
 
     async def mark_failed(self, message_id: int, error: str) -> None:
         message = await self.messages.get(message_id)

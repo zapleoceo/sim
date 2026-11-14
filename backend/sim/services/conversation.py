@@ -22,9 +22,11 @@ from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
 from sim.services import jobkinds
+from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
+from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
-from sim.services.followup import FollowupService
+from sim.services.followup import FollowupService, followup_instruction
 from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
@@ -32,6 +34,7 @@ from sim.services.llm_audit import AuditedLLM
 from sim.services.outbound import OutboundService
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
+from sim.services.persona_media_tool import PersonaMediaTool
 from sim.services.prompt import (
     Decision,
     DialogContext,
@@ -39,11 +42,19 @@ from sim.services.prompt import (
     StrategyProfile,
     Turn,
     build_messages,
+    editable_agent_prompt,
     handoff_link,
     one_line,
     parse_decision,
     registration_link,
-    stable_system_prompt,
+    system_prompt_parts,
+)
+from sim.services.prompt_map import (
+    PromptMap,
+    example_context,
+    fixed_rules,
+    prompt_mode,
+    reply_rules,
 )
 
 log = logging.getLogger(__name__)
@@ -121,6 +132,12 @@ def strategy_profile(s: Strategy) -> StrategyProfile:
     )
 
 
+def with_persona_facts(persona: Persona, ctx: DialogContext) -> DialogContext:
+    """Her exact age, local time and where she is now, computed by code for this moment."""
+    return replace(ctx, persona_facts=persona_facts(
+        persona.birth_date, persona.timezone, ctx.now, persona.routine))
+
+
 def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
     """(is_client, text, guard_verdict) -> turns. A draft the guard blocked was never sent: the
     client did not see it, so it is not part of the conversation. The one rule for every source
@@ -132,10 +149,26 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
     ]
 
 
+def decision_fields(decision: Decision) -> dict[str, Any]:
+    """The control fields the guard checks together with the draft; her media request is there
+    only when she made one."""
+    fields: dict[str, Any] = {
+        "stage": decision.stage.value if decision.stage else None,
+        "needs": decision.needs,
+        "next_step": decision.next_step,
+        "handoff_to_operator": decision.handoff_to_operator,
+        "refused": decision.refused,
+        "stop_contact": decision.stop_contact,
+    }
+    if decision.media is not None:
+        fields["media"] = {"kind": decision.media.kind.value, "scene": decision.media.scene}
+    return fields
+
+
 def history_turns(messages: list[Message]) -> list[Turn]:
     """Client -> user turn; AI and operator -> assistant turn."""
     return visible_turns(
-        (m.author is Author.CLIENT, m.text, m.guard_verdict)
+        (m.author is Author.CLIENT, history_text(m), m.guard_verdict)
         for m in messages
         if m.direction is Direction.IN or m.delivery is Delivery.SENT
     )
@@ -150,6 +183,7 @@ class ConversationService:
         *,
         clock: Clock = utcnow,
         settings_env: Mapping[str, Any] | None = None,
+        media_tool: PersonaMediaTool | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -165,6 +199,7 @@ class ConversationService:
         self.jobs = JobRepo(session)
         self.funnel = FunnelService(session)
         self.followups = FollowupService(session, clock=clock)
+        self.media_tool = media_tool
 
     # ---- shared pieces -------------------------------------------------------------------
     async def config(self) -> AppSettings:
@@ -190,8 +225,7 @@ class ConversationService:
         self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
     ) -> list[dict[str, Any]]:
         cfg = await self.config()
-        ctx = replace(ctx, persona_facts=persona_facts(
-            persona.birth_date, persona.timezone, ctx.now, persona.routine))
+        ctx = with_persona_facts(persona, ctx)
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
             texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
@@ -204,12 +238,27 @@ class ConversationService:
         return replace(guard, text=messenger_touches(
             guard.text, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent))
 
-    async def system_prompt(self, persona: Persona) -> str:
-        """The exact stable system message this persona sends to its model (for the admin)."""
+    async def prompt_map(self, persona: Persona) -> PromptMap:
+        """Everything this persona's model gets, piece by piece with its source (for the admin):
+        the exact stable system message, an example of the per-reply context and the fixed rules."""
         cfg = await self.config()
         strategy = await self.strategy_for(persona.id)
-        return stable_system_prompt(
-            persona_profile(persona), strategy_profile(strategy), cfg.prompt_texts()
+        profile = strategy_profile(strategy)
+        who = persona_profile(persona)
+        mode = prompt_mode(persona.agent_prompt)
+        now = self.clock()
+        facts = persona_facts(persona.birth_date, persona.timezone, now, persona.routine)
+        return PromptMap(
+            parts=system_prompt_parts(who, profile, cfg.prompt_texts()),
+            context=example_context(now, facts, profile),
+            rules=[*fixed_rules(persona.name), *reply_rules(
+                GUARD_RETRY_TEMPLATE, NEUTRAL_HANDOFF_REPLY,
+                followup_instruction([float(h) for h in strategy.followup_hours or []] or [24.0], 0,
+                                     unified=persona.agent_prompt is not None),
+            )],
+            strategy_id=strategy.id,
+            mode=mode,
+            agent_prompt=editable_agent_prompt(who, profile),
         )
 
     async def strategy_for(self, persona_id: int) -> Strategy:
@@ -221,6 +270,36 @@ class ConversationService:
         if strategy is None:
             raise ConversationError("no strategy configured")
         return strategy
+
+    async def dialog_context(
+        self, dialog: Dialog, persona: Persona, *, instruction: str = ""
+    ) -> DialogContext:
+        """What the system knows about this conversation right now (replies and phone calls)."""
+        client = dialog.client
+        return DialogContext(
+            stage=client.stage,
+            status=client.status.value,
+            client_name=client.display_name,
+            channel_kind=dialog.channel.kind.value,
+            ref_code=client.ref_code,
+            now=self.clock(),
+            needs=list(client.needs or []),
+            notes=client.notes,
+            next_step=client.next_step,
+            passport=client.passport or "",
+            instruction=instruction,
+            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
+        )
+
+    async def call_prompt(self, dialog: Dialog, persona: Persona) -> str:
+        """The live voice model's system prompt for a phone call in this dialog: the persona
+        prompt and strategy, the chat so far and the dialog context (sim.services.call_prompt)."""
+        cfg = await self.config()
+        strategy = await self.strategy_for(persona.id)
+        recent = await self.messages.recent_visible(dialog.id, cfg.history_limit)
+        ctx = with_persona_facts(persona, await self.dialog_context(dialog, persona))
+        return call_system_prompt(persona_profile(persona), strategy_profile(strategy),
+                                  history_turns(recent), ctx)
 
     async def handoff_links(self, persona: Persona, channel_id: int, ref_code: str) -> list[tuple[str, str]]:
         """Links to the persona's OTHER active channels that carry the client's ref code."""
@@ -249,14 +328,7 @@ class ConversationService:
             if link
         ]
         return await (await self.guard()).review(
-            decision={
-                "stage": decision.stage.value if decision.stage else None,
-                "needs": decision.needs,
-                "next_step": decision.next_step,
-                "handoff_to_operator": decision.handoff_to_operator,
-                "refused": decision.refused,
-                "stop_contact": decision.stop_contact,
-            },
+            decision=decision_fields(decision),
             history=history,
             draft=decision.reply,
             stage=ctx.stage,
@@ -348,23 +420,14 @@ class ConversationService:
         recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
-        ctx = DialogContext(
-            stage=client.stage,
-            status=client.status.value,
-            client_name=client.display_name,
-            channel_kind=dialog.channel.kind.value,
-            ref_code=client.ref_code,
-            now=self.clock(),
-            needs=list(client.needs or []),
-            notes=client.notes,
-            next_step=client.next_step,
-            passport=client.passport or "",
-            instruction=instruction,
-            handoff_links=await self.handoff_links(persona, dialog.channel_id, client.ref_code),
-        )
+        ctx = await self.dialog_context(dialog, persona, instruction=instruction)
+        port = self.outbound.try_port(dialog.channel)
+        if self.media_tool is not None:
+            # What she may attach to this reply, or that she must not promise any media.
+            offer = await self.media_tool.offer(dialog, persona, port)
+            ctx = replace(ctx, media=offer.brief())
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
-        port = self.outbound.try_port(dialog.channel)
         if not followup:
             await mark_read(port, dialog.external_thread_id, last.external_id)
         action = RECORD_VOICE if will_speak(persona, followup, last) else TYPING
@@ -456,15 +519,22 @@ class ConversationService:
         decision = replace(decision, reply=guard.text)
         # A voice note is one message; text goes as 1-3 messages with a typing pause between them.
         parts = [guard.text] if voice else bubbles(guard.text)
+        final = stop or decision.handoff_to_operator   # nothing follows this reply
         delay = 0.0
         for i, part in enumerate(parts):
             if i:
                 delay += typing_pause_s(part)
             message = await self.outbound.queue_ai(
                 dialog, part, result if i == 0 else None,
-                final=stop or decision.handoff_to_operator, guard=guard, voice=voice, delay_s=delay,
+                final=final, guard=guard, voice=voice, delay_s=delay,
             )
-        if not followup and not stop and not decision.handoff_to_operator:
+        if decision.media is not None and self.media_tool is not None and not final:
+            persona = await self.personas.get(client.persona_id)
+            if persona is not None:
+                await self.media_tool.request(
+                    dialog, persona, decision.media, self.outbound.try_port(dialog.channel),
+                    delay_s=delay)
+        if not followup and not final:
             dialog.followup_step = 0
             await self.followups.schedule(dialog, strategy, 0, message)
         # The passportist updates the lead passport (one job per dialog, coalesced).
@@ -543,4 +613,3 @@ class ConversationService:
         }
         return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms,
                              draft.guard, context)
-

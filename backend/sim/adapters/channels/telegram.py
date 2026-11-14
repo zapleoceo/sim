@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from sim.adapters.channels._http import API_TIMEOUT, download_bounded
-from sim.adapters.channels.capabilities import Capability
+from sim.adapters.channels.capabilities import CANCEL, Capability
 from sim.domain.enums import ChannelKind, SessionStatus
 from sim.ports.channel import InboundMessage, SendResult
 
@@ -146,7 +146,10 @@ class TelegramAdapter:
             return await self._t.call("sendMessage", params)
 
     async def send_chat_action(self, external_thread_id: str, action: str) -> None:
-        """Bot API sendChatAction: `typing` / `record_voice` for ~5 s (best effort)."""
+        """Bot API sendChatAction: `typing` / `record_voice` for ~5 s (best effort). The Bot API
+        has no cancel action: `cancel` is skipped and the status fades by itself."""
+        if action == CANCEL:
+            return
         try:
             await self._t.call("sendChatAction", {"chat_id": external_thread_id, "action": action})
         except Exception as exc:
