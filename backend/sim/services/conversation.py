@@ -519,14 +519,16 @@ class ConversationService:
         # A voice note is one message; text goes as 1-3 messages with a typing pause between them.
         parts = [guard.text] if voice else bubbles(guard.text)
         final = stop or decision.handoff_to_operator   # nothing follows this reply
+        # The first part goes out at once. The SEND job of each next part starts when the part
+        # before it is due, shows «печатает…» for the pause and only then sends.
         delay = 0.0
         for i, part in enumerate(parts):
-            if i:
-                delay += typing_pause_s(part)
+            pause = typing_pause_s(part) if i else 0.0
             message = await self.outbound.queue_ai(
                 dialog, part, result if i == 0 else None,
-                final=final, guard=guard, voice=voice, delay_s=delay,
+                final=final, guard=guard, voice=voice, delay_s=delay, typing_s=pause,
             )
+            delay += pause
         if decision.media is not None and self.media_tool is not None and not final:
             persona = await self.personas.get(client.persona_id)
             if persona is not None:

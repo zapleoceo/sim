@@ -99,7 +99,10 @@ async def run_persona_media(c: Container, s: AsyncSession, payload: dict[str, An
 
 
 async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
-    await c.outbound(s).deliver(int(payload["message_id"]), final=bool(payload.get("final")))
+    await c.outbound(s).deliver(
+        int(payload["message_id"]), final=bool(payload.get("final")),
+        typing_s=float(payload.get("typing_s") or 0.0),
+    )
 
 
 async def giveup_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:

@@ -95,8 +95,10 @@ def messenger_touches(text: str, *, typo_percent: int, lowercase_percent: int) -
 # The model separates messages with a blank line; code sends them one by one with a typing pause.
 BUBBLE_GAP = re.compile(r"\n[ \t]*\n")
 MAX_BUBBLES = 3
-TYPING_CHARS_PER_S = 7.0
-TYPING_MIN_S, TYPING_MAX_S = 1.5, 8.0
+# The pause before each next message of one reply: about a second per 28 characters, never
+# shorter than TYPING_MIN_S (the status must be seen) and never longer than TYPING_MAX_S.
+TYPING_CHARS_PER_S = 28.0
+TYPING_MIN_S, TYPING_MAX_S = 1.0, 6.0
 
 
 def bubbles(text: str) -> list[str]:
@@ -108,5 +110,5 @@ def bubbles(text: str) -> list[str]:
 
 
 def typing_pause_s(text: str) -> float:
-    """How long a person would type this message before it appears."""
+    """The pause before a next message of one reply, by its length; «печатает…» is shown for it."""
     return min(TYPING_MAX_S, max(TYPING_MIN_S, len(text) / TYPING_CHARS_PER_S))
