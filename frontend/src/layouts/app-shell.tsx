@@ -9,12 +9,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tip } from '@/components/ui/tooltip';
+import { useViewportVars } from '@/hooks/use-viewport-vars';
 import { authStore, useAuth } from '@/lib/auth';
 import { BOTTOM_COUNT, ROLE_LABELS, visibleNav, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeMode } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 const COLLAPSE_KEY = 'sim-nav-collapsed';
+/** One slot of the phone bottom bar: a 20 px icon over a one-line caption; `min-w-0` lets the caption truncate. */
+const BOTTOM_TAB = 'flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] leading-tight text-muted-foreground';
 
 function readCollapsed(): boolean {
   try {
@@ -148,6 +151,7 @@ export function AppShell() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [moreOpen, setMoreOpen] = useState(false);
+  useViewportVars();
   const items = visibleNav(user?.role);
   const bottom = items.slice(0, BOTTOM_COUNT);
 
@@ -188,13 +192,13 @@ export function AppShell() {
         </div>
       </aside>
 
-      <main id="main" className="flex min-w-0 flex-1 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <main id="main" className="flex min-w-0 flex-1 flex-col pb-(--bottom-nav) max-md:overflow-x-clip">
         <Outlet />
       </main>
 
       <nav
         aria-label="Быстрая навигация"
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden kb:hidden"
       >
         {bottom.map((item) => {
           const active = isActivePath(pathname, item.path);
@@ -204,10 +208,10 @@ export function AppShell() {
               key={item.path}
               to={item.path}
               aria-current={active ? 'page' : undefined}
-              className={cn('flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-muted-foreground', active && 'text-primary')}
+              className={cn(BOTTOM_TAB, active && 'text-primary')}
             >
-              <Icon className="size-5" />
-              <span className="max-w-full truncate px-1">{item.label}</span>
+              <Icon className="size-[20px]" />
+              <span className="max-w-full truncate px-0.5">{item.label}</span>
             </Link>
           );
         })}
@@ -216,9 +220,9 @@ export function AppShell() {
           onClick={() => setMoreOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={moreOpen}
-          className="flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-muted-foreground"
+          className={BOTTOM_TAB}
         >
-          <Menu className="size-5" />
+          <Menu className="size-[20px]" />
           <span>Ещё</span>
         </button>
       </nav>

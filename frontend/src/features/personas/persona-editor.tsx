@@ -68,7 +68,7 @@ export function PersonaEditor({
     <form
       noValidate
       onSubmit={handleSubmit((v) => onSave(personaFromForm(v)))}
-      className="flex flex-col gap-8 rounded-xl border bg-card p-4 shadow-xs sm:p-5"
+      className="flex flex-col gap-8 rounded-xl border bg-card p-3 shadow-xs sm:p-5"
     >
       <Section id="profile" hint="Кто она: данные карточки. Возраст и местное время модель получает от кода, а не из текста.">
         <div className="flex items-center gap-3">
@@ -193,7 +193,7 @@ export function PersonaEditor({
         </div>
       </Section>
 
-      <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">
+      <div className="sticky bottom-(--bottom-nav) -mx-3 -mb-3 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-3 py-2 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 sm:py-3">
         {onRemove && (
           <Button variant="ghost-destructive" onClick={onRemove}>
             Удалить

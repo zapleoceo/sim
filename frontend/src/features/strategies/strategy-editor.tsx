@@ -43,7 +43,7 @@ export function StrategyEditor({
     <form
       noValidate
       onSubmit={handleSubmit((v) => onSave(strategyFromForm(v, strategy)))}
-      className="flex flex-col gap-6 rounded-xl border bg-card p-4 shadow-xs sm:p-5"
+      className="flex flex-col gap-6 rounded-xl border bg-card p-3 shadow-xs sm:p-5"
     >
       <Block title="Что продаём" hint="Партнёр, продукт и ссылка, по которой клиент регистрируется">
         <FormGrid>
@@ -82,7 +82,7 @@ export function StrategyEditor({
         </Field>
       </Block>
 
-      <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 md:bottom-0">
+      <div className="sticky bottom-(--bottom-nav) -mx-3 -mb-3 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-3 py-2 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 sm:py-3">
         {onRemove && (
           <Button variant="ghost-destructive" onClick={onRemove}>
             Удалить

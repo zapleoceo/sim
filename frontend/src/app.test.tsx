@@ -66,6 +66,24 @@ describe('app shell and guards', () => {
     expect(log.some((r) => r.method === 'POST' && r.path === '/api/auth/logout')).toBe(true);
   });
 
+  it('phone bottom bar has five slots; «Ещё» opens every other section', async () => {
+    fakeApi(EMPTY_LISTS);
+    await renderApp('/inbox');
+    const bar = screen.getByRole('navigation', { name: 'Быстрая навигация' });
+    expect(within(bar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Студия', 'Диалоги', 'Клиенты', 'Воронка']);
+    expect(within(bar).getByRole('link', { name: 'Диалоги' })).toHaveAttribute('aria-current', 'page');
+    expect(bar.children).toHaveLength(5);
+    // The bar leaves the screen while the phone keyboard is open, and its icons are 20 px.
+    expect(bar).toHaveClass('kb:hidden', 'md:hidden');
+    expect(bar.querySelectorAll('svg.size-\\[20px\\]')).toHaveLength(5);
+
+    await userEvent.click(within(bar).getByRole('button', { name: 'Ещё' }));
+    const sheet = await screen.findByRole('dialog');
+    for (const name of ['Аналитика', 'Активность', 'Персонажи', 'Общие правила', 'Каналы']) {
+      expect(within(sheet).getByRole('link', { name })).toBeInTheDocument();
+    }
+  });
+
   it('page titles follow the section', () => {
     expect(titleFor('/clients/5')).toBe('Клиенты — Sim');
     expect(titleFor('/')).toBe('Sim — админ-панель');
