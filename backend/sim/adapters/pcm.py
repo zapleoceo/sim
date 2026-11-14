@@ -55,6 +55,15 @@ def resample(pcm: bytes, src_hz: int, dst_hz: int) -> bytes:
     return _bytes(out)
 
 
+def to_stereo(pcm: bytes) -> bytes:
+    """Mono → interleaved stereo (the same sample on the left and right channel)."""
+    src = _samples(pcm)
+    out = array("h", bytes(len(src) * 2 * SAMPLE_BYTES))
+    out[0::2] = src
+    out[1::2] = src
+    return _bytes(out)
+
+
 class PcmBuffer:
     """FIFO of PCM that hands out fixed-size frames (the outgoing side of a call is paced at
     real time while the model produces speech in faster bursts)."""

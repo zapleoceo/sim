@@ -1,6 +1,7 @@
 """Persona phone calls: an incoming Telegram call answered by the persona's live voice.
 
-  call rings → prepare (who calls, may she answer, her call prompt) → open the Broker live
+  call rings → prepare (who calls, may she answer, her call prompt) → let it ring a few seconds,
+  as a person reaching for the phone would → open the Broker live
   session (Gemini Live) → answer → caller audio up, model speech down, paced at real time →
   hang up → the transcript lands in the dialog.
 
@@ -19,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -58,15 +61,22 @@ CALL_WORKFLOW = "call"
 UPLINK_MS = 40                # caller audio is sent to the Broker in 40 ms chunks
 DRAIN_LIMIT_S = 10.0          # the model's last words still play after the Broker ended
 MAX_LAG_S = 0.1               # a pacer later than this restarts its schedule instead of bursting
-LANGUAGE_CODES = {"ru": "ru-RU", "uk": "uk-UA", "ua": "uk-UA", "en": "en-US"}
+LANGUAGE_CODES = {
+    "ru": "ru-RU", "uk": "uk-UA", "ua": "uk-UA", "en": "en-US",
+    "русский": "ru-RU", "russian": "ru-RU",
+    "украинский": "uk-UA", "українська": "uk-UA", "ukrainian": "uk-UA",
+    "английский": "en-US", "english": "en-US",
+}
 
 Sleep = Callable[[float], Awaitable[None]]
 
 
 def language_code(language: str) -> str | None:
-    """BCP-47 for the voice model when the persona's language is a plain code; else let the
-    model detect it."""
-    return LANGUAGE_CODES.get(language.strip().lower())
+    """BCP-47 for the voice model from the persona's language: a plain code (`ru`) or a phrase
+    that starts with the language's name (`русский (переходит на украинский…)`). Unknown: the
+    model detects it itself, and on a short "алло" it may well pick a wrong one."""
+    words = re.findall(r"[^\W\d_]+", language.lower())
+    return LANGUAGE_CODES.get(words[0]) if words else None
 
 
 def clock_text(seconds: float | None) -> str:
@@ -98,6 +108,7 @@ class CallService:
         conversation: Callable[[AsyncSession], ConversationService],
         *,
         max_seconds: float = 540.0,
+        ring_s: tuple[float, float] = (0.0, 0.0),
         diagnostics: bool = False,
         clock: Clock = utcnow,
         sleep: Sleep = asyncio.sleep,
@@ -107,6 +118,7 @@ class CallService:
         self.live = live
         self.conversation = conversation
         self.max_seconds = max_seconds
+        self.ring_s = ring_s
         self.diagnostics = diagnostics
         self.clock = clock
         self.sleep = sleep
@@ -122,6 +134,11 @@ class CallService:
             return CallOutcome(f"skipped:{plan}")
         trace.event("plan_ready", dialog=plan.dialog_id, voice=plan.voice,
                     prompt_chars=len(plan.system))
+        await self.sleep(random.uniform(*self.ring_s))  # noqa: S311 - a human pause, not a secret
+        trace.event("rang")
+        if call.ended:
+            log.info("call on channel %s not answered: hung up while ringing", channel_id)
+            return CallOutcome("skipped:hung_up")
         assert self.live is not None
         try:
             session = await self.live.open(
