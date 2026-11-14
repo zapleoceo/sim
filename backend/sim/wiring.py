@@ -50,6 +50,7 @@ from sim.services.preview_media import PreviewAttachments
 from sim.services.reply_journal import ReplyJournal
 from sim.services.reply_schedule import ReplyScheduler
 from sim.services.simulation import SimulationService
+from sim.services.summary import SummaryService
 from sim.services.tracing import Tracer
 from sim.services.unanswered import UnansweredService
 from sim.services.video_note import OwnerVideoNotes, VideoNoteEncoderPort
@@ -180,6 +181,11 @@ class Container:
     def passport(self, s: AsyncSession) -> PassportService:
         return PassportService(s, self.audited(), AppSettingsService(s, env_defaults(self.settings)),
                                clock=self.clock)
+
+    def summary(self, s: AsyncSession) -> SummaryService:
+        """The summary of a dialog's messages older than the context window."""
+        return SummaryService(s, self.audited(), AppSettingsService(s, env_defaults(self.settings)),
+                              clock=self.clock)
 
     def ingest(self, s: AsyncSession) -> IngestService:
         return IngestService(

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -26,22 +27,37 @@ from sim.api.schemas import (
     AiToggleIn,
     ClientPatchIn,
     OperatorMessageIn,
+    ReasonIn,
     StageChangeIn,
     UrgentIn,
     client_mini,
     client_out,
+    dialog_event_out,
     dialog_out,
     dialog_row,
     funnel_event_out,
     message_out,
     partner_event_out,
     reply_plan_out,
+    summary_out,
     unanswered_out,
 )
 from sim.clock import to_naive_utc
 from sim.domain.enums import ChannelKind, ClientStatus, SessionStatus, Stage
+from sim.ports.llm import LLMError
 from sim.services.dialog_reset import DialogReset
 from sim.services.funnel import FunnelRuleError, FunnelService
+from sim.services.journal import (
+    CHAT_CLEARED,
+    NEXT_STEP,
+    NOTES,
+    PASSPORT_CLEARED,
+    REPLY_DELAY,
+    RESOLVED,
+    URGENT,
+    CommunicationJournal,
+    admin_who,
+)
 from sim.services.voice import VOICE_NOTE
 
 log = logging.getLogger(__name__)
@@ -51,10 +67,18 @@ clients = APIRouter(prefix="/api/clients", tags=["clients"], dependencies=[Depen
 funnel = APIRouter(prefix="/api/funnel", tags=["funnel"], dependencies=[Depends(authed)])
 
 Limit = Annotated[int, Query(ge=1, le=200)]
+Reason = Annotated[str, Query(max_length=1000)]   # the optional «почему» of a manual action
+# Hand-edited client fields that the persona reads: a change is a communication journal line.
+JOURNALED_FIELDS = {"notes": NOTES, "next_step": NEXT_STEP, "next_step_at": NEXT_STEP}
 Offset = Annotated[int, Query(ge=0)]
 FUNNEL_CLIENTS_PER_STAGE = 50
 MAX_OPERATOR_AUDIO_BYTES = 8 * 1024 * 1024
 ATTACHMENT_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".pdf", ".txt"}
+
+
+def shown(value: object) -> str:
+    """A client field as a journal value (a date in ISO form, nothing for an empty one)."""
+    return value.isoformat(timespec="minutes") if isinstance(value, datetime) else str(value or "")
 
 
 async def dialog_or_404(s: Db, dialog_id: int) -> Dialog:
@@ -134,6 +158,8 @@ async def dialog_detail(s: AsyncSession, c: App, dialog: Dialog) -> dict[str, An
                    "reply_plan": reply_plan_out(await c.reply_scheduler(s).pending(dialog))},
         "client": client_out(dialog.client, await channels_of(s, dialog.client)),
         "messages": [message_out(m) for m in messages],
+        # The communication journal: service lines the feed shows between the messages by time.
+        "events": [dialog_event_out(e) for e in await CommunicationJournal(s).feed(dialog.id)],
     }
 
 
@@ -142,13 +168,35 @@ async def get_dialog(dialog_id: int, s: Db, c: App):
     return await dialog_detail(s, c, await dialog_or_404(s, dialog_id))
 
 
+@dialogs.get("/{dialog_id}/summary")
+async def get_dialog_summary(dialog_id: int, c: App, s: Db):
+    """The summary of the dialog's messages older than the context window, with its coverage."""
+    await dialog_or_404(s, dialog_id)
+    return summary_out(*await c.summary(s).state(dialog_id))
+
+
+@dialogs.post("/{dialog_id}/summary")
+async def refresh_dialog_summary(dialog_id: int, c: App, s: Db):
+    """«Обновить»: fold the messages that left the context window into the summary now (the
+    summary is extended, not rebuilt). 502 when the model cannot be reached."""
+    await lock(s, NS_DIALOG, dialog_id)
+    await dialog_or_404(s, dialog_id)
+    try:
+        return summary_out(*await c.summary(s).refresh(dialog_id))
+    except LLMError as exc:
+        raise HTTPException(502, "The summary model is unavailable") from exc
+
+
 @dialogs.delete("/{dialog_id}/messages")
-async def clear_dialog_chat(dialog_id: int, c: App, s: Db, p: Owner):
+async def clear_dialog_chat(dialog_id: int, c: App, s: Db, p: Owner, reason: Reason = ""):
     """«Очистить чат» (owner only, irreversible): the dialog's history in SIM is wiped and the
     persona's next reply starts without it. The messenger keeps its messages; nothing is sent."""
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
     wiped = await DialogReset(s).clear_chat(dialog)
+    await CommunicationJournal(s, clock=c.clock).record(
+        dialog.id, CHAT_CLEARED, new=f"удалено сообщений: {wiped}", who=admin_who(p.user),
+        reason=reason)
     log.info("dialog %s: chat cleared by admin %s, %d messages wiped", dialog_id, p.user.id, wiped)
     return {**await dialog_detail(s, c, dialog), "deleted_messages": wiped}
 
@@ -284,20 +332,22 @@ async def send_operator_voice(
 
 
 @dialogs.post("/{dialog_id}/ai")
-async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
+async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db, p: Authed):
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
     pause = c.ai_pause(s)
+    who = admin_who(p.user)
     if body.paused:
-        await pause.pause(dialog)
+        await pause.pause(dialog, who, body.reason)
         return dialog_out(dialog)
-    recovery = await pause.resume(dialog)   # answers what the client wrote during the pause
+    # Answers what the client wrote during the pause.
+    recovery = await pause.resume(dialog, who, body.reason)
     return {**dialog_out(dialog),
             "recovery": {"status": recovery.status, "messages": recovery.messages}}
 
 
 @dialogs.post("/{dialog_id}/reply-now")
-async def reply_now(dialog_id: int, c: App, s: Db):
+async def reply_now(dialog_id: int, c: App, s: Db, p: Authed):
     """«Ответить сейчас»: the reply that waits for the persona's routine is due at once. An AI
     pause is not lifted (409): that is the «ИИ» switch."""
     await lock(s, NS_DIALOG, dialog_id)
@@ -305,15 +355,24 @@ async def reply_now(dialog_id: int, c: App, s: Db):
     if dialog.ai_paused:
         raise HTTPException(409, "AI is paused in this dialog")
     queued = await c.reply_scheduler(s).reply_now(dialog)
+    if queued:
+        await CommunicationJournal(s, clock=c.clock).record(
+            dialog.id, REPLY_DELAY, new="ответить сейчас, не дожидаясь распорядка",
+            who=admin_who(p.user))
     return {**dialog_out(dialog), "reply_plan": None, "queued": queued}
 
 
 @dialogs.post("/{dialog_id}/urgent")
-async def mark_urgent(dialog_id: int, body: UrgentIn, c: App, s: Db):
+async def mark_urgent(dialog_id: int, body: UrgentIn, c: App, s: Db, p: Authed):
     """«Срочный»: replies in this dialog never wait for the routine; a reply that is waiting now
     becomes due at once. The AI pause is a different switch and is not touched."""
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
+    if dialog.urgent != body.urgent:
+        names = {True: "срочный", False: "обычный"}
+        await CommunicationJournal(s, clock=c.clock).record(
+            dialog.id, URGENT, old=names[dialog.urgent], new=names[body.urgent],
+            who=admin_who(p.user))
     dialog.urgent = body.urgent
     scheduler = c.reply_scheduler(s)
     if body.urgent and not dialog.ai_paused and await scheduler.waits_until(dialog.id) is not None:
@@ -322,10 +381,15 @@ async def mark_urgent(dialog_id: int, body: UrgentIn, c: App, s: Db):
 
 
 @dialogs.post("/{dialog_id}/resolve")
-async def resolve_needs_operator(dialog_id: int, s: Db):
+async def resolve_needs_operator(
+    dialog_id: int, c: App, s: Db, p: Authed, body: ReasonIn | None = None,
+):
     """The operator dealt with it: clear the `needs_operator` flag without touching the AI
     pause (resuming the AI or sending a message also clears it)."""
     dialog = await dialog_or_404(s, dialog_id)
+    if dialog.needs_operator:
+        await CommunicationJournal(s, clock=c.clock).record(
+            dialog.id, RESOLVED, who=admin_who(p.user), reason=body.reason if body else "")
     dialog.needs_operator = False
     return dialog_out(dialog)
 
@@ -366,36 +430,47 @@ async def get_client(client_id: int, s: Db):
 
 
 @clients.patch("/{client_id}")
-async def patch_client(client_id: int, body: ClientPatchIn, s: Db):
+async def patch_client(client_id: int, body: ClientPatchIn, c: App, s: Db, p: Authed):
     client = await client_or_404(s, client_id)
+    journal = CommunicationJournal(s, clock=c.clock)
     for field in body.model_fields_set:
         value = getattr(body, field)
         if field == "next_step_at":
             value = to_naive_utc(value) if value else None
         elif value is None:
             continue  # text fields are not nullable
+        old = getattr(client, field)
+        if field in JOURNALED_FIELDS and old != value:
+            # What the persona reads about the client changed by hand: a journal line.
+            await journal.record_for_client(
+                client.id, JOURNALED_FIELDS[field], old=shown(old), new=shown(value),
+                who=admin_who(p.user))
         setattr(client, field, value)
     return client_out(client, await channels_of(s, client))
 
 
 @clients.delete("/{client_id}/passport")
-async def clear_client_passport(client_id: int, s: Db, p: Owner):
+async def clear_client_passport(client_id: int, c: App, s: Db, p: Owner, reason: Reason = ""):
     """«Очистить паспорт» (owner only, irreversible): what was collected about the person is
     forgotten; the client, its dialogs and messages stay."""
     client = await client_or_404(s, client_id)
     await DialogReset(s).clear_passport(client)
+    await CommunicationJournal(s, clock=c.clock).record_for_client(
+        client.id, PASSPORT_CLEARED, new="паспорт, потребности, заметки и следующий шаг",
+        who=admin_who(p.user), reason=reason)
     log.info("client %s: passport cleared by admin %s", client_id, p.user.id)
     return client_out(client, await channels_of(s, client))
 
 
 @clients.post("/{client_id}/stage")
-async def change_stage(client_id: int, body: StageChangeIn, s: Db):
+async def change_stage(client_id: int, body: StageChangeIn, c: App, s: Db, p: Authed):
     client = await client_or_404(s, client_id)
     if body.stage is None and body.status is None:
         raise HTTPException(422, "stage or status is required")
     try:
-        await FunnelService(s).operator_update(
-            client, stage=body.stage, status=body.status, reason=body.reason
+        await FunnelService(s, clock=c.clock).operator_update(
+            client, stage=body.stage, status=body.status, reason=body.reason,
+            who=admin_who(p.user),
         )
     except FunnelRuleError as exc:
         raise HTTPException(422, str(exc)) from exc

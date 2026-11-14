@@ -13,6 +13,8 @@ from sim.adapters.db.models import (
     Client,
     ContentPost,
     Dialog,
+    DialogEvent,
+    DialogSummary,
     FunnelEvent,
     Message,
     PartnerEvent,
@@ -200,6 +202,13 @@ class OperatorMessageIn(Body):
 
 class AiToggleIn(Body):
     paused: bool
+    reason: str = Field(default="", max_length=1000)
+
+
+class ReasonIn(Body):
+    """An optional «почему» of a manual action; it goes to the communication journal."""
+
+    reason: str = Field(default="", max_length=1000)
 
 
 class UrgentIn(Body):
@@ -343,6 +352,26 @@ def dialog_out(d: Dialog) -> dict[str, Any]:
 def reply_plan_out(plan: dict[str, Any] | None) -> dict[str, Any] | None:
     """The delayed reply of the dialog (sim.services.reply_schedule): when it is due and why."""
     return {**plan, "at": dt(plan["at"])} if plan else None
+
+
+def dialog_event_out(e: DialogEvent) -> dict[str, Any]:
+    """One line of the communication journal (sim.services.journal). `reason` "" = not given."""
+    return {
+        "id": e.id, "kind": e.kind, "from": e.from_value, "to": e.to_value,
+        "actor": e.actor, "actor_name": e.actor_name, "reason": e.reason,
+        "created_at": dt(e.created_at),
+    }
+
+
+def summary_out(row: DialogSummary | None, pending: int) -> dict[str, Any]:
+    """The summary of the messages older than the context window (sim.services.summary).
+    `pending`: older messages it does not cover yet."""
+    return {
+        "text": row.text if row else "", "covered_until": dt(row.covered_until) if row else None,
+        "messages_covered": row.messages_covered if row else 0,
+        "updated_at": dt(row.updated_at) if row else None, "model": row.model if row else None,
+        "pending": pending,
+    }
 
 
 def unanswered_out(messages: list[Message]) -> dict[str, Any]:

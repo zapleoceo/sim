@@ -295,6 +295,44 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
+class DialogEvent(Base):
+    """Communication journal (sim.services.journal): one service line of the dialog feed for a
+    change that affects the conversation. What changed (`kind`, `from_value` -> `to_value`),
+    who did it (`actor`: owner | operator | system | model, plus a display name) and why
+    (`reason`, "" when nobody gave one). Never sent to the client; survives «Очистить чат»."""
+
+    __tablename__ = "dialog_event"
+    __table_args__ = (Index("ix_dialog_event_dialog_created", "dialog_id", "created_at", "id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dialog_id: Mapped[int] = mapped_column(ForeignKey("dialog.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(32))
+    from_value: Mapped[str] = mapped_column(Text, default="")
+    to_value: Mapped[str] = mapped_column(Text, default="")
+    actor: Mapped[str] = mapped_column(String(16))
+    actor_name: Mapped[str] = mapped_column(String(120), default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DialogSummary(Base):
+    """Summary of the dialog's messages that are older than the context window
+    (sim.services.summary): kept and extended, never rebuilt from scratch. `covered_message_id`
+    is the newest message already folded in, `covered_until` its time (the coverage date)."""
+
+    __tablename__ = "dialog_summary"
+
+    dialog_id: Mapped[int] = mapped_column(
+        ForeignKey("dialog.id", ondelete="CASCADE"), primary_key=True, autoincrement=False
+    )
+    text: Mapped[str] = mapped_column(Text, default="")
+    covered_message_id: Mapped[int] = mapped_column(Integer, default=0)
+    covered_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    messages_covered: Mapped[int] = mapped_column(Integer, default=0)
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class OutboundSendIntent(Base):
     """Permanent send fence, without FK/cascade; sent_at marks an acknowledged send."""
 

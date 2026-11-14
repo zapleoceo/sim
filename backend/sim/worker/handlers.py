@@ -15,6 +15,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.repositories.simulations import SimBranchRepo, SimMessageRepo
 from sim.services import jobkinds, media_decisions, tracing
 from sim.services.conversation import AI_PAUSED, ReplyOutcome
+from sim.services.journal import HANDOFF, CommunicationJournal
 from sim.wiring import Container
 
 # A handler may return a small dict about what it did; it lands in the job step of the trace log.
@@ -70,6 +71,9 @@ async def giveup_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -
     if dialog is not None:
         dialog.needs_operator = True
         dialog.ai_paused = True
+        await CommunicationJournal(s, clock=c.clock).record(
+            dialog_id, HANDOFF, new="operator",
+            reason="модель не смогла ответить после всех попыток")
 
 
 async def giveup_followup(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
@@ -77,6 +81,9 @@ async def giveup_followup(c: Container, s: AsyncSession, payload: dict[str, Any]
     dialog = await DialogRepo(s).get(int(payload["dialog_id"]))
     if dialog is not None:
         dialog.needs_operator = True
+        await CommunicationJournal(s, clock=c.clock).record(
+            dialog.id, HANDOFF, new="operator",
+            reason="напоминание клиенту не удалось создать после всех попыток")
 
 
 async def run_media(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:

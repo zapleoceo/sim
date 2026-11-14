@@ -25,6 +25,7 @@ from sim.services.content import CAPTION_RULES
 from sim.services.guard import GUARD_PROMPT
 from sim.services.passport import PASSPORT_PROMPT
 from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE, PromptTexts
+from sim.services.summary import SUMMARY_PROMPT
 
 log = logging.getLogger(__name__)
 
@@ -77,8 +78,16 @@ class SettingSpec:
 
 SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("history_limit", "Ответы", "Сколько реплик помнить",
-                "Сколько последних сообщений диалога уходит модели и охраннику.",
+                "Сколько последних сообщений уходит охраннику, паспортистке, в симуляции и звонки. Ответ персонажа в диалоге собирается иначе: см. «Окно контекста».",
                 "int", HISTORY_LIMIT, 6, 100),
+    SettingSpec("context_window_hours", "Ответы", "Окно контекста, часов",
+                "Сообщения диалога за это время персонаж читает целиком (48 = два дня), вместе "
+                "со служебными событиями журнала. Что старше, приходит к нему саммари.",
+                "int", 48, 1, 720),
+    SettingSpec("context_token_limit", "Ответы", "Лимит окна контекста, токенов",
+                "Оценка объёма сообщений окна (около трёх знаков на токен). Если окно больше, "
+                "самые старые его сообщения обрезаются с пометкой, их покрывает саммари.",
+                "int", 6000, 500, 200000),
     SettingSpec("guard_prompt", "Охранник", "Промпт охранника",
                 "Весь промпт охранника одним текстом: что проверять, вердикты и формат ответа. "
                 "Если сломать JSON-формат в конце, проверки перестанут разбираться.",
@@ -98,6 +107,13 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("passport_prompt", "Паспортистка", "Инструкция паспортистки",
                 "Как вести паспорт лида: что собирать и в каком виде. Персонаж читает паспорт перед каждым ответом.",
                 "text", PASSPORT_PROMPT),
+    SettingSpec("summary_model", "Саммари диалога", "Модель",
+                "Модель, которая дописывает саммари старой части диалога. Пусто: маршрут chat:sales.",
+                "model", ""),
+    SettingSpec("summary_prompt", "Саммари диалога", "Инструкция саммари",
+                "Как вести саммари сообщений, которые старше окна контекста. Саммари не "
+                "пересчитывается с нуля: модель получает текущее и только новые старые сообщения.",
+                "text", SUMMARY_PROMPT),
     SettingSpec("typo_percent", "Стиль сообщений", "Опечатки, % ответов",
                 "Как часто код делает в ответе одну оплошность: пропущенную запятую или опечатку (не в именах, ссылках и цифрах). Не больше одной на весь ответ. 0: никогда.",
                 "int", None, 0, 100),
@@ -202,12 +218,16 @@ FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "
 @dataclass(frozen=True)
 class AppSettings:
     history_limit: int
+    context_window_hours: int
+    context_token_limit: int
     guard_prompt: str
     guard_model: str
     guard_capability: str
     guard_fallback_capability: str
     passport_model: str
     passport_prompt: str
+    summary_model: str
+    summary_prompt: str
     typo_percent: int
     lowercase_percent: int
     reply_debounce_s: int

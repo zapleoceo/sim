@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, delete, func, or_, select
 from sqlalchemy.orm import aliased
 
 from sim.adapters.db.models import (
@@ -12,6 +12,8 @@ from sim.adapters.db.models import (
     Client,
     ClientIdentity,
     Dialog,
+    DialogEvent,
+    DialogSummary,
     FunnelEvent,
     Message,
 )
@@ -189,21 +191,40 @@ class MessageRepo(Repository[Message]):
         ).all()
         return list(reversed(rows))
 
-    async def recent_visible(self, dialog_id: int, limit: int) -> list[Message]:
-        """Client-visible history; filter before limiting so drafts do not evict real turns."""
+    @staticmethod
+    def visible(dialog_id: int) -> tuple[ColumnElement[bool], ...]:
+        """What the client saw of the dialog: their own messages and what was really sent."""
+        return (
+            Message.dialog_id == dialog_id,
+            or_(Message.direction == Direction.IN, Message.delivery == Delivery.SENT),
+            or_(Message.guard_verdict.is_(None), Message.guard_verdict != "blocked"),
+        )
+
+    async def newest_first(self, limit: int, *where: ColumnElement[bool]) -> list[Message]:
+        """The newest `limit` matching messages, returned oldest first."""
         rows = (
             await self.session.scalars(
-                select(Message)
-                .where(
-                    Message.dialog_id == dialog_id,
-                    or_(Message.direction == Direction.IN, Message.delivery == Delivery.SENT),
-                    or_(Message.guard_verdict.is_(None), Message.guard_verdict != "blocked"),
-                )
-                .order_by(Message.id.desc())
-                .limit(limit)
+                select(Message).where(*where).order_by(Message.id.desc()).limit(limit)
             )
         ).all()
         return list(reversed(rows))
+
+    async def recent_visible(self, dialog_id: int, limit: int) -> list[Message]:
+        """Client-visible history; filter before limiting so drafts do not evict real turns."""
+        return await self.newest_first(limit, *self.visible(dialog_id))
+
+    async def visible_since(self, dialog_id: int, since: datetime, limit: int) -> list[Message]:
+        """Client-visible messages not older than `since` (at most the newest `limit`)."""
+        return await self.newest_first(limit, *self.visible(dialog_id), Message.created_at >= since)
+
+    async def visible_between(
+        self, dialog_id: int, after_id: int, before_id: int | None, limit: int
+    ) -> list[Message]:
+        """The oldest `limit` client-visible messages with after_id < id < before_id."""
+        stmt = select(Message).where(*self.visible(dialog_id), Message.id > after_id)
+        if before_id is not None:
+            stmt = stmt.where(Message.id < before_id)
+        return list((await self.session.scalars(stmt.order_by(Message.id).limit(limit))).all())
 
     async def last(self, dialog_id: int, direction: Direction | None = None) -> Message | None:
         stmt = select(Message).where(Message.dialog_id == dialog_id)
@@ -287,3 +308,35 @@ class FunnelEventRepo(Repository[FunnelEvent]):
                 .order_by(FunnelEvent.id.desc())
             )
         ).all()
+
+
+class DialogEventRepo(Repository[DialogEvent]):
+    model = DialogEvent
+
+    async def recent(self, dialog_id: int, limit: int) -> list[DialogEvent]:
+        """The newest `limit` journal records of the dialog, oldest first."""
+        rows = (
+            await self.session.scalars(
+                select(DialogEvent)
+                .where(DialogEvent.dialog_id == dialog_id)
+                .order_by(DialogEvent.created_at.desc(), DialogEvent.id.desc())
+                .limit(limit)
+            )
+        ).all()
+        return list(reversed(rows))
+
+    async def since(self, dialog_id: int, since: datetime) -> list[DialogEvent]:
+        return list((
+            await self.session.scalars(
+                select(DialogEvent)
+                .where(DialogEvent.dialog_id == dialog_id, DialogEvent.created_at >= since)
+                .order_by(DialogEvent.created_at, DialogEvent.id)
+            )
+        ).all())
+
+
+class DialogSummaryRepo(Repository[DialogSummary]):
+    model = DialogSummary
+
+    async def clear(self, dialog_id: int) -> None:
+        await self.session.execute(delete(DialogSummary).where(DialogSummary.dialog_id == dialog_id))

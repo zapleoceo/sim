@@ -1,7 +1,8 @@
 """Live updates for the admin: the inbox refreshes the moment a dialog changes, without polling.
 
 How a change travels:
-1. Any transaction that adds / changes / deletes a `Message` or changes a `Dialog` (ingest in
+1. Any transaction that adds / changes / deletes a `Message`, a journal record (`DialogEvent`)
+   or a `DialogSummary`, or changes a `Dialog` (ingest in
    the worker, a persona reply, a send receipt, an operator action, `/reset`) is noticed by
    SQLAlchemy session events (`track_dialog_changes`), in whichever process it runs.
 2. On PostgreSQL the transaction itself sends `pg_notify('sim_live', '{"dialogs": [ids]}')`,
@@ -25,7 +26,7 @@ from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import Session
 
-from sim.adapters.db.models import Dialog, Message
+from sim.adapters.db.models import Dialog, DialogEvent, DialogSummary, Message
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def changed_dialog_ids(session: Session) -> set[int]:
     """Dialogs touched by the pending flush (in `after_flush` new rows already have ids)."""
     ids: set[int] = set()
     for obj in (*session.new, *session.dirty, *session.deleted):
-        if isinstance(obj, Message) and obj.dialog_id:
+        if isinstance(obj, Message | DialogEvent | DialogSummary) and obj.dialog_id:
             ids.add(int(obj.dialog_id))
         elif isinstance(obj, Dialog) and obj.id:
             ids.add(int(obj.id))

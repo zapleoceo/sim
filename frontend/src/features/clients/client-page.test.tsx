@@ -105,6 +105,63 @@ describe('ClientPage', () => {
     expect(screen.getByText('История · 1')).toBeInTheDocument();
   });
 
+  it('changes the stage and the status through one dropdown and the stage API', async () => {
+    const log = fakeApi({ ...common, 'GET /api/clients/7': card, 'POST /api/clients/7/stage': { ...card, status: 'paused' } });
+    await renderApp('/clients/7');
+    const posts = () => log.filter((r) => r.method === 'POST' && r.path === '/api/clients/7/stage');
+
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Статус' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Пауза' }));
+    await userEvent.type(screen.getByLabelText('Причина (необязательно)'), 'просил написать в пятницу');
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0].body).toEqual({ status: 'paused', reason: 'просил написать в пятницу' });
+    expect(posts()[0].headers['X-CSRF-Token']).toBe(CSRF);
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Этап' }));
+    const stages = await screen.findByRole('listbox', { name: 'Этап' });
+    expect(within(stages).getByRole('option', { name: 'Оплата' })).toBeDisabled();
+    await userEvent.click(within(stages).getByRole('option', { name: 'Интерес' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(posts()[1].body).toEqual({ stage: 'interested' });
+  });
+
+  it('shows the dialog summary read-only with its coverage and extends it on «Обновить»', async () => {
+    const summary = { text: 'Обсуждали курс, Анна сомневалась в цене.', covered_until: '2026-11-09T10:00:00Z',
+      messages_covered: 14, updated_at: '2026-11-11T10:00:00Z', model: 'gemini/flash', pending: 3 };
+    const log = fakeApi({
+      ...common,
+      'GET /api/clients/7': card,
+      'GET /api/dialogs/1/summary': summary,
+      'POST /api/dialogs/1/summary': { ...summary, text: 'Обсуждали курс и рассрочку.', messages_covered: 17, pending: 0 },
+    });
+    await renderApp('/clients/7');
+    await userEvent.click(await screen.findByText('Саммари переписки'));
+    const block = screen.getByRole('region', { name: 'Саммари диалога' });
+    expect(await within(block).findByText('Обсуждали курс, Анна сомневалась в цене.')).toBeInTheDocument();
+    expect(block).toHaveTextContent(/Охватывает переписку до .+ · 14 сообщений/);
+    expect(block).toHaveTextContent('Ещё не вошло в саммари: 3 сообщения.');
+    expect(within(block).queryByRole('textbox')).not.toBeInTheDocument();      // read only
+
+    await userEvent.click(within(block).getByRole('button', { name: 'Обновить' }));
+    expect(await within(block).findByText('Обсуждали курс и рассрочку.')).toBeInTheDocument();
+    const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/summary');
+    expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    expect(block).toHaveTextContent(/17 сообщений/);
+    expect(block).not.toHaveTextContent('Ещё не вошло');
+  });
+
+  it('says that there is no summary yet while the whole dialog fits the context window', async () => {
+    fakeApi({ ...common, 'GET /api/clients/7': card, 'GET /api/dialogs/1/summary': {
+      text: '', covered_until: null, messages_covered: 0, updated_at: null, model: null, pending: 0 } });
+    await renderApp('/clients/7');
+    await userEvent.click(await screen.findByText('Саммари переписки'));
+    const block = screen.getByRole('region', { name: 'Саммари диалога' });
+    expect(await within(block).findByText(/саммари появится, когда часть переписки станет старше окна контекста/)).toBeInTheDocument();
+  });
+
   it('shows an empty passport hint for a new lead', async () => {
     fakeApi({ ...common, 'GET /api/clients/7': card });
     await renderApp('/clients/7');

@@ -123,6 +123,15 @@ describe('SettingsPage', () => {
     expect(within(screen.getByRole('region', { name: 'Паспортистка' })).queryByText(/управляющие поля decision/)).not.toBeInTheDocument();
   });
 
+  it('the agents page has the dialog summary agent with its model and instruction', async () => {
+    const SUMMARY = item({ key: 'summary_prompt', group: 'Саммари диалога', label: 'Инструкция саммари', value: 'веди саммари' });
+    fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, SUMMARY] } });
+    await renderApp('/agents');
+    const card = await screen.findByRole('region', { name: 'Саммари диалога' });
+    expect(within(card).getByLabelText('Инструкция саммари')).toHaveValue('веди саммари');
+    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
+  });
+
   it('the old guard address leads to the agents page', async () => {
     fakeApi({ 'GET /api/settings': { items: [GUARD] } });
     await renderApp('/guard');

@@ -34,6 +34,7 @@ from sim.domain.enums import ClientStatus
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.dialog_state import turns
+from sim.services.journal import REPLY_DELAY, CommunicationJournal
 from sim.services.persona_clock import local_time
 from sim.services.persona_routine import agenda, covers, minute_of, parse_routine
 
@@ -227,6 +228,8 @@ class ReplyScheduler:
         existing = await self.jobs.pending_by_key(key)
         if existing is None:
             await self.jobs.enqueue(jobkinds.REPLY, payload, max(earliest, plan.at), dedup_key=key)
+            if plan.delay and plan.at > earliest:
+                await self.journal_delay(dialog, client, plan)
             return True
         before = dict(existing.payload or {}).get("delay") or {}
         if before.get("cls"):       # she already "decided" when to look: never later than that
@@ -239,6 +242,17 @@ class ReplyScheduler:
             payload["delay"] = {"pause": True}
         existing.payload = payload
         return True
+
+    async def journal_delay(self, dialog: Dialog, client: Client, plan: Plan) -> None:
+        """The decision to answer later is a line of the communication journal: until when the
+        answer waits and why (her routine at this moment). Written once, when the reply is
+        first planned; later messages of the same wait add no lines."""
+        persona = await self.personas.get(client.persona_id)
+        tz = persona.timezone if persona is not None else ""
+        due = clock_text(plan.at, tz, local_time(tz, self.clock()))
+        await CommunicationJournal(self.session, clock=self.clock).record(
+            dialog.id, REPLY_DELAY, new=f"ответ отложен до {due}",
+            reason=reason_text(plan.delay or {}, tz))
 
     async def reply_now(self, dialog: Dialog) -> bool:
         """«Ответить сейчас»: the planned reply is due at once (the reason it waited stays in the
