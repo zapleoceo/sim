@@ -15,7 +15,7 @@ from datetime import datetime
 from sim.domain.enums import ChannelKind, ClientStatus, MediaKind, Stage
 from sim.services.ai_media import AI_PHOTO_RULE
 from sim.services.call_prompt import call_identity, greeting
-from sim.services.persona_media_tool import NO_MEDIA, Offer
+from sim.services.persona_media_tool import MEDIA_REPORT, NO_MEDIA, Offer
 from sim.services.prompt import DialogContext, PromptPart, StrategyProfile, dynamic_context
 from sim.services.video_note import AI_VIDEO_RULE
 
@@ -60,5 +60,6 @@ def fixed_rules(persona_name: str) -> list[FixedRule]:
         FixedRule("ai_photo", "Правило фото ИИ", AI_PHOTO_RULE),
         FixedRule("media_tool", "Фото и кружочки по решению персонажа",
                   f"{Offer((MediaKind.PHOTO, MediaKind.VIDEO_NOTE)).brief()}\n\n"
-                  f"Когда отправить нельзя, вместо этого:\n{NO_MEDIA}"),
+                  f"Когда отправить нельзя, вместо этого:\n{NO_MEDIA}\n\n"
+                  f"В обоих случаях следом:\n{MEDIA_REPORT}"),
     ]

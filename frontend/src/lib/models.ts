@@ -176,6 +176,24 @@ export interface Message {
   error?: string | null;
   /** Результат контролера; только у сообщений ИИ. */
   guard?: GuardInfo | null;
+  /** Служебная запись «решение медиа» (media_kind = media_decision); клиенту не отправляется. */
+  media_decision?: MediaDecisionInfo | null;
+}
+/** Решение персонажа по фото или кружочку: что просили, что она решила, причина и исход. */
+export interface MediaDecisionInfo {
+  requested: 'photo' | 'video_note' | 'none';
+  kind: 'photo' | 'video_note';
+  decision: 'send' | 'decline' | 'later';
+  reason: string;
+  /** Просил владелец (диалог с аккаунтом из настройки «Кружочки ИИ»). */
+  owner_request: boolean;
+  outcome: string;
+  /** Итог одной фразой, например «запрос владельца, отказ модели». */
+  headline: string;
+  /** Готовые строки записи: просили, решение, причина, исход. */
+  lines: string[];
+  /** Причина не подтверждается распорядком или не названа; пусто, если замечаний нет. */
+  warning: string;
 }
 export interface DialogRow {
   id: number;

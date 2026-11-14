@@ -33,6 +33,7 @@ from sim.domain.enums import (
     VoiceMode,
 )
 from sim.domain.voice import GEMINI_VOICES
+from sim.services import media_decisions
 from sim.services.channels import ConnectState
 from sim.services.persona_routine import MAX_ROUTINE_LEN, invalid_lines
 from sim.services.prompt_map import PromptMap
@@ -320,6 +321,8 @@ def message_out(m: Message) -> dict[str, Any]:
         "provider": m.provider, "tokens_in": m.tokens_in, "tokens_out": m.tokens_out,
         "cost_usd": m.cost_usd,
         "guard": guard_out(m.guard_verdict, m.guard_violations, m.guard_model, m.original_text),
+        # Only on a service record of the persona's media decision (a row that is never sent).
+        "media_decision": media_decisions.view(m),
     }
 
 

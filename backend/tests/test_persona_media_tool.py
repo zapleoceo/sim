@@ -216,7 +216,7 @@ async def test_out_of_the_box_she_is_told_not_to_promise_media(container, world,
     await say(container, world, "Здравствуйте")
     fake_llm.replies = [decision_json(media=ASK)]
     assert (await run_reply(container)).status == "sent"
-    assert NO_MEDIA in context_of(fake_llm) and '"media"' not in context_of(fake_llm)
+    assert NO_MEDIA in context_of(fake_llm) and '"scene"' not in context_of(fake_llm)
     assert await media_jobs(container) == []      # she asked anyway: nothing is queued
 
 
@@ -244,7 +244,8 @@ async def test_she_is_offered_a_photo_and_her_request_is_queued_after_the_text(c
     assert "МЕДИА: к этому ответу ты можешь приложить своё фото." in context and NO_MEDIA not in context
     assert outcome.status == "sent" and outcome.decision.media == MediaAsk(MediaKind.PHOTO, SCENE)
     (job,) = await media_jobs(container)
-    assert job.payload == {"dialog_id": outcome.message.dialog_id, "kind": "photo", "scene": SCENE}
+    assert {**job.payload, "decision_id": 0} == {
+        "dialog_id": outcome.message.dialog_id, "kind": "photo", "scene": SCENE, "decision_id": 0}
     assert job.max_attempts == 1 and job.run_at > outcome.message.created_at
     assert "media" in json.loads(fake_llm.guard_calls[-1][0][-1]["content"])["decision"]
     # no video note for a dialog that is not the allowlisted account

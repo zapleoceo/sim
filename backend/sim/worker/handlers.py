@@ -35,12 +35,15 @@ async def run_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> d
 
 
 def reply_detail(outcome: ReplyOutcome) -> dict[str, Any]:
-    """What the reply pipeline did (sent / blocked / superseded...) and the guard's verdict."""
+    """What the reply pipeline did (sent / blocked / superseded...), the guard's verdict and her
+    media decision when there was one (sim.services.media_decisions)."""
     message = outcome.message
     detail = {"outcome": outcome.status, "message_id": message.id if message else None,
               "guard": message.guard_verdict if message else None}
     if outcome.reason:
         detail["reason"] = outcome.reason
+    if outcome.media is not None:
+        detail["media"] = outcome.media.journal()
     return detail
 
 

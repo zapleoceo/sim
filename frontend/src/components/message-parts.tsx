@@ -2,6 +2,7 @@ import { FileText, Image, Mic, Paperclip, Phone, Video, type LucideIcon } from '
 import { formatInt, formatMoney } from '@/lib/format';
 import type { Message } from '@/lib/models';
 import { GuardBadge } from './guard-badge';
+import { MediaDecisionNote } from './media-decision-note';
 
 const MEDIA: Record<string, { icon: LucideIcon; label: string }> = {
   image: { icon: Image, label: 'Фото' },
@@ -19,6 +20,7 @@ export function mediaMeta(kind: string | null | undefined): { icon: LucideIcon; 
 
 /** Message body: media, text, guard verdict and delivery failure. */
 export function MessageContent({ message }: { message: Message }) {
+  if (message.media_decision) return <MediaDecisionNote decision={message.media_decision} />;
   const media = mediaMeta(message.media_kind);
   const url = message.media_url;
   return (
@@ -64,7 +66,7 @@ export function MessageMetadata({ message }: { message: Message }) {
   if (message.author === 'operator') {
     return <p className="text-xs text-muted-foreground">Оператор: {message.operator_name || 'имя не сохранено'}</p>;
   }
-  if (message.author !== 'ai') return null;
+  if (message.author !== 'ai' || message.media_decision) return null;
   return (
     <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
       <span>Генератор: {message.model || 'модель не сохранена'}</span>
