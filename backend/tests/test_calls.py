@@ -26,6 +26,7 @@ from sim.adapters.db.models import Dialog, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
 from sim.adapters.pcm import PcmBuffer, frame_bytes, resample, to_stereo
+from sim.config import Settings
 from sim.connectors.telegram_user import TelegramUserConnector
 from sim.domain.enums import Author, ClientStatus, Direction, Stage
 from sim.ports.live_voice import (
@@ -945,13 +946,18 @@ async def test_persona_api_round_trips_accept_calls_and_needs_a_voice(api):
 
 
 def test_container_wires_production_ring_defaults_and_configured_values(container):
-    assert container.calls().ring_s == (4.0, 9.0)
+    defaults = Settings.model_fields
+    assert (defaults["call_ring_min_s"].default, defaults["call_ring_max_s"].default) == (4.0, 9.0)
+    # The shared fixture deliberately uses zero delays; verify actual settings wiring.
+    assert container.calls().ring_s == (0.0, 0.0)
     container.settings.call_ring_min_s = 6.0
     container.settings.call_ring_max_s = 8.0
     assert container.calls().ring_s == (6.0, 8.0)
 
 
 async def test_container_ring_delay_precedes_the_broker_session(container, world):
+    container.settings.call_ring_min_s = Settings.model_fields["call_ring_min_s"].default
+    container.settings.call_ring_max_s = Settings.model_fields["call_ring_max_s"].default
     await chatting_world(container, world)
     live, call, pauses = FakeLive(), FakeCall(), []
     container.live_voice = live
