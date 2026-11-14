@@ -20,7 +20,8 @@ from sim.services.prompt import (
     stable_system_prompt,
 )
 
-CALL_HISTORY_LIMIT = 30
+CALL_HISTORY_CHARS = 18000
+CALL_HISTORY_TRIMMED = "[Переписка сокращена для звонка; пропущенные детали не выдумывай.]"
 CALL_TURN_MAX = 1500
 
 CALL_RULES = (
@@ -58,13 +59,26 @@ def greeting(name: str) -> str:
     return GREETING.format(name=name)
 
 
-def chat_transcript(history: list[Turn], limit: int = CALL_HISTORY_LIMIT) -> str:
-    """The chat before the call, as quoted data (client lines are untrusted)."""
-    lines = []
-    for turn in merge_turns(history[-limit:]):
+def chat_transcript(history: list[Turn]) -> str:
+    """The shared window as data, newest first for budget selection, chronological for reading.
+    Voice has a hard character budget even when the owner's chat window is much larger."""
+    lines: list[str] = []
+    size = 0
+    trimmed = False
+    for turn in reversed(merge_turns(history)):
         who = "Клиент" if turn["role"] == "user" else "Ты"
-        text = " ".join(turn["content"].split())[:CALL_TURN_MAX]
-        lines.append(f"{who}: {text}")
+        full = " ".join(turn["content"].split())
+        text = full[:CALL_TURN_MAX]
+        trimmed = trimmed or len(text) < len(full)
+        line = f"{who}: {text}"
+        if size + len(line) + 1 > CALL_HISTORY_CHARS:
+            trimmed = True
+            break
+        lines.append(line)
+        size += len(line) + 1
+    lines.reverse()
+    if trimmed:
+        lines.insert(0, CALL_HISTORY_TRIMMED)
     return "\n".join(lines)
 
 

@@ -148,7 +148,8 @@ def test_first_turn_requests_only_hello_for_any_persona():
 def test_chat_transcript_is_flat_capped_and_empty_without_history():
     assert chat_transcript([]) == ""
     long = chat_transcript([Turn("user", "a\nb " + "x" * 2000)])
-    assert long.startswith("Клиент: a b ") and len(long) <= len("Клиент: ") + 1500
+    assert "Клиент: a b " in long and "Переписка сокращена" in long
+    assert len(long.splitlines()[-1]) <= len("Клиент: ") + 1500
 
 
 def test_small_helpers():
