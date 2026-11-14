@@ -25,6 +25,7 @@ from tests.test_conversation import run_reply
 from tests.test_ingest import ingest
 from tests.test_migrations import alembic_config, columns
 from tests.test_prompt import STRATEGY, ctx
+from tests.test_reply_schedule import at_clock, fri, with_routine
 
 NOW = utcnow()
 OLD = NOW - timedelta(days=5)
@@ -162,6 +163,28 @@ async def test_model_decisions_are_journaled_as_the_model(container, world, fake
     passport = (await events_of(container))[-1]
     assert (passport.kind, passport.actor, passport.actor_name) == ("passport", "model", "паспортистка")
     assert passport.to_value == "Кто он: Анна. / Цели: карьера."
+
+
+async def test_a_reply_put_off_by_her_routine_and_the_operator_overrides_are_journaled(
+    api, container, world,
+):
+    await with_routine(container, world)
+    at_clock(container, fri(9, 10))                    # she is at work until 13:00
+    await ingest(container, world.channel.id, inbound("Добрый день", ext="1", at=fri(9, 10)))
+    at_clock(container, fri(9, 20))                    # one more message of the same wait: no new line
+    await ingest(container, world.channel.id, inbound("Вы тут?", ext="2", at=fri(9, 20)))
+    dialog = await the_dialog(container)
+    h = {"X-CSRF-Token": await login(api, *OPERATOR)}
+    await api.post(f"/api/dialogs/{dialog.id}/urgent", json={"urgent": True}, headers=h)
+    await api.post(f"/api/dialogs/{dialog.id}/urgent", json={"urgent": True}, headers=h)   # no change
+    await api.post(f"/api/dialogs/{dialog.id}/reply-now", headers=h)
+    events = await events_of(container)
+    assert [(e.kind, e.from_value, e.to_value, e.actor, e.reason) for e in events] == [
+        ("reply_delay", "", "ответ отложен до 09:40", "system",
+         "на работе: консультации с клиентами до 13:00"),
+        ("urgent", "обычный", "срочный", "operator", ""),
+        ("reply_delay", "", "ответить сейчас, не дожидаясь распорядка", "operator", ""),
+    ]
 
 
 async def test_a_rejected_reply_hands_the_dialog_over_with_the_reason(container, world, fake_llm):
