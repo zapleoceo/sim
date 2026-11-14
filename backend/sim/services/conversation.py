@@ -236,13 +236,17 @@ class ConversationService:
             texts=cfg.prompt_texts(), history_limit=limit,
         )
 
-    async def memory(self, dialog_id: int, ctx: DialogContext) -> tuple[list[Message], DialogContext]:
+    async def memory(
+        self, dialog_id: int, ctx: DialogContext, *, refresh_summary: bool = True,
+    ) -> tuple[list[Message], DialogContext]:
         """What a reply in a real dialog is built from: the messages of the context window in
         full, and in the context the summary of what is older, the journal records of the
-        window and a note when the token limit cut the window."""
+        window and a note when the token limit cut the window. Calls only read the saved
+        summary: preparing to pick up must never generate memory or make a model request."""
         cfg = await self.config()
         window = await self.summaries.load_window(dialog_id, cfg)
-        summary = await self.summaries.for_reply(dialog_id, window, cfg)
+        summary = (await self.summaries.for_reply(dialog_id, window, cfg) if refresh_summary
+                   else await self.summaries.get(dialog_id))
         return window.messages, replace(
             ctx,
             summary=summary.text if summary else "",
@@ -306,10 +310,10 @@ class ConversationService:
     async def call_prompt(self, dialog: Dialog, persona: Persona) -> str:
         """The live voice model's system prompt for a phone call in this dialog: the persona
         prompt and strategy, the chat so far and the dialog context (sim.services.call_prompt)."""
-        cfg = await self.config()
         strategy = await self.strategy_for(persona.id)
-        recent = await self.messages.recent_visible(dialog.id, cfg.history_limit)
-        ctx = with_persona_facts(persona, await self.dialog_context(dialog, persona))
+        recent, ctx = await self.memory(
+            dialog.id, await self.dialog_context(dialog, persona), refresh_summary=False)
+        ctx = with_persona_facts(persona, ctx)
         return call_system_prompt(persona_profile(persona), strategy_profile(strategy),
                                   history_turns(recent), ctx)
 
