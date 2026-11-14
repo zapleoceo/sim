@@ -1,6 +1,6 @@
 import type { ConfirmOptions } from '@/components/confirm';
 import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
-import type { Delivery, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, SimBranchRow } from '@/lib/models';
+import type { AiRecovery, Delivery, Dialog, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, SimBranchRow } from '@/lib/models';
 
 /** Fallback only: changes arrive live through /api/events (lib/live.ts). */
 export const POLL_MS = 30_000;
@@ -161,8 +161,47 @@ export function detailChanged(prev: DialogDetail | null | undefined, next: Dialo
     a?.id === b?.id &&
     a?.delivery === b?.delivery &&
     prev.dialog.ai_paused === next.dialog.ai_paused &&
-    prev.dialog.needs_operator === next.dialog.needs_operator
+    prev.dialog.needs_operator === next.dialog.needs_operator &&
+    (prev.dialog.unanswered?.count ?? 0) === (next.dialog.unanswered?.count ?? 0)
   );
+}
+
+/** 1 сообщение · 2 сообщения · 5 сообщений. */
+export function messagesWord(n: number): string {
+  const tens = n % 100;
+  const ones = n % 10;
+  if (tens >= 11 && tens <= 14) return 'сообщений';
+  if (ones === 1) return 'сообщение';
+  return ones >= 2 && ones <= 4 ? 'сообщения' : 'сообщений';
+}
+
+export const PAUSE_NOTE = 'Ответ не создан: диалог на паузе ИИ';
+
+/** What the dialog shows while its AI is off; null while the AI is on. */
+export function pauseNotice(dialog: Pick<Dialog, 'ai_paused' | 'unanswered'>): { waiting: number; text: string } | null {
+  if (!dialog.ai_paused) return null;
+  const waiting = dialog.unanswered?.count ?? 0;
+  return {
+    waiting,
+    text: waiting > 0
+      ? `Персонаж не отвечает в этом диалоге. Без ответа: ${waiting} ${messagesWord(waiting)} клиента.`
+      : 'Персонаж не отвечает в этом диалоге, пока ИИ не включат.',
+  };
+}
+
+/** Toast after «Включить ИИ»: what happened to the messages left unanswered during the pause. */
+export function recoveryToast(recovery: AiRecovery | undefined): { tone: 'success' | 'warning'; text: string } {
+  const n = recovery?.messages ?? 0;
+  switch (recovery?.status) {
+    case 'queued':
+      return { tone: 'success', text: `ИИ включён. Персонаж ответит одним сообщением, без ответа было: ${n} ${messagesWord(n)}.` };
+    case 'stale':
+      return { tone: 'warning', text: `ИИ включён. Без ответа осталось ${n} ${messagesWord(n)}, они устарели: персонаж сам не ответит, ответьте вручную.` };
+    case 'refused':
+      return { tone: 'warning', text: 'ИИ включён, но клиент отказался от общения: персонаж ему не пишет.' };
+    default:
+      return { tone: 'success', text: 'ИИ включён.' };
+  }
 }
 
 /** Enter sends, Shift+Enter (or IME composition) inserts a newline. */

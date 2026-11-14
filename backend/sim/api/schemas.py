@@ -333,6 +333,15 @@ def dialog_out(d: Dialog) -> dict[str, Any]:
     }
 
 
+def unanswered_out(messages: list[Message]) -> dict[str, Any]:
+    """Client messages of the dialog that nobody answered yet (sim.services.unanswered)."""
+    return {
+        "count": len(messages),
+        "since": dt(messages[0].created_at) if messages else None,
+        "message_ids": [m.id for m in messages],
+    }
+
+
 def client_mini(c: Client) -> dict[str, Any]:
     return {
         "id": c.id, "display_name": c.display_name, "avatar_url": c.avatar_url,

@@ -27,6 +27,7 @@ from sim.ports.speech import SpeechPort
 from sim.ports.video import VideoPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
+from sim.services.ai_pause import AiPauseService
 from sim.services.analytics import AnalyticsService
 from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
@@ -46,8 +47,10 @@ from sim.services.passport import PassportService
 from sim.services.persona_media import PersonaMediaService
 from sim.services.persona_media_tool import PersonaMediaTool
 from sim.services.preview_media import PreviewAttachments
+from sim.services.reply_journal import ReplyJournal
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
+from sim.services.unanswered import UnansweredService
 from sim.services.video_note import OwnerVideoNotes, VideoNoteEncoderPort
 from sim.services.voice import VoiceEncoder, VoiceRenderer
 
@@ -180,6 +183,21 @@ class Container:
     def ingest(self, s: AsyncSession) -> IngestService:
         return IngestService(
             s, debounce_s=self.settings.reply_debounce_s, clock=self.clock, tracer=self.tracer(s)
+        )
+
+    def reply_journal(self, s: AsyncSession) -> ReplyJournal:
+        """Replies that were not created (AI pause, stale, overdue) as steps of the system log."""
+        return ReplyJournal(self.tracer(s))
+
+    def unanswered(self, s: AsyncSession) -> UnansweredService:
+        return UnansweredService(s, self.reply_journal(s), clock=self.clock,
+                                 warn_after_s=self.settings.unanswered_warn_s)
+
+    def ai_pause(self, s: AsyncSession) -> AiPauseService:
+        """Pause and resume the AI of a dialog; resuming answers what was left unanswered."""
+        return AiPauseService(
+            s, self.ingest(s), self.unanswered(s), self.reply_journal(s), clock=self.clock,
+            settings_env=env_defaults(self.settings),
         )
 
     def media_service(self, s: AsyncSession) -> MediaService:

@@ -50,7 +50,7 @@ def trace_step_out(event: TraceEvent, client_id: int | None, client_name: str | 
     }
 
 
-STATUS_RANK = {"skipped": -1, "ok": 0, "retry": 1, "error": 2}
+STATUS_RANK = {"skipped": -1, "ok": 0, "warning": 1, "retry": 2, "error": 3}
 
 
 def trace_out(trace_id: str, rows: Sequence[Any], calls: dict[int, LlmCall]) -> dict[str, Any]:

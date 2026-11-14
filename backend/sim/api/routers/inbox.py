@@ -34,12 +34,12 @@ from sim.api.schemas import (
     funnel_event_out,
     message_out,
     partner_event_out,
+    unanswered_out,
 )
 from sim.clock import to_naive_utc
-from sim.domain.enums import ChannelKind, ClientStatus, Direction, SessionStatus, Stage
+from sim.domain.enums import ChannelKind, ClientStatus, SessionStatus, Stage
 from sim.services.dialog_reset import DialogReset
 from sim.services.funnel import FunnelRuleError, FunnelService
-from sim.services.outbound import cancel_queued_ai
 from sim.services.voice import VOICE_NOTE
 
 log = logging.getLogger(__name__)
@@ -127,7 +127,8 @@ async def dialog_detail(s: AsyncSession, c: App, dialog: Dialog) -> dict[str, An
     messages = await MessageRepo(s).recent(dialog.id, 1000)
     return {
         "dialog": {**dialog_out(dialog), "send_capabilities": send_capabilities(c, dialog),
-                   "channel_status": dialog.channel.status.value},
+                   "channel_status": dialog.channel.status.value,
+                   "unanswered": unanswered_out(await c.unanswered(s).of(dialog.id))},
         "client": client_out(dialog.client, await channels_of(s, dialog.client)),
         "messages": [message_out(m) for m in messages],
     }
@@ -283,15 +284,13 @@ async def send_operator_voice(
 async def toggle_ai(dialog_id: int, body: AiToggleIn, c: App, s: Db):
     await lock(s, NS_DIALOG, dialog_id)
     dialog = await dialog_or_404(s, dialog_id)
-    dialog.ai_paused = body.paused
+    pause = c.ai_pause(s)
     if body.paused:
-        await cancel_queued_ai(s, dialog.id, "cancelled: AI paused by an operator")
-    else:
-        dialog.needs_operator = False
-        last = await MessageRepo(s).last(dialog.id)
-        if last is not None and last.direction is Direction.IN:  # an unanswered client message
-            await c.ingest(s).queue_reply(dialog, dialog.client)
-    return dialog_out(dialog)
+        await pause.pause(dialog)
+        return dialog_out(dialog)
+    recovery = await pause.resume(dialog)   # answers what the client wrote during the pause
+    return {**dialog_out(dialog),
+            "recovery": {"status": recovery.status, "messages": recovery.messages}}
 
 
 @dialogs.post("/{dialog_id}/resolve")

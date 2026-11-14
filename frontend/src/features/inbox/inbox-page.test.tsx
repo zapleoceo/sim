@@ -139,6 +139,72 @@ describe('InboxPage', () => {
   });
 });
 
+describe('InboxPage: ИИ на паузе', () => {
+  const waiting = [
+    { id: 11, direction: 'in', author: 'client', text: 'Пришли фото', created_at: '2026-11-11T09:00:00Z', delivery: 'sent' },
+    { id: 12, direction: 'in', author: 'client', text: 'Пришли кружочек', created_at: '2026-11-11T09:01:00Z', delivery: 'sent' },
+  ] as DialogDetail['messages'];
+  const pausedDetail = (paused: boolean): DialogDetail => ({
+    ...detail,
+    dialog: { ...detail.dialog, ai_paused: paused, needs_operator: false,
+      unanswered: { count: 2, since: '2026-11-11T09:00:00Z', message_ids: [11, 12] } },
+    messages: waiting,
+  });
+
+  /** The server state: paused until POST /ai {paused: false}, which reports the recovery. */
+  function pausedApi(status: 'queued' | 'stale' = 'queued') {
+    let paused = true;
+    return api({
+      'GET /api/dialogs/1': () => pausedDetail(paused),
+      'POST /api/dialogs/1/ai': (req) => {
+        paused = (req.body as { paused: boolean }).paused;
+        return { id: 1, ai_paused: paused, needs_operator: false, recovery: { status, messages: 2 } };
+      },
+    });
+  }
+
+  it('shows that the AI is off, the unanswered messages and the note in the log', async () => {
+    pausedApi();
+    await renderApp('/inbox?d=1');
+    const banner = await screen.findByRole('status', { name: 'ИИ выключен' });
+    expect(banner).toHaveTextContent('ИИ выключен. Персонаж не отвечает в этом диалоге. Без ответа: 2 сообщения клиента.');
+    expect(within(banner).getByRole('button', { name: 'Включить ИИ' })).toBeInTheDocument();
+    expect(within(screen.getByRole('log', { name: 'Сообщения' }))
+      .getByText('Ответ не создан: диалог на паузе ИИ · без ответа: 2')).toBeInTheDocument();
+    expect(screen.getByRole('switch')).not.toBeChecked();
+  });
+
+  it('«Включить ИИ» lifts the pause through the same toggle and reports the queued reply', async () => {
+    const log = pausedApi();
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Включить ИИ' }));
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/ai');
+      expect(sent?.body).toEqual({ paused: false });
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+    expect(await screen.findByText('ИИ включён. Персонаж ответит одним сообщением, без ответа было: 2 сообщения.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'ИИ выключен' })).not.toBeInTheDocument());
+    expect(screen.getByRole('switch')).toBeChecked();
+    expect(screen.queryByText(/Ответ не создан/)).not.toBeInTheDocument();
+  });
+
+  it('says that stale messages are left to the operator', async () => {
+    pausedApi('stale');
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Включить ИИ' }));
+    expect(await screen.findByText(/они устарели: персонаж сам не ответит, ответьте вручную/)).toBeInTheDocument();
+  });
+
+  it('has no pause banner while the AI is on', async () => {
+    api();
+    await renderApp('/inbox?d=1');
+    await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
+    expect(screen.queryByRole('status', { name: 'ИИ выключен' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Включить ИИ' })).not.toBeInTheDocument();
+  });
+});
+
 describe('InboxPage «Очистить чат»', () => {
   /** The server state: the dialog has its history until the DELETE. */
   function clearableApi() {

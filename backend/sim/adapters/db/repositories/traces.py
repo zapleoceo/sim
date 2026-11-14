@@ -129,6 +129,18 @@ class TraceRepo:
                 .order_by(TraceEvent.started_at, TraceEvent.id).limit(limit))
         return (await self.session.execute(stmt)).all()
 
+    async def message_ids(self, kind: str, name: str, dialog_ids: Sequence[int]) -> set[int]:
+        """Messages of these dialogs that already have a step of this kind and name."""
+        if not dialog_ids:
+            return set()
+        rows = await self.session.scalars(
+            select(TraceEvent.message_id).where(
+                TraceEvent.kind == kind, TraceEvent.name == name,
+                TraceEvent.dialog_id.in_(dialog_ids), TraceEvent.message_id.is_not(None),
+            )
+        )
+        return {int(row) for row in rows.all()}
+
     async def llm_calls(self, ids: Sequence[int]) -> dict[int, LlmCall]:
         if not ids:
             return {}

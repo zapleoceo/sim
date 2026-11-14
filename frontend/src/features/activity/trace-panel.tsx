@@ -19,6 +19,7 @@ const BAR_COLOR: Record<TraceTimelineStep['status'], string> = {
   error: 'bg-destructive/80',
   retry: 'bg-warning/80',
   skipped: 'bg-muted-foreground/40',
+  warning: 'bg-warning/60',
 };
 
 /** Side panel: one request end to end — a timeline of its steps with durations, attempts and errors. */

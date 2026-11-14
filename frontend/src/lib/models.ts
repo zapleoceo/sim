@@ -199,7 +199,14 @@ export interface Dialog {
   needs_operator: boolean;
   channel_status?: ChannelStatus;
   send_capabilities?: { text: boolean; voice: boolean; attachment: boolean };
+  /** Сообщения клиента, на которые ещё никто не ответил (только в GET /api/dialogs/{id}). */
+  unanswered?: UnansweredInfo;
 }
+export interface UnansweredInfo { count: number; since: string | null; message_ids: number[] }
+/** Что сервер сделал с неотвеченными сообщениями, когда ИИ включили обратно. */
+export interface AiRecovery { status: 'none' | 'queued' | 'stale' | 'refused'; messages: number }
+/** POST /api/dialogs/{id}/ai: диалог и, при включении ИИ, итог восстановления. */
+export interface AiToggleResult extends Dialog { recovery?: AiRecovery }
 export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
 /** DELETE /api/dialogs/{id}/messages: the dialog after «Очистить чат» and how many messages went. */
 export interface ClearedDialog extends DialogDetail { deleted_messages: number }
