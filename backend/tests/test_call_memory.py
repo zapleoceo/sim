@@ -96,3 +96,11 @@ def test_more_than_thirty_short_turns_are_not_silently_dropped():
     history = [Turn("user" if i % 2 else "assistant", f"turn-{i:03d}") for i in range(80)]
     text = chat_transcript(history)
     assert "turn-000" in text and "turn-079" in text and CALL_HISTORY_TRIMMED not in text
+
+
+def test_long_consecutive_client_turns_keep_the_latest_question():
+    history = [Turn("user", "old-first " + "x" * 1600),
+               Turn("user", "latest-question")]
+    text = chat_transcript(history)
+    assert CALL_HISTORY_TRIMMED in text and "latest-question" in text
+    assert "old-first" not in text

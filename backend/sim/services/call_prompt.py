@@ -68,7 +68,7 @@ def chat_transcript(history: list[Turn]) -> str:
     for turn in reversed(merge_turns(history)):
         who = "Клиент" if turn["role"] == "user" else "Ты"
         full = " ".join(turn["content"].split())
-        text = full[:CALL_TURN_MAX]
+        text = full[-CALL_TURN_MAX:]
         trimmed = trimmed or len(text) < len(full)
         line = f"{who}: {text}"
         if size + len(line) + 1 > CALL_HISTORY_CHARS:
