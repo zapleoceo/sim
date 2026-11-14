@@ -5,17 +5,12 @@ import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Textarea } from './ui/textarea';
 
-/** Classes of the short preview: at most four lines, long words wrap instead of widening the page. */
-export const LONG_TEXT_PREVIEW = 'line-clamp-4 whitespace-pre-wrap [overflow-wrap:anywhere]';
+/** Compact editor: wrap long words, retain the complete value. */
+export const LONG_TEXT_PREVIEW = 'whitespace-pre-wrap [overflow-wrap:anywhere]';
 
 const count = (text: string): string => `${text.length.toLocaleString('ru-RU')} симв.`;
 
-/**
- * A long text (a prompt, a scenario) that does not take half of the screen: a preview of a few lines
- * and «Редактировать», which opens the whole text in a dialog (full screen on a phone). The preview is
- * clamped by CSS only; the value is controlled by the caller and is never cut. Edits go to `onChange`
- * as they are typed, so closing the dialog in any way keeps them.
- */
+/** Compact editable text and an optional full editor share the complete value. The parent form saves. */
 export function LongText({
   label,
   value,
@@ -49,19 +44,17 @@ export function LongText({
           Редактировать
         </Button>
       </div>
-      <p
+      <Textarea
         data-slot="long-text-preview"
         aria-labelledby={`${id}-label`}
-        onClick={() => setOpen(true)}
-        className={cn(
-          LONG_TEXT_PREVIEW,
-          'cursor-pointer rounded-md bg-muted/50 px-3 py-2 text-[13px] leading-relaxed',
-          !filled && 'text-muted-foreground',
-          error && 'ring-1 ring-destructive',
-        )}
-      >
-        {filled ? value : (placeholder ?? 'Пусто')}
-      </p>
+        aria-invalid={error ? true : undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        placeholder={placeholder ?? 'Пусто'}
+        rows={4}
+        className={cn(LONG_TEXT_PREVIEW, 'field-sizing-fixed h-28 min-h-28 resize-y text-[13px] leading-relaxed', error && 'ring-1 ring-destructive')}
+      />
       <div className="flex items-start justify-between gap-3 text-xs">
         {error ? (
           <p role="alert" className="text-destructive">{error}</p>
