@@ -25,7 +25,7 @@ from sim.adapters.channels.tg_calls import (
 from sim.adapters.db.models import Dialog, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
-from sim.adapters.pcm import PcmBuffer, frame_bytes, resample
+from sim.adapters.pcm import PcmBuffer, frame_bytes, resample, to_stereo
 from sim.connectors.telegram_user import TelegramUserConnector
 from sim.domain.enums import Author, ClientStatus, Direction, Stage
 from sim.ports.live_voice import (
@@ -70,6 +70,12 @@ def test_downsampling_by_an_integer_factor_averages_each_group():
 def test_upsampling_interpolates_linearly():
     assert resample(pcm(0, 100), 24000, 48000) == pcm(0, 50, 100, 100)
     assert len(resample(pcm(*range(240)), 24000, 48000)) == frame_bytes(48000)   # 10 ms
+
+
+def test_to_stereo_puts_each_sample_on_both_channels():
+    assert to_stereo(pcm(1, -2, 300)) == pcm(1, 1, -2, -2, 300, 300)
+    assert len(to_stereo(pcm(*range(480)))) == 2 * frame_bytes(48000)          # 1920 bytes
+    assert to_stereo(b"") == b""
 
 
 def test_buffer_hands_out_whole_frames_and_pads_the_tail():
@@ -684,7 +690,7 @@ async def test_bridge_answers_streams_and_hangs_up():
 
     async def on_call(call):
         await call.answer()
-        await call.play(b"OUT")
+        await call.play(b"\x01\x00\x02\x00")             # two mono samples
         async for frame in call.frames():
             got.append(frame)
         release.set()
@@ -705,10 +711,12 @@ async def test_bridge_answers_streams_and_hangs_up():
     await asyncio.wait_for(release.wait(), 1)
     await asyncio.gather(*bridge.tasks)
     assert got == [b"A", b"B"]
-    assert ("play", 42, ("media", "ext-audio", (48000, 1)), ("config", ANSWER_TIMEOUT_S)) \
+    # Her voice goes out in stereo (py-tgcalls' own frame example; mono was silent on a live
+    # call), the caller's audio comes in mono.
+    assert ("play", 42, ("media", "ext-audio", (48000, 2)), ("config", ANSWER_TIMEOUT_S)) \
         in calls.log
     assert ("record", 42, ("record", True, (48000, 1))) in calls.log
-    assert ("frame", 42, "mic", b"OUT") in calls.log
+    assert ("frame", 42, "mic", b"\x01\x00\x01\x00\x02\x00\x02\x00") in calls.log
     assert ("leave", 42) not in calls.log                 # the caller hung up first
     assert bridge.active == {}
 
