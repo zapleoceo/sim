@@ -47,7 +47,12 @@ from sim.services.call_prompt import (
 from sim.services.call_trace import CallTrace
 from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
 from sim.services.prompt import (
-    DialogContext, PersonaProfile, PromptTexts, StrategyProfile, Turn, stable_system_prompt,
+    DialogContext,
+    PersonaProfile,
+    PromptTexts,
+    StrategyProfile,
+    Turn,
+    stable_system_prompt,
 )
 from sim.worker.loop import Worker
 from tests.conftest import inbound
@@ -248,7 +253,9 @@ async def chatting_world(container, world, *, accept=True, voice="Kore") -> int:
 
 def service(container, live) -> CallService:
     container.live_voice = live
-    return container.calls()
+    svc = container.calls()
+    svc.ring_s = (0.0, 0.0)  # unrelated transport tests never wait in real time
+    return svc
 
 
 async def dialog_messages(container, dialog_id) -> list[Message]:
@@ -935,3 +942,28 @@ async def test_persona_api_round_trips_accept_calls_and_needs_a_voice(api):
     resp = await api.put(f"/api/personas/{created['id']}",
                          json={"name": "Марина", "accept_calls": True}, headers=h)
     assert resp.status_code == 422
+
+
+def test_container_wires_production_ring_defaults_and_configured_values(container):
+    assert container.calls().ring_s == (4.0, 9.0)
+    container.settings.call_ring_min_s = 6.0
+    container.settings.call_ring_max_s = 8.0
+    assert container.calls().ring_s == (6.0, 8.0)
+
+
+async def test_container_ring_delay_precedes_the_broker_session(container, world):
+    await chatting_world(container, world)
+    live, call, pauses = FakeLive(), FakeCall(), []
+    container.live_voice = live
+    svc = container.calls()
+
+    async def sleep(seconds):
+        if seconds >= 1:
+            assert not live.opened and not call.answered
+            pauses.append(seconds)
+        else:
+            await asyncio.sleep(seconds)
+
+    svc.sleep = sleep
+    assert (await svc.handle(world.channel.id, call)).status == "answered"
+    assert len(pauses) == 1 and 4 <= pauses[0] <= 9

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Persona phone calls (Broker /v1/live, Gemini Live): the longest call; the Broker caps it at
     # 540 s itself (Google closes one live session after ~10 min).
     call_max_seconds: float = 540.0
+    # Delay before opening the paid session and answering Telegram.
+    call_ring_min_s: float = 4.0
+    call_ring_max_s: float = 9.0
     # Kill switch: off = the worker never attaches the call library to userbot accounts.
     calls_enabled: bool = True
     # Call diagnostics in the worker log (logger sim.calls.trace): session opened, answer sent,
