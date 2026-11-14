@@ -7,6 +7,7 @@ import { ChannelIcon, StageChip, StatusBadge } from './badges';
 import { ConfirmProvider, useConfirm } from './confirm';
 import { Field } from './field';
 import { GuardBadge } from './guard-badge';
+import { MessageBubble } from './message-bubble';
 import { MessageContent, MessageMetadata } from './message-parts';
 import { OptionSelect, decodeOption, type Option } from './option-select';
 import { pagerState } from './pager';
@@ -51,6 +52,35 @@ describe('shared components', () => {
     expect(screen.getByText(/Ошибка отправки/)).toBeInTheDocument();
     expect(screen.getByText('Генератор: gpt')).toBeInTheDocument();
     expect(screen.getByText(/вход 1\s?200 · выход —/)).toBeInTheDocument();
+  });
+
+  it('a media decision is a service line with its tag, reason, outcome and warning', () => {
+    const record: Message = {
+      ...base, id: 7, delivery: 'cancelled', media_kind: 'media_decision',
+      text: 'Решение медиа: запрос владельца, отказ модели',
+      media_decision: {
+        requested: 'video_note', kind: 'video_note', decision: 'decline', reason: 'гуляю на улице',
+        owner_request: true, outcome: 'declined', headline: 'запрос владельца, отказ модели',
+        lines: ['Просили: кружочек', 'Решение: не отправлять кружочек', 'Причина: «гуляю на улице»', 'Исход: отказ модели'],
+        warning: 'причина не подтверждается распорядком (на это время в распорядке записи нет)',
+      },
+    };
+    const { container } = render(
+      <MessageBubble details vm={{ msg: record, time: '10:00', side: 'right', authorLabel: 'ИИ' }} />,
+    );
+    expect(container.querySelector('[data-service="media-decision"]')).not.toBeNull();
+    expect(container.querySelector('[data-author]')).toBeNull();
+    expect(screen.getByText('решение медиа')).toBeInTheDocument();
+    expect(screen.getByText('запрос владельца, отказ модели')).toBeInTheDocument();
+    expect(screen.getByText('Причина: «гуляю на улице»')).toBeInTheDocument();
+    expect(screen.getByText('Исход: отказ модели')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent('причина не подтверждается распорядком');
+    expect(screen.getByText(/клиенту не отправляется/)).toBeInTheDocument();
+    // not a message: no attachment label, no generator line, no delivery icon
+    expect(screen.queryByText('Вложение')).toBeNull();
+    expect(screen.queryByText(/Генератор/)).toBeNull();
+    expect(screen.queryByLabelText(/Отменено/)).toBeNull();
+    expect(screen.getByText('10:00')).toBeInTheDocument();
   });
 
   it('message content shows an attachment label without a url', () => {

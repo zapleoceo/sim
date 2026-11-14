@@ -6,8 +6,12 @@ How it works:
 - `offer()` says what she may attach to this reply. The answer goes into the reply's dynamic
   context as one block (`Offer.brief()`): either how to ask (a `media` field in her JSON answer),
   or that she cannot send media now and must not promise it;
-- she asks with `{"kind": "photo" | "video_note", "scene": "..."}` (`prompt.MediaAsk`);
-- `request()` re-checks the offer and queues the `persona_media` job after her text;
+- she asks with `{"kind": "photo" | "video_note", "scene": "..."}` (`prompt.MediaAsk`); when she
+  is asked for media and will not send it (now), she says so with `"decision": "decline" |
+  "later"` and her reason (`MEDIA_REPORT`);
+- `decide()` writes her decision into the dialog (`sim.services.media_decisions`: what was
+  asked, what she decided, her reason, the outcome), re-checks the offer and queues the
+  `persona_media` job after her text. `context()` gives the next replies her latest decisions;
 - `run()` (worker) builds the prompt: her scene plus her life right now, computed by code from
   her time zone and weekly routine (`shot_prompt`), takes reference photos from the gallery and
   has the Broker generate the photo (`ImagePort`) or the video note (`OwnerVideoNotes`: the same
@@ -59,9 +63,24 @@ from sim.services.ai_media import (
 )
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.dialog_state import apply_message
+from sim.services.media_decisions import (
+    DECLINED,
+    ENDED,
+    NOTHING,
+    POSTPONED,
+    QUEUED,
+    REPLY_MAX,
+    SILENT,
+    UNAVAILABLE,
+    UNDECIDED,
+    UNSENT,
+    MediaDecision,
+    MediaDecisionLog,
+    reason_warning,
+)
 from sim.services.persona_clock import WEEKDAYS, age_on, day_part, local_time
 from sim.services.persona_routine import doing_now
-from sim.services.prompt import MediaAsk
+from sim.services.prompt import MEDIA_LATER, Decision, MediaAsk, one_line
 from sim.services.video_note import (
     MAX_REFERENCE_BYTES,
     NOTE_FAILED,
@@ -95,6 +114,13 @@ MEDIA_BRIEF = (
     "приличные бытовые кадры, без других людей и документов. Медиа уйдёт отдельным сообщением "
     "после текста и может не прийти: в reply не обещай его и не пиши, что отправила, текст должен "
     "быть уместен сам по себе. Без повода поле media не добавляй."
+)
+MEDIA_REPORT = (
+    "РЕШЕНИЕ ПО МЕДИА: если собеседник просит фото или кружочек, а ты решила не присылать или "
+    "прислать позже, тоже добавь в JSON поле \"media\": {\"kind\": \"photo\" или \"video_note\", "
+    "\"decision\": \"decline\" (не пришлю) или \"later\" (пришлю позже), \"reason\": \"причина одной "
+    "фразой, та же, что ты называешь собеседнику\"}. Система записывает каждое твоё решение по "
+    "медиа и напоминает его тебе в следующих ответах."
 )
 FRAMES = {
     MediaKind.PHOTO: "Живое любительское фото для личной переписки, снято на смартфон. Без "
@@ -189,6 +215,7 @@ class PersonaMediaTool:
         self.jobs = JobRepo(session)
         self.gallery = PersonaMediaRepo(session)
         self.settings = AppSettingsService(session)
+        self.decisions = MediaDecisionLog(session, clock=clock)
 
     # ---- what she may attach -------------------------------------------------------------
     async def offer(self, dialog: Dialog, persona: Persona, port: object | None) -> Offer:
@@ -243,26 +270,82 @@ class PersonaMediaTool:
         sources = (self.reference_source(row) for row in rows)
         return [ImageReference(path.read_bytes(), mime) for path, mime in filter(None, sources)]
 
-    # ---- her request (the reply) ---------------------------------------------------------
-    async def request(
-        self, dialog: Dialog, persona: Persona, ask: MediaAsk, port: object | None, *, delay_s: float,
-    ) -> bool:
-        """Queue what she asked for, if it is on offer right now. False: nothing is queued."""
-        if ask.kind not in (await self.offer(dialog, persona, port)).kinds:
-            log.info("dialog %s: %s asked for but not on offer", dialog.id, ask.kind.value)
-            return False
-        await self.jobs.enqueue(
-            jobkinds.PERSONA_MEDIA,
-            {"dialog_id": dialog.id, "kind": ask.kind.value, "scene": ask.scene},
-            self.clock() + timedelta(seconds=delay_s + SEND_AFTER_TEXT_S),
-            dedup_key=jobkinds.persona_media_key(dialog.id), max_attempts=1,
+    async def context(self, dialog: Dialog, persona: Persona, offer: Offer) -> str:
+        """The media part of the reply's dynamic context: what she may attach, how she reports a
+        decision not to send, and her latest decisions in this dialog."""
+        earlier = await self.decisions.brief(dialog.id, persona.timezone)
+        return "\n\n".join(filter(None, [offer.brief(), MEDIA_REPORT, earlier]))
+
+    # ---- her decision (the reply) --------------------------------------------------------
+    async def decide(  # noqa: PLR0913
+        self, dialog: Dialog, persona: Persona, decision: Decision, port: object | None,
+        *, delay_s: float, final: bool,
+    ) -> MediaDecision | None:
+        """Journal what she decided about media in this approved reply and queue what she asked
+        to send, if it is on offer right now. None: no media was asked for by anyone. `final`:
+        the reply ends the conversation, nothing is generated after it."""
+        ask = decision.media
+        asked = await self.decisions.asked(dialog.id)
+        if ask is None and asked is None:
+            return None
+        offer = await self.offer(dialog, persona, port)
+        cfg = await self.settings.load()
+        kind = ask.kind if ask is not None else asked
+        sends = ask is not None and ask.send
+        if ask is None:
+            outcome = UNSENT       # she was asked and her reply says nothing about media
+        elif not sends:
+            outcome = POSTPONED if ask.decision == MEDIA_LATER else DECLINED
+        elif final:
+            outcome = ENDED
+        else:
+            outcome = QUEUED if kind in offer.kinds else UNAVAILABLE
+        reason = ask.reason if ask is not None else ""
+        # A refusal is about something she was asked for, even when the request was not recognised.
+        requested = asked or (None if sends else kind)
+        record = MediaDecision(
+            requested=requested.value if requested is not None else NOTHING,
+            kind=kind.value,
+            decision=ask.decision if ask is not None else SILENT,
+            outcome=outcome, reason=reason,
+            # with no reason named, the start of her reply shows what she told the client
+            reply="" if reason else one_line(decision.reply, REPLY_MAX),
+            scene=ask.scene if ask is not None else "",
+            owner=owner_allowed(dialog, cfg.video_note_owner_telegram_id),
+            offered=tuple(k.value for k in offer.kinds),
+            warning=self.warning(ask, persona),
         )
-        return True
+        row = await self.decisions.add(dialog, record)
+        if outcome == QUEUED:
+            await self.jobs.enqueue(
+                jobkinds.PERSONA_MEDIA,
+                {"dialog_id": dialog.id, "kind": ask.kind.value, "scene": ask.scene, "decision_id": row.id},
+                self.clock() + timedelta(seconds=delay_s + SEND_AFTER_TEXT_S),
+                dedup_key=jobkinds.persona_media_key(dialog.id), max_attempts=1,
+            )
+        elif sends:
+            log.info("dialog %s: %s asked for but not queued (%s)", dialog.id, kind.value, outcome)
+        return record
+
+    def warning(self, ask: MediaAsk | None, persona: Persona) -> str:
+        """What the owner should look at: no decision was named, or the reason for not sending
+        (now) is not confirmed by her routine. A decision to send needs no reason."""
+        if ask is None:
+            return UNDECIDED
+        if ask.send:
+            return ""
+        return reason_warning(ask.reason, persona.routine, persona.timezone, self.clock())
 
     # ---- the job (worker) ----------------------------------------------------------------
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Generate (or take from the cache) and queue the send. One attempt: a generation is
-        not repeated on failure, the reason stays in the dialog and in the job's result."""
+        not repeated on failure, the reason stays in the dialog and in the job's result. What
+        came of it is written into the record of her decision."""
+        result = await self.generate(payload)
+        await self.decisions.generated(payload.get("decision_id"), result)
+        return result
+
+    async def generate(self, payload: dict[str, Any]) -> dict[str, Any]:
         dialog = await DialogRepo(self.session).get(int(payload["dialog_id"]))
         persona = await self.session.get(Persona, dialog.client.persona_id) if dialog else None
         if dialog is None or persona is None:

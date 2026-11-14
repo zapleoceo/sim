@@ -13,6 +13,15 @@ const DELIVERY_ICONS: Record<DeliveryIcon, LucideIcon> = { clock: Clock, check: 
  */
 export function MessageBubble({ vm, details = false }: { vm: MessageVm; details?: boolean }) {
   const { msg } = vm;
+  if (msg.media_decision) {
+    // A service record, not a message: a full-width line of its own, without a delivery state.
+    return (
+      <div data-service="media-decision" className="rounded-lg border border-dashed bg-muted/40 px-3 py-2">
+        <MessageContent message={msg} />
+        <span className="mt-1 block text-right text-[11px] text-muted-foreground tabular">{vm.time}</span>
+      </div>
+    );
+  }
   const blocked = msg.guard?.verdict === 'blocked';
   const dm = msg.direction === 'out' ? deliveryMeta(msg.delivery, msg.guard) : null;
   const DIcon = dm ? DELIVERY_ICONS[dm.icon] : null;
