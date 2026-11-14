@@ -45,7 +45,8 @@ LLM = "llm"            # one broker call (generator, follow-up, media, content..
 GUARD = "guard"        # one pre-send guard call
 SEND = "send"          # one transport send of an outbound message
 PARTNER = "partner"    # a partner (registration/deposit) event recorded
-WATCH = "watch"        # a reply that was not created or is overdue (sim.services.reply_journal)
+WATCH = "watch"        # a reply that was not created or is overdue (sim.services.reply_journal);
+#                        the persona's media decision (sim.services.media_decisions)
 KINDS = (HTTP, WEBHOOK, INBOUND, POLL, JOB, LLM, GUARD, SEND, PARTNER, WATCH)
 
 OK = "ok"
