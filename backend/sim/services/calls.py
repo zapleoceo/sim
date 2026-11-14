@@ -90,7 +90,7 @@ class CallPlan:
     voice: str
     system: str
     language: str | None
-    greeting: str                # the typed first turn: she introduces herself as an AI assistant
+    greeting: str                # the typed first turn requests only «Алло»
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,8 @@ class CallService:
         self.live = live
         self.conversation = conversation
         self.max_seconds = max_seconds
-        self.ring_s = ring_s
+        low, high = sorted(max(0.0, float(value)) for value in ring_s)
+        self.ring_s = (low, high)
         self.diagnostics = diagnostics
         self.clock = clock
         self.sleep = sleep

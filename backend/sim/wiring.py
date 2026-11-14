@@ -157,6 +157,7 @@ class Container:
         """Answers persona phone calls; spans its own short sessions (none is open mid-call)."""
         return CallService(self.factory, self.live_voice, self.conversation,
                            max_seconds=self.settings.call_max_seconds,
+                           ring_s=(self.settings.call_ring_min_s, self.settings.call_ring_max_s),
                            diagnostics=self.settings.call_diagnostics, clock=self.clock)
 
     def simulation(self, s: AsyncSession) -> SimulationService:

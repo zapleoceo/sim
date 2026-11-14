@@ -56,7 +56,8 @@ async def test_seed_is_idempotent_and_complete(container):
     for p in personas:
         assert p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
-        assert p.name in system and "Сама никогда не говори, что ты ИИ" in system
+        assert p.name in system and "Без вопроса не начинай рассказ" in system
+        assert "честно скажи, что ты ИИ-персонаж" in system
         assert p.description and p.prohibitions == "" and "Чего нельзя никогда" not in system   # wide freedom
         assert "виртуальная помощница" not in system and "If asked directly what you are" not in system
 
@@ -122,7 +123,8 @@ def test_prompt_template_has_no_fixed_identity_rule():
         PersonaProfile(name="Х", description=compose_persona_prompt("Х", "d")),
         StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"]),
     )
-    assert "ориентиры, а не скрипт" in system and "Сама никогда не говори, что ты ИИ" in system
+    assert "ориентиры, а не скрипт" in system and "Без вопроса не начинай рассказ" in system
+    assert "честно скажи, что ты ИИ-персонаж" in system
     assert "никогда не утверждай" not in system and "виртуальная помощница" not in system
     assert "милениал" in system and "не используй длинные тире" in system
     assert "ОРИЕНТИРЫ СТРАТЕГИИ" in system and "Сначала человек, потом предложение" in system

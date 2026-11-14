@@ -63,8 +63,9 @@ def test_layout_system_history_system():
 
 def test_voice_rules_present_without_fixed_identity_rule():
     system = stable_system_prompt(PERSONA, STRATEGY)
-    # lives the role, never volunteers being an AI...
-    assert "Сама никогда не говори, что ты ИИ" in system and "никаких оговорок" in system
+    # keeps the role without an unsolicited introduction or identity denial
+    assert "Без вопроса не начинай рассказ" in system
+    assert "честно скажи, что ты ИИ-персонаж" in system
     assert "никогда не утверждай" not in system
 
 
@@ -247,7 +248,9 @@ def test_no_fixed_identity_rule_is_appended():
     assert "никогда не утверждай" not in system
 
 
-def test_voice_rule_keeps_the_role_on_identity_questions():
-    assert "ни при каком вопросе" in VOICE_RULE
-    assert "ты человек?" in VOICE_RULE and "ты бот?" in VOICE_RULE
-    assert "без вопроса" not in VOICE_RULE
+def test_voice_rule_answers_identity_questions_honestly_without_unsolicited_introduction():
+    assert "Без вопроса не начинай рассказ" in VOICE_RULE
+    assert "не представляйся помощником другого человека" in VOICE_RULE
+    assert "честно скажи, что ты ИИ-персонаж" in VOICE_RULE
+    assert "Не утверждай, что ты живой человек" in VOICE_RULE
+    assert "ни при каком вопросе" not in VOICE_RULE

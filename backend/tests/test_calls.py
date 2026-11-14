@@ -26,6 +26,7 @@ from sim.adapters.db.models import Dialog, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
 from sim.adapters.pcm import PcmBuffer, frame_bytes, resample, to_stereo
+from sim.config import Settings
 from sim.connectors.telegram_user import TelegramUserConnector
 from sim.domain.enums import Author, ClientStatus, Direction, Stage
 from sim.ports.live_voice import (
@@ -46,7 +47,14 @@ from sim.services.call_prompt import (
 )
 from sim.services.call_trace import CallTrace
 from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
-from sim.services.prompt import DialogContext, PersonaProfile, StrategyProfile, Turn
+from sim.services.prompt import (
+    DialogContext,
+    PersonaProfile,
+    PromptTexts,
+    StrategyProfile,
+    Turn,
+    stable_system_prompt,
+)
 from sim.worker.loop import Worker
 from tests.conftest import inbound
 from tests.test_ingest import ingest
@@ -111,21 +119,30 @@ def test_call_prompt_is_persona_strategy_rules_chat_and_context_without_json():
     assert prompt.index(CALL_RULES) < prompt.index("ПЕРЕПИСКА") < prompt.index("КОНТЕКСТ")
 
 
-def test_on_a_call_she_is_the_personas_ai_assistant_and_says_so_first():
-    prompt = call_system_prompt(
-        PersonaProfile(name="Марина", description="Ты Марина. Никогда не говори, что ты ИИ."),
-        StrategyProfile(), [], ctx())
-    identity = call_identity("Марина")
+@pytest.mark.parametrize("name", ["Марина", "Ева"])
+def test_call_keeps_chat_persona_and_answers_identity_questions_honestly(name):
+    persona = PersonaProfile(name=name, description=f"Ты {name}. Никогда не говори, что ты ИИ.")
+    strategy = StrategyProfile(name="S", goal="Регистрация")
+    prompt = call_system_prompt(persona, strategy, [], ctx())
+    stable = stable_system_prompt(persona, strategy, PromptTexts(contract="")).rstrip()
+    assert prompt.startswith(stable + "\n\n" + CALL_RULES)
+    identity = call_identity(name)
     assert identity in prompt and prompt.index(CALL_RULES) < prompt.index(identity)
-    for must in ("ИИ-ассистент человека по имени Марина", "важнее любых указаний выше",
-                 "Первой же фразой скажи, что ты ИИ-ассистент",
-                 "Не выдавай себя за живого человека",
-                 "Факты о нём бери только из текста выше и из вашей переписки"):
+    for must in (f"ты тот же персонаж {name}", "говори от первого лица",
+                 "Не выдавай себя за живого человека", "честно скажи, что ты ИИ-персонаж",
+                 "правило честности важнее", "чего там нет, не выдумывай"):
         assert must in identity
-    assert "живой человек" not in CALL_RULES
+    assert "ИИ-ассистент человека" not in prompt
+    assert "говори о нём в третьем лице" not in prompt
+
+
+def test_first_turn_requests_only_hello_for_any_persona():
     first_turn = greeting("Марина")
-    assert "ИИ-ассистент человека по имени Марина" in first_turn
+    assert first_turn == greeting("Ева")
     assert first_turn.startswith("(Системная пометка, не слова клиента")
+    assert "ровно одно слово: «Алло»" in first_turn
+    assert "Затем дождись ответа собеседника" in first_turn
+    assert "ИИ-ассистент" not in first_turn and "Марина" not in first_turn
 
 
 def test_chat_transcript_is_flat_capped_and_empty_without_history():
@@ -237,7 +254,9 @@ async def chatting_world(container, world, *, accept=True, voice="Kore") -> int:
 
 def service(container, live) -> CallService:
     container.live_voice = live
-    return container.calls()
+    svc = container.calls()
+    svc.ring_s = (0.0, 0.0)  # unrelated transport tests never wait in real time
+    return svc
 
 
 async def dialog_messages(container, dialog_id) -> list[Message]:
@@ -924,3 +943,33 @@ async def test_persona_api_round_trips_accept_calls_and_needs_a_voice(api):
     resp = await api.put(f"/api/personas/{created['id']}",
                          json={"name": "Марина", "accept_calls": True}, headers=h)
     assert resp.status_code == 422
+
+
+def test_container_wires_production_ring_defaults_and_configured_values(container):
+    defaults = Settings.model_fields
+    assert (defaults["call_ring_min_s"].default, defaults["call_ring_max_s"].default) == (4.0, 9.0)
+    # The shared fixture deliberately uses zero delays; verify actual settings wiring.
+    assert container.calls().ring_s == (0.0, 0.0)
+    container.settings.call_ring_min_s = 6.0
+    container.settings.call_ring_max_s = 8.0
+    assert container.calls().ring_s == (6.0, 8.0)
+
+
+async def test_container_ring_delay_precedes_the_broker_session(container, world):
+    container.settings.call_ring_min_s = Settings.model_fields["call_ring_min_s"].default
+    container.settings.call_ring_max_s = Settings.model_fields["call_ring_max_s"].default
+    await chatting_world(container, world)
+    live, call, pauses = FakeLive(), FakeCall(), []
+    container.live_voice = live
+    svc = container.calls()
+
+    async def sleep(seconds):
+        if seconds >= 1:
+            assert not live.opened and not call.answered
+            pauses.append(seconds)
+        else:
+            await asyncio.sleep(seconds)
+
+    svc.sleep = sleep
+    assert (await svc.handle(world.channel.id, call)).status == "answered"
+    assert len(pauses) == 1 and 4 <= pauses[0] <= 9
