@@ -70,14 +70,17 @@ from sim.services.media_decisions import (
     POSTPONED,
     QUEUED,
     REPLY_MAX,
+    SILENT,
     UNAVAILABLE,
+    UNDECIDED,
+    UNSENT,
     MediaDecision,
     MediaDecisionLog,
     reason_warning,
 )
 from sim.services.persona_clock import WEEKDAYS, age_on, day_part, local_time
 from sim.services.persona_routine import doing_now
-from sim.services.prompt import MEDIA_DECLINE, MEDIA_LATER, Decision, MediaAsk, one_line
+from sim.services.prompt import MEDIA_LATER, Decision, MediaAsk, one_line
 from sim.services.video_note import (
     MAX_REFERENCE_BYTES,
     NOTE_FAILED,
@@ -289,8 +292,10 @@ class PersonaMediaTool:
         cfg = await self.settings.load()
         kind = ask.kind if ask is not None else asked
         sends = ask is not None and ask.send
-        if not sends:
-            outcome = POSTPONED if ask is not None and ask.decision == MEDIA_LATER else DECLINED
+        if ask is None:
+            outcome = UNSENT       # she was asked and her reply says nothing about media
+        elif not sends:
+            outcome = POSTPONED if ask.decision == MEDIA_LATER else DECLINED
         elif final:
             outcome = ENDED
         else:
@@ -301,14 +306,14 @@ class PersonaMediaTool:
         record = MediaDecision(
             requested=requested.value if requested is not None else NOTHING,
             kind=kind.value,
-            decision=ask.decision if ask is not None else MEDIA_DECLINE,
+            decision=ask.decision if ask is not None else SILENT,
             outcome=outcome, reason=reason,
             # with no reason named, the start of her reply shows what she told the client
             reply="" if reason else one_line(decision.reply, REPLY_MAX),
             scene=ask.scene if ask is not None else "",
             owner=owner_allowed(dialog, cfg.video_note_owner_telegram_id),
             offered=tuple(k.value for k in offer.kinds),
-            warning="" if sends else reason_warning(reason, persona.routine, persona.timezone, self.clock()),
+            warning=self.warning(ask, persona),
         )
         row = await self.decisions.add(dialog, record)
         if outcome == QUEUED:
@@ -321,6 +326,15 @@ class PersonaMediaTool:
         elif sends:
             log.info("dialog %s: %s asked for but not queued (%s)", dialog.id, kind.value, outcome)
         return record
+
+    def warning(self, ask: MediaAsk | None, persona: Persona) -> str:
+        """What the owner should look at: no decision was named, or the reason for not sending
+        (now) is not confirmed by her routine. A decision to send needs no reason."""
+        if ask is None:
+            return UNDECIDED
+        if ask.send:
+            return ""
+        return reason_warning(ask.reason, persona.routine, persona.timezone, self.clock())
 
     # ---- the job (worker) ----------------------------------------------------------------
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:

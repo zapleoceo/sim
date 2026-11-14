@@ -183,7 +183,8 @@ export interface Message {
 export interface MediaDecisionInfo {
   requested: 'photo' | 'video_note' | 'none';
   kind: 'photo' | 'video_note';
-  decision: 'send' | 'decline' | 'later';
+  /** silent: её просили, а решения в ответе нет (поле media не заполнено). */
+  decision: 'send' | 'decline' | 'later' | 'silent';
   reason: string;
   /** Просил владелец (диалог с аккаунтом из настройки «Кружочки ИИ»). */
   owner_request: boolean;

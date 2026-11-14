@@ -7,13 +7,14 @@ import re
 from datetime import datetime
 
 import pytest
+from sqlalchemy import select
 
-from sim.adapters.db.models import Channel, Client, Dialog, Job, Message, Persona
+from sim.adapters.db.models import Channel, Client, Dialog, Job, Message, Persona, TraceEvent
 from sim.adapters.db.session import transaction
 from sim.api.schemas import message_out
 from sim.domain.enums import Author, ChannelKind, Delivery, Direction, MediaKind, SessionStatus
 from sim.ports.image import ImageError
-from sim.services import jobkinds
+from sim.services import jobkinds, tracing
 from sim.services.conversation import decision_fields, history_turns
 from sim.services.media_decisions import (
     BROKER_REFUSED,
@@ -26,7 +27,10 @@ from sim.services.media_decisions import (
     POSTPONED,
     QUEUED,
     SENT,
+    SILENT,
     UNAVAILABLE,
+    UNDECIDED,
+    UNSENT,
     MediaDecision,
     asked_kind,
     load,
@@ -34,7 +38,7 @@ from sim.services.media_decisions import (
 )
 from sim.services.persona_media_tool import MEDIA_REPORT, NO_MEDIA
 from sim.services.prompt import Decision, MediaAsk, parse_media
-from sim.worker.handlers import reply_detail
+from sim.worker.handlers import HANDLERS, reply_detail
 from tests.conftest import decision_json
 from tests.test_conversation import run_reply
 from tests.test_persona_media_tool import (
@@ -233,14 +237,38 @@ async def test_a_request_she_answered_without_the_media_field_is_recorded_with_h
     outcome = await reply_with(container, fake_llm, reply="ой, я сейчас гуляю, потом")
     ((row, record),) = await records(container)
     assert outcome.decision.media is None
-    assert (record.requested, record.decision, record.outcome) == ("photo", "decline", DECLINED)
-    assert (record.reason, record.reply, record.warning) == ("", "ой, я сейчас гуляю, потом", "причина не названа")
-    assert "Причина: не названа. Ответ модели: «ой, я сейчас гуляю, потом»" in row.text
+    # neither a refusal nor a postponement was named: the record says so and keeps her words
+    assert (record.requested, record.decision, record.outcome) == ("photo", SILENT, UNSENT)
+    assert (record.reason, record.reply, record.warning) == ("", "ой, я сейчас гуляю, потом", UNDECIDED)
+    assert row.text.splitlines() == [
+        "Решение медиа: медиа не отправлено, решение не названо",
+        "Просили: фото",
+        "Решение: не названо (поля media в ответе нет)",
+        "Ответ модели: «ой, я сейчас гуляю, потом»",
+        "Было доступно: фото",
+        "Исход: не отправлено",
+        f"Предупреждение: {UNDECIDED}",
+    ]
+    assert outcome.media.needs_a_look and reply_detail(outcome)["media"]["decision"] == SILENT
     await say(container, world, "жаль")
     await run_reply(container)
     assert re.search(
-        STAMP + "ранее ты решила не присылать фото, причину ты не записала, а собеседнику ответила: "
+        STAMP + "тебя просили фото, ты не прислала и решение не записала, а собеседнику ответила: "
         "«ой, я сейчас гуляю, потом»\\.", context_of(fake_llm))
+
+
+def test_a_refusal_without_a_reason_keeps_her_words_instead():
+    record = MediaDecision(requested="photo", kind="photo", decision="decline", outcome=DECLINED,
+                           reply="не сегодня", warning="причина не названа")
+    assert record.lines()[1:4] == ["Решение: не отправлять фото", "Причина: не названа",
+                                   "Ответ модели: «не сегодня»"]
+    assert record.context_line(datetime(2026, 11, 15, 9, 0)) == \
+        "- 15.11 09:00 ранее ты решила не присылать фото, причину ты не записала, а собеседнику ответила: «не сегодня»."
+    owner = MediaDecision(requested="video_note", kind="video_note", decision=SILENT, outcome=UNSENT,
+                          reply="я гуляю", owner=True, warning=UNDECIDED)
+    assert owner.headline == "запрос владельца, медиа не отправлено, решение не названо"
+    assert owner.context_line(datetime(2026, 11, 15, 9, 0)) == \
+        "- 15.11 09:00 владелец просил кружочек, ты не прислала и решение не записала, а собеседнику ответила: «я гуляю»."
 
 
 async def test_a_postponement_is_recorded_and_checked_against_the_routine(container, world, fake_llm, photos):
@@ -358,3 +386,42 @@ async def test_an_owner_request_she_refused_is_journaled_as_such_and_kept_for_th
     await run_reply(container)
     assert re.search(STAMP + f"владелец просил кружочек, ты отказала, причина: «{reason}»\\.",
                      context_of(fake_llm))
+
+
+# ---- the system log ----------------------------------------------------------------------------
+
+async def media_steps(container) -> list[TraceEvent]:
+    async with container.factory() as s:
+        rows = (await s.scalars(select(TraceEvent).where(TraceEvent.kind == tracing.WATCH)
+                                .order_by(TraceEvent.id))).all()
+    return [e for e in rows if e.name.startswith("решение медиа: ")]
+
+
+async def reply_job(container, dialog_id: int) -> dict:
+    async with transaction(container.factory) as s:
+        return await HANDLERS[jobkinds.REPLY].run(container, s, {"dialog_id": dialog_id})
+
+
+async def test_the_reply_job_journals_an_owner_refusal_as_a_warning_step(container, world, fake_llm):
+    dialog_id = await owner_dialog(container, world, "Пришли кружочек")
+    fake_llm.replies = [decision_json(reply="не могу сейчас", media={
+        "kind": "video_note", "decision": "decline", "reason": "гуляю на улице"})]
+    detail = await reply_job(container, dialog_id)
+    (step,) = await media_steps(container)
+    assert step.name == "решение медиа: запрос владельца, отказ модели"
+    assert step.status == tracing.WARNING and step.dialog_id == dialog_id
+    assert step.message_id == detail["message_id"] and step.detail == detail["media"]
+    assert step.detail["owner_request"] is True and "распорядк" in step.detail["warning"]
+
+
+async def test_the_reply_job_journals_a_decision_to_send_as_a_plain_step(container, world, fake_llm, photos):
+    await say(container, world, "Покажи, как ты сейчас")
+    dialog = (await rows(container, Dialog))[0]
+    fake_llm.replies = [decision_json(reply="Лови", media=ASK)]
+    await reply_job(container, dialog.id)
+    (step,) = await media_steps(container)
+    assert (step.name, step.status) == ("решение медиа: модель решила отправить", tracing.OK)
+    assert step.detail["outcome"] == QUEUED and "warning" not in step.detail
+    await say(container, world, "спасибо")
+    await reply_job(container, dialog.id)
+    assert len(await media_steps(container)) == 1            # nothing asked, nothing journaled

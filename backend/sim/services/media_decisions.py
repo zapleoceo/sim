@@ -12,11 +12,12 @@ preview. One decision is one row: the outcome of a generation updates the same r
 What a record holds:
 - what was asked: a photo, a video note or nothing (`asked_kind` reads the client's unanswered
   messages; when she declines or postpones, her own `media.kind` says what it was about);
-- what she decided and the reason she named (`prompt.MediaAsk`); when she was asked and returned
-  no `media` field, the record keeps the start of her reply instead of a reason;
+- what she decided and the reason she named (`prompt.MediaAsk`). When she was asked and returned
+  no `media` field, nothing was sent and no decision was named (`SILENT`): the record keeps the
+  start of her reply, so whatever she told the client (a made-up excuse, a promise) is visible;
 - whether the dialog is with the owner (the allowlisted account of «Кружочки ИИ»);
-- the outcome: declined, postponed, not queued, generation queued, generated, sent, Broker
-  refusal, error;
+- the outcome: declined, postponed, not sent, not queued, generation queued, generated, sent,
+  Broker refusal, error;
 - a warning when the reason cannot be confirmed by her routine at that moment (`reason_warning`:
   a word-stem comparison, a hint for the owner and nothing more).
 """
@@ -45,10 +46,12 @@ log = logging.getLogger(__name__)
 MARKER = "media_decision"        # Message.media_kind of a record
 TAG = "Решение медиа"            # how a record starts wherever only its text is shown
 NOTHING = "none"                 # nothing was asked: the media is her own idea
+SILENT = "silent"                # a decision the system records: she was asked, her reply has no `media`
 
 # Outcomes (stored; never rename one).
 DECLINED = "declined"            # she decided not to send
 POSTPONED = "postponed"          # she decided to send later
+UNSENT = "unsent"            # she was asked and her reply carries no media decision
 UNAVAILABLE = "unavailable"      # she asked to send, but this kind is not on offer right now
 ENDED = "ended"                  # she asked to send, but the reply ends the conversation
 QUEUED = "queued"                # the generation job is queued
@@ -63,6 +66,7 @@ SKIPPED = "skipped"              # the job did nothing (a human took over, the c
 OUTCOMES = {
     DECLINED: "отказ модели",
     POSTPONED: "отложено моделью",
+    UNSENT: "не отправлено",
     UNAVAILABLE: "не поставлено: медиа этого вида сейчас недоступно",
     ENDED: "не поставлено: ответ завершает разговор",
     QUEUED: "запущена генерация",
@@ -77,6 +81,14 @@ OUTCOMES = {
 ON_ITS_WAY = (QUEUED, GENERATED)
 KINDS = {MediaKind.PHOTO.value: "фото", MediaKind.VIDEO_NOTE.value: "кружочек", NOTHING: "ничего"}
 DECISIONS = {MEDIA_SEND: "отправить", MEDIA_DECLINE: "не отправлять", MEDIA_LATER: "отложить"}
+
+HEADLINES = {
+    MEDIA_SEND: "модель решила отправить",
+    MEDIA_DECLINE: "отказ модели",
+    MEDIA_LATER: "модель отложила",
+    SILENT: "медиа не отправлено, решение не названо",
+}
+UNDECIDED = "просили медиа, а решения в ответе нет (поле media не заполнено)"
 
 REPLY_MAX = 200                  # how much of her reply a record keeps when no reason is named
 DETAIL_MAX = 300
@@ -139,7 +151,7 @@ def reason_warning(reason: str, routine: str, timezone: str, now_utc: datetime) 
 class MediaDecision:
     requested: str               # "photo" | "video_note" | "none": what the client asked for
     kind: str                    # what the decision is about: "photo" | "video_note"
-    decision: str                # "send" | "decline" | "later" (sim.services.prompt)
+    decision: str                # "send" | "decline" | "later" (sim.services.prompt) | SILENT
     outcome: str                 # one of OUTCOMES
     reason: str = ""             # the reason she named, in her words
     reply: str = ""              # the start of her reply, kept when she named no reason
@@ -155,24 +167,31 @@ class MediaDecision:
         return self.owner and self.requested != NOTHING
 
     @property
+    def needs_a_look(self) -> bool:
+        """The owner asked and she refused, or her reason is doubtful: a warning in the log."""
+        return bool(self.warning) or (self.owner_request and self.decision == MEDIA_DECLINE)
+
+    @property
     def headline(self) -> str:
-        what = {MEDIA_DECLINE: "отказ модели", MEDIA_LATER: "модель отложила"}.get(
-            self.decision, "модель решила отправить")
+        what = HEADLINES.get(self.decision, self.decision)
         return f"запрос владельца, {what}" if self.owner_request else what
 
     def lines(self) -> list[str]:
         """The record as the admin shows it, line by line."""
         asked = KINDS[self.requested] + (" (инициатива модели)" if self.requested == NOTHING else "")
-        if self.reason:
-            reason = f"Причина: «{self.reason}»"
+        said = [f"Ответ модели: «{self.reply}»"] if self.reply else []
+        if self.decision == SILENT:
+            decided = ["Решение: не названо (поля media в ответе нет)", *said]
         else:
-            said = f". Ответ модели: «{self.reply}»" if self.reply else ""
-            reason = f"Причина: не названа{said}"
+            decided = [f"Решение: {DECISIONS.get(self.decision, self.decision)} {KINDS.get(self.kind, self.kind)}"]
+            if self.reason:
+                decided.append(f"Причина: «{self.reason}»")
+            elif self.decision != MEDIA_SEND:
+                decided += ["Причина: не названа", *said]
         outcome = OUTCOMES.get(self.outcome, self.outcome)
         return [
             f"Просили: {asked}",
-            f"Решение: {DECISIONS.get(self.decision, self.decision)} {KINDS.get(self.kind, self.kind)}",
-            *([reason] if self.reason or self.decision != MEDIA_SEND else []),
+            *decided,
             *([f"Сцена: {self.scene}"] if self.scene else []),
             f"Было доступно: {', '.join(KINDS.get(k, k) for k in self.offered) or 'ничего'}",
             f"Исход: {outcome}" + (f" ({self.detail})" if self.detail else ""),
@@ -195,11 +214,11 @@ class MediaDecision:
                 result = "не ушло, собеседник его не получил: не пиши, что отправила"
             asked = " (просил владелец)" if self.owner_request else ""
             return f"- {stamp} ты решила прислать {what}{asked}; исход: {result}."
-        if self.reason:
-            reason = f"причина: «{self.reason}»"
-        else:
-            said = f", а собеседнику ответила: «{self.reply}»" if self.reply else ""
-            reason = f"причину ты не записала{said}"
+        said = f", а собеседнику ответила: «{self.reply}»" if self.reply else ""
+        if self.decision == SILENT:
+            who = "владелец просил" if self.owner_request else "тебя просили"
+            return f"- {stamp} {who} {what}, ты не прислала и решение не записала{said}."
+        reason = f"причина: «{self.reason}»" if self.reason else f"причину ты не записала{said}"
         if self.owner_request:
             did = "ты отказала" if self.decision == MEDIA_DECLINE else "ты решила прислать позже"
             return f"- {stamp} владелец просил {what}, {did}, {reason}."
@@ -288,9 +307,6 @@ class MediaDecisionLog:
                           media_kind=MARKER, delivery=Delivery.CANCELLED, created_at=self.clock())
         store(message, decision)
         await self.messages.add(message)
-        if decision.warning:
-            log.warning("dialog %s: media decision %s (%s): %s",
-                        dialog.id, message.id, decision.headline, decision.warning)
         return message
 
     async def recent(self, dialog_id: int, limit: int) -> list[tuple[Message, MediaDecision]]:
