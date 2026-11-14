@@ -158,6 +158,7 @@ describe('personas pages', () => {
     expect(context.getByText('- Тебе 45')).toBeInTheDocument();
     expect(context.getByRole('link', { name: 'Дата рождения' })).toHaveAttribute('href', '#persona-birth_date');
 
+    await userEvent.click(section.getByText('Технические правила и обработка'));
     // the two rules that stay in the code: read-only, no field
     const fixed = within(section.getByRole('group', { name: 'Фиксированные правила' }));
     expect(fixed.getByText('Правило звонков')).toBeInTheDocument();

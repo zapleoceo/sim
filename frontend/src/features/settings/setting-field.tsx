@@ -42,7 +42,7 @@ function ModelInput({ value, onChange, ...control }: {
 
 /**
  * One setting: always open, own draft, «Сохранить» and «Вернуть по умолчанию». `compact` shows a text
- * setting as a short preview with the editor in a dialog (the persona page); the draft and saving are the same.
+ * setting as a compact editable field with an optional full editor; pending writes lock both editors.
  */
 export function SettingField({ item, compact = false }: { item: AppSettingItem; compact?: boolean }) {
   const queryClient = useQueryClient();
@@ -80,7 +80,7 @@ export function SettingField({ item, compact = false }: { item: AppSettingItem; 
   return (
     <div className="flex flex-col gap-2">
       {compact && item.kind === 'text' ? (
-        <LongText label={item.label} hint={settingHint(item)} error={error} value={draft} onChange={setDraft} />
+        <LongText disabled={busy} label={item.label} hint={settingHint(item)} error={error} value={draft} onChange={setDraft} />
       ) : (
       <Field label={item.label} hint={settingHint(item)} error={error}>
         {item.kind === 'model' ? (

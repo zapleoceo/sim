@@ -55,10 +55,7 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
       <p className="text-xs text-muted-foreground">
-        По сохранённым данным. Модель получает системное сообщение из частей ниже, затем историю диалога, затем
-        контекст разговора. После ответа черновик проверяет{' '}
-        <a href={`#${settingAnchor('guard_prompt')}`} className={LINK}>охранник</a>, а опечатки и регистр добавляет код по
-        настройкам <a href={`#${settingAnchor('typo_percent')}`} className={LINK}>«Стиль сообщений»</a>.
+        Просмотр сохранённого промпта. Чтобы изменить текст, перейдите к его полю по ссылке «Изменить».
       </p>
       <ol className="flex flex-col gap-4" aria-label="Части промпта">
         {map.parts.map((part) => (
@@ -97,15 +94,22 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
         {whole ? 'Скрыть системное сообщение одним текстом' : 'Показать системное сообщение одним текстом'}
       </Button>
       {whole && <pre aria-label="Полный промпт" className={TEXT}>{map.system}</pre>}
-      <div className="flex flex-col gap-3" role="group" aria-label="Фиксированные правила">
-        <h3 className="text-sm font-medium">Фиксированные правила</h3>
+      <details className="rounded-lg border p-3">
+        <summary className="cursor-pointer text-sm font-medium">Технические правила и обработка</summary>
+        <p className="my-3 text-xs text-muted-foreground">
+          Эти правила задаёт код; здесь они доступны только для просмотра. Черновик проверяет{' '}
+          <a href={`#${settingAnchor('guard_prompt')}`} className={LINK}>охранник</a>, стиль меняют{' '}
+          <a href={`#${settingAnchor('typo_percent')}`} className={LINK}>настройки сообщений</a>.
+        </p>
+        <div className="flex flex-col gap-3" role="group" aria-label="Фиксированные правила">
         {map.rules.map((rule) => (
           <div key={rule.key} className="flex flex-col gap-1.5">
             <span className="text-xs font-medium">{rule.title}</span>
             <FixedPrompt text={rule.text} where={rulePlace(rule.key)} />
           </div>
         ))}
-      </div>
+        </div>
+      </details>
     </div>
   );
 }
