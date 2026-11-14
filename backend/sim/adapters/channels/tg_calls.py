@@ -21,10 +21,16 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 
+from sim.adapters.pcm import to_stereo
+
 log = logging.getLogger(__name__)
 
 CALL_RATE_HZ = 48_000           # Telegram calls run at 48 kHz; ntgcalls frames are 10 ms
 ANSWER_TIMEOUT_S = 20           # the caller's confirmation of a picked-up call (CallConfig.timeout)
+# Her voice goes out as STEREO, as in py-tgcalls' own frame-sending example: external mono frames
+# were accepted by send_frame and never heard on a live call. The caller's side stays mono.
+OUT_CHANNELS = 2
+IN_CHANNELS = 1
 _ENDED = object()
 
 
@@ -104,10 +110,11 @@ class TelegramCall:
 
     async def accept(self) -> None:
         lib, calls = self.bridge.lib, self.bridge.calls
-        params = lib.AudioParameters(self.rate_hz, 1)
-        await calls.play(self.chat_id, lib.MediaStream(lib.ExternalMedia.AUDIO, params),
+        out = lib.AudioParameters(self.rate_hz, OUT_CHANNELS)
+        await calls.play(self.chat_id, lib.MediaStream(lib.ExternalMedia.AUDIO, out),
                          lib.CallConfig(timeout=self.bridge.answer_timeout_s))
-        await calls.record(self.chat_id, lib.RecordStream(True, params))
+        await calls.record(self.chat_id,
+                           lib.RecordStream(True, lib.AudioParameters(self.rate_hz, IN_CHANNELS)))
 
     def feed(self, pcm: bytes) -> None:
         if not self.ended:
@@ -126,8 +133,10 @@ class TelegramCall:
             yield item
 
     async def play(self, pcm: bytes) -> None:
+        """One 10 ms mono frame of her voice, sent as the stereo frame the stream expects."""
         if not self.ended:
-            await self.bridge.calls.send_frame(self.chat_id, self.bridge.lib.Device.MICROPHONE, pcm)
+            await self.bridge.calls.send_frame(self.chat_id, self.bridge.lib.Device.MICROPHONE,
+                                               to_stereo(pcm))
 
     async def hangup(self) -> None:
         """Ends an answered call. A call that was never answered is only forgotten: it keeps

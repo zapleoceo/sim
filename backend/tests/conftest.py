@@ -254,6 +254,8 @@ def make_settings(tmp_path) -> Settings:
         reply_debounce_s=5,
         typo_percent=0,        # exact texts in tests; the touches have their own tests
         lowercase_percent=0,
+        call_ring_min_s=0,     # calls are picked up at once in tests; the pause has its own test
+        call_ring_max_s=0,
         _env_file=None,  # type: ignore[call-arg]
     )
 

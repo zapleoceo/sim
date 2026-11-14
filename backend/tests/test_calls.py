@@ -25,7 +25,7 @@ from sim.adapters.channels.tg_calls import (
 from sim.adapters.db.models import Dialog, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
-from sim.adapters.pcm import PcmBuffer, frame_bytes, resample
+from sim.adapters.pcm import PcmBuffer, frame_bytes, resample, to_stereo
 from sim.connectors.telegram_user import TelegramUserConnector
 from sim.domain.enums import Author, ClientStatus, Direction, Stage
 from sim.ports.live_voice import (
@@ -70,6 +70,12 @@ def test_downsampling_by_an_integer_factor_averages_each_group():
 def test_upsampling_interpolates_linearly():
     assert resample(pcm(0, 100), 24000, 48000) == pcm(0, 50, 100, 100)
     assert len(resample(pcm(*range(240)), 24000, 48000)) == frame_bytes(48000)   # 10 ms
+
+
+def test_to_stereo_puts_each_sample_on_both_channels():
+    assert to_stereo(pcm(1, -2, 300)) == pcm(1, 1, -2, -2, 300, 300)
+    assert len(to_stereo(pcm(*range(480)))) == 2 * frame_bytes(48000)          # 1920 bytes
+    assert to_stereo(b"") == b""
 
 
 def test_buffer_hands_out_whole_frames_and_pads_the_tail():
@@ -129,8 +135,11 @@ def test_chat_transcript_is_flat_capped_and_empty_without_history():
 
 
 def test_small_helpers():
-    assert (language_code(" RU "), language_code("uk"), language_code("русский")) == \
-        ("ru-RU", "uk-UA", None)
+    assert (language_code(" RU "), language_code("uk"), language_code("klingon"), language_code("")) == \
+        ("ru-RU", "uk-UA", None, None)
+    # The persona form keeps a descriptive language; its first word names it.
+    assert language_code("русский (переходит на украинский, если клиент пишет по-украински)") == "ru-RU"
+    assert (language_code("Українська"), language_code("English, simple")) == ("uk-UA", "en-US")
     assert (clock_text(151.4), clock_text(None), clock_text(9)) == ("2:31", "0:00", "0:09")
     assert has_status(0b110, 0b010) and not has_status(0b100, 0b010)
     assert has_status("x", "x") and not has_status("x", "y")
@@ -153,6 +162,7 @@ class FakeCall:
         self.fail_play = fail_play
         self.answered = False
         self.hung_up = False
+        self.ended = False
         self.played: list[bytes] = []
 
     async def answer(self) -> None:
@@ -379,7 +389,8 @@ async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, 
     await service(container, FakeLive(session())).handle(world.channel.id, FakeCall())
     lines = [r.getMessage() for r in caplog.records if r.name == "sim.calls.trace"]
     moments = [line.split()[3] for line in lines]
-    assert moments[:5] == ["ringing", "plan_ready", "session_opened", "answer_sent", "answered"]
+    assert moments[:6] == ["ringing", "plan_ready", "rang", "session_opened", "answer_sent",
+                           "answered"]
     assert moments[-3:] == ["conversation_over", "ended", "summary"]
     for moment in ("first_model_audio", "interrupted", "first_frame_sent", "first_caller_audio"):
         assert moments.count(moment) == 1
@@ -388,6 +399,41 @@ async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, 
     for counter in ("frames_in=6", "frames_out=", "interruptions=1", "model_audio_bytes=960",
                     "model_turns=1", "uplink_chunks="):
         assert counter in lines[-1]
+
+
+def ringing_service(container, live, pauses: list[float], on_pause=None) -> CallService:
+    """The ring pause is recorded and skipped; the pacer's 10 ms steps still really sleep."""
+    async def sleep(seconds: float) -> None:
+        if seconds >= 1:
+            pauses.append(seconds)
+            if on_pause is not None:
+                on_pause()
+            return
+        await asyncio.sleep(seconds)
+    return CallService(container.factory, live, container.conversation,
+                       ring_s=(4.0, 9.0), sleep=sleep)
+
+
+async def test_she_lets_it_ring_a_few_seconds_before_picking_up(container, world):
+    await chatting_world(container, world)
+    live, call, pauses = FakeLive(), FakeCall(), []
+    outcome = await ringing_service(container, live, pauses).handle(world.channel.id, call)
+    assert outcome.status == "answered" and call.answered
+    assert len(pauses) == 1 and 4.0 <= pauses[0] <= 9.0
+    assert len(live.opened) == 1
+
+
+async def test_a_caller_who_hangs_up_while_it_rings_costs_no_broker_session(container, world):
+    await chatting_world(container, world)
+    live, call, pauses = FakeLive(), FakeCall(), []
+
+    def hang_up() -> None:
+        call.ended = True
+
+    outcome = await ringing_service(container, live, pauses, on_pause=hang_up).handle(
+        world.channel.id, call)
+    assert outcome.status == "skipped:hung_up"
+    assert live.opened == [] and not call.answered and len(pauses) == 1
 
 
 def test_call_trace_times_moments_and_reports_a_first_once(caplog):
@@ -644,7 +690,7 @@ async def test_bridge_answers_streams_and_hangs_up():
 
     async def on_call(call):
         await call.answer()
-        await call.play(b"OUT")
+        await call.play(b"\x01\x00\x02\x00")             # two mono samples
         async for frame in call.frames():
             got.append(frame)
         release.set()
@@ -665,10 +711,12 @@ async def test_bridge_answers_streams_and_hangs_up():
     await asyncio.wait_for(release.wait(), 1)
     await asyncio.gather(*bridge.tasks)
     assert got == [b"A", b"B"]
-    assert ("play", 42, ("media", "ext-audio", (48000, 1)), ("config", ANSWER_TIMEOUT_S)) \
+    # Her voice goes out in stereo (py-tgcalls' own frame example; mono was silent on a live
+    # call), the caller's audio comes in mono.
+    assert ("play", 42, ("media", "ext-audio", (48000, 2)), ("config", ANSWER_TIMEOUT_S)) \
         in calls.log
     assert ("record", 42, ("record", True, (48000, 1))) in calls.log
-    assert ("frame", 42, "mic", b"OUT") in calls.log
+    assert ("frame", 42, "mic", b"\x01\x00\x01\x00\x02\x00\x02\x00") in calls.log
     assert ("leave", 42) not in calls.log                 # the caller hung up first
     assert bridge.active == {}
 

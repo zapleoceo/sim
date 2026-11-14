@@ -94,6 +94,11 @@ class IncomingCall(Protocol):
     external_thread_id: str   # the caller, as the channel's dialogs name the thread
     rate_hz: int
 
+    @property
+    def ended(self) -> bool:
+        """The call is over (the caller hung up), answered or not."""
+        ...
+
     async def answer(self) -> None: ...
 
     def frames(self) -> AsyncIterator[bytes]:
