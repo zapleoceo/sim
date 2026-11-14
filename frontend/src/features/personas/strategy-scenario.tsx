@@ -2,9 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Field } from '@/components/field';
+import { LongText } from '@/components/long-text';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { strategiesApi } from '@/lib/api/strategies';
 import type { Strategy } from '@/lib/models';
 import { qk } from '@/lib/query';
@@ -28,21 +27,18 @@ export function StrategyScenario({ strategy }: { strategy: Strategy }) {
       toast.success('Сценарий стратегии сохранён');
     },
   });
+  const dirty = draft !== strategy.prompt;
 
   return (
     <div className="flex flex-col gap-2">
-      <Field
+      <LongText
         anchorId={STRATEGY_PROMPT_ANCHOR}
         label={`Сценарий стратегии «${strategy.name}»`}
         hint="Один текст: цель, шаги воронки, тон. Общий для всех персонажей с этой стратегией."
-      >
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          className="min-h-48 max-h-[70vh] font-mono text-[13px] md:text-[13px]"
-        />
-      </Field>
-      <div className="flex flex-wrap items-center gap-3">
+        value={draft}
+        onChange={setDraft}
+      />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link
           to="/strategies/$id"
           params={{ id: String(strategy.id) }}
@@ -51,7 +47,8 @@ export function StrategyScenario({ strategy }: { strategy: Strategy }) {
           Оффер, ссылка регистрации и напоминания: в карточке стратегии
         </Link>
         <span className="flex-1" />
-        <Button size="sm" variant="outline" disabled={save.isPending || draft === strategy.prompt} onClick={() => save.mutate()}>
+        {dirty && <span className="text-xs text-muted-foreground">есть несохранённые правки</span>}
+        <Button size="sm" variant="outline" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>
           Сохранить сценарий
         </Button>
       </div>

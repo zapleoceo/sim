@@ -129,6 +129,18 @@
   html[data-keyboard='open'] {
     --bottom-nav: 0px;
   }
+  /* Touch targets: inside `.touch-40` every button, input and select is at least 40 px high (px, not rem:
+     the base font is smaller here). Used by the persona page and the long text dialog. */
+  .touch-40 :is([data-slot='button'], [data-slot='input'], [data-slot='select-trigger']) {
+    min-height: 40px;
+  }
+  .touch-40 [data-slot='button'] {
+    min-width: 40px;
+  }
+  /* While typing, a sticky save bar would cover the fields above the keyboard: it goes back into the flow. */
+  html[data-keyboard='open'] [data-slot='save-bar'] {
+    position: static;
+  }
   /* A screen that fills the viewport must not leave a scrollable tail under the keyboard. */
   html[data-keyboard='open']:has([data-fit-viewport]) body {
     height: var(--app-vh, 100dvh);

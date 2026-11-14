@@ -1,17 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Controller, useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch, type Control, type FieldErrors } from 'react-hook-form';
 import { Avatar } from '@/components/avatar';
 import { Field, FormGrid } from '@/components/field';
+import { LongText } from '@/components/long-text';
 import { modelOptions } from '@/components/model-options';
 import type { Option } from '@/components/option-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
 import { personaFieldAnchor } from './persona-prompt-logic';
-import { Section } from './persona-sections';
+import { BLOCKS, Section, useSections, type SectionId } from './persona-sections';
 import { SelectControl } from './select-control';
 import { StrategyScenario } from './strategy-scenario';
 import { VOICE_AMBIENCE_OPTIONS, VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
@@ -21,14 +21,68 @@ import {
 } from './persona-schema';
 
 const PERSONA_AUTO = 'Авто — цепочка chat:sales';
-const MONO = 'font-mono text-[13px] md:text-[13px]';
+/** A switch with its label: the whole row is one touch target. */
+const TOGGLE_ROW = 'flex min-h-[40px] items-center gap-2.5';
+
+/** The block every form field lives in: a field that failed validation opens its block. */
+const FIELD_SECTION: Record<keyof PersonaFormValues, SectionId> = {
+  name: 'profile', is_active: 'profile', gender: 'profile', language: 'profile', birth_date: 'profile',
+  age: 'profile', timezone: 'profile', avatar_url: 'profile',
+  description: 'prompt', prohibitions: 'prompt',
+  routine: 'routine',
+  voice_mode: 'voice', voice_id: 'voice', voice_style: 'voice', voice_ambience: 'voice', accept_calls: 'voice',
+  model: 'strategy', strategy_id: 'strategy',
+};
+
+function sectionsWithErrors(errors: FieldErrors<PersonaFormValues>): SectionId[] {
+  const ids = Object.keys(errors).map((field) => FIELD_SECTION[field as keyof PersonaFormValues]);
+  return [...new Set(ids.filter((id): id is SectionId => id !== undefined))];
+}
 
 function birthDateHint(value: string): string {
   const age = ageFromBirthDate(value);
   return `${age === null ? 'Возраст' : `Сейчас ей ${age}. Возраст`}, знак зодиака и дни до дня рождения считает код и подсказывает модели`;
 }
 
-/** Everything that is the persona's own: one form, one «Сохранить», sections in page order. */
+const sameBody = (a: PersonaIn, b: PersonaIn): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * «Сохранить» of the persona form, stuck to the bottom of the screen while the form is in view (above the
+ * phone tab bar; in the flow while the keyboard is open, see index.css). Says when the form differs from
+ * what is saved: a text edited in a dialog is not saved until this button is pressed.
+ */
+function SaveBar({ control, saved, saving, onRemove }: {
+  control: Control<PersonaFormValues>;
+  saved: PersonaIn;
+  saving: boolean;
+  onRemove?: () => void;
+}) {
+  const values = useWatch({ control }) as PersonaFormValues;
+  const dirty = !sameBody(personaFromForm(values), personaFromForm(personaToForm(saved)));
+  return (
+    <div
+      data-slot="save-bar"
+      className="sticky bottom-(--bottom-nav) z-10 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-3 py-2 backdrop-blur sm:px-5"
+    >
+      {onRemove && (
+        <Button variant="ghost-destructive" onClick={onRemove}>
+          Удалить
+        </Button>
+      )}
+      <span role="status" className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
+        {dirty ? 'Есть несохранённые правки' : ''}
+      </span>
+      <Button type="submit" disabled={saving}>
+        {saving ? 'Сохраняем…' : 'Сохранить персонажа'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Everything that is the persona's own: one form, one «Сохранить», blocks in page order. A collapsed
+ * block keeps its fields in the form; long texts are edited in a dialog and saved with the rest.
+ */
 export function PersonaEditor({
   persona,
   models,
@@ -47,13 +101,16 @@ export function PersonaEditor({
   onSave: (body: PersonaIn) => void;
   onRemove?: () => void;
 }) {
+  const saved = persona ? personaToInput(persona) : EMPTY_PERSONA;
   const form = useForm<PersonaFormValues>({
     resolver: zodResolver(personaSchema),
-    defaultValues: personaToForm(persona ? personaToInput(persona) : EMPTY_PERSONA),
+    defaultValues: personaToForm(saved),
     mode: 'onTouched',
   });
   const { register, control, handleSubmit, formState } = form;
   const errors = formState.errors;
+  const { reveal } = useSections();
+  const invalid = sectionsWithErrors(errors);
   const [model, name, avatarUrl, birthDate, strategyId] = useWatch({
     control, name: ['model', 'name', 'avatar_url', 'birth_date', 'strategy_id'],
   });
@@ -67,13 +124,17 @@ export function PersonaEditor({
   return (
     <form
       noValidate
-      onSubmit={handleSubmit((v) => onSave(personaFromForm(v)))}
-      className="flex flex-col gap-8 rounded-xl border bg-card p-3 shadow-xs sm:p-5"
+      onSubmit={handleSubmit((v) => onSave(personaFromForm(v)), (bad) => reveal(sectionsWithErrors(bad)))}
+      className={BLOCKS}
     >
-      <Section id="profile" hint="Кто она: данные карточки. Возраст и местное время модель получает от кода, а не из текста.">
+      <Section
+        id="profile"
+        invalid={invalid.includes('profile')}
+        hint="Кто она: данные карточки. Возраст и местное время модель получает от кода, а не из текста."
+      >
         <div className="flex items-center gap-3">
-          <Avatar name={name || '?'} url={avatarUrl} size={52} />
-          <div className="flex items-center gap-2">
+          <Avatar name={name || '?'} url={avatarUrl} size={44} />
+          <div className={TOGGLE_ROW}>
             <Controller
               control={control}
               name="is_active"
@@ -81,7 +142,7 @@ export function PersonaEditor({
                 <Switch id="persona-active" checked={field.value} onCheckedChange={field.onChange} />
               )}
             />
-            <Label htmlFor="persona-active">Активен</Label>
+            <Label htmlFor="persona-active" className="py-2">Активен</Label>
           </div>
         </div>
         <FormGrid className="lg:grid-cols-3">
@@ -110,57 +171,69 @@ export function PersonaEditor({
         </FormGrid>
       </Section>
 
-      <Section id="prompt" hint="Её собственный текст: модель получает его первым и как есть.">
-        <Field
-          anchorId={personaFieldAnchor('description')}
-          label="Промпт персонажа"
-          hint="Кто она, легенда, роль, стиль речи, что можно и нельзя."
-          error={errors.description?.message}
-        >
-          <Textarea
-            {...register('description')}
-            className={`min-h-96 max-h-[75vh] ${MONO}`}
-            placeholder="Ты Марина, 45 лет, из Днепра… Как живёшь в роли, как пишешь, чего не делаешь."
-          />
-        </Field>
-        <Field
-          anchorId={personaFieldAnchor('prohibitions')}
-          label="Запреты"
-          hint="Правило на строку. Идут в промпт сразу после её текста, разделом «Чего нельзя никогда». Пусто: раздела нет."
-          error={errors.prohibitions?.message}
-        >
-          <Textarea {...register('prohibitions')} className={`min-h-24 max-h-[50vh] ${MONO}`} placeholder={'не обещать доход\nне обсуждать политику'} />
-        </Field>
+      <Section id="prompt" invalid={invalid.includes('prompt')} hint="Её собственный текст: модель получает его первым и как есть.">
+        <Controller
+          control={control}
+          name="description"
+          render={({ field }) => (
+            <LongText
+              anchorId={personaFieldAnchor('description')}
+              label="Промпт персонажа"
+              hint="Кто она, легенда, роль, стиль речи, что можно и нельзя."
+              error={errors.description?.message}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              placeholder="Ты Марина, 45 лет, из Днепра… Как живёшь в роли, как пишешь, чего не делаешь."
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="prohibitions"
+          render={({ field }) => (
+            <LongText
+              anchorId={personaFieldAnchor('prohibitions')}
+              label="Запреты"
+              hint="Правило на строку. Идут в промпт сразу после её текста, разделом «Чего нельзя никогда». Пусто: раздела нет."
+              error={errors.prohibitions?.message}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              placeholder={'не обещать доход\nне обсуждать политику'}
+            />
+          )}
+        />
       </Section>
 
-      <Section id="routine" hint="Где она сейчас, что было вчера и будет завтра, считает код, поэтому ответы всегда совпадают.">
-        <Field
-          anchorId={personaFieldAnchor('routine')}
-          label="Распорядок недели"
-          hint="Строка на дело: дни, время, что делает. Дни: пн…вс, пн-пт, сб,вс, ежедневно или дата 2026-11-20 (разовое дело)."
-          error={errors.routine?.message}
-        >
-          <Textarea
-            {...register('routine')}
-            className={`min-h-48 ${MONO}`}
-            placeholder={'пн-пт 06:30-07:15 пробежка вдоль Эльбы\nпн-пт 09:00-13:00 консультации с клиентами, из дома\nвс 13:00-16:00 обед у мамы\nежедневно 23:00-06:30 сплю'}
-          />
-        </Field>
+      <Section
+        id="routine"
+        invalid={invalid.includes('routine')}
+        hint="Где она сейчас, что было вчера и будет завтра, считает код, поэтому ответы всегда совпадают."
+      >
+        <Controller
+          control={control}
+          name="routine"
+          render={({ field }) => (
+            <LongText
+              anchorId={personaFieldAnchor('routine')}
+              label="Распорядок недели"
+              hint="Строка на дело: дни, время, что делает. Дни: пн…вс, пн-пт, сб,вс, ежедневно или дата 2026-11-20 (разовое дело)."
+              error={errors.routine?.message}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              placeholder={'пн-пт 06:30-07:15 пробежка вдоль Эльбы\nпн-пт 09:00-13:00 консультации с клиентами, из дома\nвс 13:00-16:00 обед у мамы\nежедневно 23:00-06:30 сплю'}
+            />
+          )}
+        />
       </Section>
 
-      <Section id="strategy" hint="Какая модель пишет ответы и по какому сценарию она ведёт разговор.">
-        <FormGrid>
-          <Field label="Модель" hint={modelsUnavailable ? 'Список моделей недоступен — используется авто-цепочка' : undefined}>
-            <SelectControl control={control} name="model" options={modelOptions(models, model, PERSONA_AUTO)} />
-          </Field>
-          <Field label="Стратегия" hint="Не выбрана: действует первая стратегия из списка">
-            <SelectControl control={control} name="strategy_id" options={strategyOptions} />
-          </Field>
-        </FormGrid>
-        {strategy && <StrategyScenario key={strategy.id} strategy={strategy} />}
-      </Section>
-
-      <Section id="voice" hint="Голосовые сообщения и живые звонки в Telegram. Правило звонков показано в «Итоговом промпте».">
+      <Section
+        id="voice"
+        invalid={invalid.includes('voice')}
+        hint="Голосовые сообщения и живые звонки в Telegram. Правило звонков показано в «Итоговом промпте»."
+      >
         <FormGrid>
           <Field label="Голосовые ответы" hint="Голос синтезирует Google Gemini TTS через AIbroker; текст ответа остаётся в диалоге">
             <SelectControl control={control} name="voice_mode" options={VOICE_MODE_OPTIONS} />
@@ -176,7 +249,7 @@ export function PersonaEditor({
           </Field>
         </FormGrid>
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
+          <div className={TOGGLE_ROW}>
             <Controller
               control={control}
               name="accept_calls"
@@ -184,7 +257,7 @@ export function PersonaEditor({
                 <Switch id="persona-accept-calls" checked={field.value} onCheckedChange={field.onChange} />
               )}
             />
-            <Label htmlFor="persona-accept-calls">Принимать звонки</Label>
+            <Label htmlFor="persona-accept-calls" className="py-2">Принимать звонки</Label>
           </div>
           <p className="text-xs text-muted-foreground">
             Отвечает на входящие звонки в Telegram живым голосом (тот же голос, Google Gemini Live через AIbroker), только
@@ -193,17 +266,19 @@ export function PersonaEditor({
         </div>
       </Section>
 
-      <div className="sticky bottom-(--bottom-nav) -mx-3 -mb-3 flex items-center gap-2 rounded-b-xl border-t bg-card/95 px-3 py-2 backdrop-blur sm:-mx-5 sm:-mb-5 sm:px-5 sm:py-3">
-        {onRemove && (
-          <Button variant="ghost-destructive" onClick={onRemove}>
-            Удалить
-          </Button>
-        )}
-        <span className="flex-1" />
-        <Button type="submit" disabled={saving}>
-          {saving ? 'Сохраняем…' : 'Сохранить персонажа'}
-        </Button>
-      </div>
+      <Section id="strategy" invalid={invalid.includes('strategy')} hint="Какая модель пишет ответы и по какому сценарию она ведёт разговор.">
+        <FormGrid>
+          <Field label="Модель" hint={modelsUnavailable ? 'Список моделей недоступен — используется авто-цепочка' : undefined}>
+            <SelectControl control={control} name="model" options={modelOptions(models, model, PERSONA_AUTO)} />
+          </Field>
+          <Field label="Стратегия" hint="Не выбрана: действует первая стратегия из списка">
+            <SelectControl control={control} name="strategy_id" options={strategyOptions} />
+          </Field>
+        </FormGrid>
+        {strategy && <StrategyScenario key={strategy.id} strategy={strategy} />}
+      </Section>
+
+      <SaveBar control={control} saved={saved} saving={saving} onRemove={onRemove} />
     </form>
   );
 }

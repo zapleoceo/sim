@@ -65,9 +65,9 @@ export function PersonaGallery({ personaId }: { personaId: number }) {
   const filtered = filter ? (media.data ?? []).filter((m) => m.kind === filter) : (media.data ?? []);
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold">Галерея</h3>
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">Галерея</h3>
         <div className="flex gap-1">
           {ALL_KINDS.map((k) => {
             const Icon = KIND_ICONS[k];
@@ -91,7 +91,7 @@ export function PersonaGallery({ personaId }: { personaId: number }) {
       <input ref={fileRef} type="file" className="hidden" accept={ACCEPT[uploadKind]} onChange={onFileChange} />
 
       {/* Filters */}
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         <Button size="sm" variant={filter === null ? 'default' : 'outline'} onClick={() => setFilter(null)}>
           Все
         </Button>
@@ -137,12 +137,17 @@ function MediaCard({ media: m, onRemove }: { media: PersonaMedia; onRemove: () =
         <Icon className="size-3 shrink-0" />
         <span className="truncate">{m.caption || KIND_LABELS[m.kind]}</span>
       </div>
+      {/* Always shown on a phone (no hover there); the touch area is 40 px, the chip inside stays small. */}
       <button
+        type="button"
         onClick={onRemove}
-        className="absolute right-1 top-1 hidden rounded bg-black/60 p-1 text-white hover:bg-destructive group-hover:block"
+        className="group/remove absolute top-0 right-0 flex size-[40px] items-center justify-center outline-none md:hidden md:size-8 md:group-hover:flex md:focus-visible:flex"
         title="Удалить"
+        aria-label="Удалить файл"
       >
-        <Trash2 className="size-3.5" />
+        <span className="rounded bg-black/60 p-1 text-white group-hover/remove:bg-destructive group-focus-visible/remove:bg-destructive">
+          <Trash2 className="size-3.5" />
+        </span>
       </button>
     </div>
   );
