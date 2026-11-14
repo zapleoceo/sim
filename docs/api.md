@@ -203,7 +203,11 @@ MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/
 `Setting`: `{key, group, label, help, kind ("text"|"int"|"capability"), min, max, value, default,
 is_default, updated_at, updated_by_id}`.
 
-Ключи: `history_limit` (6–100) — сколько реплик видят персонаж и охранник; `guard_prompt` — весь
+Ключи: `history_limit` (6–100) — сколько реплик видят охранник, паспортистка, симуляции и звонки;
+`context_window_hours` (1–720, по умолчанию 48) — за сколько часов персонаж читает сообщения диалога целиком,
+`context_token_limit` (500–200000, по умолчанию 6000) — оценка объёма окна, выше которой обрезаются его самые
+старые сообщения (группа «Ответы»; см. architecture.md, «Контекст ответа»); `summary_prompt` (инструкция агента
+саммари), `summary_model` (точная модель Broker, пусто: маршрут `chat:sales`) — группа «Саммари диалога»; `guard_prompt` — весь
 промпт охранника одним текстом (роль, вход, правила, вердикты, JSON-формат), `guard_model` (точная
 модель Broker, пусто: решает маршрут; запасной маршрут модель не закрепляет), `guard_capability`,
 `guard_fallback_capability` — охранник (группа «Охранник»); `passport_prompt` (инструкция агента
@@ -267,14 +271,24 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 | Метод | Путь | Параметры / тело | Ответ |
 |---|---|---|---|
 | GET | `/api/dialogs` | `channel_kind?, persona_id?, stage?, status?, q?, unread_only?, needs_operator?` (только диалоги, где ИИ передал/не справился) | `{items: DialogRow[], total}` |
-| GET | `/api/dialogs/{id}` | — | `{dialog, client, messages: Message[]}`; `dialog.urgent`; `dialog.reply_plan`: `{at, reason, cls, urgent}` или `null` — ответ, отложенный по распорядку персонажа (когда уйдёт, причина текстом, класс дела `sleep`/`work`/`road`/`busy`, срочность `words`/`waiting`/`null`); `dialog.unanswered`: `{count, since, message_ids}` — сообщения клиента, на которые ещё никто не ответил (после последнего неотменённого исходящего) |
+| GET | `/api/dialogs/{id}` | — | `{dialog, client, messages: Message[], events: DialogEvent[]}` (`events`: журнал коммуникации, последние 500, от старых к новым); `dialog.urgent`; `dialog.reply_plan`: `{at, reason, cls, urgent}` или `null` — ответ, отложенный по распорядку персонажа (когда уйдёт, причина текстом, класс дела `sleep`/`work`/`road`/`busy`, срочность `words`/`waiting`/`null`); `dialog.unanswered`: `{count, since, message_ids}` — сообщения клиента, на которые ещё никто не ответил (после последнего неотменённого исходящего) |
 | POST | `/api/dialogs/{id}/messages` | `{text}` | `Message` (оператор; ИИ этого диалога ставится на паузу) |
-| POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`). При `paused: false` в ответе есть `recovery: {status, messages}`: `queued` — на `messages` сообщений без ответа поставлена одна задача `reply`; `stale` — они старше `pause_recovery_window_min`, автоответа нет; `refused` — клиент отказался; `none` — отвечать не на что |
-| POST | `/api/dialogs/{id}/reply-now` | — | `Dialog` + `{reply_plan: null, queued}` — «Ответить сейчас»: ответ, отложенный по распорядку персонажа, уходит сразу. `queued: false` — отвечать не на что. `409`, пока ИИ на паузе (паузу не снимает) |
-| POST | `/api/dialogs/{id}/urgent` | `{urgent: bool}` | `Dialog` + `{reply_plan}` — отметка «Срочный»: ответы в диалоге не ждут распорядка; ожидающий ответ уходит сразу |
-| POST | `/api/dialogs/{id}/resolve` | — | `Dialog` — снимает `needs_operator`, не меняя паузу ИИ. Флаг также снимается ответом оператора и возобновлением ИИ |
+| POST | `/api/dialogs/{id}/ai` | `{paused: bool, reason?}` (смена состояния пишется в журнал коммуникации с именем админа и причиной) | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`). При `paused: false` в ответе есть `recovery: {status, messages}`: `queued` — на `messages` сообщений без ответа поставлена одна задача `reply`; `stale` — они старше `pause_recovery_window_min`, автоответа нет; `refused` — клиент отказался; `none` — отвечать не на что |
+| POST | `/api/dialogs/{id}/reply-now` | — (при `queued: true` в журнал коммуникации пишется строка `reply_delay` с именем админа) | `Dialog` + `{reply_plan: null, queued}` — «Ответить сейчас»: ответ, отложенный по распорядку персонажа, уходит сразу. `queued: false` — отвечать не на что. `409`, пока ИИ на паузе (паузу не снимает) |
+| POST | `/api/dialogs/{id}/urgent` | `{urgent: bool}` (смена пишется в журнал коммуникации строкой `urgent`) | `Dialog` + `{reply_plan}` — отметка «Срочный»: ответы в диалоге не ждут распорядка; ожидающий ответ уходит сразу |
+| POST | `/api/dialogs/{id}/resolve` | `{reason?}` или пусто | `Dialog` — снимает `needs_operator`, не меняя паузу ИИ. Флаг также снимается ответом оператора и возобновлением ИИ |
 | POST | `/api/dialogs/{id}/read` | — | `204` |
-| DELETE | `/api/dialogs/{id}/messages` | — (только owner/superadmin, CSRF) | `{dialog, client, messages: [], deleted_messages}` — «Очистить чат», необратимо: удаляет все сообщения диалога в базе SIM, отменяет ждущие ответ, напоминание и обновление паспорта этого диалога, обнуляет счётчики (`unread`, шаг напоминаний, `needs_operator`, последнее сообщение). Следующий ответ персонажа строится без прошлой истории. Клиент, паспорт, этап, статус и пауза ИИ не меняются; в мессенджере ничего не удаляется и ничего не отправляется. Operator → 403, нет диалога → 404 |
+| GET | `/api/dialogs/{id}/summary` | — | `DialogSummary`: саммари сообщений диалога старше окна контекста; только чтение. Нет диалога → 404 |
+| POST | `/api/dialogs/{id}/summary` | — (CSRF) | `DialogSummary` — «Обновить»: дописывает в саммари сообщения, которые вышли из окна (до четырёх вызовов модели; саммари не пересчитывается с нуля). Нечего дописывать → тот же ответ без вызова модели. Модель недоступна → 502, саммари не меняется |
+| DELETE | `/api/dialogs/{id}/messages` | `?reason=` необязательно (только owner/superadmin, CSRF) | `{dialog, client, messages: [], deleted_messages}` — «Очистить чат», необратимо: удаляет все сообщения диалога в базе SIM, отменяет ждущие ответ, напоминание и обновление паспорта этого диалога, обнуляет счётчики (`unread`, шаг напоминаний, `needs_operator`, последнее сообщение). Следующий ответ персонажа строится без прошлой истории. Клиент, паспорт, этап, статус и пауза ИИ не меняются; в мессенджере ничего не удаляется и ничего не отправляется. Operator → 403, нет диалога → 404 |
+
+`DialogEvent`: `{id, kind, from, to, actor: "owner"|"operator"|"system"|"model", actor_name, reason, created_at}` —
+строка журнала коммуникации (виды и кто их пишет: architecture.md, «Журнал коммуникации»). `from`/`to` это
+значения как в базе (`engaged`, `paused`, `on`) или готовый текст; `reason` пустая, если причину никто не указал.
+«Очистить чат» удаляет саммари, но не журнал: в ответе `events` есть, последняя строка `chat_cleared`.
+`DialogSummary`: `{text, covered_until, messages_covered, updated_at, model, pending}`; `covered_until` — время
+последнего сообщения, вошедшего в саммари (дата охвата), `pending` — сколько сообщений старше окна в саммари ещё
+не вошло (не больше 120 за запрос); у диалога без саммари `text` пуст, даты `null`.
 
 `DialogRow`: `{id, channel_kind, persona: {id, name, avatar_url}, client: {id, display_name, avatar_url, stage, status},
 last_message: {text, direction, at}, unread: number, ai_paused}`.
@@ -294,9 +308,9 @@ last_message: {text, direction, at}, unread: number, ai_paused}`.
 |---|---|---|---|
 | GET | `/api/clients` | `stage?, status?, persona_id?, q?` | `{items: Client[], total}` |
 | GET | `/api/clients/{id}` | — | `ClientCard` (в т.ч. `passport` — паспорт лида от паспортистки, `passport_updated_at`) |
-| PATCH | `/api/clients/{id}` | `{notes?, next_step?, next_step_at?, display_name?}` | `Client` |
-| POST | `/api/clients/{id}/stage` | `{stage?, status?, reason?}` | `Client` (оператор; `registered`/`paid` вручную запрещены → 422) |
-| DELETE | `/api/clients/{id}/passport` | — (только owner/superadmin, CSRF) | `Client` — «Очистить паспорт», необратимо: стирает собранное о клиенте (`passport`, `passport_updated_at`, `needs`, `notes`, `next_step`, `next_step_at`) и отменяет ждущие обновления паспорта во всех его диалогах. Клиент, его каналы, диалоги и сообщения, этап и статус остаются; после следующего ответа персонажа паспортистка заполняет паспорт заново по последним сообщениям. Operator → 403, нет клиента → 404 |
+| PATCH | `/api/clients/{id}` | `{notes?, next_step?, next_step_at?, display_name?}` | `Client`; изменение заметок или следующего шага пишется в журнал коммуникации (`notes`, `next_step`) |
+| POST | `/api/clients/{id}/stage` | `{stage?, status?, reason?}` | `Client` (оператор; `registered`/`paid` вручную запрещены → 422). Единственный путь ручной смены этапа и статуса: его зовут выпадающие списки шапки диалога и карточки клиента и доска воронки. Смена пишется в `funnel_event` и в журнал коммуникации каждого диалога клиента с именем админа и `reason` (пусто: причина не указана) |
+| DELETE | `/api/clients/{id}/passport` | `?reason=` необязательно (только owner/superadmin, CSRF) | `Client` — «Очистить паспорт», необратимо: стирает собранное о клиенте (`passport`, `passport_updated_at`, `needs`, `notes`, `next_step`, `next_step_at`) и отменяет ждущие обновления паспорта во всех его диалогах. Клиент, его каналы, диалоги и сообщения, этап и статус остаются; после следующего ответа персонажа паспортистка заполняет паспорт заново по последним сообщениям. Operator → 403, нет клиента → 404 |
 
 Обе очистки и сброс из чата (`/reset`) — одна служба
 `services/dialog_reset.py`: `clear_chat` (чат), `clear_passport` (паспорт), `reset` (оба + этап
@@ -408,8 +422,8 @@ status: "draft"|"approved"|"scheduled"|"published"|"failed", scheduled_at, publi
 История реального диалога включает входящие сообщения и только отправленные (`sent`)
 исходящие сообщения ИИ или оператора. `queued`, `failed` и `cancelled` не считаются
 увиденными клиентом; guard-blocked черновики также исключаются. Фильтрация происходит
-до лимита последних сообщений, поэтому очередь неотправленных черновиков не вытесняет
-реальные реплики. После успешной повторной отправки сообщение снова доступно истории.
+до лимита последних сообщений и до окна контекста, поэтому очередь неотправленных черновиков не вытесняет
+реальные реплики. То же правило действует для сообщений, которые попадают в саммари. После успешной повторной отправки сообщение снова доступно истории.
 Это правило не удаляет записи из inbox/админки и не меняет историю симуляций.
 Метрики аналитики и гарантии внешней доставки этим изменением не пересматриваются.
 

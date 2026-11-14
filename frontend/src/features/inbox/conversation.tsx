@@ -5,19 +5,19 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon, NeedsOperatorBadge, StageChip, StatusBadge } from '@/components/badges';
+import { StageDropdown } from '@/components/choice-dropdown';
 import { EmptyState } from '@/components/empty-state';
+import { JournalLine } from '@/components/journal-line';
 import { MessageBubble } from '@/components/message-bubble';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { OptionSelect } from '@/components/option-select';
-import { STAGES } from '@/lib/stages';
 import { canRecord, useVoiceRecorder } from '@/features/personas/use-voice-recorder';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
 import { CompactConversationHeader, CompactOperatorBanner } from './conversation-compact';
-import { PAUSE_NOTE, groupByDay, isSendKey, pauseNotice, replyPlanNotice } from './inbox-logic';
+import { PAUSE_NOTE, groupFeedByDay, isSendKey, pauseNotice, replyPlanNotice } from './inbox-logic';
 
 
 export function Conversation({
@@ -59,12 +59,13 @@ export function Conversation({
   onSend: (text: string, requestId: string) => Promise<boolean>;
   onSendVoice?: (audio: Blob, filename: string, requestId: string) => Promise<boolean>;
   onSendAttachment?: (file: File, caption: string, requestId: string) => Promise<boolean>;
-  onChangeStage?: (stage: Stage) => Promise<boolean>;
+  /** The stage dropdown: the new stage and the optional reason the operator typed. */
+  onChangeStage?: (stage: Stage, reason: string) => Promise<boolean>;
   /** «Очистить чат»: passed only for the owner (the page asks for confirmation first). */
   onClearChat?: () => void;
   clearing?: boolean;
 }) {
-  const { dialog, client, messages } = detail;
+  const { dialog, client, messages, events } = detail;
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState('');
   const [stageBusy, setStageBusy] = useState(false);
@@ -75,14 +76,14 @@ export function Conversation({
   const pendingMedia = useRef<{ kind: 'voice' | 'file'; file: Blob | File; name: string; caption: string; id: string } | null>(null);
   const capabilities = dialog.send_capabilities ?? { text: true, voice: false, attachment: false };
   const scroller = useRef<HTMLDivElement>(null);
-  const groups = groupByDay(messages);
+  const groups = groupFeedByDay(messages, events);
   const paused = pauseNotice(dialog);
   const planned = replyPlanNotice(dialog);
 
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, dialog.id]);
+  }, [messages.length, events?.length, dialog.id]);
 
   const send = async (): Promise<void> => {
     const value = text.trim();
@@ -115,12 +116,15 @@ export function Conversation({
       caption: '', id: crypto.randomUUID() });
   };
 
-  const changeStage = async (stage: Stage): Promise<void> => {
-    if (!onChangeStage || stageBusy || stage === client.stage) return;
+  /** One handler for the stage dropdown of both headers; false keeps the list open. */
+  const changeStage = async (stage: Stage, reason: string): Promise<boolean> => {
+    if (!onChangeStage || stageBusy || stage === client.stage) return false;
     setStageBusy(true);
     setSendError('');
-    if (!(await onChangeStage(stage))) setSendError('Не удалось изменить этап. Обновите диалог и повторите.');
+    const changed = await onChangeStage(stage, reason);
+    if (!changed) setSendError('Не удалось изменить этап. Обновите диалог и повторите.');
     setStageBusy(false);
+    return changed;
   };
 
   return (
@@ -134,7 +138,7 @@ export function Conversation({
           onToggleAi={onToggleAi}
           onSetUrgent={onSetUrgent}
           onResolve={onResolve}
-          onChangeStage={onChangeStage ? (stage) => void changeStage(stage) : undefined}
+          onChangeStage={onChangeStage ? changeStage : undefined}
           onClearChat={onClearChat}
         />
       ) : (
@@ -149,10 +153,9 @@ export function Conversation({
           <strong className="truncate text-sm font-semibold">{client.display_name}</strong>
           <span className="flex flex-wrap items-center gap-1.5">
             {dialog.channel_kind && <ChannelIcon kind={dialog.channel_kind} size={18} />}
-            <StageChip stage={client.stage} className="h-5 px-2 text-[11px]" />
-            {onChangeStage && <OptionSelect<Stage> value={client.stage} onChange={(stage) => void changeStage(stage)}
-              options={STAGES.filter((item) => item.aiReachable || item.id === client.stage)
-                .map((item) => ({ value: item.id, label: item.label }))} /> }
+            {onChangeStage
+              ? <StageDropdown stage={client.stage} onApply={changeStage} />
+              : <StageChip stage={client.stage} className="h-5 px-2 text-[11px]" />}
             <StatusBadge status={client.status} />
             {dialog.needs_operator && <NeedsOperatorBadge />}
           </span>
@@ -244,9 +247,9 @@ export function Conversation({
             <div className="my-2 flex justify-center">
               <span className="rounded-full bg-background px-3 py-0.5 text-xs text-muted-foreground shadow-xs">{g.label}</span>
             </div>
-            {g.items.map((m) => (
-              <MessageBubble key={m.msg.id} vm={m} details />
-            ))}
+            {g.items.map((item) => item.type === 'message'
+              ? <MessageBubble key={`m${item.vm.msg.id}`} vm={item.vm} details />
+              : <JournalLine key={`e${item.vm.event.id}`} vm={item.vm} />)}
           </div>
         ))}
         {paused && paused.waiting > 0 && (

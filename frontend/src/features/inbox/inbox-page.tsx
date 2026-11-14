@@ -13,7 +13,7 @@ import { SINGLE_PANE_QUERY, WIDE_QUERY, useIsPhone, useMediaQuery } from '@/hook
 import { useDebounced } from '@/hooks/use-debounced';
 import { dialogsApi } from '@/lib/api/dialogs';
 import { channelsApi } from '@/lib/api/channels';
-import { clientsApi } from '@/lib/api/clients';
+import { clientsApi, stageChange } from '@/lib/api/clients';
 import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
 import type { AiToggleResult, ReplyPlanResult, Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
@@ -22,6 +22,7 @@ import { useLiveDialogs } from '@/lib/live';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { Conversation } from './conversation';
+import { DialogSummaryBlock } from './dialog-summary';
 import { DialogList, InboxFilters } from './inbox-list';
 import {
   CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, PAGE_SIZE, POLL_MS, activeFilterCount, appendPage, clearedRow, combineDialogRows,
@@ -61,6 +62,7 @@ function ClientSideCard({ detail, personas }: { detail: DialogDetail; personas: 
           <span className="whitespace-pre-wrap">{c.notes}</span>
         </SideField>
       )}
+      <DialogSummaryBlock dialogId={detail.dialog.id} />
       <Button asChild variant="outline">
         <Link to="/clients/$id" params={{ id: String(c.id) }}>
           Открыть карточку
@@ -299,11 +301,14 @@ export function InboxPage() {
     onSuccess: (msg, item) => acceptMessage(item.id, msg),
   });
 
-  const changeStage = async (clientId: number, stage: Stage): Promise<boolean> => {
+  // The stage dropdown: the existing stage API, with the reason only when the operator gave one.
+  const changeStage = async (clientId: number, stage: Stage, reason: string): Promise<boolean> => {
     try {
-      const updated = await clientsApi.changeStage(clientId, { stage, reason: 'Из чата оператором' });
-      if (dialogId !== null) queryClient.setQueryData<DialogDetail>(qk.dialog(dialogId), (d) =>
-        d ? { ...d, client: updated } : d);
+      const updated = await clientsApi.changeStage(clientId, stageChange({ stage }, reason));
+      if (dialogId !== null) {
+        queryClient.setQueryData<DialogDetail>(qk.dialog(dialogId), (d) => d ? { ...d, client: updated } : d);
+        void queryClient.invalidateQueries({ queryKey: qk.dialog(dialogId) });   // the journal line of the change
+      }
       setRows((prev) => prev.map((r) => r.client.id === clientId ?
         { ...r, client: { ...r.client, stage: updated.stage } } : r));
       return true;
@@ -449,7 +454,7 @@ export function InboxPage() {
                 mediaMutation.mutateAsync({ id: detail.dialog.id, kind: "file", file, caption, requestId })
                   .then(() => true).catch(() => false)
               }
-              onChangeStage={(stage) => changeStage(detail.client.id, stage)}
+              onChangeStage={(stage, reason) => changeStage(detail.client.id, stage, reason)}
               onClearChat={isOwner ? () => void askClearChat() : undefined}
               clearing={clearChat.isPending}
             />

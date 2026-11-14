@@ -1,5 +1,6 @@
 import type {
-  AiToggleResult, ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message, ReplyPlanResult,
+  AiToggleResult, ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, DialogSummary, ListResponse, Message,
+  ReplyPlanResult,
 } from '../models';
 import { DEFAULT_PAGE, http, type PageRequest } from './http';
 
@@ -33,4 +34,8 @@ export const dialogsApi = {
   markRead: (id: number) => http.post<void>(`/api/dialogs/${id}/read`, {}, { silent: true }),
   /** Owner only, irreversible: wipes the dialog's history in SIM (not in the messenger). */
   clearChat: (id: number) => http.delete<ClearedDialog>(`/api/dialogs/${id}/messages`),
+  /** The summary of the messages older than the context window (read only). */
+  summary: (id: number) => http.get<DialogSummary>(`/api/dialogs/${id}/summary`, { silent: true }),
+  /** «Обновить»: fold the messages that left the window into the summary now. */
+  refreshSummary: (id: number) => http.post<DialogSummary>(`/api/dialogs/${id}/summary`, {}),
 };

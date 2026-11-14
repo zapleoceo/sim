@@ -1,8 +1,10 @@
 import type { ConfirmOptions } from '@/components/confirm';
 import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
 import type {
-  AiRecovery, Delivery, Dialog, DialogDetail, DialogFilter, DialogRow, GuardInfo, Message, Persona, ReplyPlan, SimBranchRow,
+  AiRecovery, Delivery, Dialog, DialogDetail, DialogEvent, DialogFilter, DialogRow, GuardInfo, Message, Persona, ReplyPlan,
+  SimBranchRow,
 } from '@/lib/models';
+import { mergeFeed, toEventVm, type EventVm } from './journal-logic';
 
 /** Fallback only: changes arrive live through /api/events (lib/live.ts). */
 export const POLL_MS = 30_000;
@@ -118,19 +120,39 @@ export function toMessageVm(msg: Message): MessageVm {
   };
 }
 
-/** Consecutive messages grouped by local day («Сегодня», «Вчера», date). */
-export function groupByDay(messages: readonly Message[], now = new Date()): DayGroup[] {
-  const out: DayGroup[] = [];
-  for (const msg of messages) {
-    const key = dayKey(msg.created_at);
+interface Dated<T> { at: string; item: T }
+
+/** Consecutive entries grouped by local day («Сегодня», «Вчера», date). */
+function byDay<T>(entries: readonly Dated<T>[], now: Date): { key: string; label: string; items: T[] }[] {
+  const out: { key: string; label: string; items: T[] }[] = [];
+  for (const { at, item } of entries) {
+    const key = dayKey(at);
     let g = out[out.length - 1];
     if (g?.key !== key) {
-      g = { key, label: dayLabel(msg.created_at, now), items: [] };
+      g = { key, label: dayLabel(at, now), items: [] };
       out.push(g);
     }
-    g.items.push(toMessageVm(msg));
+    g.items.push(item);
   }
   return out;
+}
+
+/** Messages grouped by day (the client card's calm chat: no journal lines). */
+export function groupByDay(messages: readonly Message[], now = new Date()): DayGroup[] {
+  return byDay(messages.map((msg) => ({ at: msg.created_at, item: toMessageVm(msg) })), now);
+}
+
+export type FeedItem = { type: 'message'; vm: MessageVm } | { type: 'event'; vm: EventVm };
+export interface FeedGroup { key: string; label: string; items: FeedItem[] }
+
+/** The dialog feed by day: messages and the journal's service lines in time order. */
+export function groupFeedByDay(messages: readonly Message[], events: readonly DialogEvent[] = [], now = new Date()): FeedGroup[] {
+  return byDay(mergeFeed(messages, events).map((entry) => ({
+    at: entry.at,
+    item: entry.type === 'message'
+      ? { type: 'message' as const, vm: toMessageVm(entry.message) }
+      : { type: 'event' as const, vm: toEventVm(entry.event) },
+  })), now);
 }
 
 export type DeliveryIcon = 'clock' | 'check' | 'alert' | 'ban';
@@ -160,6 +182,7 @@ export function detailChanged(prev: DialogDetail | null | undefined, next: Dialo
   return !(
     prev.dialog.id === next.dialog.id &&
     prev.messages.length === next.messages.length &&
+    (prev.events?.length ?? 0) === (next.events?.length ?? 0) &&
     a?.id === b?.id &&
     a?.delivery === b?.delivery &&
     prev.dialog.ai_paused === next.dialog.ai_paused &&

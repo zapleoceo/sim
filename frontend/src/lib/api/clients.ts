@@ -1,6 +1,12 @@
 import type { Client, ClientCard, ClientFilter, ClientPatch, FunnelResponse, ListResponse, StageChange } from '../models';
 import { DEFAULT_PAGE, http, type PageRequest } from './http';
 
+/** The body of a stage / status change: the reason is sent only when one was given. */
+export function stageChange(change: Pick<StageChange, 'stage' | 'status'>, reason: string): StageChange {
+  const why = reason.trim();
+  return why ? { ...change, reason: why } : change;
+}
+
 export const clientsApi = {
   list: (filter: Partial<ClientFilter>, page: PageRequest = DEFAULT_PAGE) =>
     http.get<ListResponse<Client>>('/api/clients', { params: { ...filter, ...page } }),

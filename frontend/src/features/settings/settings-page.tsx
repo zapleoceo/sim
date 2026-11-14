@@ -61,7 +61,8 @@ function SettingsView({ title, subtitle, only, except, keys, footer, groupFooter
 /** The agents: each has its own group, model and instruction (the guard, the passport keeper). */
 export const GUARD_GROUP = 'Охранник';
 export const PASSPORT_GROUP = 'Паспортистка';
-export const AGENT_GROUPS = [GUARD_GROUP, PASSPORT_GROUP] as const;
+export const SUMMARY_GROUP = 'Саммари диалога';
+export const AGENT_GROUPS = [GUARD_GROUP, PASSPORT_GROUP, SUMMARY_GROUP] as const;
 
 /** Shared rules for every persona (the agents have their own page). */
 export function SettingsPage() {
@@ -75,7 +76,9 @@ export function SettingsPage() {
 }
 
 /** What the agents page shows: each agent's model and its one instruction; Broker routes stay a backend fallback. */
-export const AGENT_KEYS = ['guard_model', 'guard_prompt', 'passport_model', 'passport_prompt'] as const;
+export const AGENT_KEYS = [
+  'guard_model', 'guard_prompt', 'passport_model', 'passport_prompt', 'summary_model', 'summary_prompt',
+] as const;
 
 export function GuardControl() {
   const fixed = useQuery({ queryKey: qk.settingsFixed, queryFn: settingsApi.fixed });
@@ -90,7 +93,7 @@ export function AgentsPage() {
   return (
     <SettingsView
       title="Агенты"
-      subtitle="Помощники персонажа, у каждого своя модель и своя инструкция. Охранник проверяет каждый ответ перед отправкой. Паспортистка после каждого ответа обновляет паспорт собеседника: что персонаж о нём знает."
+      subtitle="Помощники персонажа, у каждого своя модель и своя инструкция. Охранник проверяет каждый ответ перед отправкой. Паспортистка после каждого ответа обновляет паспорт собеседника: что персонаж о нём знает. Саммари диалога хранит краткую память о сообщениях, которые старше окна контекста."
       only={AGENT_GROUPS}
       keys={AGENT_KEYS}
       groupFooters={{ [GUARD_GROUP]: <GuardControl /> }}

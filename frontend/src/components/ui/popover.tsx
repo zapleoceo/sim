@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils';
 
 export const Popover = PopoverPrimitive.Root;
 export const PopoverTrigger = PopoverPrimitive.Trigger;
+/** Where the content appears when it is opened from elsewhere (no trigger of its own). */
+export const PopoverAnchor = PopoverPrimitive.Anchor;
 
 export function PopoverContent({
   className,
