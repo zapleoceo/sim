@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import {
-  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, SendHorizontal, Square, User,
+  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, PauseCircle, SendHorizontal, Square, User,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
-import { groupByDay, isSendKey } from './inbox-logic';
+import { PAUSE_NOTE, groupByDay, isSendKey, pauseNotice } from './inbox-logic';
 
 
 export function Conversation({
@@ -65,6 +65,7 @@ export function Conversation({
   const capabilities = dialog.send_capabilities ?? { text: true, voice: false, attachment: false };
   const scroller = useRef<HTMLDivElement>(null);
   const groups = groupByDay(messages);
+  const paused = pauseNotice(dialog);
 
   useEffect(() => {
     const el = scroller.current;
@@ -166,6 +167,16 @@ export function Conversation({
       {dialog.needs_operator && <div role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm font-semibold">
         Требуется ответ менеджера. ИИ остановлен; проверьте переписку и ответьте клиенту.
       </div>}
+      {paused && (
+        <div role="status" aria-label="ИИ выключен"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b bg-warning/15 px-4 py-2 text-sm">
+          <PauseCircle className="size-4 flex-none text-warning" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <strong className="font-semibold">ИИ выключен.</strong> {paused.text}
+          </span>
+          <Button size="sm" onClick={() => onToggleAi(false)}>Включить ИИ</Button>
+        </div>
+      )}
       <div className="flex-none border-b px-4 py-1.5">
         <Link
           to="/clients/$id"
@@ -196,6 +207,13 @@ export function Conversation({
             ))}
           </div>
         ))}
+        {paused && paused.waiting > 0 && (
+          <div className="my-1 flex justify-center">
+            <span role="note" className="rounded-full bg-warning/15 px-3 py-1 text-xs font-medium">
+              {PAUSE_NOTE} · без ответа: {paused.waiting}
+            </span>
+          </div>
+        )}
       </div>
 
       <footer className="flex flex-none flex-col gap-2 border-t bg-background px-3 py-3 sm:px-4">

@@ -106,6 +106,11 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("reply_debounce_s", "Ответы", "Пауза перед ответом, сек",
                 "Сколько ждать новых сообщений клиента перед ответом (серия сообщений).",
                 "int", None, 0, 300),
+    SettingSpec("pause_recovery_window_min", "Ответы", "Окно ответа после паузы ИИ, мин",
+                "Когда ИИ в диалоге снова включают, персонаж сам отвечает на сообщения клиента, "
+                "оставшиеся без ответа, только если последнее из них не старше этого времени. "
+                "Более старые остаются оператору, в журнале запись «пропущено, устарело».",
+                "int", 120, 1, 10080),
     SettingSpec("output_contract", "Служебные промпты", "Формат ответа персонажа",
                 "Добавляется в конец промпта персонажа: какой JSON вернуть. Если сломать формат, "
                 "ответы перестанут разбираться.",
@@ -164,6 +169,7 @@ class AppSettings:
     typo_percent: int
     lowercase_percent: int
     reply_debounce_s: int
+    pause_recovery_window_min: int
     output_contract: str
     retry_nudge: str
     caption_rules: str

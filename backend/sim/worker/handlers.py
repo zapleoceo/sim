@@ -13,7 +13,7 @@ from sim.adapters.db.models import SimMessage
 from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.repositories.simulations import SimBranchRepo, SimMessageRepo
 from sim.services import jobkinds
-from sim.services.conversation import ReplyOutcome
+from sim.services.conversation import AI_PAUSED, ReplyOutcome
 from sim.wiring import Container
 
 # A handler may return a small dict about what it did; it lands in the job step of the trace log.
@@ -27,14 +27,21 @@ class Handler:
 
 
 async def run_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
-    return reply_detail(await c.conversation(s).run_reply(int(payload["dialog_id"])))
+    dialog_id = int(payload["dialog_id"])
+    outcome = await c.conversation(s).run_reply(dialog_id)
+    if outcome.reason == AI_PAUSED:   # not a silent skip: the journal names the dialog and message
+        await c.reply_journal(s).paused(dialog_id, outcome.inbound_id, source="reply_job")
+    return reply_detail(outcome)
 
 
 def reply_detail(outcome: ReplyOutcome) -> dict[str, Any]:
     """What the reply pipeline did (sent / blocked / superseded...) and the guard's verdict."""
     message = outcome.message
-    return {"outcome": outcome.status, "message_id": message.id if message else None,
-            "guard": message.guard_verdict if message else None}
+    detail = {"outcome": outcome.status, "message_id": message.id if message else None,
+              "guard": message.guard_verdict if message else None}
+    if outcome.reason:
+        detail["reason"] = outcome.reason
+    return detail
 
 
 async def giveup_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:

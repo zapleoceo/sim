@@ -45,13 +45,15 @@ LLM = "llm"            # one broker call (generator, follow-up, media, content..
 GUARD = "guard"        # one pre-send guard call
 SEND = "send"          # one transport send of an outbound message
 PARTNER = "partner"    # a partner (registration/deposit) event recorded
-KINDS = (HTTP, WEBHOOK, INBOUND, POLL, JOB, LLM, GUARD, SEND, PARTNER)
+WATCH = "watch"        # a reply that was not created or is overdue (sim.services.reply_journal)
+KINDS = (HTTP, WEBHOOK, INBOUND, POLL, JOB, LLM, GUARD, SEND, PARTNER, WATCH)
 
 OK = "ok"
 ERROR = "error"
 RETRY = "retry"        # a job attempt failed and will be retried
 SKIPPED = "skipped"    # nothing done on purpose (duplicate, cancelled, fenced out...)
-STATUSES = (OK, ERROR, RETRY, SKIPPED)
+WARNING = "warning"    # nothing failed, but a human should look (a message waits too long)
+STATUSES = (OK, ERROR, RETRY, SKIPPED, WARNING)
 
 LINKS = ("admin_id", "client_id", "dialog_id", "channel_id", "job_id", "message_id", "llm_call_id")
 ERROR_LIMIT = 1000

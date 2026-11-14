@@ -1,7 +1,7 @@
 import type { DialogDetail, DialogRow, Message } from '@/lib/models';
 import {
   CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, clearedRow, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
-  normalizeFilter, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
+  messagesWord, normalizeFilter, pauseNotice, recoveryToast, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
 } from './inbox-logic';
 
 function row(id: number, patch: Partial<DialogRow> = {}): DialogRow {
@@ -86,6 +86,8 @@ describe('conversation', () => {
     expect(detailChanged(null, base)).toBe(true);
     expect(detailChanged(base, { ...base })).toBe(false);
     expect(detailChanged(base, { ...base, dialog: { ...base.dialog, ai_paused: true } })).toBe(true);
+    const waiting = { count: 1, since: '2026-01-01T10:00:00Z', message_ids: [1] };
+    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, unanswered: waiting } })).toBe(true);
   });
 
   it('sends on Enter but not on Shift+Enter or while composing', () => {
@@ -116,6 +118,36 @@ describe('test conversations in the inbox', () => {
     expect(visibleTestRows([branch], [], { ...filter, avatar: 'with' })).toHaveLength(0);
     expect(visibleTestRows([branch], [], { ...filter, channel_id: 4 })).toHaveLength(0);
     expect(combineDialogRows([row(1, { last_message: { text: 'real', direction: 'in', at: '2026-01-01T09:00:00Z' } })], test)[0].id).toBe(-7);
+  });
+});
+
+describe('AI pause', () => {
+  it('says nothing while the AI is on', () => {
+    expect(pauseNotice({ ai_paused: false })).toBeNull();
+    expect(pauseNotice({ ai_paused: false, unanswered: { count: 2, since: null, message_ids: [1, 2] } })).toBeNull();
+  });
+
+  it('shows that the AI is off and how many client messages wait', () => {
+    expect(pauseNotice({ ai_paused: true })).toEqual({
+      waiting: 0, text: 'Персонаж не отвечает в этом диалоге, пока ИИ не включат.' });
+    const waiting = pauseNotice({ ai_paused: true, unanswered: { count: 2, since: null, message_ids: [1, 2] } });
+    expect(waiting).toEqual({ waiting: 2, text: 'Персонаж не отвечает в этом диалоге. Без ответа: 2 сообщения клиента.' });
+  });
+
+  it('declines the word for the count', () => {
+    expect([1, 2, 5, 11, 21, 22, 112].map(messagesWord)).toEqual(
+      ['сообщение', 'сообщения', 'сообщений', 'сообщений', 'сообщение', 'сообщения', 'сообщений']);
+  });
+
+  it('reports what resuming the AI did with the unanswered messages', () => {
+    expect(recoveryToast({ status: 'queued', messages: 2 })).toEqual({
+      tone: 'success', text: 'ИИ включён. Персонаж ответит одним сообщением, без ответа было: 2 сообщения.' });
+    const stale = recoveryToast({ status: 'stale', messages: 1 });
+    expect(stale.tone).toBe('warning');
+    expect(stale.text).toMatch(/1 сообщение, они устарели: персонаж сам не ответит/);
+    expect(recoveryToast({ status: 'refused', messages: 1 }).tone).toBe('warning');
+    expect(recoveryToast({ status: 'none', messages: 0 })).toEqual({ tone: 'success', text: 'ИИ включён.' });
+    expect(recoveryToast(undefined).text).toBe('ИИ включён.');
   });
 });
 

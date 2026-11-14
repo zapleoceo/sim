@@ -1,6 +1,6 @@
 import {
-  DEFAULT_SORT, EMPTY_LOG_FILTERS, activeFilterCount, detailPairs, formatMs, nextSort, timelineBar, toLogParams,
-  toggle, validateLogFilters,
+  DEFAULT_SORT, EMPTY_LOG_FILTERS, KIND_LABELS, KINDS, STATUS_LABELS, STATUSES, activeFilterCount, detailPairs, formatMs,
+  nextSort, timelineBar, toLogParams, toggle, validateLogFilters,
 } from './log-logic';
 
 const PAGE = { page: 2, size: 50 };
@@ -57,6 +57,16 @@ describe('system log logic', () => {
     expect(timelineBar(500, 500, 1000)).toEqual({ left: 50, width: 50 });
     expect(timelineBar(0, 0, 0).width).toBeGreaterThan(0);
     expect(timelineBar(1000, 10, 1000).left).toBeLessThan(100);
+  });
+
+  it('names the reply watch steps and the warning status', () => {
+    expect(KIND_LABELS.watch).toBe('Контроль ответов');
+    expect(STATUS_LABELS.warning).toBe('Предупреждение');
+    expect(KINDS).toContain('watch');
+    expect(STATUSES).toContain('warning');
+    expect(detailPairs({ reason: 'stale', age_min: 181, window_min: 120 })).toEqual([
+      ['Причина', 'stale'], ['Возраст сообщения, мин', '181'], ['Окно ответа, мин', '120'],
+    ]);
   });
 
   it('labels step details and skips empty values', () => {

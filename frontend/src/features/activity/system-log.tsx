@@ -30,6 +30,7 @@ const STATUS_VARIANT: Record<TraceStatus, 'success' | 'destructive' | 'warning' 
   error: 'destructive',
   retry: 'warning',
   skipped: 'muted',
+  warning: 'warning',
 };
 
 export function StatusBadge({ status }: { status: TraceStatus }) {

@@ -70,6 +70,8 @@ class Worker:
         self.job_tasks: dict[int, asyncio.Task[None]] = {}
         self.purge_task: asyncio.Task[int] | None = None
         self.last_purge = float("-inf")
+        self.watch_task: asyncio.Task[int] | None = None
+        self.last_watch = float("-inf")
         # Channel kinds a push event (e.g. a new Telegram message) asked to poll right now.
         self.wake: set[ChannelKind] = set()
         for kind, conn in self.c.registry.items():
@@ -293,6 +295,23 @@ class Worker:
             self.last_purge = now
             self.purge_task = asyncio.create_task(self.purge_traces())
 
+    # ---- unanswered messages -------------------------------------------------------------
+    async def watch_unanswered(self) -> int:
+        """Warn in the system log about client messages that wait too long while the AI is on
+        (sim.services.unanswered). Nothing is sent anywhere."""
+        try:
+            async with transaction(self.c.factory) as s:
+                return await self.c.unanswered(s).warn_overdue()
+        except Exception:
+            log.exception("unanswered watch failed")
+            return 0
+
+    def maybe_start_watch(self, now: float) -> None:
+        busy = self.watch_task is not None and not self.watch_task.done()
+        if not busy and now - self.last_watch >= self.c.settings.unanswered_watch_interval_s:
+            self.last_watch = now
+            self.watch_task = asyncio.create_task(self.watch_unanswered())
+
     # ---- lifecycle -----------------------------------------------------------------------
     def install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
@@ -312,6 +331,7 @@ class Worker:
                     await self.dispatch()
                     self.maybe_start_poll(asyncio.get_running_loop().time())
                     self.maybe_start_purge(asyncio.get_running_loop().time())
+                    self.maybe_start_watch(asyncio.get_running_loop().time())
                 except Exception:
                     log.exception("worker tick failed")
                 # A completion immediately frees a slot. The timeout also checks newly due
@@ -324,7 +344,7 @@ class Worker:
         finally:
             stop_task.cancel()
             await asyncio.gather(stop_task, return_exceptions=True)
-            purge = [self.purge_task] if self.purge_task is not None else []
+            purge = [t for t in (self.purge_task, self.watch_task) if t is not None]
             await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(), *purge,
                                  return_exceptions=True)
             self.reap_jobs()

@@ -49,6 +49,7 @@ from sim.services.prompt import (
     system_prompt_parts,
 )
 from sim.services.prompt_map import PromptMap, example_context, fixed_rules
+from sim.services.unanswered import turns
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ log = logging.getLogger(__name__)
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
 NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
+AI_PAUSED = "ai_paused"   # ReplyOutcome.reason: the dialog is paused and a client message waits
 
 
 class ConversationError(Exception):
@@ -67,6 +69,8 @@ class ReplyOutcome:
     status: str  # sent | empty | skipped | needs_operator | waiting_media | busy | superseded
     decision: Decision | None = None
     message: Message | None = None
+    reason: str = ""                 # why it was skipped, when that must be visible (AI_PAUSED)
+    inbound_id: int | None = None    # the client message left without an answer
 
 
 @dataclass(frozen=True)
@@ -379,9 +383,12 @@ class ConversationService:
             return ReplyOutcome("skipped")
         client = dialog.client
         followup = bool(instruction)
-        if dialog.ai_paused or client.status is ClientStatus.REFUSED:
+        if client.status is ClientStatus.REFUSED:
             return ReplyOutcome("skipped")
-        last = await self.messages.last(dialog_id)
+        if dialog.ai_paused:
+            return ReplyOutcome("skipped") if followup else await self.paused(dialog_id)
+        # A cancelled outgoing message never reached the client: it is not an answer.
+        last = await self.messages.last_effective(dialog_id)
         if last is None or (last.direction is Direction.IN) == followup:
             return ReplyOutcome("skipped")  # nothing to answer / client already replied
         if not await try_lock(self.session, NS_REPLY, dialog_id):
@@ -422,8 +429,10 @@ class ConversationService:
         await lock(self.session, NS_DIALOG, dialog_id)
         dialog = await self.reload(dialog_id)
         client = dialog.client
-        if dialog.ai_paused or client.status is ClientStatus.REFUSED:
-            return ReplyOutcome("skipped")  # a human took over / the client refused meanwhile
+        if client.status is ClientStatus.REFUSED:
+            return ReplyOutcome("skipped")  # the client refused meanwhile
+        if dialog.ai_paused:                # a human took over meanwhile
+            return ReplyOutcome("skipped") if followup else await self.paused(dialog_id)
         newer = await self.messages.last(dialog_id, Direction.IN)
         if newer is not None and newer.id > cutoff:
             # The client wrote again while we were thinking: this answer is already stale. The
@@ -435,6 +444,14 @@ class ConversationService:
         voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
+
+    async def paused(self, dialog_id: int) -> ReplyOutcome:
+        """The reply job met a paused dialog. Nothing is created (the pause stops the AI); when
+        a client message is left without an answer, the outcome names it for the journal."""
+        waiting = turns(await self.messages.unanswered(dialog_id))
+        if not waiting:
+            return ReplyOutcome("skipped")
+        return ReplyOutcome("skipped", reason=AI_PAUSED, inbound_id=waiting[-1].id)
 
     async def handoff_failed(self, dialog: Dialog, draft: Draft) -> ReplyOutcome:
         """Two rejected decisions: one neutral reply, then a visible manager handoff."""

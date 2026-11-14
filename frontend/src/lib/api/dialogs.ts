@@ -1,4 +1,4 @@
-import type { ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message } from '../models';
+import type { AiToggleResult, ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message } from '../models';
 import { DEFAULT_PAGE, http, type PageRequest } from './http';
 
 export const dialogsApi = {
@@ -20,7 +20,8 @@ export const dialogsApi = {
     form.append("request_id", requestId);
     return http.post<Message>(`/api/dialogs/${id}/attachments`, form);
   },
-  setAiPaused: (id: number, paused: boolean) => http.post<Dialog>(`/api/dialogs/${id}/ai`, { paused }),
+  /** Pause or resume the AI; resuming answers what the client wrote meanwhile (`recovery`). */
+  setAiPaused: (id: number, paused: boolean) => http.post<AiToggleResult>(`/api/dialogs/${id}/ai`, { paused }),
   /** Operator handled it: clears «needs operator» (the AI pause is unchanged). */
   resolve: (id: number) => http.post<Dialog>(`/api/dialogs/${id}/resolve`, {}),
   markRead: (id: number) => http.post<void>(`/api/dialogs/${id}/read`, {}, { silent: true }),

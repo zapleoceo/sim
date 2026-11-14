@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     lowercase_percent: int = 30
     reply_debounce_s: int = 8          # wait for a burst of client messages before answering
     worker_tick_s: float = 2.0
+    # A client message without an answer for this long in a dialog whose AI is ON is written to
+    # the system log as a warning (once per message); the worker looks every watch interval.
+    unanswered_warn_s: int = 300
+    unanswered_watch_interval_s: float = 60.0
     # System log (trace_event): the worker deletes steps older than this; 0 keeps everything.
     trace_retention_days: int = 30
     trace_purge_interval_s: float = 3600.0

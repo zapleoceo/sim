@@ -16,7 +16,8 @@ operator получает 403.
     `started_at desc`). Пустые значения идут в конце.
   - Фильтры (все в SQL):
     - `kind`, `status` — списки через запятую. Kinds: `http`, `webhook`, `inbound`, `poll`,
-      `job`, `llm`, `guard`, `send`, `partner`. Statuses: `ok`, `error`, `retry`, `skipped`.
+      `job`, `llm`, `guard`, `send`, `partner`, `watch` (ответ не создан или ждёт слишком долго).
+      Statuses: `ok`, `error`, `retry`, `skipped`, `warning`.
     - Подстрока без учёта регистра: `name`, `actor`, `client` (имя клиента).
     - `trace_id` — префикс.
     - Точное совпадение: `client_id`, `dialog_id`, `channel_id`, `job_id`, `http_status`.
@@ -209,7 +210,7 @@ is_default, updated_at, updated_by_id}`.
 «паспортистка»), `passport_model` (точная модель Broker, пусто: маршрут `chat:sales`) — паспорт лида (группа
 «Паспортистка»); `output_contract` — формат ответа
 персонажа (JSON, добавляется в конец её промпта), `retry_nudge` — что сказать модели, если ответ не
-разобрался (группа «Служебные промпты»); `reply_debounce_s` (0–300) — пауза перед ответом; `typo_percent`, `lowercase_percent` (0–100, группа «Стиль сообщений», по умолчанию из `SIM_TYPO_PERCENT`=12 и `SIM_LOWERCASE_PERCENT`=30) — как часто код делает в ответе одну оплошность (пропущенная запятая или опечатка, не больше одной на весь ответ) и начинает сообщение с маленькой буквы;
+разобрался (группа «Служебные промпты»); `reply_debounce_s` (0–300) — пауза перед ответом; `pause_recovery_window_min` (1–10080, по умолчанию 120, группа «Ответы») — после снятия паузы ИИ персонаж сам отвечает на сообщения без ответа, только если последнее из них не старше этого окна; `typo_percent`, `lowercase_percent` (0–100, группа «Стиль сообщений», по умолчанию из `SIM_TYPO_PERCENT`=12 и `SIM_LOWERCASE_PERCENT`=30) — как часто код делает в ответе одну оплошность (пропущенная запятая или опечатка, не больше одной на весь ответ) и начинает сообщение с маленькой буквы;
 `caption_rules` — подписи постов; `trace_retention_days`; `video_note_owner_telegram_id` (группа «Кружочки ИИ», 0: никому); `persona_photo_model` (модель Broker для фото персонажа, пусто: фото выключены) и `persona_media_gap_min` (0–1440, по умолчанию 30) — группа «Фото и кружочки персонажа», см. [persona-media.md](persona-media.md). Значения по умолчанию для
 `guard_*capability` и `reply_debounce_s` берутся из переменных окружения `SIM_GUARD_*` и
 `SIM_REPLY_DEBOUNCE_S`. Промпт персонажа — её поле `description` (см. `/api/personas`). Не
@@ -266,9 +267,9 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 | Метод | Путь | Параметры / тело | Ответ |
 |---|---|---|---|
 | GET | `/api/dialogs` | `channel_kind?, persona_id?, stage?, status?, q?, unread_only?, needs_operator?` (только диалоги, где ИИ передал/не справился) | `{items: DialogRow[], total}` |
-| GET | `/api/dialogs/{id}` | — | `{dialog, client, messages: Message[]}` |
+| GET | `/api/dialogs/{id}` | — | `{dialog, client, messages: Message[]}`; `dialog.unanswered`: `{count, since, message_ids}` — сообщения клиента, на которые ещё никто не ответил (после последнего неотменённого исходящего) |
 | POST | `/api/dialogs/{id}/messages` | `{text}` | `Message` (оператор; ИИ этого диалога ставится на паузу) |
-| POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`) |
+| POST | `/api/dialogs/{id}/ai` | `{paused: bool}` | `Dialog` (пауза отменяет ещё не отправленные ответы ИИ; снятие паузы сбрасывает `needs_operator`). При `paused: false` в ответе есть `recovery: {status, messages}`: `queued` — на `messages` сообщений без ответа поставлена одна задача `reply`; `stale` — они старше `pause_recovery_window_min`, автоответа нет; `refused` — клиент отказался; `none` — отвечать не на что |
 | POST | `/api/dialogs/{id}/resolve` | — | `Dialog` — снимает `needs_operator`, не меняя паузу ИИ. Флаг также снимается ответом оператора и возобновлением ИИ |
 | POST | `/api/dialogs/{id}/read` | — | `204` |
 | DELETE | `/api/dialogs/{id}/messages` | — (только owner/superadmin, CSRF) | `{dialog, client, messages: [], deleted_messages}` — «Очистить чат», необратимо: удаляет все сообщения диалога в базе SIM, отменяет ждущие ответ, напоминание и обновление паспорта этого диалога, обнуляет счётчики (`unread`, шаг напоминаний, `needs_operator`, последнее сообщение). Следующий ответ персонажа строится без прошлой истории. Клиент, паспорт, этап, статус и пауза ИИ не меняются; в мессенджере ничего не удаляется и ничего не отправляется. Operator → 403, нет диалога → 404 |

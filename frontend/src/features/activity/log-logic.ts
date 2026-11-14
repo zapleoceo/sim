@@ -12,6 +12,7 @@ export const KIND_LABELS: Record<TraceKind, string> = {
   guard: 'Контролёр',
   send: 'Отправка',
   partner: 'Партнёр',
+  watch: 'Контроль ответов',
 };
 export const KINDS = Object.keys(KIND_LABELS) as TraceKind[];
 
@@ -20,6 +21,7 @@ export const STATUS_LABELS: Record<TraceStatus, string> = {
   error: 'Ошибка',
   retry: 'Повтор',
   skipped: 'Пропущено',
+  warning: 'Предупреждение',
 };
 export const STATUSES = Object.keys(STATUS_LABELS) as TraceStatus[];
 
@@ -208,6 +210,12 @@ const DETAIL_LABELS: Record<string, string> = {
   cost_usd: 'Стоимость, $',
   finish_reason: 'Завершение',
   message_id: 'Сообщение №',
+  reason: 'Причина',
+  unanswered: 'Без ответа, сообщений',
+  age_min: 'Возраст сообщения, мин',
+  window_min: 'Окно ответа, мин',
+  waiting_s: 'Ждёт ответа, с',
+  threshold_s: 'Порог, с',
 };
 
 /** Small, safe detail values for the trace panel, with Russian labels (objects and empty values are skipped). */

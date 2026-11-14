@@ -26,6 +26,7 @@ from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.media import MEDIA_KINDS, MEDIA_MAX_ATTEMPTS, VOICE_KINDS, placeholder_for
 from sim.services.outbound import cancel_queued_ai
+from sim.services.reply_journal import ReplyJournal
 from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ class IngestService:
     ) -> None:
         self.session = session
         self.tracer = tracer
+        self.journal = ReplyJournal(tracer)
         self.debounce_s = debounce_s  # default; the owner setting "reply_debounce_s" wins
         self.clock = clock
         self.clients = ClientRepo(session)
@@ -158,6 +160,8 @@ class IngestService:
         await self.followups.cancel(dialog.id)
         channel.last_activity_at = self.clock()
         queued = await self.queue_reply(dialog, client)
+        if not queued and dialog.ai_paused:   # stored, but nobody will answer: say so
+            await self.journal.paused(dialog.id, message.id, source="inbound")
         return IngestResult(
             message=message,
             dialog=dialog,

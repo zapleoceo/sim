@@ -16,7 +16,7 @@ import { channelsApi } from '@/lib/api/channels';
 import { clientsApi } from '@/lib/api/clients';
 import { simulationsApi } from '@/lib/api/simulations';
 import { personasApi } from '@/lib/api/personas';
-import type { Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
+import type { AiToggleResult, Dialog, DialogDetail, DialogFilter, DialogRow, Message, Persona, SimBranchDetail, SimBranchRow, Stage } from '@/lib/models';
 import { useAuth } from '@/lib/auth';
 import { useLiveDialogs } from '@/lib/live';
 import { qk } from '@/lib/query';
@@ -25,7 +25,7 @@ import { Conversation } from './conversation';
 import { DialogList, InboxFilters } from './inbox-list';
 import {
   CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, PAGE_SIZE, POLL_MS, activeFilterCount, appendPage, clearedRow, combineDialogRows,
-  mergeFirstPage, normalizeFilter, visibleTestRows,
+  mergeFirstPage, normalizeFilter, recoveryToast, visibleTestRows,
 } from './inbox-logic';
 
 const route = getRouteApi('/_app/inbox');
@@ -263,7 +263,8 @@ export function InboxPage() {
     }
   }, [detail, rows]);
 
-  const applyFlags = (id: number, flags: Pick<Dialog, 'ai_paused' | 'needs_operator'>): void => {
+  const applyFlags = (id: number, { ai_paused, needs_operator }: Pick<Dialog, 'ai_paused' | 'needs_operator'>): void => {
+    const flags = { ai_paused, needs_operator };
     queryClient.setQueryData<DialogDetail>(qk.dialog(id), (d) => (d ? { ...d, dialog: { ...d.dialog, ...flags } } : d));
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...flags } : r)));
   };
@@ -321,7 +322,15 @@ export function InboxPage() {
   const toggleAi = (paused: boolean): void => {
     if (dialogId === null) return;
     const id = dialogId;
-    dialogsApi.setAiPaused(id, paused).then((d) => applyFlags(id, d)).catch(() => undefined);
+    dialogsApi.setAiPaused(id, paused).then((d: AiToggleResult) => {
+      applyFlags(id, d);
+      if (paused) return;
+      // The server answered what the client wrote during the pause (or said why it did not).
+      const note = recoveryToast(d.recovery);
+      if (note.tone === 'warning') toast.warning(note.text);
+      else toast.success(note.text);
+      void queryClient.invalidateQueries({ queryKey: qk.dialog(id) });
+    }).catch(() => undefined);
   };
 
   const resolve = (): void => {

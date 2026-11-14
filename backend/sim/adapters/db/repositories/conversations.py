@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Select, func, or_, select
+from sqlalchemy.orm import aliased
 
 from sim.adapters.db.models import (
     Channel,
@@ -14,7 +16,7 @@ from sim.adapters.db.models import (
     Message,
 )
 from sim.adapters.db.repositories.base import Repository
-from sim.domain.enums import ChannelKind, ClientStatus, Delivery, Direction, Stage
+from sim.domain.enums import Author, ChannelKind, ClientStatus, Delivery, Direction, Stage
 
 
 def like(text: str) -> str:
@@ -208,6 +210,62 @@ class MessageRepo(Repository[Message]):
         if direction:
             stmt = stmt.where(Message.direction == direction)
         return await self.session.scalar(stmt.order_by(Message.id.desc()).limit(1))
+
+    async def last_effective(self, dialog_id: int) -> Message | None:
+        """The last message that counts as a turn: a cancelled outgoing message never reached
+        the client, so the client message before it is still the one waiting for an answer."""
+        return await self.session.scalar(
+            select(Message)
+            .where(
+                Message.dialog_id == dialog_id,
+                or_(Message.direction == Direction.IN, Message.delivery != Delivery.CANCELLED),
+            )
+            .order_by(Message.id.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def unanswered_query() -> Select[tuple[Message]]:
+        """Client messages after the dialog's last outgoing message that was not cancelled
+        (queued, sent or failed: someone answered or tried to)."""
+        reply = aliased(Message)
+        answered = (
+            select(func.max(reply.id))
+            .where(
+                reply.dialog_id == Message.dialog_id,
+                reply.direction == Direction.OUT,
+                reply.delivery != Delivery.CANCELLED,
+            )
+            .correlate(Message)
+            .scalar_subquery()
+        )
+        return select(Message).where(
+            Message.direction == Direction.IN,
+            Message.author == Author.CLIENT,
+            Message.id > func.coalesce(answered, 0),
+        )
+
+    async def unanswered(self, dialog_id: int) -> list[Message]:
+        """This dialog's client messages nobody answered yet, oldest first."""
+        stmt = self.unanswered_query().where(Message.dialog_id == dialog_id).order_by(Message.id)
+        return list((await self.session.scalars(stmt)).all())
+
+    async def unanswered_waiting(self, since: datetime, before: datetime) -> list[Message]:
+        """Unanswered client messages that arrived in [since, before] in dialogs where the AI is
+        on and the client did not refuse, by dialog, oldest first."""
+        stmt = (
+            self.unanswered_query()
+            .join(Dialog, Dialog.id == Message.dialog_id)
+            .join(Client, Client.id == Dialog.client_id)
+            .where(
+                Dialog.ai_paused.is_(False),
+                Client.status != ClientStatus.REFUSED,
+                Message.created_at >= since,
+                Message.created_at <= before,
+            )
+            .order_by(Message.dialog_id, Message.id)
+        )
+        return list((await self.session.scalars(stmt)).all())
 
     async def count(self, dialog_id: int) -> int:
         return int(
