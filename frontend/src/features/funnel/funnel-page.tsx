@@ -244,7 +244,7 @@ export function FunnelPage() {
         </div>
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
-          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-3 scrollbar-thin sm:-mx-6 sm:px-6">
+          <div className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-3 scrollbar-thin sm:-mx-6 sm:px-6">
             {columns.map((col) => (
               <Column key={col.stage} column={col} onMove={move} />
             ))}

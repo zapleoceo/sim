@@ -3,6 +3,7 @@ import { waitFor, within } from '@testing-library/react';
 import type { Client, DialogDetail, DialogRow } from '@/lib/models';
 import { fakeApi, type FakeReply } from '@/test/fake-api';
 import { CSRF, renderApp, screen, testUser } from '@/test/render-app';
+import { PHONE_WIDTH, stubViewportWidth } from '@/test/viewport';
 
 const client: Client = {
   id: 7,
@@ -253,5 +254,126 @@ describe('InboxPage «Очистить чат»', () => {
     await renderApp('/inbox?d=1', { user: testUser('operator') });
     await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     expect(screen.queryByRole('button', { name: 'Очистить чат' })).not.toBeInTheDocument();
+  });
+});
+
+describe('InboxPage on a phone (380 px)', () => {
+  const MENU = 'Действия с диалогом';
+
+  async function openDialog(extra: Record<string, FakeReply> = {}, role: 'owner' | 'operator' = 'owner') {
+    stubViewportWidth(PHONE_WIDTH);
+    const log = api(extra);
+    await renderApp('/inbox?d=1', { user: testUser(role) });
+    await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
+    return log;
+  }
+
+  it('keeps the header to one row: back, name, the AI switch and «⋮»', async () => {
+    await openDialog();
+    const header = screen.getByRole('button', { name: 'Назад к списку' }).closest('header') as HTMLElement;
+    expect(within(header).getByText('Анна Клиентова')).toHaveClass('truncate');
+    expect(within(header).getByRole('switch', { name: 'ИИ' })).toBeChecked();
+    expect(within(header).getByRole('button', { name: MENU })).toBeInTheDocument();
+    // Everything else is inside the menu, not in the header row or under it.
+    expect(within(header).getAllByRole('button')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Обработано' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Очистить чат' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Лента клиента/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('«⋮» opens the status badges, the stage and every action of the desktop header', async () => {
+    await openDialog();
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByText('Активен')).toBeInTheDocument();
+    expect(within(menu).getByText('нужен оператор')).toBeInTheDocument();
+    expect(within(menu).getByRole('img', { name: 'Telegram (бот)' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Обработано' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: /Лента клиента/ })).toHaveAttribute('href', '/clients/7#conversation');
+    expect(within(menu).getByRole('menuitem', { name: 'Карточка клиента' })).toHaveAttribute('href', '/clients/7');
+    expect(within(menu).getByRole('menuitem', { name: 'Очистить чат' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitemradio', { name: 'Вовлечён' })).toBeChecked();
+    expect(within(menu).getByRole('menuitemradio', { name: 'Интерес' })).not.toBeChecked();
+    // Partner-only stages cannot be set by hand.
+    expect(within(menu).queryByRole('menuitemradio', { name: 'Оплата' })).not.toBeInTheDocument();
+  });
+
+  it('«Обработано» from the menu clears the operator flag', async () => {
+    const log = await openDialog({ 'POST /api/dialogs/1/resolve': { ...detail.dialog, needs_operator: false } });
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Обработано' }));
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/resolve');
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
+    });
+    await waitFor(() => expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument());
+  });
+
+  it('changes the stage from the menu', async () => {
+    const log = await openDialog({ 'POST /api/clients/7/stage': { ...client, stage: 'interested' } });
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'Интерес' }));
+    await waitFor(() => {
+      const sent = log.find((r) => r.method === 'POST' && r.path === '/api/clients/7/stage');
+      expect(sent?.body).toMatchObject({ stage: 'interested' });
+    });
+  });
+
+  it('«Очистить чат» from the menu still asks for confirmation', async () => {
+    const log = await openDialog();
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Очистить чат' }));
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('без возможности восстановления');
+    expect(log.some((r) => r.method === 'DELETE')).toBe(false);
+  });
+
+  it('hides «Очистить чат» from an operator', async () => {
+    await openDialog({}, 'operator');
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Карточка клиента' })).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: 'Очистить чат' })).not.toBeInTheDocument();
+  });
+
+  it('shows a short operator banner that can be closed', async () => {
+    await openDialog();
+    expect(screen.getByText('Требуется ответ менеджера. ИИ остановлен.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Скрыть уведомление' }));
+    expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument();
+    // The flag is still reachable: the menu keeps the badge and the action.
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    expect(within(await screen.findByRole('menu')).getByText('нужен оператор')).toBeInTheDocument();
+  });
+
+  it('keeps the composer and sizes the screen from the visible viewport', async () => {
+    await openDialog();
+    expect(screen.getByRole('button', { name: 'Прикрепить файл' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeInTheDocument();
+    const fit = document.querySelector<HTMLElement>('[data-fit-viewport]');
+    expect(fit).toContainElement(screen.getByRole('textbox', { name: 'Сообщение клиенту' }));
+    expect(fit?.className).toContain('var(--app-vh,100dvh)');
+    expect(fit?.className).toContain('var(--bottom-nav)');
+  });
+
+  it('gives a test chat a way back to the list', async () => {
+    stubViewportWidth(PHONE_WIDTH);
+    api();
+    const { router } = await renderApp('/inbox?d=-2');
+    await userEvent.click(await screen.findByRole('button', { name: 'Назад к списку' }));
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty('d'));
+  });
+});
+
+describe('InboxPage on a desktop', () => {
+  it('keeps the inline header: no «⋮», the full banner and the client feed link', async () => {
+    api();
+    await renderApp('/inbox?d=1');
+    await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
+    expect(screen.queryByRole('button', { name: 'Действия с диалогом' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Обработано' })).toBeInTheDocument();
+    expect(screen.getByText(/ИИ остановлен; проверьте переписку/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Скрыть уведомление' })).not.toBeInTheDocument();
   });
 });

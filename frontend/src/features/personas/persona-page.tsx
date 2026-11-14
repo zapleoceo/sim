@@ -126,7 +126,7 @@ export function PersonaPage() {
                 <div className="flex flex-col gap-5 xl:sticky xl:top-5">
                   <PersonaGallery personaId={persona.id} />
                   <AiVideoNote personaId={persona.id} />
-                  <div className="rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+                  <div className="rounded-xl border bg-card p-3 shadow-xs sm:p-5">
                     <PersonaPreview key={persona.id} personaId={persona.id} />
                   </div>
                 </div>

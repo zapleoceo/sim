@@ -42,7 +42,7 @@ function Transcript({ id, onClose }: { id: number; onClose: () => void }) {
   const d = detail.data;
   const needs = d.needs.join('; ');
   return (
-    <section aria-label="Переписка симуляции" className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+    <section aria-label="Переписка симуляции" className="flex flex-col gap-4 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
       <header className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold">{d.title}</h2>

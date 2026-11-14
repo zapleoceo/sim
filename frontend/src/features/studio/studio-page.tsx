@@ -26,7 +26,7 @@ export function withinStudioLimit(messages: readonly StudioMessage[]): boolean {
 
 function MediaPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+    <section className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
       <h2 className="text-base font-semibold">{title}</h2>
       {children}
     </section>
@@ -89,7 +89,7 @@ export function StudioPage() {
     <Page>
       <header className="flex flex-col gap-2">
         <p className="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">SIM / личная студия</p>
-        <h1 className="text-2xl font-semibold sm:text-3xl">Фото, видео и разговор</h1>
+        <h1 className="text-xl font-semibold sm:text-3xl">Фото, видео и разговор</h1>
         <p className="text-sm text-muted-foreground">
           Закрытый интерфейс владельца. Подписочные модели не используются для ответов внешним клиентам.
         </p>
@@ -138,7 +138,7 @@ export function StudioPage() {
           </div>
           {state.detail && <p className="rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{state.detail}</p>}
 
-          <section aria-labelledby="chat-h" className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+          <section aria-labelledby="chat-h" className="flex flex-col gap-4 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="chat-h" className="text-base font-semibold">
                 Пообщаться

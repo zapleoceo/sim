@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
-import { Hourglass, MessagesSquare } from 'lucide-react';
+import { ArrowLeft, Hourglass, MessagesSquare } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Avatar } from '@/components/avatar';
@@ -9,7 +9,7 @@ import { useConfirm } from '@/components/confirm';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { OptionSelect } from '@/components/option-select';
-import { SINGLE_PANE_QUERY, WIDE_QUERY, useMediaQuery } from '@/hooks/use-media-query';
+import { SINGLE_PANE_QUERY, WIDE_QUERY, useIsPhone, useMediaQuery } from '@/hooks/use-media-query';
 import { useDebounced } from '@/hooks/use-debounced';
 import { dialogsApi } from '@/lib/api/dialogs';
 import { channelsApi } from '@/lib/api/channels';
@@ -70,7 +70,7 @@ function ClientSideCard({ detail, personas }: { detail: DialogDetail; personas: 
   );
 }
 
-function TestConversation({ branch }: { branch: SimBranchDetail }) {
+function TestConversation({ branch, onBack }: { branch: SimBranchDetail; onBack?: () => void }) {
   const queryClient = useQueryClient();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -100,11 +100,18 @@ function TestConversation({ branch }: { branch: SimBranchDetail }) {
   };
   return (
     <section aria-label="Тестовый диалог" className="flex min-h-0 flex-1 flex-col">
-      <header className="border-b p-4">
-        <strong>{branch.title || 'Тестовый диалог'}</strong>
-        <p className="text-xs text-muted-foreground">Тест · {branch.persona.name} · этап {branch.stage}</p>
+      <header className="flex items-center gap-2 border-b px-2 py-2 sm:p-4">
+        {onBack && (
+          <Button variant="ghost" size="icon-sm" aria-label="Назад к списку" onClick={onBack}>
+            <ArrowLeft />
+          </Button>
+        )}
+        <div className="min-w-0">
+          <strong className="block truncate">{branch.title || 'Тестовый диалог'}</strong>
+          <p className="truncate text-xs text-muted-foreground">Тест · {branch.persona.name} · этап {branch.stage}</p>
+        </div>
       </header>
-      <div role="log" aria-label="Сообщения тестового диалога" className="flex-1 overflow-y-auto p-4">
+      <div role="log" aria-label="Сообщения тестового диалога" className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">
         {branch.messages.map((message) => (
           <div key={message.id} className="mb-3 rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">
@@ -117,7 +124,7 @@ function TestConversation({ branch }: { branch: SimBranchDetail }) {
         ))}
         {branch.pending && <p role="status" className="text-sm">Персонаж готовит ответ…</p>}
       </div>
-      <form className="flex flex-col gap-2 border-t p-4" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+      <form className="flex flex-none flex-col gap-2 border-t p-2 sm:p-4" onSubmit={(event) => { event.preventDefault(); void send(); }}>
         <p className="text-xs text-muted-foreground">Это симуляция: сообщения остаются здесь и не уходят в канал клиента.</p>
         {!branch.can_continue && <p className="text-xs text-warning">
           {branch.closed_at || branch.status === 'refused' || branch.status === 'paused'
@@ -128,7 +135,7 @@ function TestConversation({ branch }: { branch: SimBranchDetail }) {
         <textarea aria-label="Сообщение тестовому клиенту" value={text}
           onChange={(event) => { setText(event.target.value); request.current = null; }}
           disabled={!branch.can_continue || sending} rows={2} maxLength={4000}
-          className="w-full rounded-md border bg-background p-2 text-sm" />
+          className="w-full rounded-md border bg-background p-2 text-[16px] md:text-sm" />
         <Button type="submit" disabled={!canSend || sending || !text.trim()}>
           {sending ? 'Отправка…' : 'Продолжить тест'}
         </Button>
@@ -157,6 +164,7 @@ export function InboxPage() {
 
   const narrow = useMediaQuery(SINGLE_PANE_QUERY);
   const wide = useMediaQuery(WIDE_QUERY);
+  const phone = useIsPhone();
   const [cardOpen, setCardOpen] = useState(true);
   const [newTestPersonaId, setNewTestPersonaId] = useState<number | null>(null);
 
@@ -348,18 +356,18 @@ export function InboxPage() {
   const count = activeFilterCount(filter);
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-bottom))] min-h-0 md:h-dvh">
+    <div data-fit-viewport className="flex h-[calc(var(--app-vh,100dvh)-var(--bottom-nav))] min-h-0 md:h-dvh">
       {showList && (
         <section
           aria-label="Список диалогов"
           className={cn('flex min-h-0 flex-col border-r', narrow ? 'w-full' : 'w-[340px] flex-none xl:w-[380px]')}
         >
-          <div className="flex-none border-b p-3">
+          <div className="flex-none border-b p-2 sm:p-3">
             <InboxFilters filter={filter} onChange={setFilter} personas={personas.data ?? []}
               channels={channels.data ?? []} activeCount={count} />
           </div>
           {(operatorQueue.data?.total ?? 0) > 0 && <button type="button"
-            className="w-full border-b bg-warning/15 px-3 py-2 text-left text-sm font-semibold"
+            className="w-full border-b bg-warning/15 px-3 py-1.5 text-left text-xs font-semibold sm:py-2 sm:text-sm"
             onClick={() => setFilter({ ...DEFAULT_DIALOG_FILTER, source: 'real', needs_operator: true })}>
             Требуется ответ менеджера: {operatorQueue.data?.total} · открыть очередь
           </button>}
@@ -389,12 +397,13 @@ export function InboxPage() {
       {showConversation && (
         <section aria-label="Диалог" className="flex min-h-0 min-w-0 flex-1 flex-col">
           {dialogId !== null && dialogId < 0 && testDetail.data ? (
-            <TestConversation branch={testDetail.data} />
+            <TestConversation branch={testDetail.data} onBack={narrow ? back : undefined} />
           ) : detail ? (
             <Conversation
               key={detail.dialog.id}
               detail={detail}
               narrow={narrow}
+              compact={phone}
               wide={wide}
               cardOpen={cardOpen}
               sending={sendMutation.isPending || mediaMutation.isPending}
