@@ -2,8 +2,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SECTIONS } from './persona-sections';
 import { EMPTY_PERSONA } from './persona-schema';
-import type { Persona } from '@/lib/models';
-import { fakeApi } from '@/test/fake-api';
+import type { AppSettingItem, Persona } from '@/lib/models';
+import { fakeApi, type FakeReply } from '@/test/fake-api';
 import { blockButton, openLongText, toggleBlock, typeLongText } from '@/test/persona-blocks';
 import { renderApp } from '@/test/render-app';
 import { PHONE_WIDTH, stubViewportWidth } from '@/test/viewport';
@@ -20,7 +20,7 @@ const MARINA: Persona = {
   created_at: '2026-11-01T10:00:00Z',
 };
 
-function backend() {
+function backend(overrides: Record<string, FakeReply> = {}) {
   return fakeApi({
     'GET /api/personas': { items: [MARINA] },
     'GET /api/strategies': { items: [] },
@@ -33,6 +33,7 @@ function backend() {
       rules: [{ key: 'call', title: 'Правило звонков', text: 'ты ИИ-ассистент' }],
     },
     'PUT /api/personas/1': (r: { body: unknown }) => ({ ...MARINA, ...(r.body as object) }),
+    ...overrides,
   });
 }
 
@@ -81,6 +82,9 @@ describe('persona page layout', () => {
     await userEvent.click(header);
     const assembled = within(screen.getByRole('region', { name: 'Итоговый промпт' }));
     expect(assembled.getByText('текст персонажа')).toBeVisible();
+    // Technical text is folded, not removed or converted to an editable instruction.
+    expect(assembled.getByText('ты ИИ-ассистент')).not.toBeVisible();
+    await userEvent.click(assembled.getByText('Технические правила и обработка'));
     // the fixed rules are read-only, with the text the backend gave
     const fixed = within(assembled.getByRole('group', { name: 'Фиксированные правила' }));
     expect(fixed.getByText('ты ИИ-ассистент')).toBeVisible();
@@ -88,16 +92,16 @@ describe('persona page layout', () => {
     expect(fixed.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('shows a long text as a short preview and opens the whole text in the full editor', async () => {
+  it('shows directly editable compact text and opens the same whole text in the full editor', async () => {
     backend();
     await renderApp('/personas/1');
     await toggleBlock('Характер и промпт');
-    // no editor on the page itself: a clamped preview and «Редактировать»
     const field = document.getElementById('persona-description') as HTMLElement;
-    expect(within(field).queryByRole('textbox')).not.toBeInTheDocument();
-    const preview = field.querySelector('[data-slot="long-text-preview"]') as HTMLElement;
-    expect(preview).toHaveClass('line-clamp-4');
-    expect(preview.textContent).toBe(LONG_PROMPT);
+    const inline = within(field).getByRole('textbox', { name: 'Промпт персонажа' });
+    expect(inline).toBeEnabled();
+    expect(inline).not.toHaveAttribute('readonly');
+    expect(inline).toHaveValue(LONG_PROMPT);
+    expect(inline).toHaveAttribute('rows', '4');
 
     const editor = await openLongText('Промпт персонажа');
     expect(editor).toHaveValue(LONG_PROMPT);   // the whole text, not the preview
@@ -107,6 +111,50 @@ describe('persona page layout', () => {
     // the other long texts of the form open the same way
     await toggleBlock('Распорядок');
     expect(await openLongText('Распорядок недели')).toHaveValue('пн-пт 09:00-13:00 консультации');
+  });
+
+  it.each(['save', 'reset'] as const)('locks shared text while %s is pending, then shows the returned value', async (operation) => {
+    const setting: AppSettingItem = {
+      key: 'output_contract', group: 'Ответ', label: 'Формат ответа', help: '', kind: 'text',
+      min: null, max: null, value: 'свой формат', default: 'исходный формат', is_default: false,
+      updated_at: null, updated_by_id: null,
+    };
+    let finish!: (item: AppSettingItem) => void;
+    const pending = new Promise<AppSettingItem>((resolve) => { finish = resolve; });
+    backend({
+      'GET /api/settings': { items: [setting], fixed: { persona: '', guard: '' } },
+      'PUT /api/settings/output_contract': () => pending,
+      'DELETE /api/settings/output_contract': () => pending,
+    });
+    await renderApp('/personas/1');
+    await toggleBlock('Общие инструкции');
+    const region = within(document.getElementById('setting-output_contract') as HTMLElement);
+    const input = region.getByRole('textbox', { name: 'Формат ответа' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'новый формат');
+    await userEvent.click(region.getByRole('button', { name: operation === 'save' ? 'Сохранить' : 'Вернуть по умолчанию' }));
+    await waitFor(() => expect(input).toBeDisabled());
+    expect(region.getByRole('button', { name: 'Редактировать: Формат ответа' })).toBeDisabled();
+    await userEvent.type(input, ' потерянная правка');
+    expect(input).toHaveValue('новый формат');
+    const returned = operation === 'save' ? 'новый формат' : 'исходный формат';
+    finish({ ...setting, value: returned, is_default: operation === 'reset', updated_at: '2026-11-14T21:00:00Z' });
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Формат ответа' })).toBeEnabled());
+    expect(screen.getByRole('textbox', { name: 'Формат ответа' })).toHaveValue(returned);
+  });
+
+  it('saves direct inline edits without cutting other long fields', async () => {
+    const log = backend();
+    await renderApp('/personas/1');
+    await toggleBlock('Характер и промпт');
+    const field = document.getElementById('persona-prohibitions') as HTMLElement;
+    await userEvent.type(within(field).getByRole('textbox', { name: 'Запреты' }), 'не обещать доход');
+    await toggleBlock('Характер и промпт');
+    await save();
+    await waitFor(() => expect(savedBody(log)).toBeDefined());
+    expect(savedBody(log)).toMatchObject({ prohibitions: 'не обещать доход', description: LONG_PROMPT, routine: MARINA.routine });
+    await toggleBlock('Характер и промпт');
+    expect(within(field).getByRole('textbox', { name: 'Запреты' })).toHaveValue('не обещать доход');
   });
 
   it('saves the prompt exactly as it is when another field is edited in a folded page', async () => {
@@ -131,7 +179,7 @@ describe('persona page layout', () => {
     await toggleBlock('Характер и промпт');
     await typeLongText('Промпт персонажа', 'Новая строка в конце');
     const preview = document.querySelector('#persona-description [data-slot="long-text-preview"]');
-    expect(preview?.textContent).toBe(`${LONG_PROMPT}Новая строка в конце`);
+    expect(preview).toHaveValue(`${LONG_PROMPT}Новая строка в конце`);
     expect(log.some((r) => r.method === 'PUT')).toBe(false);   // the dialog edits the form, «Сохранить» saves it
     expect(unsaved()).toHaveTextContent('Есть несохранённые правки');
 
