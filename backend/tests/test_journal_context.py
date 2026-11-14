@@ -89,7 +89,7 @@ async def test_a_stage_change_is_a_service_line_of_the_dialog_feed(api, containe
     stage, status = detail["events"]
     assert stage == {
         "id": stage["id"], "kind": "stage", "from": "first_contact", "to": "interested",
-        "actor": "operator", "actor_name": f"admin {OPERATOR[0]}", "reason": "созвон",
+        "actor": "operator", "actor_name": "Test", "reason": "созвон",
         "created_at": stage["created_at"],
     }
     # No reason given: the field stays empty, nothing is made up.
@@ -125,7 +125,7 @@ async def test_pause_resume_resolve_and_clearing_are_journaled_with_who_and_why(
         ("chat_cleared", "", "удалено сообщений: 1", "owner", "тест с нуля"),
         ("passport_cleared", "", "паспорт, потребности, заметки и следующий шаг", "owner", ""),
     ]
-    assert {e.actor_name for e in events if e.actor == "owner"} == {f"admin {OWNER[0]}"}
+    assert {e.actor_name for e in events if e.actor == "owner"} == {"Test"}
     # The chat is empty, the journal is not: the wipe itself is its line.
     body = cleared.json()
     assert body["messages"] == [] and body["events"][-1]["kind"] == "chat_cleared"
@@ -368,16 +368,16 @@ async def test_the_card_shows_the_summary_and_the_button_extends_it(api, contain
     empty = (await api.get(f"/api/dialogs/{dialog_id}/summary")).json()
     assert empty == {"text": "", "covered_until": None, "messages_covered": 0, "updated_at": None,
                      "model": None, "pending": 14}
-    fake_llm.summary_replies = ["Саммари из кнопки"]
+    # The model is down: 502 and nothing is saved; the next press does the work.
+    fake_llm.summary_replies = [LLMError("broker is down"), "Саммари из кнопки"]
+    assert (await api.post(f"/api/dialogs/{dialog_id}/summary", headers=h)).status_code == 502
+    assert (await api.get(f"/api/dialogs/{dialog_id}/summary")).json() == empty
     made = (await api.post(f"/api/dialogs/{dialog_id}/summary", headers=h)).json()
     assert made["text"] == "Саммари из кнопки" and made["messages_covered"] == 14
     assert made["pending"] == 0 and made["covered_until"] and made["updated_at"]
     assert (await api.get(f"/api/dialogs/{dialog_id}/summary")).json() == made
     again = (await api.post(f"/api/dialogs/{dialog_id}/summary", headers=h)).json()
-    assert again == made and len(fake_llm.summary_calls) == 1        # nothing new to fold in
-    fake_llm.summary_replies = [LLMError("broker is down")]
-    container.clock = lambda: NOW + timedelta(days=9)
-    assert (await api.post(f"/api/dialogs/{dialog_id}/summary", headers=h)).status_code == 502
+    assert again == made and len(fake_llm.summary_calls) == 2        # nothing new to fold in
     # «Очистить чат» removes the summary together with the messages it was made of.
     owner = {"X-CSRF-Token": await login(api, *OWNER)}
     await api.delete(f"/api/dialogs/{dialog_id}/messages", headers=owner)
