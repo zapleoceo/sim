@@ -34,6 +34,7 @@ from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.humanize import TYPING_MAX_S
+from sim.services.media_decisions import MediaDecisionLog
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
 from sim.services.video_note import label_delivered, owner_allowed, owner_telegram_id
@@ -306,6 +307,13 @@ class OutboundService:
                 raise SendUncertain(UNCERTAIN_SEND) from None
             step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
+        await self.close_media_decision(message, ok=True)
+
+    async def close_media_decision(self, message: Message, *, ok: bool) -> None:
+        """A generated photo or note the persona decided to send reached the client (or did not):
+        the record of that decision gets its final outcome (sim.services.media_decisions)."""
+        if is_ai_photo(message.media_url) or is_ai_video(message.media_url):
+            await MediaDecisionLog(self.session, clock=self.clock).delivered(message, ok=ok)
 
     @staticmethod
     def called_off(message: Message, dialog: Dialog, final: bool) -> bool:
@@ -465,6 +473,7 @@ class OutboundService:
         if message is not None and message.delivery is not Delivery.SENT:
             message.delivery = Delivery.FAILED
             message.error = error[:500]
+            await self.close_media_decision(message, ok=False)
             dialog = await self.dialogs.get(message.dialog_id)
             if dialog is not None:
                 dialog.needs_operator = True

@@ -129,7 +129,8 @@ async def test_resume_answers_everything_left_unanswered_with_one_reply(
     assert all(text in prompt for text in ("Привет", "Пришли фото", "Пришли кружочек"))
     async with container.factory() as s:
         ai = (await s.scalars(select(Message).where(Message.author == Author.AI))).all()
-    assert len(ai) == 1 and len(fake_llm.gen_calls) == 1
+    # one reply; the client asked for a video note and got none, which is journaled beside it
+    assert sorted(str(m.media_kind) for m in ai) == ["None", "media_decision"] and len(fake_llm.gen_calls) == 1
     await make_due(container)
     await worker.tick()                                      # its send
     assert connector.port.sent == [("chat-1", "Сейчас пришлю")]

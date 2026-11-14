@@ -2,6 +2,7 @@
 failed attempt, in a fresh one."""
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -12,7 +13,7 @@ from sim.adapters.db.locks import NS_DIALOG, NS_SIM, lock, try_lock
 from sim.adapters.db.models import SimMessage
 from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.repositories.simulations import SimBranchRepo, SimMessageRepo
-from sim.services import jobkinds
+from sim.services import jobkinds, media_decisions, tracing
 from sim.services.conversation import AI_PAUSED, ReplyOutcome
 from sim.wiring import Container
 
@@ -31,16 +32,33 @@ async def run_reply(c: Container, s: AsyncSession, payload: dict[str, Any]) -> d
     outcome = await c.conversation(s).run_reply(dialog_id)
     if outcome.reason == AI_PAUSED:   # not a silent skip: the journal names the dialog and message
         await c.reply_journal(s).paused(dialog_id, outcome.inbound_id, source="reply_job")
+    await journal_media(c, s, dialog_id, outcome)
     return reply_detail(outcome)
 
 
+async def journal_media(c: Container, s: AsyncSession, dialog_id: int, outcome: ReplyOutcome) -> None:
+    """Her media decision as a step of the system log of its own: a warning when the owner asked
+    and she refused, or when her reason is not confirmed (sim.services.media_decisions)."""
+    media = outcome.media
+    if media is None:
+        return
+    look = media.needs_a_look
+    await c.reply_journal(s).write(
+        f"{media_decisions.TAG.lower()}: {media.headline}",
+        tracing.WARNING if look else tracing.OK, logging.WARNING if look else logging.INFO,
+        dialog_id, outcome.message.id if outcome.message else None, **media.journal())
+
+
 def reply_detail(outcome: ReplyOutcome) -> dict[str, Any]:
-    """What the reply pipeline did (sent / blocked / superseded...) and the guard's verdict."""
+    """What the reply pipeline did (sent / blocked / superseded...), the guard's verdict and her
+    media decision when there was one (sim.services.media_decisions)."""
     message = outcome.message
     detail = {"outcome": outcome.status, "message_id": message.id if message else None,
               "guard": message.guard_verdict if message else None}
     if outcome.reason:
         detail["reason"] = outcome.reason
+    if outcome.media is not None:
+        detail["media"] = outcome.media.journal()
     return detail
 
 

@@ -16,7 +16,7 @@ operator получает 403.
     `started_at desc`). Пустые значения идут в конце.
   - Фильтры (все в SQL):
     - `kind`, `status` — списки через запятую. Kinds: `http`, `webhook`, `inbound`, `poll`,
-      `job`, `llm`, `guard`, `send`, `partner`, `watch` (ответ не создан или ждёт слишком долго).
+      `job`, `llm`, `guard`, `send`, `partner`, `watch` (ответ не создан или ждёт слишком долго; решение персонажа по медиа).
       Statuses: `ok`, `error`, `retry`, `skipped`, `warning`.
     - Подстрока без учёта регистра: `name`, `actor`, `client` (имя клиента).
     - `trace_id` — префикс.
@@ -276,7 +276,7 @@ rules: string[], followup_hours: number[], created_at}`. Искусственн�
 
 `DialogRow`: `{id, channel_kind, persona: {id, name, avatar_url}, client: {id, display_name, avatar_url, stage, status},
 last_message: {text, direction, at}, unread: number, ai_paused}`.
-`Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed"|"cancelled", model?, error?, guard}`. `cancelled` — ответ ИИ не отправлен, потому что диалог перешёл к человеку (оператор/владелец написал, пауза ИИ), клиент отказался или контролер заблокировал черновик (тогда `error` = причина). `guard` — только у сообщений ИИ, иначе `null`: `{verdict: "ok"|"rewritten"|"blocked", violations: string[], model, original_text}`; для `rewritten` `text` — отправленный исправленный текст, `original_text` — черновик генератора; для `blocked` `text` — заблокированный черновик.
+`Message`: `{id, direction: "in"|"out", author: "client"|"ai"|"operator", text, media_kind?, media_url?, created_at, delivery: "queued"|"sent"|"failed"|"cancelled", model?, error?, guard, media_decision}`. `media_decision` — только у служебной записи решения персонажа по фото или кружочку (`media_kind: "media_decision"`, `delivery: "cancelled"`, клиенту не отправляется), иначе `null`: `{requested: "photo"|"video_note"|"none", kind, decision: "send"|"decline"|"later"|"silent" (просили, а решения в ответе нет), reason, owner_request, outcome, headline, lines: string[], warning}`; `text` такой записи — те же строки текстом, `error` — предупреждение или `null`, см. [persona-media.md](persona-media.md). `cancelled` — ответ ИИ не отправлен, потому что диалог перешёл к человеку (оператор/владелец написал, пауза ИИ), клиент отказался или контролер заблокировал черновик (тогда `error` = причина). `guard` — только у сообщений ИИ, иначе `null`: `{verdict: "ok"|"rewritten"|"blocked", violations: string[], model, original_text}`; для `rewritten` `text` — отправленный исправленный текст, `original_text` — черновик генератора; для `blocked` `text` — заблокированный черновик.
 
 Контролер сравнивает ID своей модели с ID исходного генератора без учёта регистра и пробелов
 по краям. При совпадении выполняется один запрос через резервную capability; повторное

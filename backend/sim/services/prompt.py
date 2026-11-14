@@ -122,14 +122,34 @@ class Turn:
 
 
 MEDIA_SCENE_MAX = 600
+MEDIA_REASON_MAX = 300
+MEDIA_SEND = "send"          # attach it to this reply
+MEDIA_DECLINE = "decline"    # she was asked and decided not to send
+MEDIA_LATER = "later"        # she was asked and decided to send it later
 
 
 @dataclass(frozen=True)
 class MediaAsk:
-    """The persona's request to attach a generated photo or video note to her reply."""
+    """What the persona decided about a photo or video note in her reply: attach a generated
+    one (`send`, with the scene), or not send / send later what she was asked for (with the
+    reason she named). Every decision is journaled (sim.services.media_decisions)."""
 
     kind: MediaKind      # PHOTO or VIDEO_NOTE
-    scene: str           # what is in the shot, in her own words
+    scene: str = ""      # what is in the shot, in her own words (a `send` decision)
+    decision: str = MEDIA_SEND
+    reason: str = ""     # why, in her own words
+
+    @property
+    def send(self) -> bool:
+        return self.decision == MEDIA_SEND
+
+    def fields(self) -> dict[str, str]:
+        """The decision as the guard sees it."""
+        out = {"kind": self.kind.value}
+        out.update({"scene": self.scene} if self.send else {"decision": self.decision})
+        if self.reason:
+            out["reason"] = self.reason
+        return out
 
 
 @dataclass(frozen=True)
@@ -141,7 +161,7 @@ class Decision:
     handoff_to_operator: bool = False
     refused: bool = False
     stop_contact: bool = False
-    media: MediaAsk | None = None   # she wants to attach a generated photo or video note
+    media: MediaAsk | None = None   # her decision about a photo or video note, when she made one
 
 
 def one_line(value: object, limit: int = FIELD_MAX) -> str:
@@ -384,13 +404,21 @@ def as_bool(value: object) -> bool:
 
 
 def parse_media(raw: object) -> MediaAsk | None:
-    """`{"kind": "photo" | "video_note", "scene": "..."}`; anything else is no request."""
+    """`{"kind": "photo" | "video_note", "scene": "..."}` attaches the media;
+    `{"kind": ..., "decision": "decline" | "later", "reason": "..."}` says she will not send it
+    (now). Anything else is no decision; an unknown `decision` reads as `send`."""
     if not isinstance(raw, dict):
         return None
     scene = one_line(raw.get("scene"), MEDIA_SCENE_MAX)
     kinds = {MediaKind.PHOTO.value: MediaKind.PHOTO, MediaKind.VIDEO_NOTE.value: MediaKind.VIDEO_NOTE}
     kind = kinds.get(str(raw.get("kind", "")).strip().lower())
-    return MediaAsk(kind, scene) if kind is not None and scene else None
+    decision = str(raw.get("decision", "")).strip().lower()
+    if kind is None:
+        return None
+    reason = one_line(raw.get("reason"), MEDIA_REASON_MAX)
+    if decision in (MEDIA_DECLINE, MEDIA_LATER):
+        return MediaAsk(kind, decision=decision, reason=reason)
+    return MediaAsk(kind, scene, reason=reason) if scene else None
 
 
 def parse_decision(raw: str) -> Decision | None:

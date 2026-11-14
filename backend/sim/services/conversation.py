@@ -31,6 +31,7 @@ from sim.services.funnel import FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.llm_audit import AuditedLLM
+from sim.services.media_decisions import MediaDecision
 from sim.services.outbound import OutboundService
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
@@ -71,6 +72,7 @@ class ReplyOutcome:
     message: Message | None = None
     reason: str = ""                 # why it was skipped, when that must be visible (AI_PAUSED)
     inbound_id: int | None = None    # the client message left without an answer
+    media: MediaDecision | None = None   # her journaled media decision, when there was one
 
 
 @dataclass(frozen=True)
@@ -144,7 +146,7 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
 
 
 def decision_fields(decision: Decision) -> dict[str, Any]:
-    """The control fields the guard checks together with the draft; her media request is there
+    """The control fields the guard checks together with the draft; her media decision is there
     only when she made one."""
     fields: dict[str, Any] = {
         "stage": decision.stage.value if decision.stage else None,
@@ -155,7 +157,7 @@ def decision_fields(decision: Decision) -> dict[str, Any]:
         "stop_contact": decision.stop_contact,
     }
     if decision.media is not None:
-        fields["media"] = {"kind": decision.media.kind.value, "scene": decision.media.scene}
+        fields["media"] = decision.media.fields()
     return fields
 
 
@@ -412,9 +414,10 @@ class ConversationService:
         ctx = await self.dialog_context(dialog, persona, instruction=instruction)
         port = self.outbound.try_port(dialog.channel)
         if self.media_tool is not None:
-            # What she may attach to this reply, or that she must not promise any media.
+            # What she may attach to this reply (or that she must not promise any media) and
+            # what she already decided about media in this dialog.
             offer = await self.media_tool.offer(dialog, persona, port)
-            ctx = replace(ctx, media=offer.brief())
+            ctx = replace(ctx, media=await self.media_tool.context(dialog, persona, offer))
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
         if not followup:
@@ -529,12 +532,14 @@ class ConversationService:
                 final=final, guard=guard, voice=voice, delay_s=delay, typing_s=pause,
             )
             delay += pause
-        if decision.media is not None and self.media_tool is not None and not final:
-            persona = await self.personas.get(client.persona_id)
-            if persona is not None:
-                await self.media_tool.request(
-                    dialog, persona, decision.media, self.outbound.try_port(dialog.channel),
-                    delay_s=delay)
+        persona = await self.personas.get(client.persona_id) if self.media_tool is not None else None
+        media = None
+        if self.media_tool is not None and persona is not None:
+            # Her media decision (send, not send, later) is journaled in the dialog; a photo or
+            # note she asked to send is queued after her text.
+            media = await self.media_tool.decide(
+                dialog, persona, decision, self.outbound.try_port(dialog.channel),
+                delay_s=delay, final=final)
         if not followup and not final:
             dialog.followup_step = 0
             await self.followups.schedule(dialog, strategy, 0, message)
@@ -543,7 +548,7 @@ class ConversationService:
             jobkinds.PASSPORT, {"dialog_id": dialog.id},
             self.clock() + timedelta(seconds=PASSPORT_DELAY_S), jobkinds.passport_key(dialog.id),
         )
-        return ReplyOutcome("sent", decision, message)
+        return ReplyOutcome("sent", decision, message, media=media)
 
     # ---- drafts shared with preview and admin simulations --------------------------------
     async def draft_reply(  # noqa: PLR0913
