@@ -201,7 +201,14 @@ export interface Dialog {
   send_capabilities?: { text: boolean; voice: boolean; attachment: boolean };
   /** Сообщения клиента, на которые ещё никто не ответил (только в GET /api/dialogs/{id}). */
   unanswered?: UnansweredInfo;
+  /** Оператор пометил диалог срочным: ответы не ждут окна в распорядке персонажа. */
+  urgent?: boolean;
+  /** Ответ, отложенный по распорядку персонажа: когда уйдёт и почему (null: ответ не отложен). */
+  reply_plan?: ReplyPlan | null;
 }
+export interface ReplyPlan { at: string; reason: string; cls: string; urgent: string | null }
+/** POST /api/dialogs/{id}/reply-now и /urgent: диалог с актуальным планом ответа. */
+export interface ReplyPlanResult extends Dialog { queued?: boolean }
 export interface UnansweredInfo { count: number; since: string | null; message_ids: number[] }
 /** Что сервер сделал с неотвеченными сообщениями, когда ИИ включили обратно. */
 export interface AiRecovery { status: 'none' | 'queued' | 'stale' | 'refused'; messages: number }

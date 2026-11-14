@@ -76,7 +76,7 @@ class AiPauseService:
             # A reply job that never ran (the worker was down) must not answer them either.
             await JobRepo(self.session).cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
             return Recovery(STALE, len(waiting))
-        if not await self.ingest.queue_reply(dialog, dialog.client):
+        if not await self.ingest.queue_reply(dialog, dialog.client, after_pause=True):
             return Recovery(REFUSED, len(waiting))
         await self.journal.recovered(dialog.id, newest.id, unanswered=len(waiting))
         return Recovery(QUEUED, len(waiting))

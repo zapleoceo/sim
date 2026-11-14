@@ -14,14 +14,11 @@ from sim.adapters.db.repositories.conversations import MessageRepo
 from sim.adapters.db.repositories.traces import TraceRepo
 from sim.clock import Clock, utcnow
 from sim.services import reply_journal, tracing
-from sim.services.ingest import EDIT_PREFIX
+from sim.services.dialog_state import turns
 from sim.services.reply_journal import ReplyJournal
+from sim.services.reply_schedule import ReplyScheduler
 
 WATCH_LOOKBACK = timedelta(hours=24)   # older silence is not news any more
-
-
-def turns(messages: list[Message]) -> list[Message]:
-    return [m for m in messages if not m.text.startswith(EDIT_PREFIX)]
 
 
 class UnansweredService:
@@ -38,6 +35,7 @@ class UnansweredService:
         self.clock = clock
         self.warn_after = timedelta(seconds=warn_after_s)
         self.messages = MessageRepo(session)
+        self.scheduler = ReplyScheduler(session, clock=clock)
 
     async def of(self, dialog_id: int) -> list[Message]:
         """The dialog's unanswered client messages, oldest first."""
@@ -45,7 +43,8 @@ class UnansweredService:
 
     async def warn_overdue(self) -> int:
         """Write one warning per dialog whose oldest unanswered message has waited longer than
-        the threshold while the AI is on (paused dialogs have their own journal record). The
+        the threshold while the AI is on (paused dialogs have their own journal record; a reply
+        delayed by the persona's routine is planned, not lost). The
         same message is never warned about twice. Returns how many warnings were written."""
         now = self.clock()
         waiting: dict[int, list[Message]] = {}
@@ -59,6 +58,8 @@ class UnansweredService:
             first = messages[0]
             if first.id in warned:
                 continue
+            if await self.scheduler.waits_until(dialog_id) is not None:
+                continue    # the answer is planned for later by her routine: not a lost message
             await self.journal.overdue(
                 dialog_id, first.id, waiting_s=int((now - first.created_at).total_seconds()),
                 threshold_s=int(self.warn_after.total_seconds()), unanswered=len(messages),

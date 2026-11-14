@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import {
-  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, PauseCircle, SendHorizontal, Square, User,
+  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, PauseCircle, SendHorizontal, Square, User, Zap,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
 import { CompactConversationHeader, CompactOperatorBanner } from './conversation-compact';
-import { PAUSE_NOTE, groupByDay, isSendKey, pauseNotice } from './inbox-logic';
+import { PAUSE_NOTE, groupByDay, isSendKey, pauseNotice, replyPlanNotice } from './inbox-logic';
 
 
 export function Conversation({
@@ -30,6 +30,8 @@ export function Conversation({
   onBack,
   onToggleCard,
   onToggleAi,
+  onReplyNow,
+  onSetUrgent,
   onResolve,
   onSend,
   onSendVoice,
@@ -48,6 +50,10 @@ export function Conversation({
   onBack: () => void;
   onToggleCard: () => void;
   onToggleAi: (paused: boolean) => void;
+  /** «Ответить сейчас»: releases the reply delayed by the persona's routine (not an AI pause). */
+  onReplyNow?: () => void;
+  /** «Срочный»: replies in this dialog never wait for the routine. */
+  onSetUrgent?: (urgent: boolean) => void;
   onResolve: () => void;
   /** Resolves true when the message was accepted (the composer is then cleared). */
   onSend: (text: string, requestId: string) => Promise<boolean>;
@@ -71,6 +77,7 @@ export function Conversation({
   const scroller = useRef<HTMLDivElement>(null);
   const groups = groupByDay(messages);
   const paused = pauseNotice(dialog);
+  const planned = replyPlanNotice(dialog);
 
   useEffect(() => {
     const el = scroller.current;
@@ -125,6 +132,7 @@ export function Conversation({
           clearing={clearing}
           onBack={onBack}
           onToggleAi={onToggleAi}
+          onSetUrgent={onSetUrgent}
           onResolve={onResolve}
           onChangeStage={onChangeStage ? (stage) => void changeStage(stage) : undefined}
           onClearChat={onClearChat}
@@ -163,6 +171,14 @@ export function Conversation({
             </Button>
           </Tip>
         )}
+        {onSetUrgent && (
+          <Tip label="Срочный диалог: персонаж отвечает сразу, не дожидаясь окна в распорядке">
+            <Button variant={dialog.urgent ? 'default' : 'ghost'} size="icon-sm" aria-pressed={!!dialog.urgent}
+              aria-label="Срочный диалог" onClick={() => onSetUrgent(!dialog.urgent)}>
+              <Zap />
+            </Button>
+          </Tip>
+        )}
         <Tip label="Когда ИИ выключен, отвечает только оператор">
           <div className="flex items-center gap-2">
             <Switch id="dialog-ai" checked={!dialog.ai_paused} onCheckedChange={(on) => onToggleAi(!on)} />
@@ -194,6 +210,13 @@ export function Conversation({
             <strong className="font-semibold">ИИ выключен.</strong> {paused.text}
           </span>
           <Button size="sm" onClick={() => onToggleAi(false)}>Включить ИИ</Button>
+        </div>
+      )}
+      {planned && (
+        <div role="status" aria-label="Ответ отложен"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-muted/60 px-3 py-1.5 text-sm sm:px-4 sm:py-2">
+          <span className="min-w-0 flex-1">{planned}</span>
+          {onReplyNow && <Button size="sm" variant="outline" onClick={onReplyNow}>Ответить сейчас</Button>}
         </div>
       )}
       {!compact && <div className="flex-none border-b px-4 py-1.5">

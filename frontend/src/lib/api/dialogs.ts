@@ -1,4 +1,6 @@
-import type { AiToggleResult, ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message } from '../models';
+import type {
+  AiToggleResult, ClearedDialog, Dialog, DialogDetail, DialogFilter, DialogRow, ListResponse, Message, ReplyPlanResult,
+} from '../models';
 import { DEFAULT_PAGE, http, type PageRequest } from './http';
 
 export const dialogsApi = {
@@ -22,6 +24,10 @@ export const dialogsApi = {
   },
   /** Pause or resume the AI; resuming answers what the client wrote meanwhile (`recovery`). */
   setAiPaused: (id: number, paused: boolean) => http.post<AiToggleResult>(`/api/dialogs/${id}/ai`, { paused }),
+  /** «Ответить сейчас»: the reply that waits for the persona's routine is due at once (409 while the AI is paused). */
+  replyNow: (id: number) => http.post<ReplyPlanResult>(`/api/dialogs/${id}/reply-now`, {}),
+  /** «Срочный»: replies in this dialog never wait for the routine. */
+  setUrgent: (id: number, urgent: boolean) => http.post<ReplyPlanResult>(`/api/dialogs/${id}/urgent`, { urgent }),
   /** Operator handled it: clears «needs operator» (the AI pause is unchanged). */
   resolve: (id: number) => http.post<Dialog>(`/api/dialogs/${id}/resolve`, {}),
   markRead: (id: number) => http.post<void>(`/api/dialogs/${id}/read`, {}, { silent: true }),

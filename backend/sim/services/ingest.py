@@ -6,6 +6,7 @@ import re
 import secrets
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,21 +20,20 @@ from sim.domain.enums import Author, ClientStatus, Delivery, Direction
 from sim.domain.funnel import Actor, status_on_inbound
 from sim.ports.channel import InboundMessage
 from sim.services import jobkinds, tracing
-from sim.services.app_settings import AppSettingsService
 from sim.services.dialog_reset import DialogReset, is_reset
-from sim.services.dialog_state import apply_message
+from sim.services.dialog_state import EDIT_PREFIX, apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
 from sim.services.media import MEDIA_KINDS, MEDIA_MAX_ATTEMPTS, VOICE_KINDS, placeholder_for
 from sim.services.outbound import cancel_queued_ai
 from sim.services.reply_journal import ReplyJournal
+from sim.services.reply_schedule import ReplyScheduler
 from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
 
 REF_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 ECHO_WINDOW = timedelta(minutes=10)
-EDIT_PREFIX = "[изменено] "
 # Channel handoff: the persona sends the client a link that carries the ref code (`#code` in a
 # WhatsApp / Telegram-user text, `/start code` for the Telegram bot).
 REF_IN_TEXT = re.compile(
@@ -84,6 +84,8 @@ class IngestService:
         self.jobs = JobRepo(session)
         self.funnel = FunnelService(session)
         self.followups = FollowupService(session, clock=clock)
+        env: dict[str, Any] = {"reply_debounce_s": debounce_s}
+        self.scheduler = ReplyScheduler(session, clock=clock, settings_env=env)
 
     async def ingest(self, channel: Channel, msg: InboundMessage) -> IngestResult:
         """Accept one inbound message, as an `inbound` step of the trace log (no text logged)."""
@@ -265,15 +267,10 @@ class IngestService:
             max_attempts=MEDIA_MAX_ATTEMPTS,
         )
 
-    async def queue_reply(self, dialog: Dialog, client: Client) -> bool:
-        """One reply job per dialog; a burst of messages pushes it back (debounce)."""
-        if dialog.ai_paused or client.status is ClientStatus.REFUSED:
-            return False
-        settings = AppSettingsService(self.session, {"reply_debounce_s": self.debounce_s})
-        run_at = self.clock() + timedelta(seconds=(await settings.load()).reply_debounce_s)
-        key = jobkinds.reply_key(dialog.id)
-        await self.jobs.upsert_pending(jobkinds.REPLY, {"dialog_id": dialog.id}, run_at, key)
-        return True
+    async def queue_reply(self, dialog: Dialog, client: Client, *, after_pause: bool = False) -> bool:
+        """One reply job per dialog; a burst of messages pushes it back (debounce), her routine
+        may delay it (sim.services.reply_schedule). `after_pause`: the AI pause was just lifted."""
+        return await self.scheduler.schedule(dialog, client, after_pause=after_pause)
 
     async def ingest_edit(self, dialog: Dialog | None, msg: InboundMessage) -> IngestResult:
         """The client edited an earlier message. The new text is kept in the dialog (marked, so
