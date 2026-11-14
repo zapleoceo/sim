@@ -1,6 +1,7 @@
 """Outbound messages: queue, delivery through the channel port, manual mode."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -8,12 +9,13 @@ import mimetypes
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.audio import AudioError
-from sim.adapters.channels.capabilities import RECORD_VOICE, Capability
+from sim.adapters.channels.capabilities import RECORD_VOICE, TYPING, Capability
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.models import AdminUser, Channel, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
@@ -31,12 +33,15 @@ from sim.services.ai_media import AI_LABEL, is_ai_photo, is_ai_video
 from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
+from sim.services.humanize import TYPING_MAX_S
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
 from sim.services.video_note import label_delivered, owner_allowed, owner_telegram_id
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
+
+sleep = asyncio.sleep   # the typing pause between the parts of one reply (tests replace it)
 
 
 class SendFailed(Exception):
@@ -125,11 +130,13 @@ class OutboundService:
         guard: GuardOutcome | None = None,
         voice: bool = False,
         delay_s: float = 0.0,
+        typing_s: float = 0.0,
     ) -> Message:
         """Queue an AI reply (`text` is the final, guard-approved text; `guard` is recorded). `final` = the last thing the AI says before stepping back (a
         refusal farewell, a hand-off note): it is still delivered although the dialog is
         paused / the client refused by the time it is sent. `voice` = deliver it as a voice
-        note (rendered by the SEND job; `text` stays as its transcript)."""
+        note (rendered by the SEND job; `text` stays as its transcript). `typing_s` = a next part
+        of one reply: its SEND job shows «печатает…» for that long before it sends."""
         now = self.clock()
         message = Message(
             dialog_id=dialog.id,
@@ -148,11 +155,15 @@ class OutboundService:
         )
         await self.messages.add(message)
         apply_message(dialog, message)
+        payload: dict[str, Any] = {"message_id": message.id, "final": final}
+        if typing_s > 0:
+            payload["typing_s"] = typing_s
         await self.jobs.enqueue(
             jobkinds.SEND,
-            {"message_id": message.id, "final": final},
-            # No artificial delay for the first message (generation already takes seconds); the
-            # next short messages of one reply wait a typing pause (`delay_s`).
+            payload,
+            # No artificial delay for the first message (generation already takes seconds); a
+            # next short message of one reply starts when the one before it is due (`delay_s`)
+            # and then holds its own typing pause (`typing_s`) inside the job.
             now + timedelta(seconds=delay_s),
             dedup_key=send_key(message.id),
         )
@@ -226,23 +237,16 @@ class OutboundService:
         )
         return message
 
-    async def deliver(self, message_id: int, *, final: bool = False) -> None:
+    async def deliver(
+        self, message_id: int, *, final: bool = False, typing_s: float = 0.0
+    ) -> None:
         message = await self.messages.get(message_id)
         if message is None or message.delivery is Delivery.SENT:
             return
         dialog = await self.dialogs.get(message.dialog_id)
         if dialog is None:
             raise SendFailed("dialog not found")
-        if message.delivery is Delivery.CANCELLED:
-            return
-        if (
-            message.author is Author.AI
-            and not final
-            and (dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED)
-        ):
-            # Queued while the AI was active; a human took over / the client refused since.
-            message.delivery = Delivery.CANCELLED
-            message.error = "cancelled: AI paused or client refused before sending"
+        if self.called_off(message, dialog, final):
             return
         if not await self.ai_video_gate(message, dialog):
             return
@@ -267,6 +271,8 @@ class OutboundService:
         except Exception as exc:  # connector errors are heterogeneous; the job retries
             raise SendFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
+        if typing_s > 0 and not await self.typed(message, dialog, port, typing_s, final):
+            return
         note = await self.voice_note(message, dialog, port)
         attachment = self.attachment(message, port)
         gallery_media = self.gallery_media(message, port)
@@ -300,6 +306,36 @@ class OutboundService:
                 raise SendUncertain(UNCERTAIN_SEND) from None
             step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
+
+    @staticmethod
+    def called_off(message: Message, dialog: Dialog, final: bool) -> bool:
+        """True when the message must not go out any more (it is marked cancelled if needed)."""
+        if message.delivery is Delivery.CANCELLED:
+            return True
+        if (
+            message.author is Author.AI
+            and not final
+            and (dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED)
+        ):
+            # Queued while the AI was active; a human took over / the client refused since.
+            message.delivery = Delivery.CANCELLED
+            message.error = "cancelled: AI paused or client refused before sending"
+            return True
+        return False
+
+    async def typed(
+        self, message: Message, dialog: Dialog, port: object, seconds: float, final: bool
+    ) -> bool:
+        """The pause before a next part of one reply, with «печатает…» («записывает голосовое…»
+        for a voice note) shown for all of it and cleared when it ends. False = the message was
+        called off during the pause (an operator took over, the AI was paused, the client
+        refused) and must not be sent."""
+        action = RECORD_VOICE if message.media_kind == VOICE_NOTE else TYPING
+        async with showing(port, dialog.external_thread_id, action):
+            await sleep(min(seconds, TYPING_MAX_S))
+        for row in (message, dialog, dialog.client):
+            await self.session.refresh(row)
+        return not self.called_off(message, dialog, final)
 
     async def ai_video_gate(self, message: Message, dialog: Dialog) -> bool:
         """Hard allowlist for generated video notes (sim.services.video_note), whoever queued
