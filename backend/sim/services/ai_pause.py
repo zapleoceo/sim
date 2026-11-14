@@ -19,6 +19,7 @@ from sim.clock import Clock, utcnow
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettingsService
 from sim.services.ingest import IngestService
+from sim.services.journal import REPLY_DELAY, SYSTEM, CommunicationJournal, Who
 from sim.services.outbound import cancel_queued_ai
 from sim.services.reply_journal import ReplyJournal
 from sim.services.unanswered import UnansweredService
@@ -27,6 +28,17 @@ NOTHING = "none"        # nobody was waiting for an answer
 QUEUED = "queued"       # one reply job was queued for the unanswered messages
 STALE = "stale"         # the unanswered messages are too old: left to the operator
 REFUSED = "refused"     # the client refused contact: the AI does not write to them
+
+# The `reply_delay` line of the communication journal for each outcome ({n}: waiting messages).
+RECOVERY_TEXT = {
+    QUEUED: "персонаж ответит на сообщения без ответа: {n}",
+    STALE: "ответ не создан, сообщения без ответа ({n}) оставлены оператору",
+    REFUSED: "ответ не создан, сообщения без ответа: {n}",
+}
+RECOVERY_REASON = {
+    STALE: "сообщения старше окна ответа после паузы ИИ",
+    REFUSED: "клиент отказался от общения",
+}
 
 
 @dataclass(frozen=True)
@@ -51,16 +63,27 @@ class AiPauseService:
         self.unanswered = unanswered
         self.journal = journal
         self.clock = clock
+        self.log = CommunicationJournal(session, clock=clock)
         self.app_settings = AppSettingsService(session, settings_env)
 
-    async def pause(self, dialog: Dialog) -> None:
+    async def pause(self, dialog: Dialog, who: Who = SYSTEM, reason: str = "") -> None:
         """An operator switched the AI off: replies still waiting for their send do not go out."""
+        await self.log.ai_switched(dialog, True, who, reason)
         dialog.ai_paused = True
         await cancel_queued_ai(self.session, dialog.id, "cancelled: AI paused by an operator")
 
-    async def resume(self, dialog: Dialog) -> Recovery:
+    async def resume(self, dialog: Dialog, who: Who = SYSTEM, reason: str = "") -> Recovery:
         """Switch the AI back on and answer what was left unanswered (see the module docstring).
-        The caller holds the dialog lock."""
+        The caller holds the dialog lock. The switch and what became of the waiting messages
+        are two lines of the communication journal."""
+        await self.log.ai_switched(dialog, False, who, reason)
+        recovery = await self.recover(dialog)
+        if recovery.status != NOTHING:
+            await self.log.record(dialog.id, REPLY_DELAY, new=RECOVERY_TEXT[recovery.status].format(
+                n=recovery.messages), reason=RECOVERY_REASON.get(recovery.status, ""))
+        return recovery
+
+    async def recover(self, dialog: Dialog) -> Recovery:
         dialog.ai_paused = False
         dialog.needs_operator = False
         waiting = await self.unanswered.of(dialog.id)

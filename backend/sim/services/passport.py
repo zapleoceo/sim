@@ -22,6 +22,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, Direction
 from sim.services.ai_media import history_text
+from sim.services.journal import MODEL_ACTOR, PASSPORT, CommunicationJournal, Who, changed_lines
 from sim.services.llm_audit import AuditedLLM
 
 if TYPE_CHECKING:
@@ -89,6 +90,11 @@ class PassportService:
         if not text:
             log.warning("passportist returned nothing for dialog %s", dialog_id)
             return False
-        client.passport = text[:PASSPORT_MAX]
+        new = text[:PASSPORT_MAX]
+        if new != (client.passport or ""):
+            removed, added = changed_lines(client.passport or "", new)
+            await CommunicationJournal(self.session, clock=self.clock).record_for_client(
+                client.id, PASSPORT, old=removed, new=added, who=Who(MODEL_ACTOR, "паспортистка"))
+        client.passport = new
         client.passport_updated_at = self.clock()
         return True

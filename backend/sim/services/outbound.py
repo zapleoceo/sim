@@ -34,6 +34,7 @@ from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.humanize import TYPING_MAX_S
+from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.media_decisions import MediaDecisionLog
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
@@ -228,6 +229,8 @@ class OutboundService:
         )
         await self.messages.add(message)
         apply_message(dialog, message)
+        await CommunicationJournal(self.session, clock=self.clock).ai_switched(
+            dialog, True, admin_who(operator), "оператор написал в диалог")
         dialog.ai_paused = True
         dialog.needs_operator = False
         dialog.operator_id = operator_id

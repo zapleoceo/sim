@@ -28,9 +28,10 @@ from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
 from sim.services.dialog_state import turns
 from sim.services.followup import FollowupService
-from sim.services.funnel import FunnelService
+from sim.services.funnel import MODEL_DECISION, FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
+from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import MediaDecision
 from sim.services.outbound import OutboundService
@@ -52,6 +53,7 @@ from sim.services.prompt import (
 )
 from sim.services.prompt_map import PromptMap, example_context, fixed_rules
 from sim.services.reply_schedule import delay_note
+from sim.services.summary import SummaryService
 
 log = logging.getLogger(__name__)
 
@@ -194,7 +196,9 @@ class ConversationService:
         self.personas = PersonaRepo(session)
         self.strategies = StrategyRepo(session)
         self.jobs = JobRepo(session)
-        self.funnel = FunnelService(session)
+        self.funnel = FunnelService(session, clock=clock)
+        self.journal = CommunicationJournal(session, clock=clock)
+        self.summaries = SummaryService(session, llm, self.app_settings, clock=clock)
         self.followups = FollowupService(session, clock=clock)
         self.media_tool = media_tool
 
@@ -219,13 +223,32 @@ class ConversationService:
         return self.guard_instance
 
     async def prompt(
-        self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext
+        self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext,
+        *, whole_history: bool = False,
     ) -> list[dict[str, Any]]:
+        """`whole_history`: the history is a context window already cut by its own rules
+        (`memory`), so the «Сколько реплик помнить» limit does not apply to it."""
         cfg = await self.config()
         ctx = with_persona_facts(persona, ctx)
+        limit = max(len(history), 1) if whole_history else cfg.history_limit
         return build_messages(
             persona_profile(persona), strategy_profile(strategy), history, ctx,
-            texts=cfg.prompt_texts(), history_limit=cfg.history_limit,
+            texts=cfg.prompt_texts(), history_limit=limit,
+        )
+
+    async def memory(self, dialog_id: int, ctx: DialogContext) -> tuple[list[Message], DialogContext]:
+        """What a reply in a real dialog is built from: the messages of the context window in
+        full, and in the context the summary of what is older, the journal records of the
+        window and a note when the token limit cut the window."""
+        cfg = await self.config()
+        window = await self.summaries.load_window(dialog_id, cfg)
+        summary = await self.summaries.for_reply(dialog_id, window, cfg)
+        return window.messages, replace(
+            ctx,
+            summary=summary.text if summary else "",
+            summary_until=summary.covered_until if summary else None,
+            journal=await self.journal.context_lines(dialog_id, window.since),
+            history_note=window.note(),
         )
 
     async def touched(self, guard: GuardOutcome) -> GuardOutcome:
@@ -411,10 +434,10 @@ class ConversationService:
             return ReplyOutcome("skipped")
         strategy = await self.strategy_for(persona.id)
 
-        recent = await self.messages.recent_visible(dialog_id, (await self.config()).history_limit)
+        recent, ctx = await self.memory(
+            dialog_id, await self.dialog_context(dialog, persona, instruction=instruction))
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
-        ctx = await self.dialog_context(dialog, persona, instruction=instruction)
         waiting = turns(await self.messages.unanswered(dialog_id))
         if delay and waiting:
             ctx = replace(ctx, delay_note=delay_note(
@@ -432,7 +455,8 @@ class ConversationService:
         action = RECORD_VOICE if will_speak(persona, followup, last) else TYPING
         async with showing(port, dialog.external_thread_id, action):
             draft = await self.draft_reply(
-                persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id
+                persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id,
+                whole_history=True,
             )
         # The model call took a while. From here on, hold the dialog lock (ingest takes it to
         # insert a client message) and re-read the world before anything is queued.
@@ -468,6 +492,8 @@ class ConversationService:
         reason = draft.rejection or "the generator could not produce an approved answer"
         dialog.needs_operator = True
         dialog.ai_paused = True
+        await self.journal.record(dialog.id, HANDOFF, new="operator", who=SYSTEM,
+                                  reason=f"модель не дала ответа, прошедшего проверку: {reason}")
         await self.followups.cancel(dialog.id)
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
         blocked = draft.guard or GuardOutcome(BLOCKED, draft.decision.reply if draft.decision else "",
@@ -505,13 +531,16 @@ class ConversationService:
         if guard is None or not guard.allowed or not decision.reply:
             raise ValueError("only an approved complete decision may change dialog state")
         client = dialog.client
-        if decision.needs:
+        if decision.needs and list(client.needs or []) != decision.needs:
+            await self.journal.record(
+                dialog.id, NEEDS, old="; ".join(client.needs or []),
+                new="; ".join(decision.needs), who=THE_MODEL)
             client.needs = decision.needs
         if decision.next_step:
             client.next_step = decision.next_step
         if decision.stage is not None:
             try:
-                await self.funnel.advance(client, decision.stage, Actor.AI, "model decision")
+                await self.funnel.advance(client, decision.stage, Actor.AI, MODEL_DECISION)
             except FunnelRuleError:
                 log.info("ignored forbidden AI stage %s for client %s", decision.stage, client.id)
         stop = decision.refused or decision.stop_contact
@@ -523,6 +552,7 @@ class ConversationService:
         if decision.handoff_to_operator:
             dialog.needs_operator = True
             dialog.ai_paused = True
+            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL)
             await self.followups.cancel(dialog.id)
 
         decision = replace(decision, reply=guard.text)
@@ -568,10 +598,11 @@ class ConversationService:
         workflow: str,
         guard_workflow: str = GUARD_WORKFLOW,
         dialog_id: int | None = None,
+        whole_history: bool = False,
     ) -> Draft:
         """The same builder, model call and pre-send guard as production, without any dialog
         bookkeeping. `history` ends with the client's latest message."""
-        prompt = await self.prompt(persona, strategy, history, ctx)
+        prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
         rejection = ""
         for attempt in range(2):
             decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)

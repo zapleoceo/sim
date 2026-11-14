@@ -1,21 +1,25 @@
 import { Link } from '@tanstack/react-router';
-import { ArrowLeft, CheckCheck, Eraser, MoreVertical, Rows3, User, X, Zap } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ChevronRight, Eraser, Milestone, MoreVertical, Rows3, User, X, Zap } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon, NeedsOperatorBadge, StageChip, StatusBadge } from '@/components/badges';
+import { StageDropdown, type ApplyChoice } from '@/components/choice-dropdown';
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { Client, Dialog, Stage } from '@/lib/models';
-import { STAGES } from '@/lib/stages';
+import { stageMeta } from '@/lib/stages';
 
 /**
  * Phone header of a dialog — one row: back, name (truncated), the «ИИ» switch and «⋮».
  * Everything else the desktop header shows inline lives in the «⋮» menu: status badges, the stage,
  * «Обработано», the client feed and card, «Очистить чат». The handlers are the desktop ones.
+ *
+ * The menu shows the stage as its current value («Этап: Вовлечён»); choosing that item closes the
+ * menu and opens the same stage dropdown the desktop header has, anchored under the header.
  */
 export function CompactConversationHeader({
   dialog,
@@ -35,12 +39,16 @@ export function CompactConversationHeader({
   onToggleAi: (paused: boolean) => void;
   onSetUrgent?: (urgent: boolean) => void;
   onResolve: () => void;
-  onChangeStage?: (stage: Stage) => void;
+  onChangeStage?: ApplyChoice<Stage>;
   onClearChat?: () => void;
 }) {
   const clientId = String(client.id);
+  const [stageOpen, setStageOpen] = useState(false);
+  // The menu must not take the focus back when it closes to open the stage list: the list would
+  // see the focus leave and close at once.
+  const openingStage = useRef(false);
   return (
-    <header className="flex h-11 flex-none items-center gap-1.5 border-b px-1.5">
+    <header className="relative flex h-11 flex-none items-center gap-1.5 border-b px-1.5">
       <Button variant="ghost" size="icon-sm" aria-label="Назад к списку" onClick={onBack}>
         <ArrowLeft />
       </Button>
@@ -59,7 +67,11 @@ export function CompactConversationHeader({
             )}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)]">
+        <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)]"
+          onCloseAutoFocus={(e) => {
+            if (openingStage.current) e.preventDefault();
+            openingStage.current = false;
+          }}>
           <DropdownMenuLabel className="flex flex-wrap items-center gap-1.5 font-normal">
             {dialog.channel_kind && <ChannelIcon kind={dialog.channel_kind} size={18} />}
             <StageChip stage={client.stage} className="h-5 px-2 text-[11px]" />
@@ -100,18 +112,25 @@ export function CompactConversationHeader({
           {onChangeStage && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Этап</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={client.stage} onValueChange={(stage) => onChangeStage(stage as Stage)}>
-                {STAGES.filter((item) => item.aiReachable || item.id === client.stage).map((item) => (
-                  <DropdownMenuRadioItem key={item.id} value={item.id}>
-                    {item.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+              <DropdownMenuItem
+                disabled={!stageMeta(client.stage).aiReachable}
+                onSelect={() => {
+                  openingStage.current = true;
+                  setStageOpen(true);
+                }}
+              >
+                <Milestone />
+                <span className="min-w-0 flex-1 truncate">Этап: {stageMeta(client.stage).label}</span>
+                <ChevronRight />
+              </DropdownMenuItem>
             </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {onChangeStage && (
+        <StageDropdown anchor stage={client.stage} onApply={onChangeStage} open={stageOpen} onOpenChange={setStageOpen}
+          className="absolute right-2 bottom-0" />
+      )}
     </header>
   );
 }

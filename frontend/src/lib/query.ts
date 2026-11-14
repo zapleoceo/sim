@@ -32,6 +32,8 @@ export const qk = {
   personaPrompt: (id: number) => ['persona-prompt', id] as const,
   dialogs: (filter: unknown) => ['dialogs', filter] as const,
   dialog: (id: number) => ['dialog', id] as const,
+  /** Under the dialog key: a live event of the dialog refreshes its summary too. */
+  dialogSummary: (id: number) => ['dialog', id, 'summary'] as const,
   clients: (filter: unknown, page: unknown) => ['clients', filter, page] as const,
   client: (id: number) => ['client', id] as const,
   clientChat: (id: number, limit: number) => ['client-chat', id, limit] as const,

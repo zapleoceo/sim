@@ -85,6 +85,8 @@ class FakeLLM:
         # The passportist (workflow "passport") has its own queue: its background job must not
         # eat the scripted persona replies. Empty queue: a fixed short passport.
         self.passport_replies: list[str | Exception | LLMResult] = []
+        # The summary agent (workflow "summary") likewise: it may run before a persona reply.
+        self.summary_replies: list[str | Exception | LLMResult] = []
         self.calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
         self.transcript = "привет из голосового"
         self.usage_calls: list[tuple[Any, Any]] = []
@@ -103,6 +105,11 @@ class FakeLLM:
             if isinstance(item, Exception):
                 raise item
             return item if isinstance(item, LLMResult) else LLMResult(text=item, model="fake-passport")
+        if kwargs.get("workflow") == "summary":
+            item = self.summary_replies.pop(0) if self.summary_replies else "Саммари: говорили о курсе."
+            if isinstance(item, Exception):
+                raise item
+            return item if isinstance(item, LLMResult) else LLMResult(text=item, model="fake-summary")
         queue = self.guard_replies if is_guard else self.replies
         item = queue.pop(0) if queue else (guard_json() if is_guard else decision_json())
         if isinstance(item, Exception):
@@ -117,7 +124,11 @@ class FakeLLM:
     @property
     def gen_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
         return [c for c in self.calls if not str(c[1].get("workflow", "")).endswith("guard")
-                and c[1].get("workflow") != "passport"]
+                and c[1].get("workflow") not in ("passport", "summary")]
+
+    @property
+    def summary_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:
+        return [c for c in self.calls if c[1].get("workflow") == "summary"]
 
     @property
     def guard_calls(self) -> list[tuple[list[dict[str, Any]], dict[str, Any]]]:

@@ -24,6 +24,7 @@ from sim.services.dialog_reset import DialogReset, is_reset
 from sim.services.dialog_state import EDIT_PREFIX, apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
+from sim.services.journal import RESET, THE_OWNER, CommunicationJournal
 from sim.services.media import MEDIA_KINDS, MEDIA_MAX_ATTEMPTS, VOICE_KINDS, placeholder_for
 from sim.services.outbound import cancel_queued_ai
 from sim.services.reply_journal import ReplyJournal
@@ -82,7 +83,8 @@ class IngestService:
         self.dialogs = DialogRepo(session)
         self.messages = MessageRepo(session)
         self.jobs = JobRepo(session)
-        self.funnel = FunnelService(session)
+        self.funnel = FunnelService(session, clock=clock)
+        self.log = CommunicationJournal(session, clock=clock)
         self.followups = FollowupService(session, clock=clock)
         env: dict[str, Any] = {"reply_debounce_s": debounce_s}
         self.scheduler = ReplyScheduler(session, clock=clock, settings_env=env)
@@ -179,6 +181,8 @@ class IngestService:
             return IngestResult(reset=True)
         await lock(self.session, NS_DIALOG, dialog.id)
         wiped = await DialogReset(self.session).reset(dialog, dialog.client)
+        await self.log.record(dialog.id, RESET, new="чат, паспорт и этап сброшены",
+                              reason="команда /reset в чате")
         log.info("dialog %s reset by /reset: %d messages wiped", dialog.id, wiped)
         return IngestResult(dialog=dialog, client=dialog.client, reset=True)
 
@@ -323,6 +327,8 @@ class IngestService:
         )
         await self.messages.add(message)
         apply_message(dialog, message)
+        await self.log.ai_switched(
+            dialog, True, THE_OWNER, "сообщение отправлено с подключённого аккаунта")
         dialog.ai_paused = True
         await cancel_queued_ai(self.session, dialog.id, "cancelled: the owner wrote from the phone")
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))

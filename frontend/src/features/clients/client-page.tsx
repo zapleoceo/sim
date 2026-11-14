@@ -5,21 +5,22 @@ import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon } from '@/components/badges';
+import { StageDropdown, StatusDropdown } from '@/components/choice-dropdown';
 import { useConfirm } from '@/components/confirm';
 import { EmptyState, ErrorState } from '@/components/empty-state';
-import { OptionSelect } from '@/components/option-select';
 import { BackLink, Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { clientsApi } from '@/lib/api/clients';
+import { DialogSummaryBlock } from '@/features/inbox/dialog-summary';
+import { clientsApi, stageChange } from '@/lib/api/clients';
 import { ApiError } from '@/lib/api/http';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, formatShort, isoToLocalInput, localInputToIso } from '@/lib/format';
 import { useLiveDialogs } from '@/lib/live';
-import type { ClientCard, ClientPatch, ClientStatus, Stage } from '@/lib/models';
+import type { ClientCard, ClientPatch, StageChange } from '@/lib/models';
 import { qk } from '@/lib/query';
-import { PARTNER_ONLY_HINT, STAGES, STATUSES, STATUS_LABELS, stageMeta } from '@/lib/stages';
+import { CHANNEL_LABELS, PARTNER_ONLY_HINT, STATUS_LABELS, stageMeta } from '@/lib/stages';
 import { positiveInt } from '@/lib/utils';
 import { ClientChat } from './client-chat';
 import { CLEAR_PASSPORT_CONFIRM, timelineWithDates } from './client-logic';
@@ -155,10 +156,17 @@ function ClearPassport({ card }: { card: ClientCard }) {
 function SidePanel({ card, onChanged }: { card: ClientCard; onChanged: () => void }) {
   const { isOwner } = useAuth();
   const patch = useClientPatch(card);
+  const queryClient = useQueryClient();
   const change = useMutation({
-    mutationFn: (body: { stage?: Stage; status?: ClientStatus }) => clientsApi.changeStage(card.id, body),
-    onSuccess: onChanged,
+    mutationFn: (body: StageChange) => clientsApi.changeStage(card.id, body),
+    onSuccess: () => {
+      onChanged();
+      void queryClient.invalidateQueries({ queryKey: ['dialog'] });   // the journal line in the open dialog
+    },
   });
+  /** Both dropdowns go through the one stage API; false keeps the list open after a failure. */
+  const apply = (body: Pick<StageChange, 'stage' | 'status'>, reason: string): Promise<boolean> =>
+    change.mutateAsync(stageChange(body, reason)).then(() => true, () => false);
   const history = timelineWithDates(card);
   const passport = (card.passport ?? '').trim();
 
@@ -166,20 +174,10 @@ function SidePanel({ card, onChanged }: { card: ClientCard; onChanged: () => voi
     <aside aria-label="О клиенте" className="flex flex-col gap-4 rounded-xl border bg-card p-4 lg:sticky lg:top-4">
       <Section title="Этап и статус">
         <div className="grid grid-cols-2 gap-2">
-          <OptionSelect<Stage>
-            aria-label="Этап"
-            value={card.stage}
-            disabled={change.isPending}
-            onChange={(stage) => stage !== card.stage && change.mutate({ stage })}
-            options={STAGES.map((s) => ({ value: s.id, label: s.label, disabled: !s.aiReachable }))}
-          />
-          <OptionSelect<ClientStatus>
-            aria-label="Статус"
-            value={card.status}
-            disabled={change.isPending}
-            onChange={(status) => status !== card.status && change.mutate({ status })}
-            options={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
-          />
+          <StageDropdown field stage={card.stage} disabled={change.isPending}
+            onApply={(stage, reason) => apply({ stage }, reason)} />
+          <StatusDropdown status={card.status} disabled={change.isPending}
+            onApply={(status, reason) => apply({ status }, reason)} />
         </div>
         <p className="text-xs text-muted-foreground">Регистрация и оплата {PARTNER_ONLY_HINT}.</p>
       </Section>
@@ -223,6 +221,19 @@ function SidePanel({ card, onChanged }: { card: ClientCard; onChanged: () => voi
           <p className="text-muted-foreground">Пока пусто: паспортистка заполнит его после первых ответов.</p>
         )}
       </Fold>
+
+      {card.channels.length > 0 && (
+        <Fold title="Саммари переписки">
+          <div className="flex flex-col gap-4">
+            {card.channels.map((ch) => (
+              <div key={ch.dialog_id} className="flex flex-col gap-1">
+                {card.channels.length > 1 && <span className="text-xs font-medium">{CHANNEL_LABELS[ch.kind] ?? ch.kind}</span>}
+                <DialogSummaryBlock dialogId={ch.dialog_id} />
+              </div>
+            ))}
+          </div>
+        </Fold>
+      )}
 
       <Fold title={`История${history.length ? ` · ${history.length}` : ''}`}>
         {history.length ? (

@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import { waitFor, within } from '@testing-library/react';
-import type { Client, DialogDetail, DialogRow } from '@/lib/models';
-import { fakeApi, type FakeReply } from '@/test/fake-api';
+import type { Client, DialogDetail, DialogEvent, DialogRow, Stage } from '@/lib/models';
+import { fakeApi, reply, type FakeReply } from '@/test/fake-api';
 import { CSRF, renderApp, screen, testUser } from '@/test/render-app';
 import { PHONE_WIDTH, stubViewportWidth } from '@/test/viewport';
 
@@ -39,6 +39,18 @@ const detail: DialogDetail = {
     { id: 11, direction: 'in', author: 'client', text: 'Здравствуйте', created_at: '2026-11-11T09:00:00Z', delivery: 'sent' },
   ],
 };
+
+/** A backend that remembers the stage it was given, so a refetch after the change agrees with it. */
+function stageRoutes(): Record<string, FakeReply> {
+  let stage: Stage = client.stage;
+  return {
+    'GET /api/dialogs/1': () => ({ ...detail, client: { ...client, stage } }),
+    'POST /api/clients/7/stage': (req) => {
+      stage = (req.body as { stage: Stage }).stage;
+      return { ...client, stage };
+    },
+  };
+}
 
 function api(extra: Record<string, FakeReply> = {}) {
   return fakeApi({
@@ -361,10 +373,9 @@ describe('InboxPage on a phone (380 px)', () => {
     expect(within(menu).getByRole('menuitem', { name: /Лента клиента/ })).toHaveAttribute('href', '/clients/7#conversation');
     expect(within(menu).getByRole('menuitem', { name: 'Карточка клиента' })).toHaveAttribute('href', '/clients/7');
     expect(within(menu).getByRole('menuitem', { name: 'Очистить чат' })).toBeInTheDocument();
-    expect(within(menu).getByRole('menuitemradio', { name: 'Вовлечён' })).toBeChecked();
-    expect(within(menu).getByRole('menuitemradio', { name: 'Интерес' })).not.toBeChecked();
-    // Partner-only stages cannot be set by hand.
-    expect(within(menu).queryByRole('menuitemradio', { name: 'Оплата' })).not.toBeInTheDocument();
+    // The stage is one item that shows the current value; the stages themselves are in the dropdown it opens.
+    expect(within(menu).getByRole('menuitem', { name: /Этап: Вовлечён/ })).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitemradio')).not.toBeInTheDocument();
   });
 
   it('«Обработано» from the menu clears the operator flag', async () => {
@@ -378,14 +389,25 @@ describe('InboxPage on a phone (380 px)', () => {
     await waitFor(() => expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument());
   });
 
-  it('changes the stage from the menu', async () => {
-    const log = await openDialog({ 'POST /api/clients/7/stage': { ...client, stage: 'interested' } });
+  it('changes the stage with the same dropdown, opened from the menu', async () => {
+    const log = await openDialog(stageRoutes());
     await userEvent.click(screen.getByRole('button', { name: MENU }));
-    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'Интерес' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Этап: Вовлечён/ }));
+    const list = await screen.findByRole('listbox', { name: 'Этап' });
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    // Partner-only stages are shown but cannot be set by hand.
+    expect(within(list).getByRole('option', { name: 'Оплата' })).toBeDisabled();
+    await userEvent.click(within(list).getByRole('option', { name: 'Интерес' }));
+    await userEvent.type(screen.getByLabelText('Причина (необязательно)'), 'созвон');
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
     await waitFor(() => {
       const sent = log.find((r) => r.method === 'POST' && r.path === '/api/clients/7/stage');
-      expect(sent?.body).toMatchObject({ stage: 'interested' });
+      expect(sent?.body).toEqual({ stage: 'interested', reason: 'созвон' });
+      expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
     });
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: MENU }));
+    expect(await screen.findByRole('menuitem', { name: /Этап: Интерес/ })).toBeInTheDocument();
   });
 
   it('«Очистить чат» from the menu still asks for confirmation', async () => {
@@ -443,5 +465,99 @@ describe('InboxPage on a desktop', () => {
     expect(screen.getByText(/ИИ остановлен; проверьте переписку/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Скрыть уведомление' })).not.toBeInTheDocument();
+  });
+});
+
+describe('InboxPage: этап выпадающим списком', () => {
+  const stagePosts = (log: ReturnType<typeof api>) => log.filter((r) => r.method === 'POST' && r.path === '/api/clients/7/stage');
+
+  it('changes the stage from the header dropdown through the stage API, with the typed reason', async () => {
+    const log = api(stageRoutes());
+    await renderApp('/inbox?d=1');
+    const trigger = await screen.findByRole('combobox', { name: 'Этап' });
+    expect(trigger).toHaveTextContent('Вовлечён');
+    await userEvent.click(trigger);
+    await userEvent.click(await screen.findByRole('option', { name: 'Интерес' }));
+    expect(stagePosts(log)).toHaveLength(0);          // nothing is sent until «Применить»
+    await userEvent.type(screen.getByLabelText('Причина (необязательно)'), 'договорились о созвоне');
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
+    await waitFor(() => expect(stagePosts(log)).toHaveLength(1));
+    expect(stagePosts(log)[0].body).toEqual({ stage: 'interested', reason: 'договорились о созвоне' });
+    expect(stagePosts(log)[0].headers['X-CSRF-Token']).toBe(CSRF);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Этап' })).toHaveTextContent('Интерес'));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('sends no reason when the operator gave none', async () => {
+    const log = api(stageRoutes());
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Этап' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Потребность' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
+    await waitFor(() => expect(stagePosts(log)).toHaveLength(1));
+    expect(stagePosts(log)[0].body).toEqual({ stage: 'needs_identified' });
+  });
+
+  it('keeps the list open and says so when the server refuses the change', async () => {
+    const log = api({ 'POST /api/clients/7/stage': reply(422, { detail: 'forbidden' }) });
+    await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Этап' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Интерес' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
+    expect(await screen.findByText(/Не удалось изменить этап/)).toBeInTheDocument();
+    expect(stagePosts(log)).toHaveLength(1);
+    expect(screen.getByRole('listbox', { name: 'Этап' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Этап' })).toHaveTextContent('Вовлечён');
+  });
+});
+
+describe('InboxPage: журнал коммуникации в ленте', () => {
+  const events: DialogEvent[] = [
+    { id: 2, kind: 'ai_pause', from: 'on', to: 'paused', actor: 'owner', actor_name: 'Дима', reason: '',
+      created_at: '2026-11-11T09:20:00Z' },
+    { id: 1, kind: 'stage', from: 'first_contact', to: 'engaged', actor: 'operator', actor_name: 'Оля', reason: 'созвон',
+      created_at: '2026-11-11T09:05:00Z' },
+  ];
+  const withJournal: DialogDetail = {
+    ...detail,
+    messages: [
+      ...detail.messages,
+      { id: 12, direction: 'out', author: 'ai', text: 'Добрый день, Анна', created_at: '2026-11-11T09:10:00Z', delivery: 'sent' },
+    ],
+    events,
+  };
+  const after = (a: HTMLElement, b: HTMLElement): boolean =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it('shows each change as a service line between the messages: type, from → to, who and why', async () => {
+    api({ 'GET /api/dialogs/1': withJournal });
+    await renderApp('/inbox?d=1');
+    const feed = await screen.findByRole('log', { name: 'Сообщения' });
+    const stage = await within(feed).findByRole('note', { name: 'Служебное событие: Этап' });
+    expect(stage).toHaveTextContent('Первый контакт → Вовлечён');
+    expect(stage).toHaveTextContent('оператор Оля');
+    expect(stage).toHaveTextContent('причина: созвон');
+    const pause = within(feed).getByRole('note', { name: 'Служебное событие: ИИ' });
+    expect(pause).toHaveTextContent('включён → на паузе');
+    expect(pause).toHaveTextContent('владелец Дима');
+    expect(pause).toHaveTextContent('причина не указана');
+    // Time order: the client's message, the stage line, the persona's reply, the pause line.
+    const first = within(feed).getByText('Здравствуйте');
+    const answer = within(feed).getByText('Добрый день, Анна');
+    expect(after(first, stage) && after(stage, answer) && after(answer, pause)).toBe(true);
+    // A service line is not a message bubble.
+    expect(stage.closest('[data-author]')).toBeNull();
+    expect(stage).toHaveAttribute('data-event-kind', 'stage');
+  });
+
+  it('keeps the journal of a cleared chat: the wipe itself is a line', async () => {
+    api({ 'GET /api/dialogs/1': { ...detail, messages: [], events: [
+      { id: 3, kind: 'chat_cleared', from: '', to: 'удалено сообщений: 4', actor: 'owner', actor_name: 'Дима',
+        reason: 'тест с нуля', created_at: '2026-11-11T10:00:00Z' }] } });
+    await renderApp('/inbox?d=1');
+    const line = await screen.findByRole('note', { name: 'Служебное событие: Чат очищен' });
+    expect(line).toHaveTextContent('удалено сообщений: 4');
+    expect(line).toHaveTextContent('причина: тест с нуля');
+    expect(screen.queryByText('Сообщений пока нет')).not.toBeInTheDocument();
   });
 });

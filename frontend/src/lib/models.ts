@@ -233,7 +233,33 @@ export interface UnansweredInfo { count: number; since: string | null; message_i
 export interface AiRecovery { status: 'none' | 'queued' | 'stale' | 'refused'; messages: number }
 /** POST /api/dialogs/{id}/ai: диалог и, при включении ИИ, итог восстановления. */
 export interface AiToggleResult extends Dialog { recovery?: AiRecovery }
-export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[] }
+export type JournalActor = 'owner' | 'operator' | 'system' | 'model';
+/**
+ * Строка журнала коммуникации: служебное событие диалога (смена этапа, пауза ИИ, очистка…).
+ * Клиенту не отправляется. `reason` пустая, если причину никто не указал.
+ */
+export interface DialogEvent {
+  id: number;
+  kind: string;
+  from: string;
+  to: string;
+  actor: JournalActor | string;
+  actor_name: string;
+  reason: string;
+  created_at: string;
+}
+/** Саммари сообщений диалога, которые старше окна контекста (GET/POST /api/dialogs/{id}/summary). */
+export interface DialogSummary {
+  text: string;
+  /** Время последнего сообщения, вошедшего в саммари. */
+  covered_until: string | null;
+  messages_covered: number;
+  updated_at: string | null;
+  model: string | null;
+  /** Сколько старых сообщений в саммари ещё не вошло. */
+  pending: number;
+}
+export interface DialogDetail { dialog: Dialog; client: Client; messages: Message[]; events?: DialogEvent[] }
 /** DELETE /api/dialogs/{id}/messages: the dialog after «Очистить чат» and how many messages went. */
 export interface ClearedDialog extends DialogDetail { deleted_messages: number }
 export interface DialogFilter {

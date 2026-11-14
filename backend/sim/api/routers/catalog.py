@@ -22,6 +22,7 @@ from sim.api.schemas import (
 from sim.domain.voice import speaks
 from sim.ports.speech import SpeechError
 from sim.services.guard import GuardOutcome
+from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.models import catalog_items
 from sim.services.preview_media import MAX_BYTES
 from sim.services.prompt import Turn
@@ -71,15 +72,21 @@ async def get_persona(persona_id: int, s: Db):
 
 
 @personas.put("/{persona_id}")
-async def update_persona(persona_id: int, body: PersonaIn, s: Db, _: Owner):
+async def update_persona(persona_id: int, body: PersonaIn, c: App, s: Db, p: Owner):
     persona = await persona_or_404(s, persona_id)
     await check_strategy(s, body.strategy_id)
-    for key, value in body.model_dump().items():
+    after = body.model_dump()
+    before = {key: getattr(persona, key) for key in after}
+    for key, value in after.items():
         setattr(persona, key, value)
     try:
         await s.flush()
     except IntegrityError as exc:
         raise HTTPException(409, "A persona with this name already exists") from exc
+    # Another strategy, model or persona text changes how her dialogs are led: journal lines.
+    names = {row.id: row.name for row in await StrategyRepo(s).all()}
+    await CommunicationJournal(s, clock=c.clock).persona_edited(
+        persona.id, before, after, admin_who(p.user), names)
     return persona_out(persona)
 
 
@@ -188,16 +195,20 @@ async def get_strategy(strategy_id: int, s: Db):
 
 
 @strategies.put("/{strategy_id}")
-async def update_strategy(strategy_id: int, body: StrategyIn, s: Db, _: Owner):
+async def update_strategy(strategy_id: int, body: StrategyIn, c: App, s: Db, p: Owner):
     strategy = await strategy_or_404(s, strategy_id)
     # Only the fields the client sent: an older client that does not know `prompt` / `notes`
     # must not wipe them.
-    for key, value in body.model_dump(exclude_unset=True).items():
+    after = body.model_dump(exclude_unset=True)
+    before = {key: getattr(strategy, key) for key in after}
+    for key, value in after.items():
         setattr(strategy, key, value)
     try:
         await s.flush()
     except IntegrityError as exc:
         raise HTTPException(409, "A strategy with this name already exists") from exc
+    await CommunicationJournal(s, clock=c.clock).strategy_edited(
+        strategy.id, before, after, admin_who(p.user))
     return strategy_out(strategy)
 
 
