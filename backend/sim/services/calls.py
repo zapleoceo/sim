@@ -90,7 +90,7 @@ class CallPlan:
     voice: str
     system: str
     language: str | None
-    greeting: str                # the typed first turn: she introduces herself as an AI assistant
+    greeting: str                # the typed first turn requests only «Алло»
 
 
 @dataclass(frozen=True)
