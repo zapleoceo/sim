@@ -9,6 +9,7 @@ SIM_REPLY = "sim_reply"   # a persona answer inside an admin simulation branch
 MEDIA = "media"           # download a channel attachment (+ transcribe a voice message)
 VIDEO_NOTE = "video_note"  # make (or take from the cache) an AI video note for the owner account
 PASSPORT = "passport"     # the passportist agent updates the lead passport after a reply
+PERSONA_MEDIA = "persona_media"  # the photo or video note a persona chose to attach to her reply
 
 
 def reply_key(dialog_id: int) -> str:
@@ -45,3 +46,7 @@ def video_note_key(dialog_id: int, cache_key: str) -> str:
 
 def passport_key(dialog_id: int) -> str:
     return f"passport:{dialog_id}"
+
+
+def persona_media_key(dialog_id: int) -> str:
+    return f"persona_media:{dialog_id}"

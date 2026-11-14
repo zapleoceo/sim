@@ -185,6 +185,25 @@ describe('personas pages', () => {
     await waitFor(() => expect(loaded()).toBe(2));
   });
 
+  it('keeps the settings of her photos and video notes with the shared instructions', async () => {
+    const setting = (key: string, label: string, value: number): AppSettingItem => ({
+      key, group: 'Фото и кружочки персонажа', label, help: '', kind: 'int', min: 0, max: 9999999999999, value,
+      default: value, is_default: true, updated_at: null, updated_by_id: null,
+    });
+    backend({
+      'GET /api/settings': {
+        items: [setting('video_note_owner_telegram_id', 'Telegram id получателя', 0), setting('persona_media_gap_min', 'Пауза между медиа, мин', 30)],
+        fixed: { persona: '', guard: '' },
+      },
+    });
+    await renderApp('/personas/1');
+    const shared = within(await screen.findByRole('region', { name: 'Общие инструкции' }));
+    const media = within(await shared.findByRole('group', { name: 'Фото и кружочки' }));
+    expect(await media.findByLabelText('Пауза между медиа, мин')).toHaveValue('30');
+    expect(media.getByLabelText('Telegram id получателя')).toHaveValue('0');
+    expect(screen.getByText(/Идёт в описание кадра для её фото и кружочков/)).toBeInTheDocument();
+  });
+
   it('edits the scenario of the persona strategy in place', async () => {
     const STRATEGY: Strategy = {
       id: 3, name: 'RCIPM', goal: '', prompt: 'Сначала человек.', offer: 'курс', partner_name: '', registration_url: '',

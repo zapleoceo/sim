@@ -15,7 +15,7 @@ const GROUPS: readonly { title: string; keys: readonly string[]; footer?: ReactN
   { title: 'Стиль сообщений', keys: ['typo_percent', 'lowercase_percent'] },
   { title: 'Охранник', keys: ['guard_prompt', 'guard_model'], footer: <GuardControl /> },
   { title: 'Паспортистка', keys: ['passport_prompt', 'passport_model'] },
-  { title: 'Кружочки ИИ', keys: ['video_note_owner_telegram_id'] },
+  { title: 'Фото и кружочки', keys: ['persona_photo_model', 'persona_media_gap_min', 'video_note_owner_telegram_id'] },
 ];
 
 /**

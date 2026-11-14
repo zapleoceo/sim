@@ -20,6 +20,7 @@ from sim.clock import Clock, utcnow
 from sim.config import Settings
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
+from sim.ports.image import ImagePort
 from sim.ports.live_voice import LiveVoicePort
 from sim.ports.llm import LLMPort
 from sim.ports.speech import SpeechPort
@@ -43,6 +44,7 @@ from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 from sim.services.passport import PassportService
 from sim.services.persona_media import PersonaMediaService
+from sim.services.persona_media_tool import PersonaMediaTool
 from sim.services.preview_media import PreviewAttachments
 from sim.services.simulation import SimulationService
 from sim.services.tracing import Tracer
@@ -91,6 +93,7 @@ class Container:
     live_voice: LiveVoicePort | None = None                # persona phone calls (Broker /v1/live)
     video: VideoPort | None = None                         # AI video notes (Broker /v1/video/jobs)
     video_encoder: VideoNoteEncoderPort = field(default_factory=VideoNoteEncoder)
+    image: ImagePort | None = None                         # persona photos (Broker /v1/jobs, codex-sub)
 
     async def aclose(self) -> None:
         """Shutdown: release the LLM adapter's pooled HTTP client and the DB engine."""
@@ -132,13 +135,17 @@ class Container:
         """AI video notes for the one allowlisted owner account."""
         return OwnerVideoNotes(s, self.video, self.video_encoder, self.media, clock=self.clock)
 
+    def media_tool(self, s: AsyncSession) -> PersonaMediaTool:
+        """The persona's own photos and video notes, generated from her gallery."""
+        return PersonaMediaTool(s, self.image, self.video_notes(s), self.media, clock=self.clock)
+
     def preview_attachments(self) -> PreviewAttachments:
         return PreviewAttachments(self.llm, self.audited(), self.media)
 
     def conversation(self, s: AsyncSession) -> ConversationService:
         return ConversationService(
             s, self.audited(), self.outbound(s), clock=self.clock,
-            settings_env=env_defaults(self.settings),
+            settings_env=env_defaults(self.settings), media_tool=self.media_tool(s),
         )
 
     def calls(self) -> CallService:
@@ -217,7 +224,8 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         registry=registry if registry is not None else default_registry(),
         box=make_box(settings),
         media=MediaStore(settings.media_dir),
-        speech=broker,   # the same Broker client serves LLMPort, SpeechPort and VideoPort
+        speech=broker,   # the same Broker client serves LLMPort, SpeechPort, VideoPort and ImagePort
         video=broker,
+        image=broker,
         live_voice=BrokerLiveVoice(settings.broker_url, settings.broker_project_key),
     )

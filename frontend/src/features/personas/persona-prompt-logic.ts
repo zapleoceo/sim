@@ -29,6 +29,8 @@ export const sourceLabel = (source: PromptPart['source']): string => SOURCE_LABE
 const RULE_PLACES: Record<string, string> = {
   call: 'к промпту на звонке',
   video_note: 'к каждому кружочку',
+  ai_photo: 'к каждому фото ИИ',
+  media_tool: 'к контексту каждого ответа',
 };
 
 export const rulePlace = (key: string): string => RULE_PLACES[key] ?? 'кодом';

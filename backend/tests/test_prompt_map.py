@@ -22,7 +22,7 @@ def test_example_context_is_the_dynamic_message_with_her_facts_and_placeholder_c
 
 
 def test_fixed_rules_are_the_call_identity_and_the_video_note_label():
-    call, note = fixed_rules("Марина")
+    call, note = fixed_rules("Марина")[:2]
     assert (call.key, note.key) == ("call", "video_note")
     assert call_identity("Марина") in call.text and "ИИ-ассистент" in call.text
     assert note.text == AI_VIDEO_RULE and AI_LABEL in note.text and "Кружочки ИИ" in note.text
@@ -45,5 +45,5 @@ async def test_api_returns_the_prompt_piece_by_piece(api, world, container):
     assert parts[-1] == {"key": "output_contract", "title": "Формат ответа персонажа",
                          "text": OUTPUT_CONTRACT, "source": "setting", "field": "output_contract"}
     assert "родилась 2 марта 1981" in body["context"] and "- Где ты сейчас по распорядку: дома" in body["context"]
-    assert [r["key"] for r in body["rules"]] == ["call", "video_note"]
+    assert [r["key"] for r in body["rules"]] == ["call", "video_note", "ai_photo", "media_tool"]
     assert all(r["title"] and r["text"] for r in body["rules"])

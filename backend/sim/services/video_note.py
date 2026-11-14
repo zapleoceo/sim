@@ -30,16 +30,23 @@ from sim.adapters.db.models import Channel, Dialog, Message, Persona, PersonaMed
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
-from sim.domain.enums import Author, ChannelKind, Delivery, Direction, MediaKind
+from sim.domain.enums import ChannelKind, Delivery, Direction, MediaKind
 from sim.ports.video import VideoError, VideoPort, VideoResult
 from sim.services import jobkinds
+from sim.services.ai_media import (
+    AI_LABEL,
+    AI_VIDEO_PREFIX,
+    MEDIA_URL,
+    ai_message,
+    failed_message,
+    stored_name,
+)
 from sim.services.app_settings import AppSettingsService
 from sim.services.dialog_state import apply_message
 
 log = logging.getLogger(__name__)
 
 OWNER_SETTING = "video_note_owner_telegram_id"
-AI_LABEL = "Сгенерировано ИИ"
 # The rule as the admin shows it on the persona page (read-only; the code below enforces it).
 AI_VIDEO_RULE = (
     f"Перед кружочком отдельным сообщением уходит текст «{AI_LABEL}»; кружочек отправляется "
@@ -47,8 +54,8 @@ AI_VIDEO_RULE = (
     "аккаунтом из настройки «Кружочки ИИ» → «Telegram id получателя». Пока там 0, кружочки "
     "не создаются и не отправляются никому."
 )
-AI_VIDEO_PREFIX = "aivn_"            # media names of generated video notes (the send gate keys on it)
 VIDEO_NOTE_WORKFLOW = "video-note"
+NOTE_FAILED = "[кружочек ИИ не создан]"
 ASPECT_RATIO = "9:16"                # portrait: the face stays inside the centre crop
 ENCODER_VERSION = 1                  # bump when sim.adapters.video changes the output
 NOTE_DELAY_S = 3.0                   # the note follows the label; the gate re-checks the order
@@ -58,7 +65,6 @@ MAX_PROMPT_CHARS = 4000
 MAX_REFERENCE_BYTES = 4 * 1024 * 1024
 REFERENCE_MIMES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                    "webp": "image/webp"}
-MEDIA_URL = "/api/media/"
 
 
 class VideoNoteRefused(Exception):
@@ -125,11 +131,7 @@ def cache_key(request: VideoNoteRequest, reference: Reference | None) -> str:
 
 
 def cache_name(key: str) -> str:
-    return f"{AI_VIDEO_PREFIX}{key[:40]}.mp4"
-
-
-def is_ai_video(media_url: str | None) -> bool:
-    return (media_url or "").startswith(MEDIA_URL + AI_VIDEO_PREFIX)
+    return stored_name(AI_VIDEO_PREFIX, key, "mp4")
 
 
 def owner_allowed(dialog: Dialog, owner_id: int) -> bool:
@@ -278,12 +280,8 @@ class OwnerVideoNotes:
         return note
 
     def message(self, dialog: Dialog, text: str, **fields: Any) -> Message:
-        return Message(dialog_id=dialog.id, direction=Direction.OUT, author=Author.AI, text=text,
-                       delivery=Delivery.QUEUED, created_at=self.clock(), **fields)
+        return ai_message(dialog, text, self.clock(), **fields)
 
     def report_failure(self, dialog: Dialog, error: str) -> None:
-        """Why no note came: a failed message in the owner dialog, visible in the admin and
-        never sent anywhere (it has no SEND job)."""
-        failed = self.message(dialog, "[кружочек ИИ не создан]")
-        failed.delivery, failed.error = Delivery.FAILED, error[:500]
-        self.session.add(failed)
+        """Why no note came: a failed, never-sent message in the owner dialog."""
+        self.session.add(failed_message(dialog, NOTE_FAILED, error, self.clock()))

@@ -5,15 +5,17 @@ and where the owner edits it. Pure functions, no IO.
 - `context`: an example of the dynamic message code builds for every reply, with her real facts
   for this moment (age from the birth date, local time, where she is by her routine) and
   placeholder client data;
-- `rules`: what is fixed in the code and not editable: the phone call rule and the AI video
-  note rule."""
+- `rules`: what is fixed in the code and not editable: the phone call rule, the AI video note
+  and AI photo rules, and the instruction of her own photo / video note tool."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 
-from sim.domain.enums import ChannelKind, ClientStatus, Stage
+from sim.domain.enums import ChannelKind, ClientStatus, MediaKind, Stage
+from sim.services.ai_media import AI_PHOTO_RULE
 from sim.services.call_prompt import call_identity, greeting
+from sim.services.persona_media_tool import NO_MEDIA, Offer
 from sim.services.prompt import DialogContext, PromptPart, StrategyProfile, dynamic_context
 from sim.services.video_note import AI_VIDEO_RULE
 
@@ -55,4 +57,8 @@ def fixed_rules(persona_name: str) -> list[FixedRule]:
         FixedRule("call", "Правило звонков",
                   f"{call_identity(persona_name)}\n\n{greeting(persona_name)}"),
         FixedRule("video_note", "Правило кружочков", AI_VIDEO_RULE),
+        FixedRule("ai_photo", "Правило фото ИИ", AI_PHOTO_RULE),
+        FixedRule("media_tool", "Фото и кружочки по решению персонажа",
+                  f"{Offer((MediaKind.PHOTO, MediaKind.VIDEO_NOTE)).brief()}\n\n"
+                  f"Когда отправить нельзя, вместо этого:\n{NO_MEDIA}"),
     ]

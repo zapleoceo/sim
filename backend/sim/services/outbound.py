@@ -27,12 +27,13 @@ from sim.ports.channel import SendResult
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing
+from sim.services.ai_media import AI_LABEL, is_ai_photo, is_ai_video
 from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
-from sim.services.video_note import is_ai_video, label_delivered, owner_allowed, owner_telegram_id
+from sim.services.video_note import label_delivered, owner_allowed, owner_telegram_id
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -63,6 +64,12 @@ async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -
         message.error = reason[:500]
         await jobs.cancel_pending(jobkinds.SEND, send_key(message.id))
     return len(rows)
+
+
+def media_caption(message: Message) -> str:
+    """The caption a photo or note goes out with. A generated photo always carries the AI label,
+    whoever queued it and whatever its text says (sim.services.ai_media)."""
+    return AI_LABEL if is_ai_photo(message.media_url) else message.text
 
 
 def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
@@ -272,7 +279,7 @@ class OutboundService:
                     )
                 elif gallery_media is not None:
                     result = await self._send_gallery(
-                        port, dialog.external_thread_id, gallery_media, message.text,
+                        port, dialog.external_thread_id, gallery_media, media_caption(message),
                     )
                 elif attachment is not None:
                     data, filename, mime = attachment
