@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 from sim.adapters.db.models import Persona
 from sim.adapters.db.session import transaction
-from sim.services.call_prompt import call_identity
+from sim.services.call_prompt import CALL_RULES, call_identity, greeting
 from sim.services.prompt import OUTPUT_CONTRACT, StrategyProfile
 from sim.services.prompt_map import EXAMPLE_REF, example_context, fixed_rules
 from sim.services.video_note import AI_LABEL, AI_VIDEO_RULE
@@ -24,7 +24,7 @@ def test_example_context_is_the_dynamic_message_with_her_facts_and_placeholder_c
 def test_fixed_rules_are_the_call_identity_and_the_video_note_label():
     call, note = fixed_rules("Марина")[:2]
     assert (call.key, note.key) == ("call", "video_note")
-    assert call_identity("Марина") in call.text and "ИИ-ассистент" in call.text
+    assert call.text == f'{CALL_RULES}\n\n{call_identity("Марина")}\n\n{greeting("Марина")}'
     assert note.text == AI_VIDEO_RULE and AI_LABEL in note.text and "Кружочки ИИ" in note.text
 
 

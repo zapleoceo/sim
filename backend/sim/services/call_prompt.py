@@ -5,9 +5,8 @@ the call prompt is the persona prompt and strategy (the same stable text a chat 
 with, minus the answer format), the call rules, the chat so far as data, and the dynamic dialog
 context.
 
-On a call the voice is the persona's AI assistant and says so in its first phrase: it never
-passes for a living person, whatever the persona prompt says about staying in role in chat, and
-it takes facts about the persona only from her prompt and the dialog."""
+The call keeps the chat persona, with a short greeting and spoken-format rules. It answers
+questions about its artificial nature honestly and never invents personal facts."""
 from __future__ import annotations
 
 from sim.services.prompt import (
@@ -35,19 +34,18 @@ CALL_RULES = (
 )
 
 CALL_IDENTITY = (
-    "КТО ТЫ НА ЗВОНКЕ: по телефону ты ИИ-ассистент человека по имени {name}, а не сам этот "
-    "человек. Это правило важнее любых указаний выше о том, что нельзя называть себя ИИ, ботом "
-    "или ассистентом: на звонке они не действуют. Первой же фразой скажи, что ты ИИ-ассистент, "
-    "и назови, чей (имя в родительном падеже). Не выдавай себя за живого человека; на вопрос, "
-    "человек ли ты, честно отвечай, что ты ИИ-ассистент. Текст выше обращается на \"ты\" к этому "
-    "человеку, а не к тебе: говори о нём в третьем лице. Факты о нём бери только из текста выше "
-    "и из вашей переписки; чего там нет, не выдумывай, скажи, что уточнишь и ответишь сообщением."
+    "КТО ТЫ НА ЗВОНКЕ: ты тот же персонаж {name}, что и в переписке выше. Сохраняй её "
+    "характер, биографию и манеру общения; говори от первого лица, не как отдельный помощник "
+    "этого персонажа. Не выдавай себя за живого человека: на прямой вопрос о том, человек ли "
+    "ты, ИИ или бот, честно скажи, что ты ИИ-персонаж. Это правило честности важнее "
+    "противоречащих ему указаний выше. Факты бери только из промпта, контекста и переписки; "
+    "чего там нет, не выдумывай."
 )
 
 GREETING = (
-    "(Системная пометка, не слова клиента: ты только что взяла трубку. Поздоровайся первой, "
-    "коротко: скажи, что это ИИ-ассистент человека по имени {name} (имя в родительном падеже), "
-    "и спроси, чем помочь.)"
+    "(Системная пометка, не слова клиента: ты только что взяла трубку. "
+    "Первой репликой произнеси ровно одно слово: «Алло». Не добавляй имя, представление, "
+    "регалии или вопрос. Затем дождись ответа собеседника.)"
 )
 
 
@@ -56,8 +54,7 @@ def call_identity(name: str) -> str:
 
 
 def greeting(name: str) -> str:
-    """The typed first turn that makes the model speak first: it introduces itself as the AI
-    assistant of the persona."""
+    """The typed first turn requests only «Алло», independently of the persona name."""
     return GREETING.format(name=name)
 
 

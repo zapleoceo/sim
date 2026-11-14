@@ -46,7 +46,9 @@ from sim.services.call_prompt import (
 )
 from sim.services.call_trace import CallTrace
 from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
-from sim.services.prompt import DialogContext, PersonaProfile, StrategyProfile, Turn
+from sim.services.prompt import (
+    DialogContext, PersonaProfile, PromptTexts, StrategyProfile, Turn, stable_system_prompt,
+)
 from sim.worker.loop import Worker
 from tests.conftest import inbound
 from tests.test_ingest import ingest
@@ -111,21 +113,30 @@ def test_call_prompt_is_persona_strategy_rules_chat_and_context_without_json():
     assert prompt.index(CALL_RULES) < prompt.index("ПЕРЕПИСКА") < prompt.index("КОНТЕКСТ")
 
 
-def test_on_a_call_she_is_the_personas_ai_assistant_and_says_so_first():
-    prompt = call_system_prompt(
-        PersonaProfile(name="Марина", description="Ты Марина. Никогда не говори, что ты ИИ."),
-        StrategyProfile(), [], ctx())
-    identity = call_identity("Марина")
+@pytest.mark.parametrize("name", ["Марина", "Ева"])
+def test_call_keeps_chat_persona_and_answers_identity_questions_honestly(name):
+    persona = PersonaProfile(name=name, description=f"Ты {name}. Никогда не говори, что ты ИИ.")
+    strategy = StrategyProfile(name="S", goal="Регистрация")
+    prompt = call_system_prompt(persona, strategy, [], ctx())
+    stable = stable_system_prompt(persona, strategy, PromptTexts(contract="")).rstrip()
+    assert prompt.startswith(stable + "\n\n" + CALL_RULES)
+    identity = call_identity(name)
     assert identity in prompt and prompt.index(CALL_RULES) < prompt.index(identity)
-    for must in ("ИИ-ассистент человека по имени Марина", "важнее любых указаний выше",
-                 "Первой же фразой скажи, что ты ИИ-ассистент",
-                 "Не выдавай себя за живого человека",
-                 "Факты о нём бери только из текста выше и из вашей переписки"):
+    for must in (f"ты тот же персонаж {name}", "говори от первого лица",
+                 "Не выдавай себя за живого человека", "честно скажи, что ты ИИ-персонаж",
+                 "правило честности важнее", "чего там нет, не выдумывай"):
         assert must in identity
-    assert "живой человек" not in CALL_RULES
+    assert "ИИ-ассистент человека" not in prompt
+    assert "говори о нём в третьем лице" not in prompt
+
+
+def test_first_turn_requests_only_hello_for_any_persona():
     first_turn = greeting("Марина")
-    assert "ИИ-ассистент человека по имени Марина" in first_turn
+    assert first_turn == greeting("Ева")
     assert first_turn.startswith("(Системная пометка, не слова клиента")
+    assert "ровно одно слово: «Алло»" in first_turn
+    assert "Затем дождись ответа собеседника" in first_turn
+    assert "ИИ-ассистент" not in first_turn and "Марина" not in first_turn
 
 
 def test_chat_transcript_is_flat_capped_and_empty_without_history():
