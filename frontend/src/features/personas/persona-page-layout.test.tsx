@@ -2,8 +2,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SECTIONS } from './persona-sections';
 import { EMPTY_PERSONA } from './persona-schema';
-import type { Persona } from '@/lib/models';
-import { fakeApi } from '@/test/fake-api';
+import type { AppSettingItem, Persona } from '@/lib/models';
+import { fakeApi, type FakeReply } from '@/test/fake-api';
 import { blockButton, openLongText, toggleBlock, typeLongText } from '@/test/persona-blocks';
 import { renderApp } from '@/test/render-app';
 import { PHONE_WIDTH, stubViewportWidth } from '@/test/viewport';
@@ -20,7 +20,7 @@ const MARINA: Persona = {
   created_at: '2026-11-01T10:00:00Z',
 };
 
-function backend() {
+function backend(overrides: Record<string, FakeReply> = {}) {
   return fakeApi({
     'GET /api/personas': { items: [MARINA] },
     'GET /api/strategies': { items: [] },
@@ -33,6 +33,7 @@ function backend() {
       rules: [{ key: 'call', title: 'Правило звонков', text: 'ты ИИ-ассистент' }],
     },
     'PUT /api/personas/1': (r: { body: unknown }) => ({ ...MARINA, ...(r.body as object) }),
+    ...overrides,
   });
 }
 
@@ -110,6 +111,36 @@ describe('persona page layout', () => {
     // the other long texts of the form open the same way
     await toggleBlock('Распорядок');
     expect(await openLongText('Распорядок недели')).toHaveValue('пн-пт 09:00-13:00 консультации');
+  });
+
+  it.each(['save', 'reset'] as const)('locks shared text while %s is pending, then shows the returned value', async (operation) => {
+    const setting: AppSettingItem = {
+      key: 'output_contract', group: 'Ответ', label: 'Формат ответа', help: '', kind: 'text',
+      min: null, max: null, value: 'свой формат', default: 'исходный формат', is_default: false,
+      updated_at: null, updated_by_id: null,
+    };
+    let finish!: (item: AppSettingItem) => void;
+    const pending = new Promise<AppSettingItem>((resolve) => { finish = resolve; });
+    backend({
+      'GET /api/settings': { items: [setting], fixed: { persona: '', guard: '' } },
+      'PUT /api/settings/output_contract': () => pending,
+      'DELETE /api/settings/output_contract': () => pending,
+    });
+    await renderApp('/personas/1');
+    await toggleBlock('Общие инструкции');
+    const region = within(document.getElementById('setting-output_contract') as HTMLElement);
+    const input = region.getByRole('textbox', { name: 'Формат ответа' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'новый формат');
+    await userEvent.click(region.getByRole('button', { name: operation === 'save' ? 'Сохранить' : 'Вернуть по умолчанию' }));
+    await waitFor(() => expect(input).toBeDisabled());
+    expect(region.getByRole('button', { name: 'Редактировать: Формат ответа' })).toBeDisabled();
+    await userEvent.type(input, ' потерянная правка');
+    expect(input).toHaveValue('новый формат');
+    const returned = operation === 'save' ? 'новый формат' : 'исходный формат';
+    finish({ ...setting, value: returned, is_default: operation === 'reset', updated_at: '2026-11-14T21:00:00Z' });
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Формат ответа' })).toBeEnabled());
+    expect(screen.getByRole('textbox', { name: 'Формат ответа' })).toHaveValue(returned);
   });
 
   it('saves direct inline edits without cutting other long fields', async () => {

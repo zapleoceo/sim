@@ -20,6 +20,7 @@ export function LongText({
   error,
   anchorId,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -30,6 +31,7 @@ export function LongText({
   /** `id` of the whole field, so a link elsewhere on the page can point at it. */
   anchorId?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -39,7 +41,7 @@ export function LongText({
     <div id={anchorId} className="flex min-w-0 scroll-mt-4 flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3">
         <span id={`${id}-label`} className="min-w-0 text-sm leading-tight font-medium">{label}</span>
-        <Button variant="outline" size="sm" className="flex-none" aria-label={`Редактировать: ${label}`} onClick={() => setOpen(true)}>
+        <Button disabled={disabled} variant="outline" size="sm" className="flex-none" aria-label={`Редактировать: ${label}`} onClick={() => setOpen(true)}>
           <Pencil />
           Редактировать
         </Button>
@@ -52,6 +54,7 @@ export function LongText({
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
         placeholder={placeholder ?? 'Пусто'}
+        disabled={disabled}
         rows={4}
         className={cn(LONG_TEXT_PREVIEW, 'field-sizing-fixed h-28 min-h-28 resize-y text-[13px] leading-relaxed', error && 'ring-1 ring-destructive')}
       />
@@ -76,6 +79,7 @@ export function LongText({
             {hint && <DialogDescription className="text-xs">{hint}</DialogDescription>}
           </DialogHeader>
           <Textarea
+            disabled={disabled}
             aria-label={label}
             value={value}
             onChange={(e) => onChange(e.target.value)}
