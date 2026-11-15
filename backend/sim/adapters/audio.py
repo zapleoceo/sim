@@ -38,11 +38,26 @@ async def run_process(args: Sequence[str], data: bytes, limit_s: float) -> tuple
         raise AudioError(f"{args[0]} unavailable: {type(exc).__name__}") from exc
     try:
         out, err = await asyncio.wait_for(proc.communicate(data), limit_s)
+    except asyncio.CancelledError:
+        await stop_process(proc)
+        raise
     except TimeoutError as exc:
-        proc.kill()
-        await proc.wait()
+        await stop_process(proc)
         raise AudioError(f"{args[0]} timed out after {limit_s:g}s") from exc
     return proc.returncode or 0, out, err
+
+
+async def stop_process(proc: asyncio.subprocess.Process) -> None:
+    """Kill and drain PIPEs, not wait() on potentially full unread stdout/stderr.
+
+    Shield the reaper from a second cancellation after the child has been killed.
+    """
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass  # exited between the status check and kill
+    await asyncio.shield(proc.communicate())
 
 
 class OggOpusEncoder:

@@ -88,7 +88,7 @@ export interface PersonaMedia {
   created_at: string;
 }
 export type VoiceMode = 'off' | 'mirror' | 'always';
-export type VoiceAmbience = 'off' | 'room' | 'street' | 'cafe' | 'random';
+export type VoiceAmbience = 'off' | 'room' | 'street' | 'cafe' | 'random' | 'contextual';
 
 export interface PreviewTurn { role: 'user' | 'assistant'; text: string }
 export type GuardVerdict = 'ok' | 'rewritten' | 'blocked';

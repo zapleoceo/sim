@@ -93,7 +93,7 @@ describe('persona form validation', () => {
   it('voice notes are clean by default and offer room, street, cafe and random ambience', () => {
     expect(valid.voice_ambience).toBe('off');
     expect(personaFromForm({ ...valid, voice_ambience: 'street' }).voice_ambience).toBe('street');
-    expect(VOICE_AMBIENCE_OPTIONS.map((o) => o.value)).toEqual(['off', 'room', 'street', 'cafe', 'random']);
+    expect(VOICE_AMBIENCE_OPTIONS.map((o) => o.value)).toEqual(['off', 'room', 'street', 'cafe', 'random', 'contextual']);
   });
 
   it('requires a Gemini voice once voice replies are on', () => {

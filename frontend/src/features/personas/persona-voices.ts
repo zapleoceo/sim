@@ -31,4 +31,5 @@ export const VOICE_AMBIENCE_OPTIONS: Option<VoiceAmbience>[] = [
   { value: 'street', label: 'На улице' },
   { value: 'cafe', label: 'В кафе' },
   { value: 'random', label: 'Случайно: дом, улица или кафе' },
+  { value: 'contextual', label: 'По обстановке: звонки и голосовые' },
 ];

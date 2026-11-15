@@ -36,6 +36,7 @@ from sim.services.guard import GuardOutcome
 from sim.services.humanize import TYPING_MAX_S
 from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.media_decisions import MediaDecisionLog
+from sim.services.persona_ambience import voice_ambience
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
 from sim.services.video_note import label_delivered, owner_allowed, owner_telegram_id
@@ -431,7 +432,8 @@ class OutboundService:
                 async with showing(port, dialog.external_thread_id, RECORD_VOICE):
                     note = await self.voice.render(
                         message.text, voice=persona.voice_id, style=persona.voice_style,
-                        ambience=persona.voice_ambience,
+                        ambience=voice_ambience(persona.voice_ambience, persona.routine,
+                                                persona.timezone, self.clock()),
                     )
             except (SpeechError, AudioError) as exc:
                 reason = f"{type(exc).__name__}: {exc}"[:300]
