@@ -6,6 +6,15 @@ from datetime import datetime
 import pytest
 
 from sim.domain.enums import Stage
+from sim.persona_prompts import (
+    EVA,
+    MARINA,
+    MARINA_RCIP_CONTEXT,
+    MARINA_STYLE,
+    PERSONA_TEXTS,
+    STRATEGY_PROMPT,
+)
+from sim.services.call_prompt import call_system_prompt
 from sim.services.prompt import (
     STYLE_RULE,
     VOICE_RULE,
@@ -254,3 +263,41 @@ def test_voice_rule_answers_identity_questions_honestly_without_unsolicited_intr
     assert "честно скажи, что ты ИИ-персонаж" in VOICE_RULE
     assert "Не утверждай, что ты живой человек" in VOICE_RULE
     assert "ни при каком вопросе" not in VOICE_RULE
+
+
+def test_marina_natural_style_is_in_shared_chat_and_call_prompt_without_hidden_override():
+    persona = PersonaProfile(name=MARINA, description=PERSONA_TEXTS[MARINA]["description"])
+    strategy = StrategyProfile(name="S", prompt=STRATEGY_PROMPT)
+    history = [Turn("user", "Алло, привет."),
+               Turn("assistant", "Привет. Слушаю вас, что-то срочное?"), Turn("user", "TikTok")]
+    chat = build_messages(persona, strategy, history, ctx("Анна", "r"))
+    call = call_system_prompt(persona, strategy, history, ctx("Анна", "r"))
+    assert MARINA_STYLE in chat[0]["content"] and MARINA_STYLE in call
+    assert chat[-2]["content"] == "TikTok" and "Клиент: TikTok" in call
+    assert VOICE_RULE in chat[0]["content"]
+    assert "БЕЗОПАСНОСТЬ:" in chat[0]["content"] and "ФОРМАТ ОТВЕТА" in chat[0]["content"]
+    assert "ФОРМАТ ОТВЕТА" not in call
+    assert "эти указания стиля важнее" in chat[0]["content"]
+    assert MARINA_RCIP_CONTEXT in chat[0]["content"] and MARINA_RCIP_CONTEXT in call
+    # This is prompt assembly coverage, not a claim about a real model's generated reply.
+    assert MARINA_STYLE not in PERSONA_TEXTS[EVA]["description"]
+
+
+def test_marina_style_guides_meaning_not_a_fixed_tiktok_answer():
+    for guidance in ("предыдущим вопросом", "Не додумывай намерение",
+                     "делись уместной личной деталью", "не возвращай любой разговор",
+                     "задай один короткий уточняющий вопрос", "Можно ответить без встречного вопроса",
+                     "Не приписывай срочность", "на прямой вопрос об ИИ отвечай честно",
+                     "обязательные правила безопасности"):
+        assert guidance in MARINA_STYLE
+    assert "TikTok" not in MARINA_STYLE
+    assert "мелкую естественную опечатку" not in PERSONA_TEXTS[MARINA]["description"]
+
+
+def test_rcip_context_keeps_unverified_claims_and_missing_terms_explicit():
+    for boundary in ("Валюта", "не указаны", "не предоставлены и не проверены",
+                     "Не обещай безусловный возврат", "97,38%", "не подтверждены",
+                     "включая потерю вложенных средств", "доход не гарантирован",
+                     "Не подбирай человеку инвестицию", "Не запрашивай данные карт"):
+        assert boundary in MARINA_RCIP_CONTEXT
+    assert MARINA_RCIP_CONTEXT not in PERSONA_TEXTS[EVA]["description"]
