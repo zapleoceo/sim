@@ -244,7 +244,7 @@ export function PersonaEditor({
           <Field label="Манера речи (необязательно)" hint="Подсказка для синтеза: как произносить, а не что" error={errors.voice_style?.message}>
             <Input {...register('voice_style')} placeholder="тепло, спокойно, с улыбкой" autoComplete="off" />
           </Field>
-          <Field label="Шум записи" hint="Как будто голосовое записано на смартфон в этом месте; голос и произношение те же">
+          <Field label="Шум записи" hint="По обстановке: явное место из текущего распорядка для звонков и голосовых; если место неизвестно, чистый звук. Остальные режимы только для голосовых.">
             <SelectControl control={control} name="voice_ambience" options={VOICE_AMBIENCE_OPTIONS} />
           </Field>
         </FormGrid>

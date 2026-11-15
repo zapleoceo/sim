@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sim.adapters.call_ambience import CallAmbience, prepare_call_ambience
 from sim.adapters.channels.capabilities import IncomingCall
 from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.models import Message
@@ -37,7 +38,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.session import transaction
 from sim.adapters.pcm import FRAME_MS, PcmBuffer, frame_bytes, resample
 from sim.clock import Clock, utcnow
-from sim.domain.enums import Author, ClientStatus, Delivery, Direction
+from sim.domain.enums import Author, ClientStatus, Delivery, Direction, VoiceAmbience
 from sim.domain.voice import GEMINI_VOICES
 from sim.ports.live_voice import (
     AUDIO,
@@ -53,6 +54,7 @@ from sim.services.call_trace import CallTrace
 from sim.services.conversation import ConversationService
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
+from sim.services.persona_ambience import contextual_ambience
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +93,7 @@ class CallPlan:
     system: str
     language: str | None
     greeting: str                # the typed first turn requests only «Алло»
+    ambience: str = VoiceAmbience.OFF
 
 
 @dataclass(frozen=True)
@@ -140,6 +143,12 @@ class CallService:
         if call.ended:
             log.info("call on channel %s not answered: hung up while ringing", channel_id)
             return CallOutcome("skipped:hung_up")
+        # Local optional bed before paid live session; failure keeps clean audio.
+        ambience = await prepare_call_ambience(plan.ambience, call.rate_hz)
+        if plan.ambience != VoiceAmbience.OFF:
+            trace.event("ambience", requested=plan.ambience, active=ambience is not None)
+        if call.ended:
+            return CallOutcome("skipped:hung_up")
         assert self.live is not None
         try:
             session = await self.live.open(
@@ -162,7 +171,7 @@ class CallService:
             return CallOutcome("failed")
         trace.event("answered")
         try:
-            await self.converse(call, session, trace)
+            await self.converse(call, session, trace, ambience)
         finally:
             summary = await session.finish()
             await call.hangup()
@@ -195,11 +204,16 @@ class CallService:
             if dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED:
                 return "operator_dialog"
             system = await self.conversation(s).call_prompt(dialog, persona)
+            # Fixed/random note presets do not change previously clean calls.
+            ambience = (contextual_ambience(persona.routine, persona.timezone, self.clock())
+                        if persona.voice_ambience == VoiceAmbience.CONTEXTUAL
+                        else VoiceAmbience.OFF)
             return CallPlan(dialog.id, persona.voice_id, system,
-                            language_code(persona.language), greeting(persona.name))
+                            language_code(persona.language), greeting(persona.name), ambience)
 
     async def converse(
         self, call: IncomingCall, session: LiveVoiceSession, trace: CallTrace,
+        ambience: CallAmbience | None = None,
     ) -> None:
         """Until the caller hangs up, the Broker ends the conversation (time limit) or one of
         the three tasks fails."""
@@ -207,7 +221,7 @@ class CallService:
         tasks = {
             "uplink": asyncio.ensure_future(self.uplink(call, session, trace)),
             "downlink": asyncio.ensure_future(self.downlink(session, out, call.rate_hz, trace)),
-            "pacer": asyncio.ensure_future(self.pace(call, out, trace)),
+            "pacer": asyncio.ensure_future(self.pace(call, out, trace, ambience)),
         }
         try:
             done, _ = await asyncio.wait(tasks.values(), timeout=self.max_seconds + 30,
@@ -258,8 +272,12 @@ class CallService:
                 if tail:
                     out.push(tail)
 
-    async def pace(self, call: IncomingCall, out: PcmBuffer, trace: CallTrace) -> None:
-        """One frame every 10 ms while she speaks, idle while she is silent. The schedule is
+    async def pace(
+        self, call: IncomingCall, out: PcmBuffer, trace: CallTrace,
+        ambience: CallAmbience | None = None,
+    ) -> None:
+        """One frame every 10 ms; a selected bed continues in pauses (not in speech buffer).
+        Without a bed we stay idle while she is silent. The schedule is
         absolute, so a late wake-up is made up by a shorter next sleep and her speech does not
         fall behind; after a stall longer than MAX_LAG_S it restarts instead of sending the
         missed frames in one burst."""
@@ -268,6 +286,9 @@ class CallService:
         while True:
             frame = out.pop_frame()
             now = self.mono()
+            speech = frame is not None
+            if ambience is not None:
+                frame = ambience.mix(frame)
             if frame is None:
                 due = now + step
                 await self.sleep(step)
@@ -276,8 +297,11 @@ class CallService:
                 trace.count("pacer_restarts")
                 due = now
             await call.play(frame)
-            trace.first("first_frame_sent", bytes=len(frame))
-            trace.count("frames_out")
+            if speech:
+                trace.first("first_frame_sent", bytes=len(frame))
+                trace.count("frames_out")
+            else:
+                trace.count("ambience_frames_out")
             due += step
             await self.sleep(max(0.0, due - self.mono()))
 
