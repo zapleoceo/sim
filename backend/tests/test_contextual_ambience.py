@@ -31,6 +31,11 @@ NOW = datetime(2026, 11, 15, 12)  # Sunday 13:00 Berlin
     ("дома у окна, вид на улицу", "off"),
     ("созвон с Ингой в кафе", "off"), ("обсуждаю встречу в кафе", "off"),
     ("мечтаю о вечере дома", "off"), ("завтрак дома с мужем", "room"),
+    ("онлайн-консультации с клиентами, из дома", "room"),
+    ("консультации и переписка с клиентами, из дома", "room"),
+    ("обед с Ингой в кафе возле дома", "cafe"),
+    ("работаю из кофейни на углу, переписка", "cafe"),
+    ("собираюсь работать из кофейни на углу, переписка", "off"),
 ])
 def test_only_unambiguous_current_locations_select_background(activity, expected):
     assert contextual_ambience(f"вс 12:00-14:00 {activity}", "Europe/Berlin", NOW) == expected
