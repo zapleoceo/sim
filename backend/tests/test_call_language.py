@@ -25,7 +25,8 @@ def test_current_speech_not_foreign_phone_or_history_selects_language():
     for rule in ("начинай каждый звонок по-русски", "языка прежней переписки",
                  "После его речи отвечай на языке, на котором он сейчас говорит",
                  "на языке, который он явно попросил", "русский и украинский основные",
-                 "Не определяй язык по номеру телефона", "недостаточно для смены языка"):
+                 "Не определяй язык по номеру телефона", "недостаточно для смены языка",
+                 "после перехода сохраняй последний понятный или явно запрошенный язык"):
         assert rule in prompt
     assert "Olá" in prompt  # history is preserved as data, not erased to force language
     assert CALL_RULES in next(r.text for r in fixed_rules("Марина") if r.key == "call")
