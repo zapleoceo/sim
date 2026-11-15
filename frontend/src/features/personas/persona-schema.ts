@@ -65,7 +65,7 @@ export const personaSchema = z.object({
   voice_id: z.string().refine((v) => v === '' || GEMINI_VOICE_IDS.has(v), 'Выберите голос из списка'),
   voice_mode: z.enum(['off', 'mirror', 'always']),
   voice_style: z.string().max(300, 'Не длиннее 300 символов'),
-  voice_ambience: z.enum(['off', 'room', 'street', 'cafe', 'random']),
+  voice_ambience: z.enum(['off', 'room', 'street', 'cafe', 'random', 'contextual']),
   accept_calls: z.boolean(),
   strategy_id: z.number().nullable(),
   is_active: z.boolean(),

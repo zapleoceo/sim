@@ -27,6 +27,7 @@ class VoiceAmbience(StrEnum):
     STREET = "street"      # outside: passing traffic, city rumble, wind
     CAFE = "cafe"          # in a cafe: distant chatter, hall noise
     RANDOM = "random"      # one of room / street / cafe per note
+    CONTEXTUAL = "contextual"  # current explicit routine location; unknown means off
 
 
 class SessionStatus(StrEnum):

@@ -24,6 +24,7 @@ from sim.ports.speech import SpeechError
 from sim.services.guard import GuardOutcome
 from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.models import catalog_items
+from sim.services.persona_ambience import voice_ambience
 from sim.services.preview_media import MAX_BYTES
 from sim.services.prompt import Turn
 from sim.wiring import Container
@@ -143,7 +144,9 @@ async def preview_voice(
         return None
     try:
         note = await renderer.render(
-            reply, voice=persona.voice_id, style=persona.voice_style, ambience=persona.voice_ambience,
+            reply, voice=persona.voice_id, style=persona.voice_style,
+            ambience=voice_ambience(persona.voice_ambience, persona.routine,
+                                    persona.timezone, c.clock()),
         )
     except (SpeechError, AudioError) as exc:
         return {"media_url": None, "duration_s": None, "error": str(exc)[:300]}
