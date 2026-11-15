@@ -6,6 +6,7 @@ or normalised. The real-time path does no IO and allocates only one 10 ms frame 
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 from array import array
@@ -111,7 +112,8 @@ No shell, network, paid generation or unbounded background process is involved.
         expected = rate_hz * BED_SECONDS * 2
         if code or len(out) != expected:
             raise AudioError("ambience render returned invalid PCM")
-        return CallAmbience(out, rate_hz)
+        # Do not block another active call's 10 ms pacer during full-bed preparation.
+        return await asyncio.to_thread(CallAmbience, out, rate_hz)
     except (AudioError, OSError, ValueError, TimeoutError) as exc:
         log.warning("call ambience unavailable (%s); using clean audio", type(exc).__name__)
         return None
