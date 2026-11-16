@@ -206,7 +206,7 @@ async def test_real_call_path_blocks_audio_without_handoff(container, world, fak
     rows = await dialog_messages(container, did)
     assert rows[-1].delivery is Delivery.CANCELLED and rows[-1].guard_verdict == BLOCKED
     assert not any(row.handoff_reason for row in rows)
-    assert "Неверный день" in rows[-2].error
+    assert "Неверный день" in next(row for row in rows if row.media_kind == "call").error
     async with container.factory() as s:
         d = await s.get(Dialog, did)
         assert not d.ai_paused and not d.needs_operator
