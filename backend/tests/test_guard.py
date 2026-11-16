@@ -85,11 +85,11 @@ async def test_rewrite_then_failed_recheck_blocks(container, world, fake_llm):
 
 
 async def test_block_sends_nothing_and_calls_the_operator(container, world, fake_llm):
-    fake_llm.replies = [decision_json(reply="Да, я живой человек.")] * 2
-    fake_llm.guard_replies = [guard_json("block", ["выдаёт себя за человека"])] * 2
+    fake_llm.replies = [decision_json(reply="Дам вам 100% гарантию дохода!")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["обещает гарантированный доход"])] * 2
     await start(container, world)
     assert (await run_reply(container)).status == "needs_operator"
-    await assert_blocked(container, ["выдаёт себя за человека"], text="Да, я живой человек.")
+    await assert_blocked(container, ["обещает гарантированный доход"], text="Дам вам 100% гарантию дохода!")
 
 
 async def assert_blocked(container, violations, text=DRAFT):
@@ -106,8 +106,8 @@ async def assert_blocked(container, violations, text=DRAFT):
 
 
 async def test_blocked_draft_is_not_part_of_the_next_prompt(container, world, fake_llm):
-    fake_llm.replies = [decision_json(reply="Да, я живой человек.")] * 2
-    fake_llm.guard_replies = [guard_json("block", ["ложь"])] * 2
+    fake_llm.replies = [decision_json(reply="Дам вам 100% гарантию дохода!")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["обещание дохода"])] * 2
     await start(container, world)
     await run_reply(container)
     await ingest(container, world.channel.id, inbound("Алло?", ext="m2"))
@@ -117,7 +117,7 @@ async def test_blocked_draft_is_not_part_of_the_next_prompt(container, world, fa
     fake_llm.replies = [decision_json(reply="Здравствуйте!")]
     await run_reply(container)
     prompt = fake_llm.gen_calls[-1][0]
-    assert all("живой человек" not in m["content"] for m in prompt)
+    assert all("100% гарантию" not in m["content"] for m in prompt)
 
 
 async def test_guard_error_fails_closed(container, world, fake_llm):

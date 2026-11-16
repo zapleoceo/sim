@@ -14,7 +14,7 @@ SPEC.loader.exec_module(gate)
 
 
 def test_code_with_tests_and_docs_passes():
-    r = gate.evaluate(["backend/sim/services/x.py", "backend/tests/test_x.py", "docs/api.md"], "feat: x")
+    r = gate.evaluate(["backend/sim/services/x.py", "backend/tests/test_x.py", "README.md"], "feat: x")
     assert r.ok and r.code == ["backend/sim/services/x.py"]
 
 

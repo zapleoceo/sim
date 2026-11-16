@@ -1,7 +1,7 @@
 """Russian call opening is explicit even for foreign metadata; no live provider calls."""
 from __future__ import annotations
 
-from sim.persona_prompts import EVA, MARINA, MARINA_LANGUAGES, PERSONA_TEXTS
+from sim.persona_prompts import EVA, EVA_PROMPT, MARINA, MARINA_PROMPT
 from sim.services.call_prompt import CALL_RULES, call_system_prompt, greeting
 from sim.services.calls import language_code
 from sim.services.prompt import PersonaProfile, StrategyProfile, Turn
@@ -19,7 +19,7 @@ def test_russian_opening_is_explicit_and_not_translated():
 
 def test_current_speech_not_foreign_phone_or_history_selects_language():
     prompt = call_system_prompt(
-        PersonaProfile(name=MARINA, language="ru", description=PERSONA_TEXTS[MARINA]["description"]),
+        PersonaProfile(name=MARINA, language="ru", agent_prompt=MARINA_PROMPT),
         StrategyProfile(name="S"),
         [Turn("user", "Olá, meu número é +351 000 000 000")], ctx(),
     )
@@ -30,7 +30,7 @@ def test_current_speech_not_foreign_phone_or_history_selects_language():
                  "Не определяй язык по номеру телефона", "Фоновая речь, телевизор, чужой разговор",
                  "После перехода сохраняй последний понятный или явно запрошенный поддерживаемый язык"):
         assert rule in prompt
-    assert "Olá" in prompt  # history is preserved as data, not erased to force language
+    assert "Olá" in prompt
     assert CALL_RULES in next(r.text for r in fixed_rules("Марина") if r.key == "call")
 
 
@@ -39,9 +39,8 @@ def test_actual_live_language_description_is_russian_not_autodetect():
 
 
 def test_five_language_limit_is_marina_only_and_covers_all_formats():
-    description = PERSONA_TEXTS[MARINA]["description"]
-    assert MARINA_LANGUAGES in description
-    assert MARINA_LANGUAGES not in PERSONA_TEXTS[EVA]["description"]
+    assert "Поддерживай только русский, украинский, белорусский, английский и немецкий" in MARINA_PROMPT
+    assert "Поддерживай только русский" not in EVA_PROMPT
     for rule in ("Первое приветствие", "по-русски", "не переходи на него",
                  "Не переводи приветствие или отказ", "фоновую речь"):
-        assert rule in MARINA_LANGUAGES
+        assert rule in MARINA_PROMPT

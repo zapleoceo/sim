@@ -2,7 +2,7 @@
 
   python -m sim.cli login-link <telegram_id>   one-time login URL for an existing admin
   python -m sim.cli apply-persona-prompts      OVERWRITE the seeded personas + default strategy
-                                               with docs/persona-prompts.md and print the changes
+                                               with persona_prompts.py and print the changes
   python -m sim.cli admin-bot-webhook          (re)register the login bot's webhook
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ async def apply_prompts() -> int:
     for change in changes:
         print(change)
     if not changes:
-        print("Nothing to change: the texts already match docs/persona-prompts.md.")
+        print("Nothing to change: the texts already match persona_prompts.py.")
     for name in missing:
         print(f"NOT FOUND (skipped): {name}", file=sys.stderr)
     return 1 if missing else 0

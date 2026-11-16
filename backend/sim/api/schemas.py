@@ -1,4 +1,4 @@
-"""Request bodies (pydantic) and response serialisers (plain dicts, shapes from docs/api.md)."""
+"""Request bodies (pydantic) and response serialisers (plain dicts)."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -287,7 +287,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
 def prompt_map_out(m: PromptMap) -> dict[str, Any]:
     return {
         "system": m.system, "fixed": "", "strategy_id": m.strategy_id, "context": m.context,
-        "mode": m.mode, "agent_prompt": m.agent_prompt,
+        "mode": "unified", "agent_prompt": m.agent_prompt,
         "parts": [asdict(part) for part in m.parts],
         "rules": [asdict(rule) for rule in m.rules],
     }

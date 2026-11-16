@@ -1,7 +1,6 @@
 # Sim admin (React + Vite)
 
-Russian-language admin UI for Sim. Stack, structure, auth contract and test approach:
-[docs/admin-frontend.md](../docs/admin-frontend.md). API contract: [docs/api.md](../docs/api.md).
+Russian-language admin UI for Sim (React + Vite + TypeScript, shadcn/ui, TanStack Query/Router/Table).
 
 ```bash
 npm ci

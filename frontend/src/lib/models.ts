@@ -1,4 +1,4 @@
-/** Типы строго по docs/api.md. */
+/** Типы API-контракта. */
 
 export type Role = 'superadmin' | 'owner' | 'operator';
 export interface User {
@@ -417,7 +417,6 @@ export interface SimBranchDetail extends SimBranchRow {
 export interface FixedPrompts { persona: string; guard: string }
 /** One piece of the persona's system prompt and whose field it comes from (`field`: that field or the setting key). */
 export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting' | 'code'; field: string }
-export type PromptMode = 'legacy' | 'unified';
 /** A rule fixed in the code: shown read-only. */
 export interface FixedRule { key: string; title: string; text: string }
 /**
@@ -426,7 +425,6 @@ export interface FixedRule { key: string; title: string; text: string }
  * the code. `fixed` is empty for compatibility.
  */
 export interface PersonaPrompt {
-  mode?: PromptMode;
   agent_prompt?: string;
   system: string;
   fixed: string;

@@ -1,7 +1,7 @@
 """The persona prompt map of the admin: every piece of the prompt with its source."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 
 from sim.adapters.db.models import Persona
 from sim.adapters.db.session import transaction
@@ -29,21 +29,16 @@ def test_fixed_rules_are_the_call_identity_and_the_video_note_label():
 
 
 async def test_api_returns_the_prompt_piece_by_piece(api, world, container):
-    async with transaction(container.factory) as s:
-        persona = await s.get(Persona, world.persona.id)
-        persona.birth_date, persona.routine = date(1981, 3, 2), "ежедневно 00:00-23:59 дома"
     await login(api, OPERATOR[0])
     body = (await api.get(f"/api/personas/{world.persona.id}/prompt")).json()
     parts = body["parts"]
     assert body["system"] == "\n\n".join(p["text"] for p in parts) and body["fixed"] == ""
     assert body["strategy_id"] == world.strategy.id
     by_key = {p["key"]: p for p in parts}
-    assert by_key["prohibitions"]["text"] == "Чего нельзя никогда:\n- не обещать доход\n- не просить пароли"
-    assert (by_key["prohibitions"]["source"], by_key["prohibitions"]["field"]) == ("persona", "prohibitions")
-    assert "ежедневно 00:00-23:59 дома" in by_key["routine"]["text"]
-    assert by_key["strategy"]["source"] == "strategy"
+    assert "agent_prompt" in by_key
+    assert (by_key["agent_prompt"]["source"], by_key["agent_prompt"]["field"]) == ("persona", "agent_prompt")
+    assert [p["key"] for p in parts] == ["agent_prompt", "link_contract", "unified_boundaries", "output_contract"]
     assert parts[-1] == {"key": "output_contract", "title": "Формат ответа персонажа",
                          "text": OUTPUT_CONTRACT, "source": "setting", "field": "output_contract"}
-    assert "родилась 2 марта 1981" in body["context"] and "- Где ты сейчас по распорядку: дома" in body["context"]
     assert [r["key"] for r in body["rules"]] == ["call", "video_note", "ai_photo", "media_tool"]
     assert all(r["title"] and r["text"] for r in body["rules"])

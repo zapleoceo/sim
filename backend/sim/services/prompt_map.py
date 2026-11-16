@@ -36,7 +36,7 @@ class PromptMap:
     context: str
     rules: list[FixedRule]
     strategy_id: int
-    mode: str = "legacy"
+    mode: str = "unified"
     agent_prompt: str = ""
 
     @property

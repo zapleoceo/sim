@@ -1,6 +1,6 @@
-"""`python -m sim.seed`: idempotent initial data (docs/persona-prompts.md) and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
+"""`python -m sim.seed`: idempotent initial data and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
 
-Existing rows are matched by name; only an EMPTY persona description / prohibitions are filled
+Existing rows are matched by name; only an EMPTY agent_prompt is filled
 in, so edits made in the admin survive a re-run."""
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sim.config import Settings, parse_telegram_ids, settings
 from sim.persona_prompts import (
     EVA,
     MARINA,
-    PERSONA_TEXTS,
+    PERSONA_PROMPTS,
     STRATEGY_NAME,
     STRATEGY_PROMPT,
 )
@@ -51,14 +51,14 @@ PERSONAS: list[dict[str, Any]] = [
         "age": 45,
         "gender": "female",
         "language": "русский (переходит на украинский, если клиент пишет по-украински)",
-        **PERSONA_TEXTS[MARINA],
+        "agent_prompt": PERSONA_PROMPTS[MARINA],
     },
     {
         "name": EVA,
         "age": 39,
         "gender": "female",
         "language": "русский и украинский (отвечает на языке клиента)",
-        **PERSONA_TEXTS[EVA],
+        "agent_prompt": PERSONA_PROMPTS[EVA],
     },
 ]
 
@@ -75,10 +75,8 @@ async def seed_catalog(session: AsyncSession) -> dict[str, int]:
     for data in PERSONAS:
         existing = await personas.by_name(data["name"])
         if existing is not None:
-            # Owner edits win: only fill what is still empty.
-            for column in ("description", "prohibitions"):
-                if not getattr(existing, column).strip():
-                    setattr(existing, column, data[column])
+            if not (existing.agent_prompt or "").strip():
+                existing.agent_prompt = data["agent_prompt"]
         else:
             await personas.add(
                 Persona(

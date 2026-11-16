@@ -15,7 +15,6 @@ from sim.services.conversation import persona_profile, strategy_profile
 from sim.services.prompt import (
     PersonaProfile,
     StrategyProfile,
-    compose_persona_prompt,
     stable_system_prompt,
 )
 
@@ -56,9 +55,8 @@ async def test_seed_is_idempotent_and_complete(container):
     for p in personas:
         assert p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
-        assert p.name in system and "Без вопроса не начинай рассказ" in system
-        assert "честно скажи, что ты ИИ-персонаж" in system
-        assert p.description and p.prohibitions == "" and "Чего нельзя никогда" not in system   # wide freedom
+        assert p.name in system
+        assert p.agent_prompt and p.prohibitions == ""
         assert "виртуальная помощница" not in system and "If asked directly what you are" not in system
 
 
@@ -75,19 +73,17 @@ async def test_publish_without_publisher_marks_failed(container, world):
         assert row.status is ContentStatus.FAILED and row.error == NOT_IMPLEMENTED
 
 
-async def test_seed_fills_only_empty_persona_texts(container):
+async def test_seed_fills_only_empty_agent_prompt(container):
     await seed(container, container.settings)
     async with transaction(container.factory) as s:
         marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
-        marina.description = "Своё описание владельца"
-        marina.prohibitions = ""
-        eva.description = ""
+        marina.agent_prompt = "Правки владельца"
+        eva.agent_prompt = ""
     await seed(container, container.settings)
     async with container.factory() as s:
         marina, eva = (await s.scalars(select(Persona).order_by(Persona.id))).all()
-    assert marina.description == "Своё описание владельца"     # owner edit survives
-    assert marina.prohibitions == ""                                    # no default prohibitions
-    assert eva.description.startswith("Ты Ева Коган.\n\nЯ Ева, мне 39")   # empty -> filled, one full prompt
+    assert marina.agent_prompt == "Правки владельца"
+    assert eva.agent_prompt.startswith("Ты Ева Коган.\n\nЯ Ева, мне 39")
 
 
 async def test_apply_persona_prompts_overwrites_seeded_texts(container):
@@ -96,19 +92,19 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
     await seed(container, container.settings)
     async with transaction(container.factory) as s:
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
-        marina.description = "правки владельца"
+        marina.agent_prompt = "правки владельца"
         strategy = (await s.scalars(select(Strategy))).one()
         strategy.prompt = ""
         strategy.rules = ["старое"]
     async with transaction(container.factory) as s:
         changes, missing = await apply_persona_prompts(s)
     assert missing == []
-    assert {(c.target, c.field) for c in changes} >= {(MARINA, "description"), (f"strategy «{strategy.name}»", "prompt")}
+    assert {(c.target, c.field) for c in changes} >= {(MARINA, "agent_prompt"), (f"strategy «{strategy.name}»", "prompt")}
     async with container.factory() as s:
         marina = (await s.scalars(select(Persona).where(Persona.name == MARINA))).one()
         strategy = (await s.scalars(select(Strategy))).one()
-    assert marina.description.startswith("Ты Марина Светлова.\n\nМне 45, я Марина")
-    assert "РОЛЬ:" in marina.description and strategy.prompt == STRATEGY_PROMPT
+    assert marina.agent_prompt.startswith("Ты Марина Светлова.\n\nМне 45, я Марина")
+    assert "РОЛЬ:" in marina.agent_prompt and strategy.prompt == STRATEGY_PROMPT
     assert strategy.goal == "" and strategy.rules == [] and strategy.stage_playbook == {}   # one text
     assert strategy.prompt.startswith("Цель: подружиться")
     async with transaction(container.factory) as s:
@@ -116,28 +112,26 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
     assert again == []                                  # idempotent
 
 
-def test_prompt_template_has_no_fixed_identity_rule():
-    from sim.persona_prompts import STRATEGY_PROMPT
+def test_prompt_template_unified_structure():
+    from sim.persona_prompts import MARINA_PROMPT
+    from sim.services.prompt import LINK_CONTRACT, UNIFIED_BOUNDARIES
 
     system = stable_system_prompt(
-        PersonaProfile(name="Х", description=compose_persona_prompt("Х", "d")),
-        StrategyProfile(prompt=STRATEGY_PROMPT, rules=["r"]),
+        PersonaProfile(name="Марина", agent_prompt=MARINA_PROMPT),
+        StrategyProfile(),
     )
-    assert "ориентиры, а не скрипт" in system and "Без вопроса не начинай рассказ" in system
-    assert "честно скажи, что ты ИИ-персонаж" in system
-    assert "никогда не утверждай" not in system and "виртуальная помощница" not in system
-    assert "милениал" in system and "не используй длинные тире" in system
-    assert "ОРИЕНТИРЫ СТРАТЕГИИ" in system and "Сначала человек, потом предложение" in system
-    assert system.index("ОРИЕНТИРЫ СТРАТЕГИИ") < system.index("ПРАВИЛА:")
+    assert MARINA_PROMPT in system
+    assert LINK_CONTRACT in system
+    assert UNIFIED_BOUNDARIES in system
 
 
 def test_persona_legends_are_detailed_consistent_and_female():
-    from sim.persona_prompts import EVA_DESCRIPTION, MARINA_DESCRIPTION
+    from sim.persona_prompts import EVA_PROMPT, MARINA_PROMPT
 
     for text, facts in (
-        (MARINA_DESCRIPTION, ("Днепр", "Андрей", "Максим", "Соня", "Бублик")),
-        (EVA_DESCRIPTION, ("Одесс", "Подол", "Лёва", "Миша", "форшмак")),
+        (MARINA_PROMPT, ("Днепр", "Андрей", "Максим", "Соня", "Бублик")),
+        (EVA_PROMPT, ("Одесс", "Подол", "Лёва", "Миша", "форшмак")),
     ):
         assert "Легенда" in text and "в женском роде" in text
         assert all(fact in text for fact in facts)
-        assert "паспорт" not in text.lower()                 # a character bible, not documents
+        assert "паспорт" not in text.lower()

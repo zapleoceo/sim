@@ -18,7 +18,6 @@ from sim.services.persona_routine import (
     routine_block,
     routine_facts,
 )
-from sim.services.prompt import PersonaProfile, StrategyProfile, stable_system_prompt
 from tests.test_conversation import run_reply, start
 from tests.test_migrations import alembic_config, columns
 
@@ -96,12 +95,10 @@ def test_persona_facts_use_her_local_time_for_the_routine():
     assert "Где ты сейчас по распорядку: консультации с клиентами" in text
 
 
-def test_the_stable_prompt_carries_the_weekly_routine_after_her_text():
-    prompt = stable_system_prompt(PersonaProfile(name="Марина", description="Я Марина.", routine=ROUTINE),
-                                  StrategyProfile())
-    assert prompt.startswith("Я Марина.\n\n" + ROUTINE_HEADER)
-    assert "вс 13:00-16:00 обед у мамы" in prompt and "# Марина" not in prompt
-    assert ROUTINE_HEADER not in stable_system_prompt(PersonaProfile(name="М", description="d"), StrategyProfile())
+def test_routine_block_formats_valid_lines_and_ignores_empty():
+    block = routine_block(ROUTINE)
+    assert block.startswith(ROUTINE_HEADER)
+    assert "вс 13:00-16:00 обед у мамы" in block and "# Марина" not in block
     assert routine_block("") == ""
 
 
