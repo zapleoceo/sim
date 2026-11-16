@@ -121,7 +121,8 @@ async def persona_prompt(persona_id: int, c: App, s: Db):
 
 
 @personas.get("/{persona_id}/context", dependencies=[Depends(owner_only)])
-async def persona_context(persona_id: int, c: App, s: Db, dialog_id: int | None = None):
+async def persona_context(persona_id: int, c: App, s: Db, response: Response, dialog_id: int | None = None):
+    response.headers["Cache-Control"] = "no-store"
     persona = await persona_or_404(s, persona_id)
     try:
         return await inspect_context(c.conversation(s), persona, dialog_id)

@@ -5,8 +5,8 @@ import respx
 
 from sim.ports.llm import LLMError
 from sim.services.safe_payload import LIMIT, exchange_out, safe_payload
-from tests.test_broker import DONE, MSGS, URL, make
 from tests.conftest import OPERATOR, OWNER, login
+from tests.test_broker import DONE, MSGS, URL, make
 
 
 def test_nested_credentials_embedded_json_and_private_keys_are_removed():
@@ -58,11 +58,12 @@ async def test_owner_trace_redacts_legacy_payload_and_does_not_bulk_list_it(api,
     trace_id = "a" * 32
     await Tracer(container.factory).record("llm", "synthetic", trace_id=trace_id,
         detail={"broker_exchange": {"request": {"content": {"token": "private-value", "messages": MSGS}, "truncated": False}}})
-    await login(api, OWNER)
+    await login(api, *OWNER)
     result = await api.get(f"/api/activity/traces/{trace_id}")
     assert result.status_code == 200 and "private-value" not in result.text
+    assert result.headers["Cache-Control"] == "no-store"
     assert result.json()["steps"][0]["broker_exchange"]["request"]["content"]["messages"] == MSGS
     listing = await api.get("/api/activity/log")
     assert "broker_exchange" not in listing.text
-    await login(api, OPERATOR)
+    await login(api, *OPERATOR)
     assert (await api.get(f"/api/activity/traces/{trace_id}")).status_code == 403
