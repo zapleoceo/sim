@@ -11,9 +11,9 @@ import { useIsPhone } from '@/hooks/use-media-query';
 import { traceApi } from '@/lib/api/activity';
 import { formatStamp } from '@/lib/format';
 import { qk } from '@/lib/query';
-import type { TraceDetail, TraceTimelineStep } from '@/lib/trace-models';
+import type { TraceDetail, TracePayload, TraceRequestBody, TraceTimelineStep } from '@/lib/trace-models';
 import { cn } from '@/lib/utils';
-import { detailPairs, formatMs, timelineBar } from './log-logic';
+import { detailPairs, formatMs, payloadText, showsRequestBody, timelineBar } from './log-logic';
 import { KindBadge, StatusBadge } from './system-log';
 
 const BAR_COLOR: Record<TraceTimelineStep['status'], string> = {
@@ -130,6 +130,7 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
         </p>
       )}
       {(step.kind === 'llm' || step.kind === 'guard') && <BrokerExchange key={step.id} exchange={step.broker_exchange} />}
+      {showsRequestBody(step) && <RequestBody key={step.id} body={step.request_body} />}
       {pairs.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
           {pairs.map(([k, v]) => (
@@ -158,26 +159,50 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
   );
 }
 
+/** One stored payload (broker request/response, request body): copy button, truncation note, missing state. */
+function PayloadDetails({ title, payload, missing, copyLabel, copiedText, onStatus }: {
+  title: string;
+  payload: TracePayload | null | undefined;
+  missing: React.ReactNode;
+  copyLabel: string;
+  copiedText: string;
+  onStatus: (status: string) => void;
+}) {
+  const value = payload ? payloadText(payload.content) : '';
+  return <details className="rounded border p-2">
+    <summary className="cursor-pointer font-medium">{title}</summary>
+    {!payload ? <p>{missing}</p> : <>
+      {payload.truncated && <p role="note">Данные усечены по лимиту хранения.</p>}
+      <Button size="sm" variant="outline" onClick={() => {
+        if (!navigator.clipboard) { onStatus('Копирование недоступно в этом браузере'); return; }
+        void navigator.clipboard.writeText(value).then(() => onStatus(copiedText), () => onStatus('Не удалось скопировать'));
+      }}>{copyLabel}</Button>
+      <pre className="max-h-[50dvh] overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs [overflow-wrap:anywhere]">{value}</pre>
+    </>}
+  </details>;
+}
+
 export function BrokerExchange({ exchange }: { exchange: TraceTimelineStep['broker_exchange'] }) {
   const [copyStatus, setCopyStatus] = useState('');
   return <section aria-label="Запрос и ответ брокера" className="space-y-3">
     <p className="text-xs text-muted-foreground">Сохранённые данные вызова. Секреты скрыты на сервере; промежуточные опросы не сохраняются.</p>
     {(['request', 'response'] as const).map(key => {
-      const payload = exchange?.[key];
       const label = key === 'request' ? 'Запрос' : 'Ответ';
-      const value = payload ? JSON.stringify(payload.content, null, 2) : '';
-      return <details key={key} className="rounded border p-2">
-        <summary className="cursor-pointer font-medium">{label} брокера</summary>
-        {!payload ? <p>Полный {label.toLowerCase()} не сохранён</p> : <>
-          {payload.truncated && <p role="note">Данные усечены по лимиту хранения.</p>}
-          <Button size="sm" variant="outline" onClick={() => {
-            if (!navigator.clipboard) { setCopyStatus('Копирование недоступно в этом браузере'); return; }
-            void navigator.clipboard.writeText(value).then(() => setCopyStatus(`${label} скопирован`), () => setCopyStatus('Не удалось скопировать'));
-          }}>Копировать {label.toLowerCase()}</Button>
-          <pre className="max-h-[50dvh] overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs [overflow-wrap:anywhere]">{value}</pre>
-        </>}
-      </details>;
+      return <PayloadDetails key={key} title={`${label} брокера`} payload={exchange?.[key]}
+        missing={`Полный ${label.toLowerCase()} не сохранён`} copyLabel={`Копировать ${label.toLowerCase()}`}
+        copiedText={`${label} скопирован`} onStatus={setCopyStatus} />;
     })}
+    {copyStatus && <p role="status">{copyStatus}</p>}
+  </section>;
+}
+
+export function RequestBody({ body }: { body: TraceRequestBody | null | undefined }) {
+  const [copyStatus, setCopyStatus] = useState('');
+  const omitted = body && 'omitted' in body ? body.omitted : null;
+  return <section aria-label="Тело запроса" className="space-y-3">
+    <PayloadDetails title="Тело запроса" payload={body && !('omitted' in body) ? body : null}
+      missing={omitted ? `Тело не сохранено: ${omitted}` : 'Тело не сохранено'}
+      copyLabel="Копировать тело" copiedText="Тело скопировано" onStatus={setCopyStatus} />
     {copyStatus && <p role="status">{copyStatus}</p>}
   </section>;
 }
