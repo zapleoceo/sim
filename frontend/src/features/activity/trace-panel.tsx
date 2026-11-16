@@ -13,7 +13,7 @@ import { formatStamp } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { TraceDetail, TracePayload, TraceRequestBody, TraceTimelineStep } from '@/lib/trace-models';
 import { cn } from '@/lib/utils';
-import { detailPairs, formatMs, payloadText, showsRequestBody, timelineBar } from './log-logic';
+import { agentLabel, detailPairs, formatMs, payloadText, showsRequestBody, timelineBar } from './log-logic';
 import { KindBadge, StatusBadge } from './system-log';
 
 const BAR_COLOR: Record<TraceTimelineStep['status'], string> = {
@@ -25,7 +25,9 @@ const BAR_COLOR: Record<TraceTimelineStep['status'], string> = {
 };
 
 /** Side panel: one request end to end — a timeline of its steps with durations, attempts and errors. */
-export function TracePanel({ traceId, onClose }: { traceId: string | null; onClose: () => void }) {
+export function TracePanel({ traceId, selectedStepId, selectedCallId, onClose }: {
+  traceId: string | null; selectedStepId?: number; selectedCallId?: number; onClose: () => void;
+}) {
   const isPhone = useIsPhone();
   const query = useQuery({
     queryKey: qk.trace(traceId ?? ''),
@@ -48,7 +50,8 @@ export function TracePanel({ traceId, onClose }: { traceId: string | null; onClo
           ) : query.isError ? (
             <ErrorState title="Не удалось загрузить трейс" onRetry={() => void query.refetch()} />
           ) : (
-            <TraceBody trace={query.data} />
+            <TraceBody key={`${traceId}:${selectedStepId ?? ''}:${selectedCallId ?? ''}`} trace={query.data}
+              selectedStepId={selectedStepId} selectedCallId={selectedCallId} />
           )}
         </div>
       </SheetContent>
@@ -56,8 +59,13 @@ export function TracePanel({ traceId, onClose }: { traceId: string | null; onClo
   );
 }
 
-function TraceBody({ trace }: { trace: TraceDetail }) {
+function TraceBody({ trace, selectedStepId, selectedCallId }: {
+  trace: TraceDetail; selectedStepId?: number; selectedCallId?: number;
+}) {
   const attempts = trace.steps.filter((s) => s.kind === 'job').length;
+  const selected = trace.steps.find(s => selectedStepId !== undefined
+    ? s.id === selectedStepId : selectedCallId !== undefined && s.llm_call_id === selectedCallId);
+  const steps = selected ? [selected, ...trace.steps.filter(s => s.id !== selected.id)] : trace.steps;
   return (
     <>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-xl border p-3 text-sm sm:grid-cols-4">
@@ -73,9 +81,11 @@ function TraceBody({ trace }: { trace: TraceDetail }) {
           {formatStamp(trace.started_at)}
         </Summary>
       </dl>
+      {(selectedStepId || selectedCallId) && !selected && <p role="status">Выбранная запись не найдена в этом запросе. Ниже — доступные шаги.</p>}
+      {selected && <p className="text-sm text-muted-foreground">Сначала выбранная запись, затем остальные шаги по времени.</p>}
       <ol aria-label="Шаги запроса" className="flex flex-col gap-2">
-        {trace.steps.map((step) => (
-          <StepItem key={step.id} step={step} total={trace.duration_ms} />
+        {steps.map((step) => (
+          <StepItem key={step.id} step={step} total={trace.duration_ms} selected={step.id === selected?.id} />
         ))}
       </ol>
     </>
@@ -91,11 +101,12 @@ function Summary({ label, children, wide = false }: { label: string; children: R
   );
 }
 
-function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
+function StepItem({ step, total, selected = false }: { step: TraceTimelineStep; total: number; selected?: boolean }) {
   const bar = timelineBar(step.offset_ms, step.duration_ms, total);
   const pairs = detailPairs(step.detail);
   return (
-    <li className={cn('flex flex-col gap-2 rounded-lg border p-3 text-sm', step.status === 'error' && 'border-destructive/40')}>
+    <li aria-label={selected ? 'Выбранная запись' : undefined}
+      className={cn('flex flex-col gap-2 rounded-lg border p-3 text-sm', selected && 'border-primary', step.status === 'error' && 'border-destructive/40')}>
       <div className="flex flex-wrap items-center gap-2">
         <KindBadge kind={step.kind} />
         <span className="min-w-0 flex-1 font-medium [overflow-wrap:anywhere]">{step.name}</span>
@@ -112,7 +123,7 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
         <span>Длительность: {formatMs(step.duration_ms)}</span>
         {step.attempt !== null && <span>Попытка {step.attempt}</span>}
         {step.http_status !== null && <span>HTTP {step.http_status}</span>}
-        {step.actor && <span>{step.actor}</span>}
+        {step.actor && <span>Исполнитель: {step.actor}</span>}
         {!step.in_trace && <span>шаг общей задачи (запущена другим запросом)</span>}
       </p>
       {step.error && (
@@ -120,16 +131,22 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
           {step.error}
         </pre>
       )}
+      {(step.kind === 'llm' || step.kind === 'guard') && <dl aria-label="Агент и модель"
+        className="grid min-w-0 grid-cols-1 gap-2 rounded bg-muted/50 p-3 sm:grid-cols-2 [overflow-wrap:anywhere]">
+        <Summary label="Агент / роль">{agentLabel(step.llm?.workflow)}</Summary>
+        <Summary label="Модель">{step.llm?.model || 'Не сохранена'}</Summary>
+        <Summary label="Провайдер">{step.llm?.provider || 'Не сохранён'}</Summary>
+        <Summary label="Роль в журнале">{step.llm?.workflow || 'Не сохранена'}</Summary>
+      </dl>}
       {step.llm && (
         <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular">
-          <span>{step.llm.model || '—'}</span>
           <span>Вход: {metric(step.llm.tokens_in)}</span>
           <span>Выход: {metric(step.llm.tokens_out)}</span>
           <span>Из кеша: {metric(step.llm.cached_tokens)}</span>
           <span>{costLabel(step.llm.cost_usd)}</span>
         </p>
       )}
-      {(step.kind === 'llm' || step.kind === 'guard') && <BrokerExchange key={step.id} exchange={step.broker_exchange} />}
+      {(step.kind === 'llm' || step.kind === 'guard') && <BrokerExchange key={step.id} exchange={step.broker_exchange} initiallyOpen={selected} />}
       {showsRequestBody(step) && <RequestBody key={step.id} body={step.request_body} />}
       {pairs.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
@@ -160,16 +177,17 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
 }
 
 /** One stored payload (broker request/response, request body): copy button, truncation note, missing state. */
-function PayloadDetails({ title, payload, missing, copyLabel, copiedText, onStatus }: {
+function PayloadDetails({ title, payload, missing, copyLabel, copiedText, onStatus, initiallyOpen = false }: {
   title: string;
   payload: TracePayload | null | undefined;
   missing: React.ReactNode;
   copyLabel: string;
   copiedText: string;
   onStatus: (status: string) => void;
+  initiallyOpen?: boolean;
 }) {
   const value = payload ? payloadText(payload.content) : '';
-  return <details className="rounded border p-2">
+  return <details open={initiallyOpen} className="rounded border p-2">
     <summary className="cursor-pointer font-medium">{title}</summary>
     {!payload ? <p>{missing}</p> : <>
       {payload.truncated && <p role="note">Данные усечены по лимиту хранения.</p>}
@@ -182,13 +200,15 @@ function PayloadDetails({ title, payload, missing, copyLabel, copiedText, onStat
   </details>;
 }
 
-export function BrokerExchange({ exchange }: { exchange: TraceTimelineStep['broker_exchange'] }) {
+export function BrokerExchange({ exchange, initiallyOpen = false }: {
+  exchange: TraceTimelineStep['broker_exchange']; initiallyOpen?: boolean;
+}) {
   const [copyStatus, setCopyStatus] = useState('');
   return <section aria-label="Запрос и ответ брокера" className="space-y-3">
     <p className="text-xs text-muted-foreground">Сохранённые данные вызова. Секреты скрыты на сервере; промежуточные опросы не сохраняются.</p>
     {(['request', 'response'] as const).map(key => {
       const label = key === 'request' ? 'Запрос' : 'Ответ';
-      return <PayloadDetails key={key} title={`${label} брокера`} payload={exchange?.[key]}
+      return <PayloadDetails key={key} title={`${label} брокера`} payload={exchange?.[key]} initiallyOpen={initiallyOpen}
         missing={`Полный ${label.toLowerCase()} не сохранён`} copyLabel={`Копировать ${label.toLowerCase()}`}
         copiedText={`${label} скопирован`} onStatus={setCopyStatus} />;
     })}

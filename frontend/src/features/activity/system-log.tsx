@@ -20,7 +20,7 @@ import type { TraceKind, TraceSortField, TraceStatus, TraceStep } from '@/lib/tr
 import { CheckList, ColumnHeader } from './column-header';
 import {
   DEFAULT_SORT, EMPTY_LOG_FILTERS, KIND_LABELS, KINDS, STATUS_LABELS, STATUSES, activeFilterCount, activeFilters,
-  formatMs, nextSort, shortTrace, toLogParams, toggle, validateLogFilters, type LogFilters, type LogSort,
+  agentLabel, formatMs, nextSort, shortTrace, toLogParams, toggle, validateLogFilters, type LogFilters, type LogSort,
 } from './log-logic';
 
 const LIVE_INTERVAL_MS = 5000;
@@ -45,7 +45,7 @@ export function KindBadge({ kind }: { kind: TraceKind }) {
  * The system log: every request and its processing steps. Sorting and filters live in the column headers
  * and run on the server; the bar above holds the search, «only errors» and the live mode.
  */
-export function SystemLog({ channelId, onOpenTrace }: { channelId: number | null; onOpenTrace: (traceId: string) => void }) {
+export function SystemLog({ channelId, onOpenTrace }: { channelId: number | null; onOpenTrace: (traceId: string, stepId?: number) => void }) {
   const [filters, setFiltersState] = useState<LogFilters>({ ...EMPTY_LOG_FILTERS, channel_id: channelId });
   const [sort, setSort] = useState<LogSort>(DEFAULT_SORT);
   const [page, setPage] = useState({ page: 1, size: 50 });
@@ -217,7 +217,7 @@ export function SystemLog({ channelId, onOpenTrace }: { channelId: number | null
                 </TableRow>
               ))
             ) : (
-              data?.items.map((step) => <LogRow key={step.id} step={step} onOpen={() => onOpenTrace(step.trace_id)} />)
+              data?.items.map((step) => <LogRow key={step.id} step={step} onOpen={() => onOpenTrace(step.trace_id, step.id)} />)
             )}
           </TableBody>
         </Table>
@@ -271,6 +271,9 @@ function LogRow({ step, onOpen }: { step: TraceStep; onOpen: () => void }) {
         <span className="block truncate font-medium" title={step.name}>
           {step.name}
         </span>
+        {(step.kind === 'llm' || step.kind === 'guard') && <p className="text-xs [overflow-wrap:anywhere]">
+          Агент: {agentLabel(step.llm?.workflow)}<br />Модель: {step.llm?.model || 'Не сохранена'}
+        </p>}
         {step.error && (
           <span className="block truncate text-xs text-destructive" title={step.error}>
             {step.error}

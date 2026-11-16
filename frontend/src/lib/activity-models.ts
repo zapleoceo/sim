@@ -12,6 +12,7 @@ export interface MessageActivity extends Message {
   sent_at: string | null;
 }
 export interface LlmActivity {
+  trace_id?: string | null;
   id: number; created_at: string; dialog_id: number | null;
   client: ActivityClient | null; persona: ActivityPersona | null; channel: ActivityChannel | null;
   workflow: string; capability: string; model: string | null; provider: string | null;

@@ -1,4 +1,4 @@
-import { waitFor, within } from '@testing-library/react';
+import { act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { MessageActivity } from '@/lib/activity-models';
 import type { TraceDetail, TraceStep } from '@/lib/trace-models';
@@ -38,7 +38,7 @@ const trace: TraceDetail = {
     { ...step, id: 1, kind: 'webhook', name: 'POST /hooks/telegram/3', status: 'ok', attempt: null, error: null,
       http_status: 200, offset_ms: 0, in_trace: true },
     { ...step, id: 2, kind: 'llm', name: 'reply · chat:sales', status: 'ok', attempt: null, error: null, offset_ms: 300,
-      in_trace: true, llm: { model: 'gpt-x', provider: 'broker', tokens_in: 100, tokens_out: 20, cached_tokens: 0,
+      in_trace: true, llm: { workflow: 'reply', model: 'gpt-x', provider: 'broker', tokens_in: 100, tokens_out: 20, cached_tokens: 0,
         cost_usd: 0.002, finish_reason: 'stop' } },
     { ...step, id: 3, offset_ms: 800, in_trace: true, detail: { queue_ms: 1500, outcome: 'sent' } },
   ],
@@ -57,6 +57,49 @@ const lastLogQuery = (log: FakeRequest[]): URLSearchParams | undefined =>
   log.filter((r) => r.path === '/api/activity/log').at(-1)?.query;
 
 describe('ActivityPage · system log', () => {
+  it('keeps the clicked log row associated with its exact model call', async () => {
+    const row = trace.steps[1];
+    fakeApi({ ...routes, 'GET /api/activity/log': { items: [row], total: 1, page: 1, size: 50, retention_days: 30 } });
+    const { router } = await renderApp('/activity');
+    await userEvent.setup().click(await screen.findByRole('row', { name: /Открыть трейс aaaaaaaa/ }));
+    const chosen = await screen.findByRole('listitem', { name: 'Выбранная запись' });
+    expect(chosen).toHaveTextContent('Ответ в диалоге');
+    expect(chosen).toHaveTextContent('gpt-x');
+    expect(router.state.location.search).toMatchObject({ trace: TRACE, step: 2 });
+  });
+
+  it('opens the exact selected call with recorded identity and payload, and restores it through Back', async () => {
+    const selected = { ...trace.steps[1], llm_call_id: 77, broker_exchange: {
+      request: { content: { prompt: 'synthetic request' }, truncated: true, redacted: true },
+      response: { content: { text: 'synthetic response' }, truncated: false, redacted: true },
+    } };
+    fakeApi({ ...routes, [`GET /api/activity/traces/${TRACE}`]: { ...trace, steps: [trace.steps[0], selected] } });
+    const { router } = await renderApp(`/activity?trace=${TRACE}&call=77`);
+    const chosen = await screen.findByRole('listitem', { name: 'Выбранная запись' });
+    expect(within(chosen).getByText('Ответ в диалоге')).toBeVisible();
+    expect(within(chosen).getByText('gpt-x')).toBeVisible();
+    expect(within(chosen).getByText(/synthetic request/)).toBeVisible();
+    expect(within(chosen).getByText(/synthetic response/)).toBeVisible();
+    expect(within(chosen).getByText('Данные усечены по лимиту хранения.')).toBeVisible();
+    await userEvent.setup().keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: 'Выбранная запись' })).not.toBeInTheDocument());
+    await act(async () => { router.history.back(); });
+    expect(await screen.findByRole('listitem', { name: 'Выбранная запись' })).toHaveTextContent('gpt-x');
+  });
+
+  it('does not invent missing model identity or keep payload from another selected record', async () => {
+    const missing = { ...trace.steps[1], id: 8, llm: undefined, broker_exchange: undefined };
+    fakeApi({ ...routes, [`GET /api/activity/traces/${TRACE}`]: { ...trace, steps: [trace.steps[1], missing] } });
+    const { router } = await renderApp(`/activity?trace=${TRACE}&step=2`);
+    expect(await screen.findByRole('listitem', { name: 'Выбранная запись' })).toHaveTextContent('gpt-x');
+    await act(async () => { await router.navigate({ to: '/activity', search: { trace: TRACE, step: 8 } }); });
+    const chosen = await screen.findByRole('listitem', { name: 'Выбранная запись' });
+    expect(chosen).not.toHaveTextContent('gpt-x');
+    expect(within(chosen).getByText('Роль не сохранена')).toBeVisible();
+    expect(within(chosen).getByText('Полный запрос не сохранён')).toBeVisible();
+    expect(within(chosen).getByText('Полный ответ не сохранён')).toBeVisible();
+  });
+
   it('is the owner default, filtered by the channel from the URL', async () => {
     const log = fakeApi(routes);
     await renderApp('/activity?channel_id=3');

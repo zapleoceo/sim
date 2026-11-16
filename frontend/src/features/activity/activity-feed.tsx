@@ -18,6 +18,7 @@ import { dayKey, dayLabel, formatDateTime } from '@/lib/format';
 import { qk } from '@/lib/query';
 import { EMPTY_ACTIVITY_FORM, toActivityFilter, type ActivityFormValues } from './activity-filters-logic';
 import { ActivityFilters } from './activity-filters';
+import { agentLabel } from './log-logic';
 
 const FIRST_PAGE: PageRequest = { limit: 25, offset: 0 };
 
@@ -46,7 +47,7 @@ function LlmCard({ call }: { call: LlmActivity }) {
         </time>
       </header>
       <p>
-        {call.workflow} · {call.capability}
+        Агент: {agentLabel(call.workflow)} · {call.capability}
       </p>
       <p>
         Модель: {call.model || '—'} · Провайдер: {call.provider || '—'}
@@ -66,6 +67,9 @@ function LlmCard({ call }: { call: LlmActivity }) {
       )}
       {call.persona && <p>Персонаж: {call.persona.name}</p>}
       <footer className="flex flex-wrap items-center gap-3 text-sm">
+        {call.trace_id ? <Button asChild variant="outline" size="sm">
+          <Link to="/activity" search={{ tab: 'llm', trace: call.trace_id, call: call.id }}>Запрос и ответ</Link>
+        </Button> : <span className="text-xs text-muted-foreground">Связь с запросом не сохранена</span>}
         {call.client && (
           <Link to="/clients/$id" params={{ id: String(call.client.id) }} className="text-primary hover:underline">
             {call.client.display_name}

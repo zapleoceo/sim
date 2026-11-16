@@ -1,5 +1,15 @@
 # Sim
 
+### Recorded agents and selected activity calls
+
+The owner-only log and trace drawer show role/workflow, actual model and provider from
+the stored LLM call, not current persona settings or the worker actor. Missing history
+is labelled explicitly. The log row's step or LLM card's call ID travels with its trace
+in the URL, preserving selection through Back/Forward. The selected record appears
+first with the existing redacted request/response blocks expanded; remaining steps,
+errors, truncation notices and copy controls remain available. No payload is rebuilt.
+Tests use synthetic API fixtures; live browser visual acceptance remains separate.
+
 ### Guard independence preserves objections
 
 A primary guard objection (block, legacy rewrite or contradictory ok) returns to
