@@ -207,7 +207,7 @@ def test_marina_prompt_has_biography_style_safety_and_strategy():
 
 def test_eva_prompt_has_biography_style_safety_and_strategy():
     for section in ("Ева Коган", "Характер: умная", "БЕЗОПАСНОСТЬ:", "ОРИЕНТИРЫ СТРАТЕГИИ",
-                    "СТИЛЬ:", "Одесс"):
+                    "СТИЛЬ ЕВЫ:", "Одесс", "ЯЗЫК ОБЩЕНИЯ ЕВЫ"):
         assert section in EVA_PROMPT
 
 

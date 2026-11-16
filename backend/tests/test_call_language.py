@@ -38,9 +38,10 @@ def test_actual_live_language_description_is_russian_not_autodetect():
     assert language_code("русский (переходит на украинский, если клиент пишет по-украински)") == "ru-RU"
 
 
-def test_five_language_limit_is_marina_only_and_covers_all_formats():
+def test_language_rules_cover_all_formats_in_both_personas():
     assert "Поддерживай только русский, украинский, белорусский, английский и немецкий" in MARINA_PROMPT
-    assert "Поддерживай только русский" not in EVA_PROMPT
-    for rule in ("Первое приветствие", "по-русски", "не переходи на него",
-                 "Не переводи приветствие или отказ", "фоновую речь"):
-        assert rule in MARINA_PROMPT
+    assert "Поддерживай только русский и украинский" in EVA_PROMPT
+    for prompt in (MARINA_PROMPT, EVA_PROMPT):
+        for rule in ("Первое приветствие", "по-русски", "не переходи на него",
+                     "Не переводи приветствие или отказ"):
+            assert rule in prompt
