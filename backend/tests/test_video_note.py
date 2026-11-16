@@ -1,6 +1,6 @@
-"""AI video notes for the one allowlisted owner account: allowlist, cache by request hash, the
-"Сгенерировано ИИ" label before the note, no "recording" status, failures, API, encoder and
-the Broker client. No real Broker, ffmpeg or Telegram is used."""
+"""AI video notes for the one allowlisted owner account: allowlist, cache by request hash,
+no "recording" status, failures, API, encoder and the Broker client.
+No real Broker, ffmpeg or Telegram is used."""
 from __future__ import annotations
 
 import base64
@@ -33,9 +33,7 @@ from sim.ports.video import VideoError, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import is_ai_video
 from sim.services.app_settings import BY_KEY, AppSettingsService
-from sim.services.outbound import SendFailed
 from sim.services.video_note import (
-    AI_LABEL,
     AI_VIDEO_PREFIX,
     OWNER_SETTING,
     VIDEO_NOTE_WORKFLOW,
@@ -200,7 +198,7 @@ async def test_only_a_userbot_private_dialog_counts(container, scene, world):
 
 # ---- the happy path ------------------------------------------------------------------------
 
-async def test_label_then_note_go_to_the_owner_account_only(container, scene):
+async def test_note_goes_to_the_owner_account_only(container, scene):
     await allow(container, OWNER_TG)
     async with transaction(container.factory) as s:
         queued = await container.video_notes(s).request(request_for(scene))
@@ -216,19 +214,15 @@ async def test_label_then_note_go_to_the_owner_account_only(container, scene):
         "image": None, "image_mime": None, "workflow": VIDEO_NOTE_WORKFLOW}]
     assert scene.encoder.seen == [MP4]
 
-    label, note = await messages(container, scene.owner_dialog)
-    assert label.text == AI_LABEL and label.media_kind is None
+    (note,) = await messages(container, scene.owner_dialog)
     assert note.media_kind == MediaKind.VIDEO_NOTE and is_ai_video(note.media_url)
     assert note.cost_usd == pytest.approx(0.116) and note.model == "gemini/gemini-omni-1.2-flash"
     assert container.media.path(note.media_url.removeprefix("/api/media/")).read_bytes() == NOTE
-    sends = await jobs(container, jobkinds.SEND)
-    assert [j.payload for j in sends] == [{"message_id": label.id, "final": True},
-                                          {"message_id": note.id, "final": True}]
-    assert sends[0].run_at < sends[1].run_at
+    (send,) = await jobs(container, jobkinds.SEND)
+    assert send.payload == {"message_id": note.id, "final": True}
 
-    assert (await deliver(container, label.id)).delivery is Delivery.SENT
     assert (await deliver(container, note.id)).delivery is Delivery.SENT
-    assert scene.port.sent == [(str(OWNER_TG), AI_LABEL)]
+    assert scene.port.sent == []
     assert scene.port.notes == [(str(OWNER_TG), NOTE)]
     assert scene.port.actions == []            # no "recording a video note" status is shown
     assert await messages(container, scene.stranger_dialog) == []
@@ -239,8 +233,7 @@ async def test_a_paused_ai_dialog_still_gets_the_requested_note(container, scene
     async with transaction(container.factory) as s:
         (await s.get(Dialog, scene.owner_dialog)).ai_paused = True
     await run_job(container, request_for(scene))
-    label, note = await messages(container, scene.owner_dialog)
-    await deliver(container, label.id)
+    (note,) = await messages(container, scene.owner_dialog)
     assert (await deliver(container, note.id)).delivery is Delivery.SENT
 
 
@@ -304,22 +297,11 @@ async def operator_note(container, dialog_id: int, media_url: str) -> int:
         return message.id
 
 
-async def test_the_note_waits_until_the_label_is_delivered(container, scene):
-    await allow(container, OWNER_TG)
-    await run_job(container, request_for(scene))
-    label, note = await messages(container, scene.owner_dialog)
-    with pytest.raises(SendFailed, match="label"):
-        await deliver(container, note.id)
-    assert scene.port.notes == []
-    await deliver(container, label.id)
-    assert (await deliver(container, note.id)).delivery is Delivery.SENT
-
-
 async def test_an_ai_note_queued_for_anyone_else_is_cancelled_at_send_time(container, scene):
     """Whoever creates the message (an operator, a bug): the SEND job refuses it."""
     await allow(container, OWNER_TG)
     await run_job(container, request_for(scene))
-    note = (await messages(container, scene.owner_dialog))[1]
+    (note,) = await messages(container, scene.owner_dialog)
     leaked = await operator_note(container, scene.stranger_dialog, note.media_url)
     cancelled = await deliver(container, leaked)
     assert cancelled.delivery is Delivery.CANCELLED and "allowlisted" in cancelled.error
@@ -329,8 +311,7 @@ async def test_an_ai_note_queued_for_anyone_else_is_cancelled_at_send_time(conta
 async def test_clearing_the_allowlist_stops_an_already_queued_note(container, scene):
     await allow(container, OWNER_TG)
     await run_job(container, request_for(scene))
-    label, note = await messages(container, scene.owner_dialog)
-    await deliver(container, label.id)
+    (note,) = await messages(container, scene.owner_dialog)
     await allow(container, 0)
     assert (await deliver(container, note.id)).delivery is Delivery.CANCELLED
     assert scene.port.notes == []

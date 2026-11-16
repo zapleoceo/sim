@@ -6,7 +6,6 @@ from datetime import datetime
 from sim.services.call_prompt import CALL_RULES, call_identity, greeting
 from sim.services.prompt import OUTPUT_CONTRACT, StrategyProfile
 from sim.services.prompt_map import EXAMPLE_REF, example_context, fixed_rules
-from sim.services.video_note import AI_LABEL, AI_VIDEO_RULE
 from tests.conftest import OPERATOR, login
 
 
@@ -19,11 +18,10 @@ def test_example_context_is_the_dynamic_message_with_her_facts_and_placeholder_c
     assert f"https://x/?r={EXAMPLE_REF}" in with_link and "ТВОИ ТОЧНЫЕ ДАННЫЕ" not in with_link
 
 
-def test_fixed_rules_are_the_call_identity_and_the_video_note_label():
-    call, note = fixed_rules("Марина")[:2]
-    assert (call.key, note.key) == ("call", "video_note")
-    assert call.text == f'{CALL_RULES}\n\n{call_identity("Марина")}\n\n{greeting("Марина")}'
-    assert note.text == AI_VIDEO_RULE and AI_LABEL in note.text and "Кружочки ИИ" in note.text
+def test_fixed_rules_are_the_call_identity_and_the_media_instruction():
+    rules = fixed_rules("Марина")
+    assert [r.key for r in rules] == ["call", "media_tool"]
+    assert rules[0].text == f'{CALL_RULES}\n\n{call_identity("Марина")}\n\n{greeting("Марина")}'
 
 
 async def test_api_returns_the_prompt_piece_by_piece(api, world, container):
@@ -38,5 +36,5 @@ async def test_api_returns_the_prompt_piece_by_piece(api, world, container):
     assert [p["key"] for p in parts] == ["agent_prompt", "link_contract", "unified_boundaries", "output_contract"]
     assert parts[-1] == {"key": "output_contract", "title": "Формат ответа персонажа",
                          "text": OUTPUT_CONTRACT, "source": "setting", "field": "output_contract"}
-    assert [r["key"] for r in body["rules"]] == ["call", "video_note", "ai_photo", "media_tool"]
+    assert [r["key"] for r in body["rules"]] == ["call", "media_tool"]
     assert all(r["title"] and r["text"] for r in body["rules"])

@@ -129,7 +129,7 @@ describe('personas pages', () => {
         ],
         rules: [
           { key: 'call', title: 'Правило звонков', text: 'ты ИИ-ассистент' },
-          { key: 'video_note', title: 'Правило кружочков', text: 'Сгенерировано ИИ' },
+          { key: 'media_tool', title: 'Фото и кружочки по решению персонажа', text: 'фото или кружочек' },
         ],
       },
     });
@@ -156,7 +156,8 @@ describe('personas pages', () => {
     const fixed = within(section.getByRole('group', { name: 'Фиксированные правила' }));
     expect(fixed.getByText('Правило звонков')).toBeInTheDocument();
     expect(fixed.getByText('ты ИИ-ассистент')).toBeInTheDocument();
-    expect(fixed.getByText('Правило кружочков')).toBeInTheDocument();
+    expect(fixed.getByText('Фото и кружочки по решению персонажа')).toBeInTheDocument();
+    expect(fixed.queryByText(/Сгенерировано ИИ/)).not.toBeInTheDocument();
     expect(fixed.getAllByText(/не редактируется/)).toHaveLength(2);
     expect(fixed.queryByRole('textbox')).not.toBeInTheDocument();
 
