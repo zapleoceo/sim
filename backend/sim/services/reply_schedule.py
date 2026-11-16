@@ -249,10 +249,9 @@ class ReplyScheduler:
         first planned; later messages of the same wait add no lines."""
         persona = await self.personas.get(client.persona_id)
         tz = persona.timezone if persona is not None else ""
-        due = clock_text(plan.at, tz, local_time(tz, self.clock()))
         await CommunicationJournal(self.session, clock=self.clock).record(
-            dialog.id, REPLY_DELAY, new=f"ответ отложен до {due}",
-            reason=reason_text(plan.delay or {}, tz))
+            dialog.id, REPLY_DELAY, new=f"reply_at:{plan.at.isoformat()}Z",
+            reason=reason_text(plan.delay or {}, tz) + f" (распорядок: {tz or 'UTC'})")
 
     async def reply_now(self, dialog: Dialog) -> bool:
         """«Ответить сейчас»: the planned reply is due at once (the reason it waited stays in the
@@ -285,5 +284,5 @@ class ReplyScheduler:
         delay = dict(job.payload or {})["delay"]
         persona = await self.personas.get(dialog.client.persona_id)
         tz = persona.timezone if persona is not None else ""
-        return {"at": job.run_at, "reason": reason_text(delay, tz), "cls": delay["cls"],
+        return {"at": job.run_at, "reason": reason_text(delay, tz) + f" (распорядок: {tz or 'UTC'})", "cls": delay["cls"],
                 "urgent": delay.get("urgent")}

@@ -44,6 +44,7 @@ STATUS = "status"
 AI_PAUSE = "ai_pause"
 REPLY_DELAY = "reply_delay"
 HANDOFF = "handoff"
+CALL_ISSUE = "call_issue"
 RESOLVED = "resolved"
 CHAT_CLEARED = "chat_cleared"
 PASSPORT_CLEARED = "passport_cleared"
@@ -76,6 +77,7 @@ FANOUT_DAYS = 30          # a persona-wide change is journaled in dialogs active
 NO_REASON = "не указана"
 
 KIND_LABELS = {
+    CALL_ISSUE: "техническая проблема звонка",
     STAGE: "смена этапа", STATUS: "смена статуса", AI_PAUSE: "ИИ в диалоге",
     REPLY_DELAY: "время ответа", HANDOFF: "передача оператору", RESOLVED: "обработано",
     CHAT_CLEARED: "чат очищен", PASSPORT_CLEARED: "паспорт очищен",
@@ -227,7 +229,16 @@ class CommunicationJournal:
         wipes = [i for i, event in enumerate(events) if event.kind in WIPES]
         if wipes:
             events = events[wipes[-1] + 1:]
-        return [event_line(event) for event in events[-CONTEXT_EVENTS:]]
+        # Technical incidents remain in the feed, but cease to prime later conversations.
+        events = [e for e in events if e.kind != CALL_ISSUE
+                  or e.created_at >= self.clock() - timedelta(hours=24)]
+        lines = [event_line(event) for event in events[-CONTEXT_EVENTS:]]
+        if any(e.kind == CALL_ISSUE for e in events[-CONTEXT_EVENTS:]):
+            lines.append("Технический итог звонка — факт только этого диалога. Учитывай дату UTC; "
+                         "при уместности можно кратко упомянуть прерванный разговор. "
+                         "Не выдумывай сетевую причину или проблему у клиента. "
+                         "Не повторяй объяснение, если уже обсудили его; обязательной реплики нет.")
+        return lines
 
     # ---- persona-wide changes ------------------------------------------------------------
     async def persona_edited(

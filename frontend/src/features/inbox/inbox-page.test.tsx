@@ -40,6 +40,22 @@ const detail: DialogDetail = {
   ],
 };
 
+it.each([true, false])('voice failure banner follows current pause=%s, not the historical event', async (paused) => {
+  api({ 'GET /api/dialogs/1': { ...detail,
+    dialog: { ...detail.dialog, ai_paused: paused, needs_operator: true },
+    events: [{ id: 99, kind: 'handoff', from: '', to: 'operator', actor: 'system', actor_name: '',
+      reason: 'Голос не воспроизведён: Контекст изменился во время проверки голоса',
+      created_at: '2026-11-16T09:46:54Z' }],
+  } });
+  await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
+  const banner = screen.getByRole('region', { name: 'Состояние чата' });
+  expect(banner).toHaveTextContent('Проверьте переписку');
+  expect(banner).toHaveTextContent(paused ? 'ИИ выключен' : 'ИИ включён');
+
+  expect(banner).not.toHaveTextContent('Требуется ответ менеджера');
+});
+
 it('shows exact continuation text and time and keeps the historical handoff mark', async () => {
   api({ 'GET /api/dialogs/1': { ...detail,
     dialog: { ...detail.dialog, needs_operator: false, ai_paused: false,
@@ -48,11 +64,12 @@ it('shows exact continuation text and time and keeps the historical handoff mark
     messages: [{ ...detail.messages[0], handoff_reason: 'Нужен специалист' }],
   } });
   await renderApp('/inbox?d=1');
-  const plan = await screen.findByRole('status', { name: 'План продолжения разговора' });
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
+  const plan = screen.getByLabelText('План продолжения разговора');
   expect(plan).toHaveTextContent('Как растут цветы?');
-  expect(plan).toHaveTextContent('Время:');
-  expect(plan).toHaveTextContent('запланировано');
-  expect(await screen.findByText(/Причина передачи оператору: Нужен специалист/)).toBeInTheDocument();
+  expect(plan).toHaveTextContent('(ваше время)');
+  expect(plan).toHaveTextContent('Запланировано');
+  expect(await screen.findByText(/Передача оператору в истории: Нужен специалист/)).toBeInTheDocument();
   expect(screen.queryByText(/поставит ИИ.*паузу/)).not.toBeInTheDocument();
 });
 
@@ -132,12 +149,13 @@ describe('InboxPage', () => {
     expect(await screen.findByText('Анна Клиентова')).toBeInTheDocument();
     expect(screen.getByLabelText('2 непрочитанных')).toBeInTheDocument();
     expect(screen.getByText('нужен оператор')).toBeInTheDocument();
-    expect(screen.getByText(/Требуется ответ менеджера/)).toBeInTheDocument();
+    expect(screen.getByText(/Нужен ответ оператора/)).toBeInTheDocument();
   });
 
   it('opens a dialog, marks it read and sends an operator reply with CSRF', async () => {
     const log = api();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     const box = await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     await waitFor(() => expect(log.some((r) => r.method === 'POST' && r.path === '/api/dialogs/1/read')).toBe(true));
 
@@ -194,8 +212,9 @@ describe('InboxPage: ИИ на паузе', () => {
   it('shows that the AI is off, the unanswered messages and the note in the log', async () => {
     pausedApi();
     await renderApp('/inbox?d=1');
-    const banner = await screen.findByRole('status', { name: 'ИИ выключен' });
-    expect(banner).toHaveTextContent('ИИ выключен. Персонаж не отвечает в этом диалоге. Без ответа: 2 сообщения клиента.');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
+    const banner = screen.getByRole('region', { name: 'Состояние чата' });
+    expect(banner).toHaveTextContent('ИИ выключенПодробностиПерсонаж не отвечает в этом диалоге. Без ответа: 2 сообщения клиента.');
     expect(within(banner).getByRole('button', { name: 'Включить ИИ' })).toBeInTheDocument();
     expect(within(screen.getByRole('log', { name: 'Сообщения' }))
       .getByText('Ответ не создан: диалог на паузе ИИ · без ответа: 2')).toBeInTheDocument();
@@ -205,6 +224,7 @@ describe('InboxPage: ИИ на паузе', () => {
   it('«Включить ИИ» lifts the pause through the same toggle and reports the queued reply', async () => {
     const log = pausedApi();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Включить ИИ' }));
     await waitFor(() => {
       const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/ai');
@@ -220,6 +240,7 @@ describe('InboxPage: ИИ на паузе', () => {
   it('says that stale messages are left to the operator', async () => {
     pausedApi('stale');
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Включить ИИ' }));
     expect(await screen.findByText(/они устарели: персонаж сам не ответит, ответьте вручную/)).toBeInTheDocument();
   });
@@ -227,6 +248,7 @@ describe('InboxPage: ИИ на паузе', () => {
   it('has no pause banner while the AI is on', async () => {
     api();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     expect(screen.queryByRole('status', { name: 'ИИ выключен' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Включить ИИ' })).not.toBeInTheDocument();
@@ -258,8 +280,10 @@ describe('InboxPage: ответ отложен по распорядку', () =>
   it('shows when the persona answers and why', async () => {
     plannedApi();
     await renderApp('/inbox?d=1');
-    const bar = await screen.findByRole('status', { name: 'Ответ отложен' });
-    expect(bar).toHaveTextContent(/Ответит в \d{2}:\d{2} — на работе: консультации с клиентами до 13:00/);
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
+    const bar = screen.getByRole('region', { name: 'Состояние чата' });
+    expect(bar).toHaveTextContent('Ответ отложен');
+    expect(bar).toHaveTextContent('(ваше время)на работе: консультации с клиентами до 13:00');
     expect(within(bar).getByRole('button', { name: 'Ответить сейчас' })).toBeInTheDocument();
     expect(screen.getByRole('switch')).toBeChecked();          // a delay is not an AI pause
     expect(screen.getByRole('button', { name: 'Срочный диалог' })).toHaveAttribute('aria-pressed', 'false');
@@ -268,6 +292,7 @@ describe('InboxPage: ответ отложен по распорядку', () =>
   it('«Ответить сейчас» releases the reply with CSRF and the bar goes away', async () => {
     const log = plannedApi();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Ответить сейчас' }));
     await waitFor(() => {
       const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/reply-now');
@@ -281,6 +306,7 @@ describe('InboxPage: ответ отложен по распорядку', () =>
   it('«Срочный» marks the dialog and the waiting reply is released', async () => {
     const log = plannedApi();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Срочный диалог' }));
     await waitFor(() => {
       const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/urgent');
@@ -296,6 +322,7 @@ describe('InboxPage: ответ отложен по распорядку', () =>
   it('has no plan bar when nothing is delayed', async () => {
     api();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     expect(screen.queryByRole('status', { name: 'Ответ отложен' })).not.toBeInTheDocument();
   });
@@ -318,6 +345,7 @@ describe('InboxPage «Очистить чат»', () => {
   it('asks first, then wipes the history with CSRF and shows the empty dialog without a reload', async () => {
     const log = clearableApi();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     const chatLog = await screen.findByRole('log', { name: 'Сообщения' });
     expect(within(chatLog).getByText('Здравствуйте')).toBeInTheDocument();
 
@@ -338,6 +366,7 @@ describe('InboxPage «Очистить чат»', () => {
   it('does nothing when the owner cancels', async () => {
     const log = clearableApi();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Очистить чат' }));
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Отмена' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
@@ -372,9 +401,9 @@ describe('InboxPage on a phone (380 px)', () => {
     expect(within(header).getByRole('button', { name: MENU })).toBeInTheDocument();
     // Everything else is inside the menu, not in the header row or under it.
     expect(within(header).getAllByRole('button')).toHaveLength(2);
-    expect(screen.queryByRole('button', { name: 'Обработано' })).not.toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: 'Обработано' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Очистить чат' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Лента клиента/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
@@ -402,7 +431,7 @@ describe('InboxPage on a phone (380 px)', () => {
       const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/resolve');
       expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
     });
-    await waitFor(() => expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/Нужен ответ оператора/)).not.toBeInTheDocument());
   });
 
   it('changes the stage with the same dropdown, opened from the menu', async () => {
@@ -444,9 +473,11 @@ describe('InboxPage on a phone (380 px)', () => {
 
   it('shows a short operator banner that can be closed', async () => {
     await openDialog();
-    expect(screen.getByText('Требуется ответ менеджера. ИИ остановлен.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Скрыть уведомление' }));
-    expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument();
+    expect(screen.getByText('Нужен ответ оператора · ИИ включён')).toBeInTheDocument();
+    const disclosure = screen.getByRole('region', { name: 'Состояние чата' }).querySelector('details')!;
+    if (!disclosure.open) await userEvent.click(disclosure.querySelector('summary')!);
+    await userEvent.click(disclosure.querySelector('summary')!);
+    expect(disclosure).not.toHaveAttribute('open');
     // The flag is still reachable: the menu keeps the badge and the action.
     await userEvent.click(screen.getByRole('button', { name: MENU }));
     expect(within(await screen.findByRole('menu')).getByText('нужен оператор')).toBeInTheDocument();
@@ -475,10 +506,11 @@ describe('InboxPage on a desktop', () => {
   it('keeps the inline header: no «⋮», the full banner and the client feed link', async () => {
     api();
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     expect(screen.queryByRole('button', { name: 'Действия с диалогом' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Обработано' })).toBeInTheDocument();
-    expect(screen.getByText(/ИИ остановлен; проверьте переписку/)).toBeInTheDocument();
+    expect(screen.getByText('Нужен ответ оператора · ИИ включён')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Скрыть уведомление' })).not.toBeInTheDocument();
   });
@@ -490,6 +522,7 @@ describe('InboxPage: этап выпадающим списком', () => {
   it('changes the stage from the header dropdown through the stage API, with the typed reason', async () => {
     const log = api(stageRoutes());
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     const trigger = await screen.findByRole('combobox', { name: 'Этап' });
     expect(trigger).toHaveTextContent('Вовлечён');
     await userEvent.click(trigger);
@@ -507,6 +540,7 @@ describe('InboxPage: этап выпадающим списком', () => {
   it('sends no reason when the operator gave none', async () => {
     const log = api(stageRoutes());
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('combobox', { name: 'Этап' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Потребность' }));
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
@@ -517,6 +551,7 @@ describe('InboxPage: этап выпадающим списком', () => {
   it('keeps the list open and says so when the server refuses the change', async () => {
     const log = api({ 'POST /api/clients/7/stage': reply(422, { detail: 'forbidden' }) });
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     await userEvent.click(await screen.findByRole('combobox', { name: 'Этап' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Интерес' }));
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }));
@@ -548,11 +583,12 @@ describe('InboxPage: журнал коммуникации в ленте', () =>
   it('shows each change as a service line between the messages: type, from → to, who and why', async () => {
     api({ 'GET /api/dialogs/1': withJournal });
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     const feed = await screen.findByRole('log', { name: 'Сообщения' });
     const stage = await within(feed).findByRole('note', { name: 'Служебное событие: Этап' });
     expect(stage).toHaveTextContent('Первый контакт → Вовлечён');
     expect(stage).toHaveTextContent('оператор Оля');
-    expect(stage).toHaveTextContent('причина: созвон');
+    expect(stage).toHaveTextContent('Причина: созвон');
     const pause = within(feed).getByRole('note', { name: 'Служебное событие: ИИ' });
     expect(pause).toHaveTextContent('включён → на паузе');
     expect(pause).toHaveTextContent('владелец Дима');
@@ -571,9 +607,10 @@ describe('InboxPage: журнал коммуникации в ленте', () =>
       { id: 3, kind: 'chat_cleared', from: '', to: 'удалено сообщений: 4', actor: 'owner', actor_name: 'Дима',
         reason: 'тест с нуля', created_at: '2026-11-11T10:00:00Z' }] } });
     await renderApp('/inbox?d=1');
+    await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     const line = await screen.findByRole('note', { name: 'Служебное событие: Чат очищен' });
     expect(line).toHaveTextContent('удалено сообщений: 4');
-    expect(line).toHaveTextContent('причина: тест с нуля');
+    expect(line).toHaveTextContent('Причина: тест с нуля');
     expect(screen.queryByText('Сообщений пока нет')).not.toBeInTheDocument();
   });
 });

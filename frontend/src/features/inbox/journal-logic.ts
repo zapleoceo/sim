@@ -1,4 +1,4 @@
-import { formatTime } from '@/lib/format';
+import { formatTime, formatZonedDateTime } from '@/lib/format';
 import type { DialogEvent, Message } from '@/lib/models';
 import { STATUS_LABELS, stageMeta } from '@/lib/stages';
 
@@ -10,6 +10,7 @@ export const EVENT_TAGS: Record<string, string> = {
   reply_delay: 'Время ответа',
   urgent: 'Срочность',
   handoff: 'Передача оператору',
+  call_issue: 'Проблема со звонком',
   resolved: 'Обработано',
   chat_cleared: 'Чат очищен',
   passport_cleared: 'Паспорт очищен',
@@ -37,6 +38,13 @@ const AI_VALUES: Record<string, string> = { on: 'включён', paused: 'на 
 /** A stored value as the operator reads it: stage and status ids become their names. */
 export function eventValue(kind: string, value: string): string {
   if (!value) return '';
+  if (kind === 'reply_delay' && value.startsWith('reply_at:')) {
+    const at = value.slice('reply_at:'.length);
+    if (!Number.isNaN(Date.parse(at))) return `Ответ запланирован на ${formatZonedDateTime(at)} (ваше время)`;
+  }
+  if (kind === 'reply_delay' && value.startsWith('ответ отложен до ')) {
+    return `${value} (время персонажа; пояс в старой записи не сохранён)`;
+  }
   if (kind === 'stage') return stageMeta(value).label;
   if (kind === 'status') return STATUS_LABELS[value as keyof typeof STATUS_LABELS] ?? value;
   if (kind === 'ai_pause') return AI_VALUES[value] ?? value;

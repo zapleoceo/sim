@@ -336,6 +336,7 @@ class ConversationService:
         ctx: DialogContext,
         dialog_id: int | None,
         guard_workflow: str = GUARD_WORKFLOW,
+        medium: str = "text",
     ) -> GuardOutcome:
         """Pre-send guard for one draft. Raises LLMError (fail closed) when it cannot judge."""
         allowed = [
@@ -354,7 +355,7 @@ class ConversationService:
             dialog_id=dialog_id,
             workflow=guard_workflow,
             trusted_facts={"now_utc": ctx.now.isoformat() + "Z", "persona_facts": ctx.persona_facts},
-            context={"passport": ctx.passport, "summary": ctx.summary, "journal": ctx.journal,
+            context={"medium": medium, "passport": ctx.passport, "summary": ctx.summary, "journal": ctx.journal,
                      "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step},
         )
 

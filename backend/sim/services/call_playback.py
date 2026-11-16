@@ -18,6 +18,10 @@ MAX_WAITING_TURNS = 2
 Review = Callable[[list[Turn], str], Awaitable[GuardOutcome]]
 
 
+class CallContextChanged(Exception):
+    """A normal conversation update invalidates one candidate, not the owner's AI policy."""
+
+
 @dataclass
 class PlaybackTurn:
     role: str
@@ -26,6 +30,7 @@ class PlaybackTurn:
     released: bool = False
     queued_bytes: int = 0
     played_bytes: int = 0
+    cancel_reason: str = ""
 
     @property
     def delivered(self) -> bool:
@@ -94,8 +99,12 @@ class CallPlayback:
                                 break
                             if attempt == 1:
                                 verdict = GuardOutcome(BLOCKED, turn.text, ["Clock changed during both reviews"])
+                except CallContextChanged:
+                    turn.cancel_reason = "Разговор обновился. Старый ответ отменён."
+                    trace.event("voice_review_cancelled", reason="context_changed")
+                    return
                 except Exception:
-                    verdict = GuardOutcome(BLOCKED, turn.text, ["Проверка голоса не завершена вовремя"])
+                    verdict = GuardOutcome(BLOCKED, turn.text, ["Проверка ответа не завершилась. Ответ не прозвучал."])
                 turn.guard = verdict
                 if epoch != self.epoch or failed.is_set():
                     return

@@ -17,6 +17,7 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from sim.ports.live_voice import (
@@ -73,6 +74,7 @@ def summary_of(done: dict[str, Any]) -> LiveVoiceSummary:
         tokens_in=int(tokens_in) if tokens_in is not None else None,
         tokens_out=int(tokens_out) if tokens_out is not None else None,
         end_reason=str(done.get("end_reason") or ""),
+        provider=done.get("provider") if isinstance(done.get("provider"), str) else None,
     )
 
 
@@ -92,8 +94,9 @@ class BrokerLiveSession:
         self.input_rate_hz = int(ready.get("input_rate_hz") or 16000)
         self.output_rate_hz = int(ready.get("output_rate_hz") or 24000)
         self.model = str(ready["model"]) if ready.get("model") else None
+        self.provider = str(ready["provider"]) if ready.get("provider") else None
         self.queue: asyncio.Queue[Any] = asyncio.Queue()
-        self.summary = LiveVoiceSummary(end_reason="no_summary")
+        self.summary = LiveVoiceSummary(end_reason="no_summary", model=self.model, provider=self.provider)
         self.finished = False
         self.reader = asyncio.ensure_future(self.read())
 
@@ -107,9 +110,12 @@ class BrokerLiveSession:
                 if not isinstance(message, dict):
                     continue
                 if message.get("type") == "done":
-                    self.summary = summary_of(message)
+                    parsed = summary_of(message)
+                    self.summary = replace(parsed, model=parsed.model or self.model,
+                                           provider=parsed.provider or self.provider)
                     break
                 if message.get("type") == "error":   # after `ready`: the call goes quiet
+                    self.summary = replace(self.summary, end_reason="provider_error")
                     log.warning("live session failed at the broker: %s: %s",
                                 message.get("code"), str(message.get("detail"))[:200])
                     continue
@@ -117,6 +123,7 @@ class BrokerLiveSession:
                 if event is not None:
                     self.queue.put_nowait(event)
         except Exception as exc:   # a dropped socket ends the conversation, it is not a crash
+            self.summary = replace(self.summary, end_reason="transport_error")
             log.warning("live session read ended: %s", type(exc).__name__)
         finally:
             self.queue.put_nowait(_END)
@@ -141,6 +148,7 @@ class BrokerLiveSession:
             try:
                 await asyncio.wait_for(asyncio.shield(self.reader), DONE_TIMEOUT_S)
             except TimeoutError:
+                self.summary = replace(self.summary, end_reason="summary_timeout")
                 self.reader.cancel()
             with contextlib.suppress(Exception):
                 await self.ws.close()

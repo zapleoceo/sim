@@ -1,5 +1,5 @@
 import type { ConfirmOptions } from '@/components/confirm';
-import { dayKey, dayLabel, formatShort, formatTime } from '@/lib/format';
+import { dayKey, dayLabel, formatShort, formatTime, formatZonedDateTime } from '@/lib/format';
 import type {
   AiRecovery, Delivery, Dialog, DialogDetail, DialogEvent, DialogFilter, DialogRow, GuardInfo, Message, Persona, ReplyPlan,
   SimBranchRow,
@@ -169,7 +169,7 @@ export function deliveryMeta(delivery: Delivery, guard?: GuardInfo | null): { ic
     case 'cancelled':
       return {
         icon: 'ban',
-        label: guard?.verdict === 'blocked' ? 'Не отправлено: заблокировано контролером' : 'Отменено: диалог перешёл к человеку',
+        label: guard?.verdict === 'blocked' ? 'Не отправлено: не прошло проверку' : 'Ответ отменён',
       };
   }
 }
@@ -189,13 +189,14 @@ export function detailChanged(prev: DialogDetail | null | undefined, next: Dialo
     prev.dialog.needs_operator === next.dialog.needs_operator &&
     (prev.dialog.unanswered?.count ?? 0) === (next.dialog.unanswered?.count ?? 0) &&
     (prev.dialog.reply_plan?.at ?? null) === (next.dialog.reply_plan?.at ?? null) &&
+    JSON.stringify(prev.dialog.reengagement_plan) === JSON.stringify(next.dialog.reengagement_plan) &&
     !!prev.dialog.urgent === !!next.dialog.urgent
   );
 }
 
 /** «Ответит в 09:40 — на работе: консультации до 13:00» (the reason is built by the server). */
 export function replyPlanText(plan: ReplyPlan): string {
-  return `Ответит в ${formatTime(plan.at)} — ${plan.reason}`;
+  return `Ответ запланирован: ${formatZonedDateTime(plan.at)} (ваше время) — ${plan.reason}`;
 }
 
 /** The delayed reply the dialog shows; nothing while the AI is paused (the pause is the news). */

@@ -17,6 +17,7 @@ import binascii
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -26,6 +27,7 @@ from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.ports.llm import LLMError, LLMResult
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoError, VideoResult
+from sim.services.safe_payload import safe_payload
 
 log = logging.getLogger(__name__)
 
@@ -172,6 +174,7 @@ class BrokerLLM:
             params["workflow"] = workflow
             body["workflow"] = workflow
         start = time.perf_counter()
+        exchange = {"request": safe_payload({"path": "/v1/jobs", "params": params, "body": body}, secrets=(self.key,))}
         try:
             client = self.client
             resp = await client.post(
@@ -179,14 +182,21 @@ class BrokerLLM:
             )
             resp.raise_for_status()
             job = resp.json()
+            exchange["accepted"] = safe_payload(job, secrets=(self.key,))
             data = await self.poll(client, job, capability, start + self.budget_for(model))
-        except LLMError:
+        except LLMError as exc:
+            exchange.update(exc.exchange or {})
+            exc.exchange = exchange
+            exc.args = (safe_payload(str(exc), secrets=(self.key,))["content"],)
             raise
         except (httpx.HTTPError, ValueError, KeyError, TimeoutError) as exc:
-            raise LLMError(f"{capability}: {err_text(exc)}") from exc
-        return to_result(
-            data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id", ""))
-        )
+            if isinstance(exc, httpx.HTTPStatusError):
+                exchange["response"] = safe_payload({"status": exc.response.status_code, "body": exc.response.text}, secrets=(self.key,))
+            error = LLMError(safe_payload(f"{capability}: {err_text(exc)}", secrets=(self.key,))["content"])
+            error.exchange = exchange
+            raise error from exc
+        exchange["response"] = safe_payload(data, secrets=(self.key,))
+        return replace(to_result(data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id", ""))), exchange=exchange)
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         start = time.perf_counter()
@@ -370,7 +380,9 @@ class BrokerLLM:
                 if status == "done":
                     return data
                 if status in ("error", "cancelled"):
-                    raise LLMError(f"{what} job {job_id} {status}: {data.get('error')}")
+                    error = LLMError(f"{what} job {job_id} {status}: {data.get('error')}")
+                    error.exchange = {"response": safe_payload(data, secrets=(self.key,))}
+                    raise error
                 wait = float(data.get("poll_after_s") or wait)
             if time.perf_counter() > deadline:
                 raise LLMError(f"{what} job {job_id} still pending after budget")
