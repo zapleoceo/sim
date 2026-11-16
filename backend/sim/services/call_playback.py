@@ -54,7 +54,8 @@ class CallPlayback:
                 # Review immediately before this turn can start, not behind old queued speech.
                 try:
                     async with asyncio.timeout(MAX_TURN_SECONDS + 1):
-                        while len(out) and epoch == self.epoch and not failed.is_set():
+                        # PcmBuffer is synchronous; its external pacer has no drain event.
+                        while len(out) and epoch == self.epoch and not failed.is_set():  # noqa: ASYNC110
                             await asyncio.sleep(0.01)
                 except TimeoutError:
                     reject("Воспроизведение предыдущей реплики не завершилось")
