@@ -75,7 +75,8 @@ function ChoiceList<V extends string>({ label, value, options, hint, onApply, on
 /**
  * One dropdown for a value that is changed on purpose (the stage, the status): the trigger shows
  * the current value, the list lets the operator pick another one, add an optional reason and
- * apply. The reason goes to the communication journal; empty means «причина не указана».
+ * apply. The reason goes to the communication journal; empty means no reason (the journal line
+ * then shows no details).
  *
  * `anchor` renders no trigger: the list is opened from elsewhere through `open` (the phone «⋮»
  * menu) and appears at the anchor.

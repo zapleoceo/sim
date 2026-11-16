@@ -24,8 +24,14 @@ export function pickSettings(items: readonly AppSettingItem[], keys?: readonly s
 
 export type ParsedSetting = { ok: true; value: string | number } | { ok: false; error: string };
 
-/** Input text -> typed value. Integers are checked against min/max so the API rarely answers 422. */
+const TELEGRAM_IDS = /^[\d\s,;]*$/;
+
+/** Input text -> typed value. Integers are checked against min/max and id lists for digits, so
+ * the API rarely answers 422 (the backend normalises the list). */
 export function parseSettingValue(item: AppSettingItem, raw: string): ParsedSetting {
+  if (item.kind === 'ids') {
+    return TELEGRAM_IDS.test(raw) ? { ok: true, value: raw } : { ok: false, error: 'Только числовые Telegram id через запятую' };
+  }
   if (item.kind !== 'int') return { ok: true, value: raw };
   const text = raw.trim();
   const value = Number(text);

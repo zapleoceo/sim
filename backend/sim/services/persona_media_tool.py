@@ -26,7 +26,8 @@ Rules that do not change:
 What the offer needs. A photo: the setting «Модель для фото» (`persona_photo_model`), at least
 one usable photo in her gallery, a channel that can send photos. A video note: the dialog with
 the allowlisted account and a channel that can send notes. Both: no generated media in this
-dialog within «Пауза между медиа» (`persona_media_gap_min`)."""
+dialog within «Пауза между медиа» (`persona_media_gap_min`); an owner account
+(`owner_accounts`) has no such pause, only one generation at a time."""
 from __future__ import annotations
 
 import hashlib
@@ -76,6 +77,7 @@ from sim.services.media_decisions import (
     MediaDecisionLog,
     reason_warning,
 )
+from sim.services.owner_accounts import is_owner_account
 from sim.services.persona_clock import WEEKDAYS, age_on, day_part, local_time
 from sim.services.persona_routine import doing_now
 from sim.services.prompt import MEDIA_LATER, Decision, MediaAsk, one_line
@@ -220,7 +222,8 @@ class PersonaMediaTool:
         """`port`: the channel port of the dialog (what the channel can send), None when it
         cannot be built."""
         cfg = await self.settings.load()
-        if await self.busy(dialog, cfg.persona_media_gap_min):
+        gap = 0 if is_owner_account(dialog, cfg.instant_reply_telegram_ids) else cfg.persona_media_gap_min
+        if await self.busy(dialog, gap):
             return Offer()
         can = getattr(port, "capabilities", frozenset())
         kinds = []

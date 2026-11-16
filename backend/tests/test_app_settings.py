@@ -35,6 +35,21 @@ async def test_set_validates_and_reset_returns_the_default(container):
         assert item.value == RETRY_NUDGE and item.is_default
 
 
+async def test_owner_accounts_are_a_list_of_numeric_telegram_ids(container):
+    spec = BY_KEY["instant_reply_telegram_ids"]
+    assert (spec.kind, spec.default, spec.group) == ("ids", "", "Аккаунты владельца")
+    assert spec.validate(" 169510539,42 42;\n7 ") == "169510539, 42, 7"
+    assert spec.validate("  ") == ""
+    for bad in ("@dima", "0", "12a", "-5", 42, None):
+        with pytest.raises(SettingError):
+            spec.validate(bad)
+    async with transaction(container.factory) as s:
+        svc = AppSettingsService(s)
+        assert (await svc.load()).instant_reply_telegram_ids == ""
+        await svc.set("instant_reply_telegram_ids", "169510539", None)
+        assert (await svc.load()).instant_reply_telegram_ids == "169510539"
+
+
 async def test_a_stored_value_that_no_longer_validates_falls_back_to_the_default(container):
     async with transaction(container.factory) as s:
         s.add(AppSetting(key="history_limit", value=99999))

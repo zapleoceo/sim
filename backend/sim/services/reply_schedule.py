@@ -11,7 +11,8 @@ never by a model (the model only writes the text of the answer):
 3. An urgent dialog (an urgent word in the unanswered messages, or the client has waited longer
    than the threshold) is answered after the short urgent delay instead. Sleep is the exception:
    only an operator's «Срочный» / «Ответить сейчас» wakes her.
-4. Free time, no routine, a dialog marked urgent or the feature switched off: no delay.
+4. Free time, no routine, a dialog marked urgent, an owner account (`owner_accounts`) or the
+   feature switched off: no delay.
 
 The plan lives in the pending `reply` job (`run_at` and `payload["delay"]`): the dialog card
 shows it and the reply prompt gets one factual line about why the answer is late."""
@@ -35,6 +36,7 @@ from sim.services import jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.dialog_state import turns
 from sim.services.journal import REPLY_DELAY, CommunicationJournal
+from sim.services.owner_accounts import is_owner_account
 from sim.services.persona_clock import local_time
 from sim.services.persona_routine import agenda, covers, minute_of, parse_routine
 
@@ -83,6 +85,12 @@ def rules_from(cfg: AppSettings) -> ScheduleRules:
         urgent_delay_min=cfg.reply_urgent_delay_min,
         urgent_wait_min=cfg.reply_urgent_wait_min,
     )
+
+
+def answers_at_once(dialog: Dialog, cfg: AppSettings) -> bool:
+    """Her routine never delays this dialog: an operator marked it «Срочный», or it is with an
+    owner account."""
+    return dialog.urgent or is_owner_account(dialog, cfg.instant_reply_telegram_ids)
 
 
 def has_word(text: str, words: Sequence[str]) -> bool:
@@ -210,7 +218,7 @@ class ReplyScheduler:
         if persona is None:
             return Plan(self.clock(), None)
         return plan_reply(self.clock(), persona.routine, persona.timezone, waiting, rules_from(cfg),
-                          marked_urgent=dialog.urgent)
+                          marked_urgent=answers_at_once(dialog, cfg))
 
     async def schedule(self, dialog: Dialog, client: Client, *, after_pause: bool = False) -> bool:
         """One reply job per dialog. A burst of messages pushes it back by the debounce; a planned

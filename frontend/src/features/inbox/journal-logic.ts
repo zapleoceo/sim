@@ -32,8 +32,6 @@ export const ACTOR_LABELS: Record<string, string> = {
   model: 'модель',
 };
 
-export const NO_REASON = 'причина не указана';
-
 const AI_VALUES: Record<string, string> = { on: 'включён', paused: 'на паузе' };
 
 /** A stored value as the operator reads it: stage and status ids become their names. */
@@ -59,9 +57,8 @@ export interface EventVm {
   /** What changed: «было → стало», or the one value there is; '' when the tag says it all. */
   change: string;
   who: string;
-  /** The given reason, or «причина не указана»: nothing is made up. */
+  /** The given reason; '' when there is none (the line then shows no details). */
   reason: string;
-  hasReason: boolean;
   /** The record is a step-by-step list (one action per line), not a single reason. */
   steps: string[];
   time: string;
@@ -80,8 +77,7 @@ export function toEventVm(event: DialogEvent): EventVm {
     tag: EVENT_TAGS[event.kind] ?? event.kind,
     change: from && to ? `${from} → ${to}` : to || from,
     who: [ACTOR_LABELS[event.actor] ?? event.actor, event.actor_name].filter(Boolean).join(' '),
-    reason: reason || NO_REASON,
-    hasReason: reason !== '',
+    reason,
     steps,
     time: formatTime(event.created_at),
   };

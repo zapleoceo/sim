@@ -83,9 +83,9 @@ async def set_setting(container, key: str, value) -> None:
 MESSAGE_IDS = itertools.count(1)
 
 
-async def say(container, world, text: str) -> None:
+async def say(container, world, text: str, thread: str = "chat-1") -> None:
     """The client writes one more message (each with its own channel id)."""
-    await ingest(container, world.channel.id, inbound(text, ext=f"pm-{next(MESSAGE_IDS)}"))
+    await ingest(container, world.channel.id, inbound(text, ext=f"pm-{next(MESSAGE_IDS)}", thread=thread))
 
 
 async def add_photo(container, persona_id: int, data: bytes = JPEG, tags: list[str] | None = None) -> int:
@@ -355,6 +355,21 @@ async def test_after_a_photo_the_tool_rests_for_the_gap_and_then_comes_back(cont
     await say(container, world, "Теперь можно?")
     await run_reply(container)
     assert NO_MEDIA not in context_of(fake_llm)
+
+
+async def test_an_owner_account_has_no_gap_between_media(container, world, fake_llm, studio):
+    owner = "169510539"
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Dialog))).unique().one().external_thread_id = owner
+    await set_setting(container, "instant_reply_telegram_ids", owner)
+    await ask_for_a_photo(container, fake_llm)
+    await say(container, world, "И ещё одно", owner)
+    await run_reply(container)
+    assert NO_MEDIA in context_of(fake_llm)                 # one generation at a time still
+    await run_media_job(container)
+    await say(container, world, "А ещё?", owner)
+    await run_reply(container)
+    assert NO_MEDIA not in context_of(fake_llm)             # a photo a moment ago: no gap for the owner
 
 
 async def test_the_job_does_nothing_once_a_human_took_over(container, world, fake_llm, studio):

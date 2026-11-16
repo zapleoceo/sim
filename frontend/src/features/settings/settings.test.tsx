@@ -41,6 +41,13 @@ describe('settings logic', () => {
     expect(parseSettingValue(STYLE, ' пробелы ')).toEqual({ ok: true, value: ' пробелы ' });
   });
 
+  it('accepts a list of numeric Telegram ids, also an empty one', () => {
+    const IDS = item({ key: 'instant_reply_telegram_ids', kind: 'ids', value: '', default: '' });
+    expect(parseSettingValue(IDS, '169510539, 42')).toEqual({ ok: true, value: '169510539, 42' });
+    expect(parseSettingValue(IDS, '')).toEqual({ ok: true, value: '' });
+    expect(parseSettingValue(IDS, '@dima')).toEqual({ ok: false, error: 'Только числовые Telegram id через запятую' });
+  });
+
   it('hint shows the range and replace keeps order', () => {
     expect(settingHint({ ...DELAY, help: 'Задержка' })).toBe('Задержка (0–600)');
     expect(settingHint(STYLE)).toBe('');

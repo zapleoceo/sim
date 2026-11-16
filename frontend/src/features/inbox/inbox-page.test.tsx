@@ -592,7 +592,9 @@ describe('InboxPage: журнал коммуникации в ленте', () =>
     const pause = within(feed).getByRole('note', { name: 'Служебное событие: ИИ' });
     expect(pause).toHaveTextContent('включён → на паузе');
     expect(pause).toHaveTextContent('владелец Дима');
-    expect(pause).toHaveTextContent('причина не указана');
+    // no reason was given: the line has no empty «Подробности события»
+    expect(within(pause).queryByText('Подробности события')).not.toBeInTheDocument();
+    expect(within(stage).getByText('Подробности события')).toBeInTheDocument();
     // Time order: the client's message, the stage line, the persona's reply, the pause line.
     const first = within(feed).getByText('Здравствуйте');
     const answer = within(feed).getByText('Добрый день, Анна');

@@ -23,16 +23,18 @@ from sim.adapters.db.repositories.settings import AppSettingRepo
 from sim.config import Settings
 from sim.services.content import CAPTION_RULES
 from sim.services.guard import GUARD_PROMPT
+from sim.services.owner_accounts import parse_ids
 from sim.services.passport import PASSPORT_PROMPT
 from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE, PromptTexts
 from sim.services.summary import SUMMARY_PROMPT
 
 log = logging.getLogger(__name__)
 
-Kind = Literal["text", "int", "capability", "model"]
+Kind = Literal["text", "int", "capability", "model", "ids"]
 TEXT_MAX = 20000
 MEDIA_GROUP = "Фото и кружочки персонажа"
 SCHEDULE_GROUP = "Время ответа по распорядку"
+OWNER_GROUP = "Аккаунты владельца"
 CAPABILITY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,79}$")
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
 
@@ -66,6 +68,13 @@ class SettingSpec:
             if model and not MODEL.match(model):
                 raise SettingError(f"{self.key}: a Broker model id like codex-sub/gpt-6.1-terra is required")
             return model
+        if self.kind == "ids":
+            if not isinstance(value, str):
+                raise SettingError(f"{self.key}: numeric Telegram ids separated by commas are required")
+            try:
+                return ", ".join(parse_ids(value))
+            except ValueError as exc:
+                raise SettingError(f"{self.key}: {exc}") from None
         if not isinstance(value, str) or not value.strip():
             raise SettingError(f"{self.key}: a non-empty text is required")
         text = value.strip()
@@ -128,6 +137,11 @@ SPECS: tuple[SettingSpec, ...] = (
                 "оставшиеся без ответа, только если последнее из них не старше этого времени. "
                 "Более старые остаются оператору, в журнале запись «пропущено, устарело».",
                 "int", 120, 1, 10080),
+    SettingSpec("instant_reply_telegram_ids", OWNER_GROUP, "Telegram id: отвечать сразу",
+                "Числовые Telegram id через запятую. С этими аккаунтами персонаж отвечает сразу, "
+                "как в диалоге с пометкой «Срочный»: без распорядка и занятости, и присылает фото "
+                "и кружочки без «Паузы между медиа». Пусто: таких аккаунтов нет.",
+                "ids", ""),
     SettingSpec("reply_schedule_enabled", SCHEDULE_GROUP, "Откладывать ответ по распорядку",
                 "1: когда по распорядку персонаж спит, работает, в дороге или занят, ответ ждёт, "
                 "пока он сможет заглянуть в чат. 0: отвечать сразу, как раньше.",
@@ -232,6 +246,7 @@ class AppSettings:
     lowercase_percent: int
     reply_debounce_s: int
     pause_recovery_window_min: int
+    instant_reply_telegram_ids: str
     reply_schedule_enabled: int
     reply_check_sleep_min: int
     reply_check_work_min: int
