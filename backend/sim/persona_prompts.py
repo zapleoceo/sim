@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
+from sim.services.prompt_versions import PromptVersions
 
+CLI_AUTHOR = "apply-persona-prompts"
 STRATEGY_NAME = "RCIPM — стратегическое мышление"
 
 STRATEGY_PROMPT = """Цель: подружиться с человеком, понять его ситуацию и, когда это уместно, помочь ему начать учиться стратегическому мышлению в RCIPM: зарегистрироваться по твоей личной ссылке и сделать первую оплату. Успех не в том, чтобы продать любой ценой, а в том, чтобы человек сам захотел и не пожалел. Тёплый разговор без продажи лучше навязанной регистрации.
@@ -209,7 +211,9 @@ async def apply_persona_prompts(session: AsyncSession) -> tuple[list[Change], li
         if persona is None:
             missing.append(name)
             continue
-        changes += overwrite(persona, name, {"agent_prompt": prompt_text})
+        if persona.agent_prompt != prompt_text:
+            changes.append(Change(name, "agent_prompt", size(persona.agent_prompt), size(prompt_text)))
+            await PromptVersions(session).save(persona, prompt_text, author=CLI_AUTHOR)
     if strategy is None:
         for name in PERSONA_PROMPTS:
             persona = await personas.by_name(name)

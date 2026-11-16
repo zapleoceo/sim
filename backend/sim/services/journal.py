@@ -3,7 +3,7 @@ that dialog (`dialog_event`), shown in the feed between the messages and given t
 
 One record says what changed (`kind`, from -> to), who did it (owner, operator, system or model)
 and why. The reason is what the actor gave or what the code knows for a fact; when there is none
-the field stays empty and reads «причина не указана». Nothing is invented and nothing here is
+the field stays empty (the feed then shows no details). Nothing is invented and nothing here is
 ever sent to the client.
 
 Kinds and who writes them:
@@ -31,7 +31,9 @@ The persona's media decisions have their own journal in the same feed and contex
 (`sim.services.media_decisions`): they are not repeated here.
 
 The persona reads the records of the context window (`context_lines`), but nothing older than
-the last wipe of the chat: after «Очистить чат» or `/reset` she starts from a clean page."""
+the last wipe of the chat: after «Очистить чат» or `/reset` she starts from a clean page. Those
+wipes also delete the dialog's older records (`DialogReset.clear_chat`), so the feed starts with
+the wipe line."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping

@@ -18,6 +18,7 @@ from sim.api.schemas import (
     guard_out,
     persona_out,
     prompt_map_out,
+    prompt_version_out,
     strategy_out,
 )
 from sim.domain.voice import speaks
@@ -29,6 +30,7 @@ from sim.services.models import catalog_items
 from sim.services.persona_ambience import voice_ambience
 from sim.services.preview_media import MAX_BYTES
 from sim.services.prompt import Turn
+from sim.services.prompt_versions import PromptVersions, VersionNotFound, restored_note
 from sim.wiring import Container
 
 personas = APIRouter(prefix="/api/personas", tags=["personas"], dependencies=[Depends(authed)])
@@ -131,15 +133,42 @@ async def persona_context(persona_id: int, c: App, s: Db, response: Response, di
         raise HTTPException(404, "Dialog not found for this persona") from exc
 
 
+async def save_prompt(c: Container, s: Db, p: Owner, persona: Persona, text: str,
+                      note: str = "") -> None:
+    """The one way the admin changes a prompt: a new version and a journal line in her dialogs."""
+    before = {"agent_prompt": persona.agent_prompt}
+    who = admin_who(p.user)
+    if await PromptVersions(s, clock=c.clock).save(persona, text, author=who.name, note=note):
+        await CommunicationJournal(s, clock=c.clock).persona_edited(
+            persona.id, before, {"agent_prompt": text}, who, {})
+
+
 @personas.put("/{persona_id}/prompt")
 async def save_agent_prompt(persona_id: int, body: AgentPromptIn, c: App, s: Db, p: Owner):
     persona = await persona_or_404(s, persona_id)
-    before = {"agent_prompt": persona.agent_prompt}
-    persona.agent_prompt = body.text
-    await s.flush()
-    await CommunicationJournal(s, clock=c.clock).persona_edited(
-        persona.id, before, {"agent_prompt": body.text}, admin_who(p.user), {})
+    await save_prompt(c, s, p, persona, body.text)
     return {"mode": "unified", "agent_prompt": persona.agent_prompt}
+
+
+@personas.get("/{persona_id}/prompt/versions")
+async def prompt_versions(persona_id: int, c: App, s: Db):
+    """Every saved text of her prompt, newest (the one in use) first."""
+    await persona_or_404(s, persona_id)
+    return {"items": [prompt_version_out(v) for v in await PromptVersions(s, clock=c.clock).history(persona_id)]}
+
+
+@personas.post("/{persona_id}/prompt/versions/{version_id}/restore")
+async def restore_prompt_version(persona_id: int, version_id: int, c: App, s: Db, p: Owner):
+    """Put an older text back in use; it is saved again as the newest version."""
+    persona = await persona_or_404(s, persona_id)
+    versions = PromptVersions(s, clock=c.clock)
+    try:
+        old = await versions.get(persona_id, version_id)
+    except VersionNotFound as exc:
+        raise HTTPException(404, "Prompt version not found") from exc
+    await save_prompt(c, s, p, persona, old.text, restored_note(old))
+    return {"mode": "unified", "agent_prompt": persona.agent_prompt,
+            "items": [prompt_version_out(v) for v in await versions.history(persona_id)]}
 
 
 @personas.post("/{persona_id}/preview/attachment")

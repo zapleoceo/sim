@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { personasApi } from '@/lib/api/personas';
 import { qk } from '@/lib/query';
 import { personaFieldAnchor } from './persona-prompt-logic';
+import { PersonaPromptVersions } from './persona-prompt-versions';
 
 /**
  * The persona's single authoritative prompt — the main editable text the model gets as-is.
@@ -56,6 +57,7 @@ export function PersonaAgentPrompt({ personaId }: { personaId: number }) {
           Сохранить промпт
         </Button>
       </div>
+      <PersonaPromptVersions personaId={personaId} onRestored={() => setDraft(null)} />
     </div>
   );
 

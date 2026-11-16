@@ -100,7 +100,7 @@ async def test_a_stage_change_is_a_service_line_of_the_dialog_feed(api, containe
     assert stage["created_at"] > detail["messages"][0]["created_at"]
 
 
-async def test_pause_resume_resolve_and_clearing_are_journaled_with_who_and_why(api, container, world):
+async def test_clearing_the_chat_wipes_the_journal_and_leaves_its_own_line(api, container, world):
     await ingest(container, world.channel.id, inbound("Привет"))        # an old message: stale
     dialog = await the_dialog(container)
     h = {"X-CSRF-Token": await login(api, *OWNER)}
@@ -115,6 +115,30 @@ async def test_pause_resume_resolve_and_clearing_are_journaled_with_who_and_why(
     cleared = await api.delete(f"/api/dialogs/{dialog.id}/messages",
                                params={"reason": "тест с нуля"}, headers=h)
     await api.delete(f"/api/clients/{dialog.client_id}/passport", headers=h)
+    # Clearing the chat wipes the journal too: the old lines leave the feed and her context,
+    # the wipe itself is the first line of the new journal.
+    events = await events_of(container)
+    assert [(e.kind, e.from_value, e.to_value, e.actor, e.reason) for e in events] == [
+        ("chat_cleared", "", "удалено сообщений: 1", "owner", "тест с нуля"),
+        ("passport_cleared", "", "паспорт, потребности, заметки и следующий шаг", "owner", ""),
+    ]
+    assert {e.actor_name for e in events if e.actor == "owner"} == {"Test"}
+    body = cleared.json()
+    assert body["messages"] == [] and [e["kind"] for e in body["events"]] == ["chat_cleared"]
+
+
+async def test_pause_resume_and_resolve_are_journaled_with_who_and_why(api, container, world):
+    await ingest(container, world.channel.id, inbound("Привет"))        # an old message: stale
+    dialog = await the_dialog(container)
+    h = {"X-CSRF-Token": await login(api, *OWNER)}
+    await api.post(f"/api/dialogs/{dialog.id}/ai", json={"paused": True}, headers=h)
+    await api.post(f"/api/dialogs/{dialog.id}/ai", json={"paused": True}, headers=h)   # no change
+    await api.post(f"/api/dialogs/{dialog.id}/ai",
+                   json={"paused": False, "reason": "разобрался сам"}, headers=h)
+    async with transaction(container.factory) as s:
+        (await s.get(Dialog, dialog.id)).needs_operator = True
+    await api.post(f"/api/dialogs/{dialog.id}/resolve", json={"reason": "позвонил"}, headers=h)
+    await api.post(f"/api/dialogs/{dialog.id}/resolve", headers=h)                    # nothing to clear
     events = await events_of(container)
     assert [(e.kind, e.from_value, e.to_value, e.actor, e.reason) for e in events] == [
         ("ai_pause", "on", "paused", "owner", ""),
@@ -122,13 +146,7 @@ async def test_pause_resume_resolve_and_clearing_are_journaled_with_who_and_why(
         ("reply_delay", "", "ответ не создан, сообщения без ответа (1) оставлены оператору",
          "system", "сообщения старше окна ответа после паузы ИИ"),
         ("resolved", "", "", "owner", "позвонил"),
-        ("chat_cleared", "", "удалено сообщений: 1", "owner", "тест с нуля"),
-        ("passport_cleared", "", "паспорт, потребности, заметки и следующий шаг", "owner", ""),
     ]
-    assert {e.actor_name for e in events if e.actor == "owner"} == {"Test"}
-    # The chat is empty, the journal is not: the wipe itself is its line.
-    body = cleared.json()
-    assert body["messages"] == [] and body["events"][-1]["kind"] == "chat_cleared"
 
 
 async def test_an_operator_message_and_a_hand_edit_of_the_card_are_journaled(api, container, world):

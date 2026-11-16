@@ -1,7 +1,7 @@
 import type { DialogDetail, DialogRow, Message } from '@/lib/models';
 import {
   CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, clearedRow, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
-  messagesWord, normalizeFilter, pauseNotice, recoveryToast, replyPlanNotice, replyPlanText, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
+  messagesWord, normalizeFilter, pauseNotice, recoveryToast, replyPlanNotice, replyPlanText, replyPlanTitle, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
 } from './inbox-logic';
 
 function row(id: number, patch: Partial<DialogRow> = {}): DialogRow {
@@ -180,6 +180,14 @@ describe('reply delayed by the persona routine', () => {
     expect(detailChanged(base, { ...base, dialog: { ...base.dialog, urgent: false, reply_plan: null } })).toBe(false);
     expect(detailChanged(base, { ...base, dialog: { ...base.dialog, reply_plan: plan } })).toBe(true);
     expect(detailChanged(base, { ...base, dialog: { ...base.dialog, urgent: true } })).toBe(true);
+    const planned = { ...base, dialog: { ...base.dialog, reply_plan: plan } };
+    expect(detailChanged(planned, { ...base, dialog: { ...base.dialog, reply_plan: { ...plan, reason: 'пишет' } } })).toBe(true);
+  });
+
+  it('titles the chat state by what the planned reply waits for', () => {
+    expect(replyPlanTitle(plan)).toBe('Ответ отложен');
+    expect(replyPlanTitle({ ...plan, cls: '' })).toBe('Ответ запланирован');
+    expect(replyPlanTitle({ ...plan, cls: '', writing: true })).toBe('Пишет ответ');
   });
 });
 
