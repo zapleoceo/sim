@@ -49,12 +49,19 @@ from sim.ports.live_voice import (
     LiveVoiceSession,
     LiveVoiceSummary,
 )
+from sim.ports.llm import LLMResult
+from sim.services.call_playback import CallPlayback, PlaybackTurn
 from sim.services.call_prompt import greeting
 from sim.services.call_trace import CallTrace
-from sim.services.conversation import ConversationService
+from sim.services.conversation import ConversationService, history_turns, with_persona_facts
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
+from sim.services.guard import BLOCKED, GuardOutcome
+from sim.services.journal import HANDOFF, SYSTEM, CommunicationJournal
+from sim.services.outbound import cancel_queued_ai
 from sim.services.persona_ambience import contextual_ambience
+from sim.services.prompt import Decision, Turn
+from sim.services.reengagement import eligible, signature
 
 log = logging.getLogger(__name__)
 
@@ -170,8 +177,12 @@ class CallService:
             await session.finish()
             return CallOutcome("failed")
         trace.event("answered")
+        async def review(history: list[Turn], draft: str) -> GuardOutcome:
+            return await self.review_turn(plan.dialog_id, history, draft, getattr(session, "model", None))
+
+        playback = CallPlayback(review, clock=self.clock)
         try:
-            await self.converse(call, session, trace, ambience)
+            await self.converse(call, session, trace, ambience, playback=playback)
         finally:
             summary = await session.finish()
             await call.hangup()
@@ -182,8 +193,34 @@ class CallService:
             log.warning("call on channel %s: the caller never heard her (model audio %s bytes, "
                         "caller frames %s)", channel_id, trace.counters["model_audio_bytes"],
                         trace.counters["frames_in"])
-        ids = await self.record(plan.dialog_id, summary, started)
+        ids = await self.record(plan.dialog_id, summary, started, turns=playback.turns,
+                                failure=playback.failure)
         return CallOutcome("answered", summary, ids)
+
+    async def review_turn(self, dialog_id: int, spoken: list[Turn], draft: str,
+                          model: str | None) -> GuardOutcome:
+        """Fresh server facts and live turns for every audio release; no summary/model refresh."""
+        async with self.factory() as s:
+            conv = self.conversation(s)
+            dialog = await conv.dialogs.get(dialog_id)
+            if dialog is None or not eligible(dialog):
+                return GuardOutcome(BLOCKED, draft, ["Диалог остановлен"])
+            persona = await conv.personas.get(dialog.client.persona_id)
+            if persona is None or not persona.is_active or not persona.accept_calls:
+                return GuardOutcome(BLOCKED, draft, ["Звонки отключены"])
+            revision, sig = dialog.activity_revision, signature(dialog, persona)
+            recent, ctx = await conv.memory(dialog_id, await conv.dialog_context(dialog, persona),
+                                            refresh_summary=False)
+            ctx = with_persona_facts(persona, ctx)
+            verdict = await conv.review(await conv.strategy_for(persona.id),
+                [*history_turns(recent), *spoken], Decision(draft), LLMResult(text=draft, model=model),
+                ctx, dialog_id)
+            dialog = await conv.reload(dialog_id)
+            await s.refresh(persona)
+            if (not eligible(dialog) or not persona.accept_calls or dialog.activity_revision != revision
+                    or signature(dialog, persona) != sig):
+                return GuardOutcome(BLOCKED, draft, ["Контекст изменился во время проверки голоса"])
+            return verdict
 
     async def prepare(self, channel_id: int, thread_id: str) -> CallPlan | str:
         """Everything decided before picking up; a str is the reason not to answer."""
@@ -214,13 +251,16 @@ class CallService:
     async def converse(
         self, call: IncomingCall, session: LiveVoiceSession, trace: CallTrace,
         ambience: CallAmbience | None = None,
+        *, playback: CallPlayback | None = None,
     ) -> None:
         """Until the caller hangs up, the Broker ends the conversation (time limit) or one of
         the three tasks fails."""
         out = PcmBuffer(frame_bytes(call.rate_hz))
         tasks = {
             "uplink": asyncio.ensure_future(self.uplink(call, session, trace)),
-            "downlink": asyncio.ensure_future(self.downlink(session, out, call.rate_hz, trace)),
+            "downlink": asyncio.ensure_future(
+                playback.run(session, out, call.rate_hz, trace) if playback is not None
+                else self.downlink(session, out, call.rate_hz, trace)),
             "pacer": asyncio.ensure_future(self.pace(call, out, trace, ambience)),
         }
         try:
@@ -312,7 +352,8 @@ class CallService:
 
     # ---- after the call ------------------------------------------------------------------
     async def record(
-        self, dialog_id: int, summary: LiveVoiceSummary, started: datetime
+        self, dialog_id: int, summary: LiveVoiceSummary, started: datetime,
+        *, turns: list[PlaybackTurn] | None = None, failure: str = "",
     ) -> list[int]:
         """The call in the dialog: a header line (the client called, how long) and then every
         recognised turn, so the admin reads the call and the next chat reply remembers it."""
@@ -321,6 +362,7 @@ class CallService:
             if dialog is None:
                 return []
             await lock(s, NS_DIALOG, dialog.id)
+            await s.refresh(dialog)
             header = Message(
                 dialog_id=dialog.id, direction=Direction.IN, author=Author.CLIENT,
                 text=f"Входящий звонок · {clock_text(summary.duration_s)}", media_kind=CALL_KIND,
@@ -329,19 +371,36 @@ class CallService:
                 tokens_in=summary.tokens_in, tokens_out=summary.tokens_out,
             )
             rows = [header]
-            for n, (role, text) in enumerate(summary.transcript, start=1):
-                from_client = role == "user"
+            recorded = turns if turns is not None else [PlaybackTurn(role, text, released=True)
+                                                        for role, text in summary.transcript]
+            for n, turn in enumerate(recorded, start=1):
+                from_client = turn.role == "user"
+                guard = turn.guard
                 rows.append(Message(
                     dialog_id=dialog.id, direction=Direction.IN if from_client else Direction.OUT,
-                    author=Author.CLIENT if from_client else Author.AI, text=text.strip(),
-                    delivery=Delivery.SENT, created_at=started + timedelta(microseconds=n),
+                    author=Author.CLIENT if from_client else Author.AI, text=turn.text.strip(),
+                    delivery=Delivery.SENT if turn.released else Delivery.CANCELLED,
+                    guard_verdict=guard.verdict if guard else None,
+                    guard_violations=guard.violations if guard else None,
+                    guard_model=guard.model if guard else None,
+                    created_at=started + timedelta(microseconds=n),
                 ))
             s.add_all(rows)
             await s.flush()
-            apply_message(dialog, rows[-1])
+            delivered = [row for row in rows if row.delivery is Delivery.SENT]
+            apply_message(dialog, delivered[-1])
+            dialog.last_message_at = max(started, self.clock())
             dialog.followup_step = 0
             client = dialog.client
             client.last_contact_at = max(started, client.last_contact_at or started)
             dialog.channel.last_activity_at = self.clock()
             await FollowupService(s, clock=self.clock).cancel(dialog.id)
+            if failure:
+                conv = self.conversation(s)
+                reason = "Голос не воспроизведён: " + failure
+                await conv.mark_handoff(dialog, reason)
+                dialog.ai_paused, dialog.needs_operator = True, True
+                await cancel_queued_ai(s, dialog.id, reason)
+                await CommunicationJournal(s, clock=self.clock).record(
+                    dialog.id, HANDOFF, new="operator", who=SYSTEM, reason=reason)
             return [m.id for m in rows]

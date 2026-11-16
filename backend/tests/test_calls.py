@@ -266,13 +266,17 @@ async def dialog_messages(container, dialog_id) -> list[Message]:
             select(Message).where(Message.dialog_id == dialog_id).order_by(Message.id)))
 
 
+def speech_events(audio):
+    return [LiveVoiceEvent(TRANSCRIPT, role="user", text="Алло, это Марина?"),
+            LiveVoiceEvent(TRANSCRIPT, role="assistant", text="Да, привет! Слушаю."),
+            LiveVoiceEvent(AUDIO, pcm=audio), LiveVoiceEvent(TURN_COMPLETE)]
+
+
 async def test_answers_a_known_client_and_writes_the_transcript(container, world):
     dialog_id = await chatting_world(container, world)
-    session = FakeSession([LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240),
-                           LiveVoiceEvent(TURN_COMPLETE),
-                           LiveVoiceEvent(TRANSCRIPT, role="user", text="ignored live")])
+    session = FakeSession(speech_events(b"\x02\x00" * 240))
     live = FakeLive(session)
-    call = FakeCall()
+    call = FakeCall(frames=20)
     outcome = await service(container, live).handle(world.channel.id, call)
     assert outcome.status == "answered" and call.answered and call.hung_up
     assert session.finished == 1
@@ -292,6 +296,7 @@ async def test_answers_a_known_client_and_writes_the_transcript(container, world
     assert (answer.author, answer.direction, answer.text) == \
         (Author.AI, Direction.OUT, "Да, привет! Слушаю.")
     assert outcome.message_ids == [header.id, said.id, answer.id]
+    assert answer.guard_verdict == "ok"
     async with container.factory() as s:
         dialog = await s.get(Dialog, dialog_id)
         assert dialog.last_message_text == "Да, привет! Слушаю."
@@ -308,7 +313,7 @@ async def test_the_caller_talking_over_her_drops_the_buffered_speech(container, 
 
 async def test_when_the_broker_ends_her_last_words_still_play(container, world):
     await chatting_world(container, world)
-    session = FakeSession([LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 2400)],   # 100 ms
+    session = FakeSession(speech_events(b"\x02\x00" * 2400),   # 100 ms
                           end_after_events=True)
     call = FakeCall(frames=1000, gap=0.05)
     await service(container, FakeLive(session)).handle(world.channel.id, call)
@@ -375,7 +380,7 @@ async def test_a_call_without_words_is_still_recorded(container, world):
 async def test_a_dead_pacer_ends_the_call_loudly_instead_of_a_silent_line(
         container, world, caplog):
     dialog_id = await chatting_world(container, world)
-    session = FakeSession([LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 2400)])
+    session = FakeSession(speech_events(b"\x02\x00" * 2400))
     call = FakeCall(frames=1000, gap=0.05, fail_play=True)
     caplog.set_level(logging.WARNING)
     outcome = await asyncio.wait_for(
@@ -400,7 +405,9 @@ async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, 
     def session() -> FakeSession:
         return FakeSession([LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240),
                             LiveVoiceEvent(INTERRUPTED), LiveVoiceEvent(TURN_COMPLETE),
-                            LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240)])
+                            LiveVoiceEvent(TRANSCRIPT, role="assistant", text="Слушаю."),
+                            LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240),
+                            LiveVoiceEvent(TURN_COMPLETE)])
 
     await service(container, FakeLive(session())).handle(world.channel.id, FakeCall())
     assert "sim.calls.trace" not in {r.name for r in caplog.records}      # off by default
@@ -417,7 +424,7 @@ async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, 
     assert all(line.startswith(f"call ch={world.channel.id} +") for line in lines)
     assert "by=uplink" in lines[-3] and "end_reason=caller_hung_up" in lines[-2]
     for counter in ("frames_in=6", "frames_out=", "interruptions=1", "model_audio_bytes=960",
-                    "model_turns=1", "uplink_chunks="):
+                    "model_turns=2", "uplink_chunks="):
         assert counter in lines[-1]
 
 
