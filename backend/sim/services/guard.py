@@ -156,7 +156,7 @@ def guard_user_message(
 
 
 def parse_verdict(result: LLMResult) -> GuardVerdict | None:
-    if result.finish_reason == "length":
+    if result.truncated:
         return None
     obj = extract_json_object(result.text or "")
     if obj is None:

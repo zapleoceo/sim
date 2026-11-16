@@ -91,7 +91,7 @@ class PassportService:
         if not text:
             log.warning("passportist returned nothing for dialog %s", dialog_id)
             return False
-        if result.finish_reason == "length" or len(text) > PASSPORT_MAX:
+        if result.truncated or len(text) > PASSPORT_MAX:
             # Never replace a complete passport with an unfinished generated prefix.
             # The job may retry; the last complete passport and timestamp stay intact.
             raise LLMError("passport response incomplete or exceeds character limit")

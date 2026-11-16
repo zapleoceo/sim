@@ -33,6 +33,13 @@ def ai_messages(messages):
     return [m for m in messages if m.author is Author.AI]
 
 
+@pytest.mark.parametrize("reason", ["length", "max_tokens", " MAX_TOKENS "])
+def test_truncated_guard_cannot_approve_even_complete_json(reason):
+    result = LLMResult(text=guard_json("ok"), finish_reason=reason)
+    assert parse_verdict(result) is None
+    assert result.finish_reason == reason  # raw provider metadata remains available
+
+
 async def test_ok_sends_the_draft_and_records_the_verdict(container, world, fake_llm):
     fake_llm.replies = [decision_json(reply="Привет!")]
     await start(container, world)

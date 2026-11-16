@@ -70,6 +70,8 @@ async def test_the_passportist_rewrites_the_passport_with_the_owner_instruction(
 @pytest.mark.parametrize("answer", [
     LLMResult(text="x" * (PASSPORT_MAX + 1), finish_reason="stop"),
     LLMResult(text="Incomplete replacement", finish_reason="length"),
+    LLMResult(text="Incomplete replacement", finish_reason="max_tokens"),
+    LLMResult(text="Incomplete replacement", finish_reason=" MAX_TOKENS "),
 ])
 async def test_incomplete_passport_keeps_the_complete_saved_version(container, world, fake_llm, answer):
     await start(container, world)
