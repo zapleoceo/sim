@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parent
 sys.path.insert(0, str(BACKEND))
+from broker_reconciliation_smoke import broker_reconciliation_checks  # noqa: E402
 from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
 
 from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
@@ -125,6 +126,7 @@ async def schema_and_concurrency(url):
             assert await repo.complete(recovery_id, now, claim_attempt=2)
         print("PostgreSQL schema, send-intent contention, execution lock and restart fence PASS")
         await worker_recovery_checks(factory)
+        await broker_reconciliation_checks(factory)
     finally:
         await engine.dispose()
 

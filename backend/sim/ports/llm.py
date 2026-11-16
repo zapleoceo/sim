@@ -43,6 +43,7 @@ class LLMPort(Protocol):
         max_tokens: int | None = None,
         temperature: float | None = None,
         workflow: str | None = None,
+        recovery_key: str | None = None,
     ) -> LLMResult: ...
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult: ...

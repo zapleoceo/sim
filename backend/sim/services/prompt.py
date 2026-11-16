@@ -77,6 +77,7 @@ class DialogContext:
     now: datetime
     client_handle: str = ""
     contact_profile: str = ""
+    contact_profile_identity: str | None = None  # structured snapshot minus provenance time, hash only
     contact_photo: str = ""  # ephemeral data URL; excluded from diagnostics
     media_priority: bool = False
     needs: list[str] = field(default_factory=list)
