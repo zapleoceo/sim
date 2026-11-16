@@ -19,6 +19,9 @@ messages or changed instructions/settings invalidate it. The actual submitted pr
 keeps real time, and guard always checks the recovered draft against freshly computed
 trusted facts. A rejected stale draft is repaired through the normal guarded path.
 No canonical clock is sent to a model. Non-conversation calls retain exact-body identity.
+Profile snapshots provide a separate identity representation without their observation
+timestamp; actual prompts retain that timestamp. Status, fields, user-authored dates
+and photo bytes are preserved in the identity, so genuine profile changes invalidate it.
 Recovered results do not book the original cost/tokens again in the per-attempt audit;
 the original usage stays in the saved Broker response. Broker usage remains the
 billing authority, including when a process died before its first audit was saved.

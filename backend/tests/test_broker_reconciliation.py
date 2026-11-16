@@ -1,5 +1,6 @@
 """Offline Broker restarts, unknown POST outcomes and encrypted generation fences."""
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import httpx
@@ -9,9 +10,12 @@ from sqlalchemy import select
 from sim.adapters.db.models import BrokerRequest, Dialog, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker import BrokerLLM, BrokerTerminalError
+from sim.domain.enums import Stage
 from sim.ports.llm import LLMError
 from sim.services.broker_requests import BrokerRequests
+from sim.services.conversation import recovery_context
 from sim.services.job_execution import Execution, ExecutionLost
+from sim.services.prompt import DialogContext
 from tests.conftest import decision_json, guard_json, inbound
 from tests.test_ingest import ingest
 
@@ -302,14 +306,15 @@ async def test_recovery_does_not_book_previous_usage_again(container, monkeypatc
     await new.aclose()
 
 
-@pytest.mark.parametrize("change", ["clock", "inbound", "settings"])
+@pytest.mark.parametrize("change", ["clock", "profile_clock", "inbound", "settings"])
 @pytest.mark.parametrize("timezone", ["Europe/Berlin", "Asia/Ho_Chi_Minh"])
 async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_time(
     container, world, monkeypatch, change, timezone,
 ):
     now = [datetime(2026, 11, 16, 23, 59, 30)]
     container.clock = lambda: now[0]
-    await ingest(container, world.channel.id, inbound("Synthetic question", ext="recovery-in-1", at=now[0]))
+    question = "Посмотри мой профиль" if change == "profile_clock" else "Synthetic question"
+    await ingest(container, world.channel.id, inbound(question, ext="recovery-in-1", at=now[0]))
     async with transaction(container.factory) as s:
         persona = await s.get(Persona, world.persona.id)
         persona.timezone = timezone
@@ -358,10 +363,30 @@ async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_tim
     outcome = await attempt(2)
     assert outcome.status == "sent"  # queued only; no channel transport runs
     generator_posts = [body for body in posts if body["workflow"] == "reply"]
-    assert len(generator_posts) == (1 if change == "clock" else 2)
+    assert len(generator_posts) == (1 if change in {"clock", "profile_clock"} else 2)
     guard_posts = [body for body in posts if body["workflow"] == "guard"]
     assert guard_posts and now[0].isoformat() + "Z" in json.dumps(guard_posts[-1])
+    if change == "profile_clock":
+        assert "2026-11-16T23:59:30Z" in json.dumps(generator_posts[0])
+        assert "not_enabled" in json.dumps(generator_posts[0])
+        assert now[0].isoformat() + "Z" in json.dumps(guard_posts[-1])
     assert "2000-01-01" not in json.dumps(posts)  # canonical identity is never sent
     async with container.factory() as s:
         messages = list(await s.scalars(select(Message).where(Message.delivery == "queued")))
         assert len(messages) == 1
+
+
+def test_profile_identity_preserves_fields_status_photo_and_user_timestamps():
+    snapshot = '{"status":"available","bio":"User text 2026-11-16T23:59:30Z","name":"A"}'
+    ctx = DialogContext(stage=Stage.FIRST_CONTACT, status="active", client_name="A",
+        channel_kind="telegram", ref_code="", now=datetime(2026, 11, 17),
+        contact_profile="Observed at 2026-11-17T00:00:00Z " + snapshot,
+        contact_profile_identity=snapshot, contact_photo="data:image/jpeg;base64,synthetic")
+    stable = recovery_context(ctx)
+    assert stable.contact_profile == snapshot and stable.contact_photo == ctx.contact_photo
+    assert recovery_context(replace(ctx, contact_profile="A later observation " + snapshot)) == stable
+    assert recovery_context(replace(ctx, contact_profile_identity=snapshot.replace('"A"', '"B"'))) != stable
+    assert recovery_context(replace(ctx, contact_profile_identity=snapshot.replace("available", "unavailable"))) != stable
+    assert recovery_context(replace(ctx, contact_photo="changed photo")) != stable
+    # An unstructured caller has no trusted provenance field: preserve its complete text.
+    assert recovery_context(replace(ctx, contact_profile_identity=None)).contact_profile == ctx.contact_profile

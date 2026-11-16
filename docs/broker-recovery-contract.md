@@ -41,3 +41,10 @@ settings cause a fresh generation only after prior remote jobs settle. Repairs c
 the rejected draft and guard feedback in their own identity. Synthetic tests run the
 real conversation handler across 91 seconds and a UTC date boundary in Berlin and
 Vietnam, and distinguish clock-only recovery from new input/settings.
+
+`CurrentContactProfile.read` also emits an observation timestamp, including for
+`not_enabled`. It now returns an explicit timestamp-free identity text from the
+same structured status/fields (and preserves photo bytes), rather than stripping
+patterns from user-authored text. The actual prompt still uses the observation
+timestamp. Real run_reply regression includes a profile request; unit coverage
+checks that fields/status/photo changes and dates inside bio are not erased.

@@ -136,6 +136,13 @@ def with_persona_facts(persona: Persona, ctx: DialogContext) -> DialogContext:
         persona.birth_date, persona.timezone, ctx.now, persona.routine))
 
 
+def recovery_context(ctx: DialogContext) -> DialogContext:
+    """Hash-only view: remove computed clock provenance, never user/profile data."""
+    return replace(ctx, now=datetime(2000, 1, 1), delay_note="",
+        contact_profile=(ctx.contact_profile_identity if ctx.contact_profile_identity is not None
+                         else ctx.contact_profile))
+
+
 def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
     """(is_client, text, guard_verdict) -> turns. A draft the guard blocked was never sent: the
     client did not see it, so it is not part of the conversation. The one rule for every source
@@ -492,7 +499,8 @@ class ConversationService:
         cfg = await self.config()
         result = await CurrentContactProfile(self.session, self.llm, clock=self.clock).read(
             dialog, port, request, channel_id=cfg.contact_profile_channel_id, model=persona.model or "")
-        return replace(ctx, contact_profile=result.text, contact_photo=result.photo)
+        return replace(ctx, contact_profile=result.text, contact_photo=result.photo,
+                       contact_profile_identity=result.identity_text)
 
     async def paused(self, dialog_id: int) -> ReplyOutcome:
         """The reply job met a paused dialog. Nothing is created (the pause stops the AI); when
@@ -647,7 +655,7 @@ class ConversationService:
         # This canonical prompt is ONLY an operation identity, never sent to an LLM.
         # Clock changes alone must not re-purchase an accepted generator response.
         stable_prompt = await self.prompt(persona, strategy, history,
-            replace(ctx, now=datetime(2000, 1, 1), delay_note=""), whole_history=whole_history)
+            recovery_context(ctx), whole_history=whole_history)
         dialog = await self.dialogs.get(dialog_id) if dialog_id is not None else None
         identity = {"persona_id": persona.id, "timezone": persona.timezone,
                     "birth_date": str(persona.birth_date), "routine": persona.routine,
@@ -674,7 +682,7 @@ class ConversationService:
                 ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
                 stable_prompt = await self.prompt(persona, strategy, history,
-                    replace(ctx, now=datetime(2000, 1, 1), delay_note=""), whole_history=whole_history)
+                    recovery_context(ctx), whole_history=whole_history)
                 repair = [
                     {"role": "assistant", "content": result.text[:4000]},
                     {"role": "system", "content":
