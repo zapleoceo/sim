@@ -143,7 +143,9 @@ async def system_log(s: Db, c: App, query: Annotated[LogQuery, Query()]):
         query.trace_filter(), TraceSort(query.sort, query.order == "desc"),
         query.size, (query.page - 1) * query.size,
     )
-    return {"items": [trace_step_out(*row) for row in rows], "total": total, "page": query.page,
+    calls = await TraceRepo(s).llm_calls([row[0].llm_call_id for row in rows if row[0].llm_call_id])
+    return {"items": [trace_step_out(*row, calls.get(row[0].llm_call_id)) for row in rows],
+            "total": total, "page": query.page,
             "size": query.size, "retention_days": await trace_retention_days(s, c.settings),
             "kinds": list(tracing.KINDS), "statuses": list(tracing.STATUSES)}
 

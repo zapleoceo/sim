@@ -39,10 +39,20 @@ def llm_activity_out(call: LlmCall, client: Client | None, persona: Persona | No
         "provider": call.provider, "tokens_in": call.tokens_in, "tokens_out": call.tokens_out,
         "cached_tokens": call.cached_tokens, "cost_usd": call.cost_usd,
         "latency_ms": call.latency_ms, "finish_reason": call.finish_reason, "has_error": bool(call.error),
+        "trace_id": call.trace_id,
     }
 
 
-def trace_step_out(event: TraceEvent, client_id: int | None, client_name: str | None) -> dict[str, Any]:
+def llm_usage_out(call: LlmCall) -> dict[str, Any]:
+    """Recorded call identity, never the persona's current model configuration."""
+    return {"workflow": call.workflow, "model": call.model, "provider": call.provider,
+            "tokens_in": call.tokens_in, "tokens_out": call.tokens_out,
+            "cached_tokens": call.cached_tokens, "cost_usd": call.cost_usd,
+            "finish_reason": call.finish_reason}
+
+
+def trace_step_out(event: TraceEvent, client_id: int | None, client_name: str | None,
+                   call: LlmCall | None = None) -> dict[str, Any]:
     """One step of the system log. Errors and paths were masked when written."""
     return {
         "id": event.id, "trace_id": event.trace_id, "kind": event.kind, "name": event.name,
@@ -54,6 +64,7 @@ def trace_step_out(event: TraceEvent, client_id: int | None, client_name: str | 
         "client": {"id": client_id, "display_name": client_name or ""} if client_id else None,
         "admin_id": event.admin_id, "dialog_id": event.dialog_id, "channel_id": event.channel_id,
         "job_id": event.job_id, "message_id": event.message_id, "llm_call_id": event.llm_call_id,
+        **({"llm": llm_usage_out(call)} if call is not None else {}),
     }
 
 
@@ -68,15 +79,11 @@ def trace_out(trace_id: str, rows: Sequence[Any], calls: dict[int, LlmCall]) -> 
     end = max(e.started_at + timedelta(milliseconds=e.duration_ms or 0) for e in events)
     steps = []
     for event, client_id, client_name in rows:
-        step = trace_step_out(event, client_id, client_name)
+        step = trace_step_out(event, client_id, client_name, calls.get(event.llm_call_id or 0))
         step["offset_ms"] = int((event.started_at - start).total_seconds() * 1000)
         step["in_trace"] = event.trace_id == trace_id
         step["broker_exchange"] = exchange_out((event.detail or {}).get("broker_exchange"))
         step["request_body"] = body_out((event.detail or {}).get("request_body"))
-        if (call := calls.get(event.llm_call_id or 0)) is not None:
-            step["llm"] = {"model": call.model, "provider": call.provider, "tokens_in": call.tokens_in,
-                           "tokens_out": call.tokens_out, "cached_tokens": call.cached_tokens,
-                           "cost_usd": call.cost_usd, "finish_reason": call.finish_reason}
         steps.append(step)
     return {
         "trace_id": trace_id, "started_at": dt(start), "finished_at": dt(end),
