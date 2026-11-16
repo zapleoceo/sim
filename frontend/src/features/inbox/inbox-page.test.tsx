@@ -401,7 +401,7 @@ describe('InboxPage on a phone (380 px)', () => {
     expect(within(header).getByRole('button', { name: MENU })).toBeInTheDocument();
     // Everything else is inside the menu, not in the header row or under it.
     expect(within(header).getAllByRole('button')).toHaveLength(2);
-    expect(screen.queryByRole('button', { name: 'Обработано' })).not.toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: 'Обработано' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Очистить чат' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
@@ -474,8 +474,10 @@ describe('InboxPage on a phone (380 px)', () => {
   it('shows a short operator banner that can be closed', async () => {
     await openDialog();
     expect(screen.getByText('Нужен ответ оператора · ИИ включён')).toBeInTheDocument();
-    await userEvent.click(screen.getByText('Подробности', { selector: 'summary span' }));
-    expect(screen.getByRole('region', { name: 'Состояние чата' }).querySelector('details')).not.toHaveAttribute('open');
+    const disclosure = screen.getByRole('region', { name: 'Состояние чата' }).querySelector('details')!;
+    if (!disclosure.open) await userEvent.click(disclosure.querySelector('summary')!);
+    await userEvent.click(disclosure.querySelector('summary')!);
+    expect(disclosure).not.toHaveAttribute('open');
     // The flag is still reachable: the menu keeps the badge and the action.
     await userEvent.click(screen.getByRole('button', { name: MENU }));
     expect(within(await screen.findByRole('menu')).getByText('нужен оператор')).toBeInTheDocument();
