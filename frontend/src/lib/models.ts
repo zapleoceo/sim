@@ -53,6 +53,8 @@ export interface Persona {
   agent_prompt: string;
   language: string;
   model: string;
+  identity_model?: string;
+  fallback_model?: string;
   /** Голос Google Gemini TTS (имя, например «Kore»); пусто — без голоса. */
   voice_id: string;
   /** Когда отвечать голосовым: off — никогда, mirror — на голосовое клиента, always — всегда. */
