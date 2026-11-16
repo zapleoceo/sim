@@ -43,6 +43,7 @@ export function PersonaPage() {
     mutationFn: (body: PersonaIn) => (persona ? personasApi.update(persona.id, body) : personasApi.create(body)),
     onSuccess: (saved: Persona) => {
       queryClient.setQueryData<Persona[]>(qk.personas, (list) => upsertById(list ?? [], saved));
+      void queryClient.invalidateQueries({ queryKey: qk.personaPromptVersions(saved.id) });
       toast.success('Персонаж сохранён');
       if (persona?.id !== saved.id) {
         void navigate({ to: '/personas/$id', params: { id: String(saved.id) }, replace: true });

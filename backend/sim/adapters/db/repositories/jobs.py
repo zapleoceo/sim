@@ -55,6 +55,15 @@ class JobRepo(Repository[Job]):
         existing.run_at = max(existing.run_at, run_at)
         return existing
 
+    async def open_by_key(self, dedup_key: str) -> Job | None:
+        """The pending or running (being executed now) job with this key."""
+        return await self.session.scalar(
+            select(Job)
+            .where(Job.dedup_key == dedup_key, Job.status.in_(("pending", "running")))
+            .order_by(Job.id.desc())
+            .limit(1)
+        )
+
     async def has_open(self, kind: str, key_prefix: str) -> bool:
         """Is there a pending or running job of this kind whose dedup key starts with the prefix."""
         found = await self.session.scalar(

@@ -7,15 +7,18 @@
   block made from the `routine` field: code adds the routine to every reply itself, so the copy
   was a second, stale place of the same schedule.
 - `agent_prompt` is NOT NULL, "" by default.
+- A prompt this migration changed gets a new version in its history (0032), so the history
+  still ends with the text in use.
 
 Downgrade brings the columns back empty (the text stays in `agent_prompt`)."""
 import re
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0032"
-down_revision = "0031"
+revision = "0033"
+down_revision = "0032"
 branch_labels = None
 depends_on = None
 
@@ -31,6 +34,16 @@ persona_t = sa.table(
     sa.column("routine", sa.Text),
     sa.column("agent_prompt", sa.Text),
 )
+
+version_t = sa.table(
+    "persona_prompt_version",
+    sa.column("persona_id", sa.Integer),
+    sa.column("text", sa.Text),
+    sa.column("author", sa.String),
+    sa.column("note", sa.String),
+    sa.column("created_at", sa.DateTime),
+)
+VERSION_NOTE = "поля описания и запретов перенесены в промпт, копия распорядка убрана"
 
 
 def prohibitions_block(text: str) -> str:
@@ -64,6 +77,10 @@ def upgrade() -> None:
         prompt = without_routine_copy(prompt, row.routine)
         if prompt != row.agent_prompt:
             conn.execute(persona_t.update().where(persona_t.c.id == row.id).values(agent_prompt=prompt))
+            # The changed text is the newest version of her prompt history (0032).
+            conn.execute(version_t.insert().values(
+                persona_id=row.id, text=prompt, author="", note=VERSION_NOTE,
+                created_at=datetime.now(UTC).replace(tzinfo=None)))
     with op.batch_alter_table("persona") as batch:
         batch.drop_column("description")
         batch.drop_column("prohibitions")

@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
+import { PersonaPromptVersions } from './persona-prompt-versions';
 import { BLOCKS, Section, useSections, type SectionId } from './persona-sections';
 import { SelectControl } from './select-control';
 import { StrategyScenario } from './strategy-scenario';
@@ -188,6 +189,12 @@ export function PersonaEditor({
           />
         </Field>
         <PromptDuplicates control={control} />
+        {persona && (
+          <PersonaPromptVersions
+            personaId={persona.id}
+            onRestored={(text) => form.setValue('agent_prompt', text)}
+          />
+        )}
       </Section>
 
       <Section

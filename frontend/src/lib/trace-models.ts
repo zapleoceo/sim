@@ -53,8 +53,19 @@ export interface TraceLlmUsage {
   finish_reason: string | null;
 }
 
+/** A stored payload as the server projects it: secrets already hidden, maybe cut by the storage limit. */
+export interface TracePayload {
+  content: unknown;
+  truncated: boolean;
+  redacted: boolean;
+}
+
+/** The body of an http/webhook request: the kept payload, or why it was not kept. */
+export type TraceRequestBody = TracePayload | { omitted: string };
+
 export interface TraceTimelineStep extends TraceStep {
-  broker_exchange?: Record<string, { content: unknown; truncated: boolean; redacted: boolean }> | null;
+  broker_exchange?: Record<string, TracePayload> | null;
+  request_body?: TraceRequestBody | null;
   offset_ms: number;
   in_trace: boolean;
   llm?: TraceLlmUsage;

@@ -206,6 +206,21 @@ class Persona(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class PersonaPromptVersion(Base):
+    """One saved text of a persona's `agent_prompt` (sim.services.prompt_versions): every change
+    adds a row, the newest row is the current prompt. Never edited; deleted with the persona."""
+
+    __tablename__ = "persona_prompt_version"
+    __table_args__ = (Index("ix_persona_prompt_version_persona", "persona_id", "id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"))
+    text: Mapped[str] = mapped_column(Text)
+    author: Mapped[str] = mapped_column(String(120), default="")   # who saved it, as the admin shows it
+    note: Mapped[str] = mapped_column(String(200), default="")     # e.g. «восстановлена версия от …»
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class PersonaMedia(Base):
     __tablename__ = "persona_media"
 

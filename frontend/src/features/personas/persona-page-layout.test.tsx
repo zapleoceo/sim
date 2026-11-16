@@ -200,3 +200,30 @@ describe('persona page layout', () => {
     expect(within(bar).getByRole('button', { name: 'Сохранить персонажа' })).toBeVisible();
   });
 });
+
+describe('prompt versions in the «Промпт» block', () => {
+  const version = (id: number, text: string, note = '') => ({
+    id, text, author: 'Дима', note, created_at: `2026-11-1${id}T10:00:00Z`,
+  });
+
+  it('lists the versions newest first and restores an older one into the form', async () => {
+    let items = [version(2, AGENT_PROMPT), version(1, 'Первая версия', 'версия на момент включения истории')];
+    const log = backend({
+      'GET /api/personas/1/prompt/versions': () => ({ items }),
+      'POST /api/personas/1/prompt/versions/1/restore': () => {
+        items = [version(3, 'Первая версия', 'восстановлена версия от 11.11.2026 10:00 UTC'), ...items];
+        return { mode: 'unified', agent_prompt: 'Первая версия', items };
+      },
+    });
+    await renderApp('/personas/1');
+    await userEvent.click(await screen.findByText('Версии промпта (2)'));
+    const rows = within(screen.getByRole('list', { name: 'Версии промпта' })).getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('текущая');
+    expect(within(rows[0]).queryByRole('button', { name: 'Восстановить' })).not.toBeInTheDocument();
+    await userEvent.click(within(rows[1]).getByRole('button', { name: 'Восстановить' }));
+    await waitFor(() => expect(promptBox()).toHaveValue('Первая версия'));
+    expect(await screen.findByText('Версии промпта (3)')).toBeInTheDocument();
+    expect(unsaved()).toHaveTextContent('');          // the restored text is already saved
+    expect(log.some((r) => r.method === 'PUT')).toBe(false);
+  });
+});

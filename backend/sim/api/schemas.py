@@ -19,6 +19,7 @@ from sim.adapters.db.models import (
     PartnerEvent,
     Persona,
     PersonaMedia,
+    PersonaPromptVersion,
     SimBranch,
     SimMessage,
     Strategy,
@@ -266,6 +267,12 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
     }
+
+
+def prompt_version_out(v: PersonaPromptVersion) -> dict[str, Any]:
+    """One saved text of a persona prompt (sim.services.prompt_versions)."""
+    return {"id": v.id, "text": v.text, "author": v.author, "note": v.note,
+            "created_at": dt(v.created_at)}
 
 
 def strategy_out(s: Strategy) -> dict[str, Any]:

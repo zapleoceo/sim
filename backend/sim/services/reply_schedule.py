@@ -15,7 +15,9 @@ never by a model (the model only writes the text of the answer):
    feature switched off: no delay.
 
 The plan lives in the pending `reply` job (`run_at` and `payload["delay"]`): the dialog card
-shows it and the reply prompt gets one factual line about why the answer is late."""
+shows it and the reply prompt gets one factual line about why the answer is late. The card shows
+every open reply job, not only a routine delay: the debounce, the reply after an AI pause, a
+retry after a failed model call (with its error) and a reply being written right now."""
 from __future__ import annotations
 
 import re
@@ -26,7 +28,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import Client, Dialog
+from sim.adapters.db.models import Client, Dialog, Job
 from sim.adapters.db.repositories.catalog import PersonaRepo
 from sim.adapters.db.repositories.conversations import MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
@@ -168,6 +170,33 @@ def reason_text(delay: Mapping[str, Any], tz: str) -> str:
     return text
 
 
+WRITING = "персонаж пишет ответ сейчас"
+DUE = "в очереди: ответ начнёт писаться в ближайшие секунды"
+DEBOUNCE = "пауза перед ответом: ждёт, не допишет ли собеседник ещё"
+AFTER_PAUSE = "после снятия паузы ИИ"
+ERROR_MAX = 160
+
+
+def plan_reason(job: Job, delay: Mapping[str, Any], tz: str, now: datetime) -> str:
+    """Why the planned reply waits, for the dialog card: a model call is running now, a retry
+    after a failed attempt (with the error), her routine, an AI pause, or the plain debounce."""
+    if job.status == "running":
+        return WRITING
+    parts = []
+    if job.attempts and job.last_error:
+        parts.append(f"повтор после ошибки, попытка {job.attempts + 1} из {job.max_attempts}: "
+                     f"{job.last_error[:ERROR_MAX]}")
+    if job.run_at <= now:
+        parts.append(DUE)
+    elif delay.get("cls") in IS:
+        parts.append(reason_text(delay, tz) + f" (распорядок: {tz or 'UTC'})")
+    elif delay.get("pause"):
+        parts.append(AFTER_PAUSE)
+    elif not parts:
+        parts.append(DEBOUNCE)
+    return "; ".join(parts)
+
+
 def delay_note(delay: Mapping[str, Any] | None, arrived: datetime, now: datetime, tz: str) -> str:
     """One line for the reply prompt about a late answer, built from facts: when the message
     came, when she answers and why (her routine, an AI pause). Empty when nothing was late."""
@@ -285,12 +314,16 @@ class ReplyScheduler:
         return job.run_at
 
     async def pending(self, dialog: Dialog) -> dict[str, Any] | None:
-        """The planned delayed reply for the dialog card: when and why."""
-        if dialog.ai_paused or await self.waits_until(dialog.id) is None:
+        """The dialog's next reply for the dialog card: when it is due and why, whatever made it
+        wait, or that it is being written now. None: no reply is planned, or the AI is paused."""
+        if dialog.ai_paused:
             return None
-        job = await self.jobs.pending_by_key(jobkinds.reply_key(dialog.id))
-        delay = dict(job.payload or {})["delay"]
+        job = await self.jobs.open_by_key(jobkinds.reply_key(dialog.id))
+        if job is None:
+            return None
+        delay = dict(job.payload or {}).get("delay") or {}
         persona = await self.personas.get(dialog.client.persona_id)
         tz = persona.timezone if persona is not None else ""
-        return {"at": job.run_at, "reason": reason_text(delay, tz) + f" (распорядок: {tz or 'UTC'})", "cls": delay["cls"],
-                "urgent": delay.get("urgent")}
+        return {"at": job.run_at, "reason": plan_reason(job, delay, tz, self.clock()),
+                "cls": delay.get("cls", ""), "urgent": delay.get("urgent"),
+                "writing": job.status == "running"}

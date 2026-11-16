@@ -1,4 +1,4 @@
-"""Migrations 0030-0032: the single prompt column, legacy-to-unified data, then the prompt as
+"""Migrations 0030-0033: the single prompt column, legacy-to-unified data, then the prompt as
 the only place of her text (no description, prohibitions, age; no routine copy)."""
 import sqlite3
 
@@ -12,8 +12,8 @@ def test_agent_prompt_single_head_upgrade_downgrade(tmp_path):
     db = tmp_path / "prompt-migration.db"
     cfg = alembic_config(db)
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0032"]
-    assert script.get_revision("0032").down_revision == "0031"
+    assert len(script.get_heads()) == 1
+    assert script.get_revision("0033").down_revision == "0032"
     assert script.get_revision("0031").down_revision == "0030"
     assert script.get_revision("0030").down_revision == "0029"
     cfg.config_file_name = None
@@ -41,11 +41,11 @@ def test_agent_prompt_single_head_upgrade_downgrade(tmp_path):
         assert rows[1][1] is not None and "Ты Ева." in rows[1][1]
 
 
-def test_0032_keeps_every_text_in_the_prompt_and_drops_the_duplicate_fields(tmp_path):
+def test_0033_keeps_every_text_in_the_prompt_and_drops_the_duplicate_fields(tmp_path):
     db = tmp_path / "prompt-only.db"
     cfg = alembic_config(db)
     cfg.config_file_name = None
-    command.upgrade(cfg, "0031")
+    command.upgrade(cfg, "0032")
     routine = "пн-пт 09:00-13:00 консультации\nежедневно 23:00-07:00 сплю"
     copy = "РАСПОРЯДОК НЕДЕЛИ (сейчас ты находишься в соответствующей строке):\n" + routine
     with sqlite3.connect(db) as con:
@@ -57,7 +57,7 @@ def test_0032_keeps_every_text_in_the_prompt_and_drops_the_duplicate_fields(tmp_
                prohibitions="не обещать доход", agent_prompt="")
         insert(con, "persona", id=3, name="Оля", description="", routine="",
                agent_prompt=f"Ты Оля.\n\n{copy}")
-    command.upgrade(cfg, "0032")
+    command.upgrade(cfg, "0033")
     cols = columns(db, "persona")
     assert not {"description", "prohibitions", "age"} & cols and {"agent_prompt", "birth_date"} <= cols
     with sqlite3.connect(db) as con:
@@ -65,7 +65,10 @@ def test_0032_keeps_every_text_in_the_prompt_and_drops_the_duplicate_fields(tmp_
     assert prompts[1] == "Ты Марина.\n\nСТРАТЕГИЯ\n- Цель: регистрация"
     assert prompts[2] == "Ты Ева, психолог.\n\nЧего нельзя никогда:\n- не обещать доход"
     assert prompts[3] == f"Ты Оля.\n\n{copy}"
-    command.downgrade(cfg, "0031")
+    with sqlite3.connect(db) as con:
+        versions = dict(con.execute("SELECT persona_id, text FROM persona_prompt_version"))
+    assert versions == {1: prompts[1], 2: prompts[2]}    # the changed prompts end their history
+    command.downgrade(cfg, "0032")
     assert {"description", "prohibitions", "age"} <= columns(db, "persona")
     with sqlite3.connect(db) as con:
         assert dict(con.execute("SELECT id, agent_prompt FROM persona"))[2].startswith("Ты Ева")

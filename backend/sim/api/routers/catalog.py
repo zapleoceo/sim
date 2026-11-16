@@ -16,6 +16,7 @@ from sim.api.schemas import (
     StrategyIn,
     guard_out,
     persona_out,
+    prompt_version_out,
     strategy_out,
 )
 from sim.domain.voice import speaks
@@ -26,6 +27,7 @@ from sim.services.models import catalog_items
 from sim.services.persona_ambience import voice_ambience
 from sim.services.preview_media import MAX_BYTES
 from sim.services.prompt import Turn
+from sim.services.prompt_versions import PromptVersions, VersionNotFound, restored_note
 from sim.wiring import Container
 
 personas = APIRouter(prefix="/api/personas", tags=["personas"], dependencies=[Depends(authed)])
@@ -59,11 +61,14 @@ async def list_personas(s: Db):
 
 
 @personas.post("", status_code=201)
-async def create_persona(body: PersonaIn, s: Db, _: Owner):
+async def create_persona(body: PersonaIn, c: App, s: Db, p: Owner):
     await check_strategy(s, body.strategy_id)
     if await PersonaRepo(s).by_name(body.name):
         raise HTTPException(409, "A persona with this name already exists")
-    return persona_out(await PersonaRepo(s).add(Persona(**body.model_dump())))
+    persona = await PersonaRepo(s).add(Persona(**body.model_dump()))
+    # Her first prompt is the first version of its history.
+    await PromptVersions(s, clock=c.clock).save(persona, body.agent_prompt, author=admin_who(p.user).name)
+    return persona_out(persona)
 
 
 @personas.get("/{persona_id}")
@@ -77,9 +82,13 @@ async def update_persona(persona_id: int, body: PersonaIn, c: App, s: Db, p: Own
     await check_strategy(s, body.strategy_id)
     after = body.model_dump()
     before = {key: getattr(persona, key) for key in after}
+    prompt = after["agent_prompt"]
     for key, value in after.items():
-        setattr(persona, key, value)
+        if key != "agent_prompt":
+            setattr(persona, key, value)
     try:
+        # The prompt changes only through its version history (one more version when it changed).
+        await PromptVersions(s, clock=c.clock).save(persona, prompt, author=admin_who(p.user).name)
         await s.flush()
     except IntegrityError as exc:
         raise HTTPException(409, "A persona with this name already exists") from exc
@@ -106,6 +115,37 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
         return None
     draft = g.original_text if g.verdict == "rewritten" else (g.text if g.verdict == "blocked" else None)
     return guard_out(g.verdict, g.violations, g.model, draft)
+
+
+async def save_prompt(c: Container, s: Db, p: Owner, persona: Persona, text: str,
+                      note: str = "") -> None:
+    """A restored prompt: a new version and a journal line in her dialogs."""
+    before = {"agent_prompt": persona.agent_prompt}
+    who = admin_who(p.user)
+    if await PromptVersions(s, clock=c.clock).save(persona, text, author=who.name, note=note):
+        await CommunicationJournal(s, clock=c.clock).persona_edited(
+            persona.id, before, {"agent_prompt": text}, who, {})
+
+
+@personas.get("/{persona_id}/prompt/versions")
+async def prompt_versions(persona_id: int, c: App, s: Db):
+    """Every saved text of her prompt, newest (the one in use) first."""
+    await persona_or_404(s, persona_id)
+    return {"items": [prompt_version_out(v) for v in await PromptVersions(s, clock=c.clock).history(persona_id)]}
+
+
+@personas.post("/{persona_id}/prompt/versions/{version_id}/restore")
+async def restore_prompt_version(persona_id: int, version_id: int, c: App, s: Db, p: Owner):
+    """Put an older text back in use; it is saved again as the newest version."""
+    persona = await persona_or_404(s, persona_id)
+    versions = PromptVersions(s, clock=c.clock)
+    try:
+        old = await versions.get(persona_id, version_id)
+    except VersionNotFound as exc:
+        raise HTTPException(404, "Prompt version not found") from exc
+    await save_prompt(c, s, p, persona, old.text, restored_note(old))
+    return {"mode": "unified", "agent_prompt": persona.agent_prompt,
+            "items": [prompt_version_out(v) for v in await versions.history(persona_id)]}
 
 
 @personas.post("/{persona_id}/preview/attachment")

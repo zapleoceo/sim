@@ -228,7 +228,9 @@ export interface Dialog {
   /** Ответ, отложенный по распорядку персонажа: когда уйдёт и почему (null: ответ не отложен). */
   reply_plan?: ReplyPlan | null;
 }
-export interface ReplyPlan { at: string; reason: string; cls: string; urgent: string | null }
+/** The next reply of the dialog: `cls` is the routine class when her routine delays it ('' when
+ * nothing does); `writing` = the model is writing it right now. */
+export interface ReplyPlan { at: string; reason: string; cls: string; urgent: string | null; writing?: boolean }
 /** POST /api/dialogs/{id}/reply-now и /urgent: диалог с актуальным планом ответа. */
 export interface ReplyPlanResult extends Dialog { queued?: boolean }
 export interface UnansweredInfo { count: number; since: string | null; message_ids: number[] }
@@ -415,6 +417,8 @@ export interface SimBranchDetail extends SimBranchRow {
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 /** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
+/** One saved text of a persona prompt; `author` and `note` may be empty. */
+export interface PersonaPromptVersion { id: number; text: string; author: string; note: string; created_at: string }
 export interface AppSettingItem {
   key: string;
   group: string;
