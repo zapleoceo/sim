@@ -1,16 +1,19 @@
 """Every /api and /hooks request opens a trace: one `http`/`webhook` step (method, path, status,
 duration, admin) and everything the request does (ingest, partner events...) under the same id.
-The id is returned in `X-Trace-Id`. Bodies, cookies and headers are never logged; the query
-string is masked. The log's own reads and health probes are not logged (they would drown it)."""
+The id is returned in `X-Trace-Id`. Cookies and headers are never logged; the query string is
+masked; the body of a webhook or a POST/PUT/PATCH/DELETE is kept masked and cut
+(`sim.services.request_body`), never for sign-in/OAuth, files only by type and size.
+The log's own reads and health probes are not logged (they would drown it)."""
 from __future__ import annotations
 
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 
-from sim.services import tracing
+from sim.services import request_body, tracing
 from sim.services.tracing import Tracer, mask
 
 TRACE_HEADER = "X-Trace-Id"
@@ -53,9 +56,13 @@ def install_request_tracing(app: FastAPI) -> None:
         quiet = is_quiet(request.method, path)
         async with tracer.scope() as ctx:
             started_at, start = container.clock(), time.perf_counter()
+            detail: dict[str, Any] = {}
+            if request.url.query and not path.startswith("/api/oauth/"):
+                detail["query"] = mask(request.url.query, 300)
+            if not quiet and request_body.wants_body(request.method, path):
+                detail["request_body"] = await read_body(request)
             step = {"kind": step_kind(path), "name": f"{request.method} {path}",
-                    "started_at": started_at, "detail": {"query": mask(request.url.query, 300)}
-                    if request.url.query and not path.startswith("/api/oauth/") else None}
+                    "started_at": started_at, "detail": detail or None}
             try:
                 response = await call_next(request)
             except Exception as exc:
@@ -71,6 +78,25 @@ def install_request_tracing(app: FastAPI) -> None:
                 )
         response.headers[TRACE_HEADER] = ctx.trace_id
         return response
+
+
+async def read_body(request: Request) -> dict[str, Any]:
+    """The body as the log keeps it. `request.body()` is cached by Starlette and replayed to the
+    route by `call_next`; files, binary and oversized bodies are not read at all."""
+    if request.url.path.startswith(request_body.PRIVATE_PREFIXES):
+        return {"omitted": request_body.NOT_KEPT}
+    content_type = request.headers.get("content-type", "")
+    length = request.headers.get("content-length", "")
+    size = int(length) if length.isdigit() else None
+    if not request_body.is_text(content_type) or (size or 0) > request_body.READ_LIMIT:
+        return request_body.omitted(content_type, size)
+    try:
+        raw = await request.body()
+    except Exception:  # the client went away; the route will see it too
+        return {"omitted": "тело не удалось прочитать"}
+    if not raw:
+        return {"omitted": "тело пустое"}
+    return request_body.capture(raw, content_type)
 
 
 class OAuthAccessFilter(logging.Filter):

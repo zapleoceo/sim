@@ -1,6 +1,6 @@
 import type { QueryValue } from '@/lib/api/http';
 import { localInputToIso } from '@/lib/format';
-import type { TraceKind, TraceSortField, TraceStatus } from '@/lib/trace-models';
+import type { TraceKind, TraceSortField, TraceStatus, TraceTimelineStep } from '@/lib/trace-models';
 
 export const KIND_LABELS: Record<TraceKind, string> = {
   http: 'Запрос API',
@@ -228,4 +228,17 @@ export function detailPairs(detail: Record<string, unknown>): [string, string][]
       const value = typeof v === 'boolean' ? (v ? 'да' : 'нет') : k.endsWith('_ms') ? formatMs(Number(v)) : String(v);
       return [DETAIL_LABELS[k] ?? k, value];
     });
+}
+
+/** Pretty text of a stored payload: text bodies stay as they are, JSON is indented. */
+export function payloadText(content: unknown): string {
+  return typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+}
+
+const BODY_METHOD = /^(POST|PUT|PATCH|DELETE) /;
+
+/** Whether an http/webhook step can carry a request body worth a block (a GET has none). */
+export function showsRequestBody(step: Pick<TraceTimelineStep, 'kind' | 'name' | 'request_body'>): boolean {
+  if (step.kind !== 'http' && step.kind !== 'webhook') return false;
+  return Boolean(step.request_body) || step.kind === 'webhook' || BODY_METHOD.test(step.name);
 }
