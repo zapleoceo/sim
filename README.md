@@ -31,6 +31,18 @@ including real connection termination during POST/poll and late-owner fencing. N
 live provider probes or client sends are used. Existing channel send receipts remain
 the separate authority for delivery; a completed model call does not prove delivery.
 
+### Recorded agents and selected activity calls
+
+The owner-only log and trace drawer show role/workflow, saved model and provider from
+the stored LLM call, not current persona settings or the worker actor. Historical
+model values may be the requested model (including failed calls), not a confirmed
+responding model; the drawer explains this limitation without inventing provenance. Missing history
+is labelled explicitly. The log row's step or LLM card's call ID travels with its trace
+in the URL, preserving selection through Back/Forward. The selected record appears
+first with the existing redacted request/response blocks expanded; remaining steps,
+errors, truncation notices and copy controls remain available. No payload is rebuilt.
+Tests use synthetic API fixtures; live browser visual acceptance remains separate.
+
 ### Guard independence preserves objections
 
 A primary guard objection (block, legacy rewrite or contradictory ok) returns to

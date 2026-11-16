@@ -4,7 +4,7 @@ import { positiveInt } from './utils';
 
 export interface LoginSearch { returnUrl?: string }
 export interface InboxSearch { d?: number }
-export interface ActivitySearch { tab?: 'llm' | 'messages'; channel_id?: number; trace?: string }
+export interface ActivitySearch { tab?: 'llm' | 'messages'; channel_id?: number; trace?: string; step?: number; call?: number }
 
 /** Only same-app paths are allowed as a post-login target (no open redirect). */
 export function safeReturnUrl(value: unknown): string | undefined {
@@ -30,5 +30,9 @@ export function parseActivitySearch(s: Record<string, unknown>): ActivitySearch 
   const channel = positiveInt(s.channel_id);
   if (channel) out.channel_id = channel;
   if (typeof s.trace === 'string' && /^[0-9a-f]{32}$/.test(s.trace)) out.trace = s.trace;
+  const step = positiveInt(s.step);
+  if (out.trace && step) out.step = step;
+  const call = positiveInt(s.call);
+  if (out.trace && !step && call) out.call = call;
   return out;
 }

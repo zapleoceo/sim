@@ -20,8 +20,9 @@ export function ActivityPage() {
   const openTrace = isOwner ? (search.trace ?? null) : null;
 
   const setTab = (v: string): void =>
-    void navigate({ search: (s) => ({ ...s, tab: v === 'log' ? undefined : (v as 'messages' | 'llm'), trace: undefined }) });
-  const setTrace = (trace: string | null): void => void navigate({ search: (s) => ({ ...s, trace: trace ?? undefined }) });
+    void navigate({ search: (s) => ({ ...s, tab: v === 'log' ? undefined : (v as 'messages' | 'llm'), trace: undefined, step: undefined, call: undefined }) });
+  const setTrace = (trace: string | null, step?: number): void =>
+    void navigate({ search: (s) => ({ ...s, trace: trace ?? undefined, step: trace ? step : undefined, call: undefined }) });
 
   return (
     <Page width="wide">
@@ -61,7 +62,7 @@ export function ActivityPage() {
           </TabsContent>
         )}
       </Tabs>
-      {isOwner && <TracePanel traceId={openTrace} onClose={() => setTrace(null)} />}
+      {isOwner && <TracePanel traceId={openTrace} selectedStepId={search.step} selectedCallId={search.call} onClose={() => setTrace(null)} />}
     </Page>
   );
 }

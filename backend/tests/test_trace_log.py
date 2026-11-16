@@ -77,6 +77,14 @@ async def test_webhook_reply_and_send_are_one_trace(api, container, world, fake_
     assert body["status"] == "ok" and body["trace_id"] == trace_id
     assert body["steps"][0]["offset_ms"] == 0 and len(body["steps"]) == len(steps)
     llm = next(s for s in body["steps"] if s["kind"] == "llm")
+    assert llm["llm"]["workflow"] == "reply"
+    page = (await api.get("/api/activity/log", params={"trace_id": trace_id}, headers=h)).json()
+    listed = next(s for s in page["items"] if s["id"] == llm["id"])
+    assert listed["llm"] == llm["llm"]
+    assert "broker_exchange" not in listed["detail"]
+    calls_page = (await api.get("/api/activity/llm", headers=h)).json()
+    call = next(c for c in calls_page["items"] if c["id"] == llm["llm_call_id"])
+    assert call["trace_id"] == trace_id
     assert llm["llm"]["model"] and llm["client"]["display_name"] == "Боб"
     assert (await api.get("/api/activity/traces/" + "0" * 32, headers=h)).status_code == 404
     assert (await api.get("/api/activity/traces/not-a-trace", headers=h)).status_code == 422
