@@ -121,19 +121,21 @@ const settingsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'SettingsPage'),
 });
 
+/** The old agents page: the agents now live on «Персонажи», below the list. */
 const agentsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agents',
-  beforeLoad: ownerOnly,
-  component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'AgentsPage'),
+  beforeLoad: () => {
+    throw redirect({ to: '/personas' });
+  },
 });
 
-/** The old guard page: the guard now lives on «Агенты». */
+/** The old guard page: the guard is one of the agents on «Персонажи». */
 const guardRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/guard',
   beforeLoad: () => {
-    throw redirect({ to: '/agents' });
+    throw redirect({ to: '/personas' });
   },
 });
 

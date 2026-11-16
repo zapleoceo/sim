@@ -49,7 +49,9 @@ describe('roles and navigation', () => {
     const operator = visibleNav('operator').map((i) => i.path);
     expect(operator).toEqual(['/inbox', '/clients', '/funnel', '/dashboard', '/activity']);
     expect(visibleNav('owner').map((i) => i.path)).toContain('/settings');
-    expect(visibleNav('owner').map((i) => i.path)).toContain('/agents');
+    // the agents live on «Персонажи», not in a menu item of their own
+    expect(visibleNav('owner').map((i) => i.path)).toContain('/personas');
+    expect(NAV.map((i) => i.path)).not.toContain('/agents');
     expect(visibleNav('owner').map((i) => i.path)).not.toContain('/admins');
     expect(visibleNav('superadmin')).toHaveLength(NAV.length);
   });

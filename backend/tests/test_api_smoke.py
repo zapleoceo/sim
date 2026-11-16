@@ -30,10 +30,10 @@ async def test_persona_and_strategy_crud(api):
     assert "reply_delay_s" not in strat                 # no artificial reply delay any more
     bad = await api.post("/api/strategies", json={"name": "S2", "followup_hours": [72, 24]}, headers=h)
     assert bad.status_code == 422
-    persona = (await api.post("/api/personas", json={"name": "Марина", "strategy_id": strat["id"]},
+    persona = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина", "strategy_id": strat["id"]},
                               headers=h)).json()
     assert persona["model"] == "" and persona["strategy_id"] == strat["id"]
-    assert (await api.post("/api/personas", json={"name": "Марина"}, headers=h)).status_code == 409
+    assert (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=h)).status_code == 409
     upd = await api.put(f"/api/personas/{persona['id']}",
                         json={"name": "Марина", "model": "claude-sub/claude-sonnet-5-5"}, headers=h)
     assert upd.json()["model"] == "claude-sub/claude-sonnet-5-5"

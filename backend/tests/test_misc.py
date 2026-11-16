@@ -56,7 +56,7 @@ async def test_seed_is_idempotent_and_complete(container):
         assert p.model == "" and p.strategy_id == strategy.id
         system = stable_system_prompt(persona_profile(p), strategy_profile(strategy))
         assert p.name in system
-        assert p.agent_prompt and p.prohibitions == ""
+        assert p.agent_prompt
         assert "виртуальная помощница" not in system and "If asked directly what you are" not in system
 
 

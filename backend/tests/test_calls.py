@@ -1105,9 +1105,9 @@ async def test_persona_api_round_trips_accept_calls_and_needs_a_voice(api):
     from tests.test_api_smoke import owner
 
     h = await owner(api)
-    created = (await api.post("/api/personas", json={"name": "Марина"}, headers=h)).json()
+    created = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=h)).json()
     assert created["accept_calls"] is False
-    body = {"name": "Марина", "voice_id": "Kore", "accept_calls": True}
+    body = {"name": "Марина", "agent_prompt": "Ты тест.", "voice_id": "Kore", "accept_calls": True}
     assert (await api.put(f"/api/personas/{created['id']}", json=body,
                           headers=h)).json()["accept_calls"] is True
     resp = await api.put(f"/api/personas/{created['id']}",

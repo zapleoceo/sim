@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import type { BrokerModel, Persona, PersonaIn, Strategy } from '@/lib/models';
-import { personaFieldAnchor } from './persona-prompt-logic';
 import { BLOCKS, Section, useSections, type SectionId } from './persona-sections';
 import { SelectControl } from './select-control';
 import { StrategyScenario } from './strategy-scenario';
 import { VOICE_AMBIENCE_OPTIONS, VOICE_MODE_OPTIONS, VOICE_OPTIONS } from './persona-voices';
+import { promptDuplicates } from './prompt-duplicates';
 import {
   ageFromBirthDate, EMPTY_PERSONA, GENDERS, personaFromForm, personaSchema, personaToForm, personaToInput,
   type PersonaFormValues,
@@ -27,9 +28,9 @@ const TOGGLE_ROW = 'flex min-h-[40px] items-center gap-2.5';
 /** The block every form field lives in: a field that failed validation opens its block. */
 const FIELD_SECTION: Record<keyof PersonaFormValues, SectionId> = {
   name: 'profile', is_active: 'profile', gender: 'profile', birth_date: 'profile',
-  age: 'profile', timezone: 'profile', avatar_url: 'profile',
-  description: 'profile', prohibitions: 'profile', language: 'voice',
-  routine: 'routine',
+  timezone: 'profile', avatar_url: 'profile',
+  agent_prompt: 'prompt',
+  routine: 'routine', language: 'voice',
   voice_mode: 'voice', voice_id: 'voice', voice_style: 'voice', voice_ambience: 'voice', accept_calls: 'voice',
   model: 'strategy', strategy_id: 'strategy',
 };
@@ -42,6 +43,22 @@ function sectionsWithErrors(errors: FieldErrors<PersonaFormValues>): SectionId[]
 function birthDateHint(value: string): string {
   const age = ageFromBirthDate(value);
   return `${age === null ? 'Возраст' : `Сейчас ей ${age}. Возраст`}, знак зодиака и дни до дня рождения считает код и подсказывает модели`;
+}
+
+const PROMPT_HINT =
+  'Кто она, легенда, характер, стиль, язык переписки, запреты — всё здесь. Не пишите сюда дату рождения, возраст, '
+  + 'часовой пояс и распорядок: они в полях, код сам считает возраст, время и где она сейчас и добавляет это модели.';
+
+/** Non-blocking: names the fields the prompt repeats, so each fact stays in one place. */
+function PromptDuplicates({ control }: { control: Control<PersonaFormValues> }) {
+  const text = useWatch({ control, name: 'agent_prompt' });
+  const labels = promptDuplicates(text ?? '');
+  if (labels.length === 0) return null;
+  return (
+    <p role="note" className="text-xs text-warning">
+      В промпте найдено то, что уже есть в полях: {labels.join(', ')}. Оставьте это в одном месте — в полях.
+    </p>
+  );
 }
 
 const sameBody = (a: PersonaIn, b: PersonaIn): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -130,7 +147,6 @@ export function PersonaEditor({
       <Section
         id="profile"
         invalid={invalid.includes('profile')}
-        hint="Кто она: данные карточки. Возраст и местное время модель получает от кода, а не из текста."
       >
         <div className="flex items-center gap-3">
           <Avatar name={name || '?'} url={avatarUrl} size={44} />
@@ -152,10 +168,10 @@ export function PersonaEditor({
           <Field label="Пол" hint="Идёт в описание кадра для её фото и кружочков; в промпт переписки не попадает">
             <SelectControl control={control} name="gender" options={GENDERS} />
           </Field>
-          <Field anchorId={personaFieldAnchor('birth_date')} label="Дата рождения" hint={birthDateHint(birthDate)} error={errors.birth_date?.message}>
+          <Field label="Дата рождения" hint={birthDateHint(birthDate)} error={errors.birth_date?.message}>
             <Input type="date" {...register('birth_date')} />
           </Field>
-          <Field anchorId={personaFieldAnchor('timezone')} label="Часовой пояс" hint="Местное время персонажа, например Europe/Kyiv" error={errors.timezone?.message}>
+          <Field label="Часовой пояс" hint="Местное время персонажа, например Europe/Kyiv" error={errors.timezone?.message}>
             <Input {...register('timezone')} autoComplete="off" />
           </Field>
           <Field label="Ссылка на аватар" error={errors.avatar_url?.message}>
@@ -164,17 +180,26 @@ export function PersonaEditor({
         </FormGrid>
       </Section>
 
+      <Section id="prompt" invalid={invalid.includes('prompt')}>
+        <Field label="Промпт" hint={PROMPT_HINT} error={errors.agent_prompt?.message}>
+          <Textarea
+            {...register('agent_prompt')}
+            className="min-h-[28rem] max-h-[75vh] font-mono text-[13px] md:text-[13px]"
+          />
+        </Field>
+        <PromptDuplicates control={control} />
+      </Section>
+
       <Section
         id="routine"
         invalid={invalid.includes('routine')}
-        hint="Где она сейчас, что было вчера и будет завтра, считает код, поэтому ответы всегда совпадают."
+        hint="Где она сейчас, что было вчера и будет завтра, считает код из этих строк."
       >
         <Controller
           control={control}
           name="routine"
           render={({ field }) => (
             <LongText
-              anchorId={personaFieldAnchor('routine')}
               label="Распорядок недели"
               hint="Строка на дело: дни, время, что делает. Дни: пн…вс, пн-пт, сб,вс, ежедневно или дата 2026-11-20 (разовое дело)."
               error={errors.routine?.message}
@@ -190,7 +215,7 @@ export function PersonaEditor({
       <Section
         id="voice"
         invalid={invalid.includes('voice')}
-        hint="Голосовые сообщения и живые звонки в Telegram. Правило звонков показано в «Контексте модели»."
+        hint="Голосовые сообщения и живые звонки в Telegram."
       >
         <FormGrid>
           <Field

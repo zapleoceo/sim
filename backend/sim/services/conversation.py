@@ -45,14 +45,11 @@ from sim.services.prompt import (
     StrategyProfile,
     Turn,
     build_messages,
-    editable_agent_prompt,
     handoff_link,
     one_line,
     parse_decision,
     registration_link,
-    system_prompt_parts,
 )
-from sim.services.prompt_map import PromptMap, example_context, fixed_rules
 from sim.services.reply_schedule import delay_note
 from sim.services.summary import SummaryService
 
@@ -110,10 +107,7 @@ def will_speak(persona: Persona, followup: bool, inbound: Message | None) -> boo
 def persona_profile(p: Persona) -> PersonaProfile:
     return PersonaProfile(
         name=p.name,
-        age=p.age,
         gender=p.gender,
-        description=p.description,
-        prohibitions=p.prohibitions,
         language=p.language,
         agent_prompt=p.agent_prompt,
         routine=p.routine,
@@ -264,23 +258,6 @@ class ConversationService:
         cfg = await self.config()
         return replace(guard, text=messenger_touches(
             guard.text, typo_percent=cfg.typo_percent, lowercase_percent=cfg.lowercase_percent))
-
-    async def prompt_map(self, persona: Persona) -> PromptMap:
-        """Everything this persona's model gets, piece by piece with its source (for the admin):
-        the exact stable system message, an example of the per-reply context and the fixed rules."""
-        cfg = await self.config()
-        strategy = await self.strategy_for(persona.id)
-        profile = strategy_profile(strategy)
-        now = self.clock()
-        facts = persona_facts(persona.birth_date, persona.timezone, now, persona.routine)
-        return PromptMap(
-            parts=system_prompt_parts(persona_profile(persona), profile, cfg.prompt_texts()),
-            context=example_context(now, facts, profile),
-            rules=fixed_rules(persona.name),
-            strategy_id=strategy.id,
-            mode="unified",
-            agent_prompt=editable_agent_prompt(persona_profile(persona)),
-        )
 
     async def strategy_for(self, persona_id: int) -> Strategy:
         persona = await self.personas.get(persona_id)

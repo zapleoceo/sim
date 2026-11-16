@@ -199,7 +199,7 @@ async def test_expired_session_is_rejected(api, container):
 
 async def test_csrf_required_on_mutations(api):
     csrf = await login(api, *OWNER)
-    body = {"name": "P1"}
+    body = {"name": "P1", "agent_prompt": "Ты тест."}
     assert (await api.post("/api/personas", json=body)).status_code == 403
     assert (
         await api.post("/api/personas", json=body, headers={"X-CSRF-Token": "wrong"})
@@ -210,15 +210,15 @@ async def test_csrf_required_on_mutations(api):
 
 async def test_operator_cannot_edit_personas_or_channels(api):
     owner_csrf = await login(api, *OWNER)
-    created = await api.post("/api/personas", json={"name": "P1"}, headers={"X-CSRF-Token": owner_csrf})
+    created = await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "P1"}, headers={"X-CSRF-Token": owner_csrf})
     pid = created.json()["id"]
     await api.post("/api/auth/logout", headers={"X-CSRF-Token": owner_csrf})
 
     csrf = await login(api, *OPERATOR)
     h = {"X-CSRF-Token": csrf}
     assert (await api.get("/api/personas")).status_code == 200
-    assert (await api.post("/api/personas", json={"name": "X"}, headers=h)).status_code == 403
-    assert (await api.put(f"/api/personas/{pid}", json={"name": "Y"}, headers=h)).status_code == 403
+    assert (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "X"}, headers=h)).status_code == 403
+    assert (await api.put(f"/api/personas/{pid}", json={"agent_prompt": "Ты тест.", "name": "Y"}, headers=h)).status_code == 403
     assert (await api.delete(f"/api/personas/{pid}", headers=h)).status_code == 403
     assert (await api.post("/api/strategies", json={"name": "S"}, headers=h)).status_code == 403
     assert (
@@ -231,7 +231,7 @@ async def test_operator_cannot_edit_personas_or_channels(api):
 async def test_superadmin_passes_owner_only_routes(api):
     csrf = await login(api, *SUPERADMIN)
     h = {"X-CSRF-Token": csrf}
-    assert (await api.post("/api/personas", json={"name": "S1"}, headers=h)).status_code == 201
+    assert (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "S1"}, headers=h)).status_code == 201
     assert (await api.post("/api/strategies", json={"name": "S"}, headers=h)).status_code == 201
     assert (await api.get("/api/models")).status_code != 403
 

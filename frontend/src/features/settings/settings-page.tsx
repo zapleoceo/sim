@@ -10,18 +10,14 @@ import { qk } from '@/lib/query';
 import { SettingField } from './setting-field';
 import { groupSettings, pickSettings, settingFieldKey } from './settings-logic';
 
-/** Settings of one or more groups on one page; every field is open, no hidden sections. */
-function SettingsView({ title, subtitle, only, except, keys, footer, groupFooters }: {
-  title: string;
-  subtitle: string;
+/** Settings of one or more groups, a card per group; every field is open, no hidden sections. */
+function SettingsGroups({ only, except, keys, groupFooters }: {
   /** Show only these groups (by name). */
   only?: readonly string[];
   /** Hide these groups (by name). */
   except?: readonly string[];
   /** Show only these settings, in this order (other keys of the group stay in the DB). */
   keys?: readonly string[];
-  /** Shown after the settings (read-only notes). */
-  footer?: ReactNode;
   /** Shown at the end of a group's card, by group name (read-only notes of that group). */
   groupFooters?: Readonly<Record<string, ReactNode>>;
 }) {
@@ -31,8 +27,7 @@ function SettingsView({ title, subtitle, only, except, keys, footer, groupFooter
   );
 
   return (
-    <Page width="narrow">
-      <PageHeader title={title} subtitle={subtitle} />
+    <>
       {query.isPending && (
         <div className="flex flex-col gap-4" aria-busy="true">
           <Skeleton className="h-40 w-full" />
@@ -53,29 +48,30 @@ function SettingsView({ title, subtitle, only, except, keys, footer, groupFooter
           </Card>
         </section>
       ))}
-      {footer}
-    </Page>
+    </>
   );
 }
 
-/** The agents: each has its own group, model and instruction (the guard, the passport keeper). */
+/** The agents: each has its own group, model and instruction (the guard, the passport keeper, the summary). */
 export const GUARD_GROUP = 'Охранник';
 export const PASSPORT_GROUP = 'Паспортистка';
 export const SUMMARY_GROUP = 'Саммари диалога';
 export const AGENT_GROUPS = [GUARD_GROUP, PASSPORT_GROUP, SUMMARY_GROUP] as const;
 
-/** Shared rules for every persona (the agents have their own page). */
+/** Shared rules for every persona (the agents are on «Персонажи»). */
 export function SettingsPage() {
   return (
-    <SettingsView
-      title="Общие правила"
-      subtitle="Служебные промпты и параметры, общие для всех персонажей. Промпт самого персонажа на его странице. Хранятся в базе: деплой их не сбрасывает."
-      except={AGENT_GROUPS}
-    />
+    <Page width="narrow">
+      <PageHeader
+        title="Общие правила"
+        subtitle="Служебные промпты и параметры, общие для всех персонажей. Промпт самого персонажа и агенты — на странице «Персонажи». Хранятся в базе: деплой их не сбрасывает."
+      />
+      <SettingsGroups except={AGENT_GROUPS} />
+    </Page>
   );
 }
 
-/** What the agents page shows: each agent's model and its one instruction; Broker routes stay a backend fallback. */
+/** What the agents block shows: each agent's model and its one instruction; Broker routes stay a backend fallback. */
 export const AGENT_KEYS = [
   'guard_model', 'guard_prompt', 'passport_model', 'passport_prompt', 'summary_model', 'summary_prompt',
 ] as const;
@@ -85,18 +81,24 @@ export function GuardControl() {
   return fixed.data?.guard ? <FixedPrompt text={fixed.data.guard} where="после промпта охранника" /> : null;
 }
 
+export const AGENTS_TITLE = 'Агенты (общие для всех персонажей)';
+
 /**
- * The agents around the persona: the guard checks every reply before it is sent; the passport
- * keeper updates what the persona knows about each lead after every reply.
+ * The agents around every persona, shown on «Персонажи»: the guard checks every reply before it is sent,
+ * the passport keeper updates what the persona knows about each lead, the summary keeps the memory of old
+ * messages. Each has its own model and instruction.
  */
-export function AgentsPage() {
+export function AgentSettings() {
   return (
-    <SettingsView
-      title="Агенты"
-      subtitle="Помощники персонажа, у каждого своя модель и своя инструкция. Охранник проверяет каждый ответ перед отправкой. Паспортистка после каждого ответа обновляет паспорт собеседника: что персонаж о нём знает. Саммари диалога хранит краткую память о сообщениях, которые старше окна контекста."
-      only={AGENT_GROUPS}
-      keys={AGENT_KEYS}
-      groupFooters={{ [GUARD_GROUP]: <GuardControl /> }}
-    />
+    <section aria-labelledby="agents-h" className="flex flex-col gap-4">
+      <header className="min-w-0">
+        <h2 id="agents-h" className="text-base font-semibold sm:text-lg">{AGENTS_TITLE}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Помощники каждого персонажа: охранник проверяет ответ перед отправкой, паспортистка обновляет паспорт
+          собеседника, саммари хранит память о старых сообщениях. У каждого своя модель и инструкция.
+        </p>
+      </header>
+      <SettingsGroups only={AGENT_GROUPS} keys={AGENT_KEYS} groupFooters={{ [GUARD_GROUP]: <GuardControl /> }} />
+    </section>
   );
 }

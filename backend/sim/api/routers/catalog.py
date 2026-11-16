@@ -11,18 +11,15 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
 from sim.api.schemas import (
-    AgentPromptIn,
     PersonaIn,
     PreviewIn,
     StrategyIn,
     guard_out,
     persona_out,
-    prompt_map_out,
     strategy_out,
 )
 from sim.domain.voice import speaks
 from sim.ports.speech import SpeechError
-from sim.services.context_inspection import inspect_context
 from sim.services.guard import GuardOutcome
 from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.models import catalog_items
@@ -109,37 +106,6 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
         return None
     draft = g.original_text if g.verdict == "rewritten" else (g.text if g.verdict == "blocked" else None)
     return guard_out(g.verdict, g.violations, g.model, draft)
-
-
-@personas.get("/{persona_id}/prompt")
-async def persona_prompt(persona_id: int, c: App, s: Db):
-    """Exactly what the persona's model gets as its system prompt (saved settings), and the same
-    text piece by piece with the place each piece is edited. `context` is an example of the
-    per-reply message that follows the client history in a real call; `rules` are fixed in the
-    code. `fixed` is empty, kept for compatibility. No model is called."""
-    persona = await persona_or_404(s, persona_id)
-    return prompt_map_out(await c.conversation(s).prompt_map(persona))
-
-
-@personas.get("/{persona_id}/context", dependencies=[Depends(owner_only)])
-async def persona_context(persona_id: int, c: App, s: Db, response: Response, dialog_id: int | None = None):
-    response.headers["Cache-Control"] = "no-store"
-    persona = await persona_or_404(s, persona_id)
-    try:
-        return await inspect_context(c.conversation(s), persona, dialog_id)
-    except ValueError as exc:
-        raise HTTPException(404, "Dialog not found for this persona") from exc
-
-
-@personas.put("/{persona_id}/prompt")
-async def save_agent_prompt(persona_id: int, body: AgentPromptIn, c: App, s: Db, p: Owner):
-    persona = await persona_or_404(s, persona_id)
-    before = {"agent_prompt": persona.agent_prompt}
-    persona.agent_prompt = body.text
-    await s.flush()
-    await CommunicationJournal(s, clock=c.clock).persona_edited(
-        persona.id, before, {"agent_prompt": body.text}, admin_who(p.user), {})
-    return {"mode": "unified", "agent_prompt": persona.agent_prompt}
 
 
 @personas.post("/{persona_id}/preview/attachment")

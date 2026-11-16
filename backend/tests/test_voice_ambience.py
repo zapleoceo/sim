@@ -95,9 +95,9 @@ async def test_persona_api_round_trips_the_ambience(api):
     from tests.test_api_smoke import owner
 
     h = await owner(api)
-    created = (await api.post("/api/personas", json={"name": "Марина"}, headers=h)).json()
+    created = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=h)).json()
     assert created["voice_ambience"] == "off"
-    body = {"name": "Марина", "voice_id": "Kore", "voice_mode": VoiceMode.ALWAYS, "voice_ambience": "street"}
+    body = {"name": "Марина", "agent_prompt": "Ты тест.", "voice_id": "Kore", "voice_mode": VoiceMode.ALWAYS, "voice_ambience": "street"}
     upd = (await api.put(f"/api/personas/{created['id']}", json=body, headers=h)).json()
     assert upd["voice_ambience"] == "street"
     bad = await api.put(f"/api/personas/{created['id']}", json={**body, "voice_ambience": "disco"}, headers=h)

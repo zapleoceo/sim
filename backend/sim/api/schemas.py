@@ -1,7 +1,6 @@
 """Request bodies (pydantic) and response serialisers (plain dicts)."""
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -38,7 +37,6 @@ from sim.domain.voice import GEMINI_VOICES
 from sim.services import media_decisions
 from sim.services.channels import ConnectState
 from sim.services.persona_routine import MAX_ROUTINE_LEN, invalid_lines
-from sim.services.prompt_map import PromptMap
 
 
 def dt(value: datetime | None) -> str | None:
@@ -80,14 +78,13 @@ class AdminPatchIn(Body):
 
 class PersonaIn(Body):
     name: str = Field(min_length=1, max_length=120)
-    age: int | None = Field(default=None, ge=0, le=120)
     birth_date: date | None = None
     timezone: str = Field(default="Europe/Kyiv", max_length=64)
     routine: str = Field(default="", max_length=MAX_ROUTINE_LEN)
     gender: Literal["female", "male", "other"] = "other"
     avatar_url: str = Field(default="", max_length=500)
-    description: str = ""
-    prohibitions: str = ""
+    # Her single prompt, saved with the rest of the persona (the only place of her text).
+    agent_prompt: str = Field(min_length=1, max_length=100000)
     language: str = Field(default="ru", max_length=200)
     model: str = Field(default="", max_length=120)
     voice_id: str = Field(default="", max_length=120)    # Gemini TTS voice name, "" = none
@@ -129,19 +126,6 @@ class PersonaIn(Body):
         if self.accept_calls and not self.voice_id:
             raise ValueError("Phone calls need a voice")
         return self
-
-
-class AgentPromptIn(BaseModel):
-    """The single prompt as the owner typed it: not stripped, the model gets exactly this text."""
-
-    text: str = Field(min_length=1, max_length=100000)
-
-    @field_validator("text")
-    @classmethod
-    def nonblank_prompt(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Prompt must not be blank")
-        return value
 
 
 class SimStartIn(Body):
@@ -274,22 +258,13 @@ def admin_out(u: AdminUser) -> dict[str, Any]:
 
 def persona_out(p: Persona) -> dict[str, Any]:
     return {
-        "id": p.id, "name": p.name, "age": p.age, "birth_date": p.birth_date.isoformat() if p.birth_date else None,
+        "id": p.id, "name": p.name, "birth_date": p.birth_date.isoformat() if p.birth_date else None,
         "timezone": p.timezone, "routine": p.routine, "gender": p.gender, "avatar_url": p.avatar_url,
-        "description": p.description, "prohibitions": p.prohibitions,
+        "agent_prompt": p.agent_prompt,
         "language": p.language, "model": p.model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
         "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),
-    }
-
-
-def prompt_map_out(m: PromptMap) -> dict[str, Any]:
-    return {
-        "system": m.system, "fixed": "", "strategy_id": m.strategy_id, "context": m.context,
-        "mode": "unified", "agent_prompt": m.agent_prompt,
-        "parts": [asdict(part) for part in m.parts],
-        "rules": [asdict(rule) for rule in m.rules],
     }
 
 

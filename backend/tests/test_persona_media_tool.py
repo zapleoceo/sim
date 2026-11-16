@@ -37,7 +37,6 @@ from sim.services.persona_media_tool import (
     shot_prompt,
 )
 from sim.services.prompt import Decision, MediaAsk, parse_decision, parse_media
-from sim.services.prompt_map import fixed_rules
 from sim.worker.handlers import HANDLERS
 from tests.conftest import FakePort, decision_json, inbound
 from tests.test_conversation import run_reply
@@ -396,13 +395,6 @@ def test_generated_media_reads_as_a_marker_and_an_old_label_is_not_her_words():
     assert history_text(client) == AI_LABEL
     turns = history_turns([client, out("привет"), out(AI_LABEL), photo])
     assert [t.text for t in turns] == [AI_LABEL, "привет", "", f"[ты отправила своё фото: {SCENE}]"]
-
-
-def test_the_persona_page_shows_the_media_instruction_read_only():
-    by_key = {rule.key: rule.text for rule in fixed_rules("Марина")}
-    assert set(by_key) == {"call", "media_tool"}
-    assert Offer((MediaKind.PHOTO, MediaKind.VIDEO_NOTE)).brief() in by_key["media_tool"]
-    assert NO_MEDIA in by_key["media_tool"]
 
 
 # ---- the Broker client -----------------------------------------------------------------------

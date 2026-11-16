@@ -32,7 +32,7 @@ async def login_link(telegram_id: int) -> str:
 
 
 async def apply_prompts() -> int:
-    """Overwrite persona descriptions/prohibitions and the default strategy text (owner-approved)."""
+    """Overwrite the seeded personas' prompts and the default strategy text (owner-approved)."""
     container = build_container(settings())
     try:
         async with transaction(container.factory) as s:

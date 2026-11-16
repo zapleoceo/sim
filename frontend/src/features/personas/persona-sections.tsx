@@ -12,8 +12,6 @@ export const SECTIONS = [
   { id: 'voice', label: 'Голос и звонки' },
   { id: 'strategy', label: 'Модель и стратегия' },
   { id: 'media', label: 'Фото и кружочки' },
-  { id: 'shared', label: 'Общие инструкции' },
-  { id: 'assembled', label: 'Контекст модели' },
 ] as const;
 
 export type SectionId = (typeof SECTIONS)[number]['id'];
@@ -21,8 +19,8 @@ export type SectionId = (typeof SECTIONS)[number]['id'];
 /** A flat card of blocks: one border, no shadow; the blocks inside are divided by a line. */
 export const BLOCKS = 'flex min-w-0 flex-col rounded-xl border bg-card';
 
-/** The only block that is open when the page opens. */
-export const DEFAULT_OPEN: SectionId = 'profile';
+/** The blocks that are open when the page opens: who she is and her prompt. */
+export const DEFAULT_OPEN: ReadonlySet<SectionId> = new Set<SectionId>(['profile', 'prompt']);
 
 const LABELS = Object.fromEntries(SECTIONS.map((s) => [s.id, s.label])) as Record<SectionId, string>;
 const isSectionId = (value: string | null | undefined): value is SectionId => SECTIONS.some((s) => s.id === value);
@@ -60,11 +58,10 @@ function sectionOfAnchor(anchor: string): SectionId | null {
 /**
  * Holds which blocks of the persona page are open. A collapsed block stays in the document (hidden), so
  * its fields keep their values and its anchors exist. A link `#anchor` inside the page (and the hash the
- * page was opened with) opens the block of its target and scrolls to it: «Изменить» in the assembled
- * prompt lands on the field even when its block was collapsed.
+ * page was opened with) opens the block of its target and scrolls to it, even when that block was collapsed.
  */
 export function PersonaSections({ className, children }: { className?: string; children: ReactNode }) {
-  const [open, setOpen] = useState<ReadonlySet<SectionId>>(() => new Set([DEFAULT_OPEN]));
+  const [open, setOpen] = useState<ReadonlySet<SectionId>>(() => new Set(DEFAULT_OPEN));
   const [target, setTarget] = useState<{ anchor: string } | null>(null);
 
   const toggle = useCallback((id: SectionId) => {

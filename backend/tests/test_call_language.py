@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from sim.persona_prompts import EVA_PROMPT, MARINA, MARINA_PROMPT
-from sim.services.call_prompt import CALL_RULES, call_system_prompt, greeting
+from sim.services.call_prompt import call_system_prompt, greeting
 from sim.services.calls import language_code
 from sim.services.prompt import PersonaProfile, StrategyProfile, Turn
-from sim.services.prompt_map import fixed_rules
 from tests.test_calls import ctx
 
 
@@ -31,7 +30,6 @@ def test_current_speech_not_foreign_phone_or_history_selects_language():
                  "После перехода сохраняй последний понятный или явно запрошенный поддерживаемый язык"):
         assert rule in prompt
     assert "Olá" in prompt
-    assert CALL_RULES in next(r.text for r in fixed_rules("Марина") if r.key == "call")
 
 
 def test_actual_live_language_description_is_russian_not_autodetect():

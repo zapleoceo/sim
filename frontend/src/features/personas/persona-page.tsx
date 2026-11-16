@@ -7,29 +7,23 @@ import { EmptyState, ErrorState } from '@/components/empty-state';
 import { BackLink, Page, PageHeader } from '@/components/page';
 import { Skeleton } from '@/components/ui/skeleton';
 import { personasApi } from '@/lib/api/personas';
-import { useAuth } from '@/lib/auth';
 import { strategiesApi } from '@/lib/api/strategies';
 import type { Persona, PersonaIn } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { positiveInt, upsertById } from '@/lib/utils';
 import { AiVideoNote } from './ai-video-note';
-import { PersonaAgentPrompt } from './persona-agent-prompt';
 import { PersonaEditor } from './persona-editor';
 import { PersonaGallery } from './persona-gallery';
 import { PersonaPreview } from './persona-preview';
-import { PersonaPromptMap } from './persona-prompt-map';
 import { BLOCKS, PersonaSections, Section } from './persona-sections';
-import { PersonaShared } from './persona-shared';
 
 /**
  * Persona page: `/personas/new` and `/personas/$id`. Everything of a persona in one place, in blocks that
- * fold (only «Профиль» is open at first): her own data (one form), then, once she is saved, her photos and
- * video notes, the shared instructions mixed into her replies and the assembled prompt with the source of
- * every piece; the preview chat next to them. The page shows as soon as the personas are loaded: strategies,
- * Broker models, settings and the prompt map fill in after.
+ * fold («Профиль» and «Промпт» are open at first): her own data and her prompt (one form, one «Сохранить»),
+ * then, once she is saved, her photos and video notes; the preview chat next to them. The page shows as soon
+ * as the personas are loaded: strategies and Broker models fill in after.
  */
 export function PersonaPage() {
-  const { isOwner } = useAuth();
   const params: { id?: string } = useParams({ strict: false });
   const isNew = params.id === undefined;
   const id = positiveInt(params.id);
@@ -49,7 +43,6 @@ export function PersonaPage() {
     mutationFn: (body: PersonaIn) => (persona ? personasApi.update(persona.id, body) : personasApi.create(body)),
     onSuccess: (saved: Persona) => {
       queryClient.setQueryData<Persona[]>(qk.personas, (list) => upsertById(list ?? [], saved));
-      void queryClient.invalidateQueries({ queryKey: qk.personaPrompt(saved.id) });
       toast.success('Персонаж сохранён');
       if (persona?.id !== saved.id) {
         void navigate({ to: '/personas/$id', params: { id: String(saved.id) }, replace: true });
@@ -107,28 +100,9 @@ export function PersonaPage() {
                 />
                 {persona && (
                   <div className={BLOCKS}>
-                    <Section id="prompt" hint="Единый текст, который модель получает как есть. Формат ответа, контекст и проверка добавляются кодом.">
-                      {isOwner && <PersonaAgentPrompt key={persona.id} personaId={persona.id} />}
-                    </Section>
-                  </div>
-                )}
-                {persona && (
-                  <div className={BLOCKS}>
-                    <Section id="media" hint="Её галерея и кружочек ИИ по запросу.">
+                    <Section id="media" hint="Её галерея и кружочек ИИ по запросу. Модель фото, пауза между медиа и получатель кружочков — в «Общих правилах».">
                       <PersonaGallery personaId={persona.id} />
                       <AiVideoNote personaId={persona.id} />
-                      <a
-                        href="#shared"
-                        className="inline-flex w-fit items-center text-xs font-medium text-primary underline-offset-4 hover:underline max-md:min-h-[40px]"
-                      >
-                        Модель фото, пауза между медиа и получатель кружочков: в общих инструкциях
-                      </a>
-                    </Section>
-                    <Section id="shared" hint="Общие для всех персонажей: правка здесь меняет их везде. Те же поля есть на страницах «Общие правила» и «Агенты».">
-                      <PersonaShared />
-                    </Section>
-                    <Section id="assembled" hint="Что получает модель: какой кусок откуда и где его поменять.">
-                      <PersonaPromptMap personaId={persona.id} />
                     </Section>
                   </div>
                 )}
