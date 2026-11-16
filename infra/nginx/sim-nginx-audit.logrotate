@@ -1,0 +1,14 @@
+/var/log/sim-nginx/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 root adm
+    sharedscripts
+    postrotate
+        /bin/systemctl kill -s HUP --kill-who=main sim-nginx-audit.service
+        /usr/sbin/nginx -s reopen
+    endscript
+}

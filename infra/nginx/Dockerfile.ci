@@ -1,0 +1,8 @@
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends nginx-core rsyslog openssl python3-pytest \
+    && rm -rf /var/lib/apt/lists/*
+COPY infra/nginx/ /case/infra/nginx/
+COPY backend/tests/test_nginx_origin_audit.py /case/backend/tests/test_nginx_origin_audit.py
+WORKDIR /case
+CMD ["python3", "-m", "pytest", "-q", "backend/tests/test_nginx_origin_audit.py"]

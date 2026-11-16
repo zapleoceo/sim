@@ -51,9 +51,13 @@ jobs:
         run: uv sync --frozen
       - name: Install local audio codec for offline tests
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Build isolated nginx audit test tools
+        run: docker build -f infra/nginx/Dockerfile.ci -t sim-nginx-audit-ci .
+      - name: Isolated nginx TLS and audit regression
+        run: docker run --rm --network none sim-nginx-audit-ci
       - name: Backend unit tests
         working-directory: backend
-        run: uv run --frozen pytest -q
+        run: uv run --frozen pytest -q --ignore=tests/test_nginx_origin_audit.py
       - name: Ruff
         working-directory: backend
         run: uv run --frozen ruff check .
