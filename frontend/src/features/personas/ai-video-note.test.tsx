@@ -10,7 +10,7 @@ const MARINA: Persona = {
   ...EMPTY_PERSONA,
   id: 1,
   name: 'Марина',
-  description: 'Тёплая',
+  agent_prompt: 'Ты Марина, тёплая.',
   created_at: '2026-11-01T10:00:00Z',
 };
 
@@ -20,7 +20,6 @@ function backend(videoNote: FakeReply) {
     'GET /api/strategies': { items: [] },
     'GET /api/models': { items: [] },
     'GET /api/personas/1/media': { items: [] },
-    'GET /api/personas/1/prompt': { system: 'test', fixed: '', strategy_id: 1, context: '', parts: [], rules: [] },
     'POST /api/personas/1/video-note': videoNote,
   });
 }

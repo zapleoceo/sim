@@ -3,7 +3,7 @@
 Every saved text that differs from the current one becomes a version: who saved it and when.
 The newest version is the prompt in use. A version is never edited; «Восстановить» saves the old
 text again as a new version, so the history only grows and shows every switch. Writers: the
-persona page (`PUT /api/personas/{id}/prompt`), the restore and `apply-persona-prompts`."""
+persona form (`POST`/`PUT /api/personas`), the restore and `apply-persona-prompts`."""
 from __future__ import annotations
 
 from collections.abc import Sequence

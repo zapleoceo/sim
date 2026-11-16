@@ -9,14 +9,12 @@ export const ROUTINE_MAX = 4000;
 
 export const EMPTY_PERSONA: PersonaIn = {
   name: '',
-  age: null,
   birth_date: null,
   timezone: 'Europe/Kyiv',
   routine: '',
   gender: 'female',
   avatar_url: '',
-  description: '',
-  prohibitions: '',
+  agent_prompt: '',
   language: 'ru',
   model: '',
   voice_id: '',
@@ -38,18 +36,16 @@ const GEMINI_VOICE_IDS = new Set(GEMINI_VOICES.map((v) => v.id));
 
 const notBlank = (v: string): boolean => v.trim() !== '';
 
+/** Как backend: предел длины единого промпта персонажа. */
+export const AGENT_PROMPT_MAX = 50000;
+
 /**
- * Persona form: every field of the persona is edited on its page. The stored `age` is the only
- * one without a control: the age comes from the birth date, computed by code. Empty gender and
- * language fall back to female/ru. Required: name and description.
+ * Persona form: every field of the persona is edited on its page, the prompt included. The age is not
+ * stored: code counts it from the birth date. Empty gender and language fall back to female/ru.
+ * Required: name, time zone and the prompt.
  */
 export const personaSchema = z.object({
   name: z.string().refine(notBlank, 'Укажите имя').refine((v) => v.length <= 80, 'Не длиннее 80 символов'),
-  age: z.string().refine((v) => {
-    if (v.trim() === '') return true;
-    const n = Number(v);
-    return Number.isInteger(n) && n >= 18 && n <= 100;
-  }, '18–100'),
   birth_date: z.string().refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1976-12-09'),
   timezone: z.string().refine(notBlank, 'Укажите часовой пояс').refine((v) => v.length <= 64, 'Не длиннее 64 символов'),
   routine: z.string().max(ROUTINE_MAX, `Не длиннее ${ROUTINE_MAX} символов`),
@@ -58,8 +54,10 @@ export const personaSchema = z.object({
     .string()
     .max(500, 'Не длиннее 500 символов')
     .refine((v) => v === '' || AVATAR_URL_PATTERN.test(v), 'Нужна ссылка вида https://…'),
-  description: z.string().max(20000, 'Слишком длинно'),
-  prohibitions: z.string().max(10000, 'Слишком длинно'),
+  agent_prompt: z
+    .string()
+    .refine(notBlank, 'Напишите промпт')
+    .refine((v) => v.length <= AGENT_PROMPT_MAX, `Не длиннее ${AGENT_PROMPT_MAX} символов`),
   language: z.string().max(200, 'Не длиннее 200 символов'),
   model: z.string().max(200),
   voice_id: z.string().refine((v) => v === '' || GEMINI_VOICE_IDS.has(v), 'Выберите голос из списка'),
@@ -94,14 +92,12 @@ export function personaErrors(values: PersonaFormValues): Partial<Record<keyof P
 export function personaToForm(p: PersonaIn): PersonaFormValues {
   return {
     name: p.name,
-    age: p.age == null ? '' : String(p.age),
     birth_date: p.birth_date ?? '',
     timezone: p.timezone || 'Europe/Kyiv',
     routine: p.routine ?? '',
     gender: p.gender || 'female',
     avatar_url: p.avatar_url ?? '',
-    description: p.description,
-    prohibitions: p.prohibitions ?? '',
+    agent_prompt: p.agent_prompt ?? '',
     language: p.language,
     model: p.model ?? '',
     voice_id: p.voice_id ?? '',
@@ -118,14 +114,12 @@ export function personaToForm(p: PersonaIn): PersonaFormValues {
 export function personaFromForm(v: PersonaFormValues): PersonaIn {
   return {
     name: v.name.trim(),
-    age: v.age.trim() === '' ? null : Number(v.age),
     birth_date: v.birth_date || null,
     timezone: v.timezone.trim(),
     routine: v.routine,
     gender: v.gender || 'female',
     avatar_url: v.avatar_url.trim(),
-    description: v.description,
-    prohibitions: v.prohibitions,
+    agent_prompt: v.agent_prompt,
     language: v.language.trim() || 'ru',
     model: v.model,
     voice_id: v.voice_id,
@@ -141,14 +135,12 @@ export function personaFromForm(v: PersonaFormValues): PersonaIn {
 export function personaToInput(p: Persona): PersonaIn {
   return {
     name: p.name,
-    age: p.age,
     birth_date: p.birth_date ?? null,
     timezone: p.timezone || 'Europe/Kyiv',
     routine: p.routine ?? '',
     gender: p.gender,
     avatar_url: p.avatar_url,
-    description: p.description,
-    prohibitions: p.prohibitions,
+    agent_prompt: p.agent_prompt ?? '',
     language: p.language,
     model: p.model,
     voice_id: p.voice_id,

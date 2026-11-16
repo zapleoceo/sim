@@ -38,7 +38,6 @@ export type ClientStatus = 'active' | 'paused' | 'no_response' | 'refused';
 export interface Persona {
   id: number;
   name: string;
-  age: number | null;
   /** День рождения (YYYY-MM-DD): возраст, знак зодиака и дни до праздника считает код. */
   birth_date: string | null;
   /** Часовой пояс IANA (Europe/Kyiv): местное время персонажа считает код. */
@@ -47,10 +46,11 @@ export interface Persona {
   routine: string;
   gender: string;
   avatar_url: string;
-  /** Свободный текст: кто она, характер, биография, как пишет. */
-  description: string;
-  /** Что персонаж не должен писать и делать: одно правило на строку. */
-  prohibitions: string;
+  /**
+   * Единый промпт персонажа: кто она, легенда, характер, стиль, язык переписки, запреты. Модель получает его как есть;
+   * возраст, местное время и где она сейчас код добавляет сам из полей.
+   */
+  agent_prompt: string;
   language: string;
   model: string;
   /** Голос Google Gemini TTS (имя, например «Kore»); пусто — без голоса. */
@@ -417,26 +417,8 @@ export interface SimBranchDetail extends SimBranchRow {
 /** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 /** Fixed guard contract; persona is empty for backward compatibility. */
 export interface FixedPrompts { persona: string; guard: string }
-/** One piece of the persona's system prompt and whose field it comes from (`field`: that field or the setting key). */
-export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting' | 'code'; field: string }
-/** A rule fixed in the code: shown read-only. */
-export interface FixedRule { key: string; title: string; text: string }
 /** One saved text of a persona prompt; `author` and `note` may be empty. */
 export interface PersonaPromptVersion { id: number; text: string; author: string; note: string; created_at: string }
-/**
- * The persona's prompt map: `system` is the stable system message as the model gets it, `parts` the same
- * text piece by piece, `context` an example of the per-reply message code builds, `rules` what is fixed in
- * the code. `fixed` is empty for compatibility.
- */
-export interface PersonaPrompt {
-  agent_prompt?: string;
-  system: string;
-  fixed: string;
-  strategy_id: number;
-  context: string;
-  parts: PromptPart[];
-  rules: FixedRule[];
-}
 export interface AppSettingItem {
   key: string;
   group: string;

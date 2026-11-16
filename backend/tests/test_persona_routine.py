@@ -115,13 +115,13 @@ async def test_persona_api_round_trips_the_routine_and_rejects_bad_lines(api):
     from tests.test_api_smoke import owner
 
     h = await owner(api)
-    created = (await api.post("/api/personas", json={"name": "Марина"}, headers=h)).json()
+    created = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=h)).json()
     assert created["routine"] == ""
-    upd = (await api.put(f"/api/personas/{created['id']}", json={"name": "Марина", "routine": ROUTINE},
+    upd = (await api.put(f"/api/personas/{created['id']}", json={"agent_prompt": "Ты тест.", "name": "Марина", "routine": ROUTINE},
                          headers=h)).json()
     assert upd["routine"] == ROUTINE.strip()       # bodies are stripped
     for bad in ("понедельник с утра бегаю", "пн 9-13 работа", "x" * 4001):
-        resp = await api.put(f"/api/personas/{created['id']}", json={"name": "Марина", "routine": bad}, headers=h)
+        resp = await api.put(f"/api/personas/{created['id']}", json={"agent_prompt": "Ты тест.", "name": "Марина", "routine": bad}, headers=h)
         assert resp.status_code == 422, bad
 
 

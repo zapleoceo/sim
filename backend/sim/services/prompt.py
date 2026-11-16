@@ -49,12 +49,9 @@ OUTPUT_CONTRACT = f"""ФОРМАТ ОТВЕТА: верни ОДИН JSON-объ
 @dataclass(frozen=True)
 class PersonaProfile:
     name: str
-    age: int | None = None
     gender: str = ""
-    description: str = ""     # who she is, character, biography, how she writes
-    prohibitions: str = ""    # one rule per line
     language: str = "ru"
-    agent_prompt: str | None = None   # the owner's saved single prompt; None = composed from the fields
+    agent_prompt: str | None = None   # the owner's single prompt (who she is, style, prohibitions)
     routine: str = ""        # weekly routine lines (sim.services.persona_routine)
 
 
@@ -158,7 +155,7 @@ RETRY_NUDGE = (
 @dataclass(frozen=True)
 class PromptTexts:
     """Owner-editable service texts of the persona call (`app_setting`, defaults here). The persona
-    prompt itself is the persona's `description`; no identity rule is appended."""
+    prompt itself is the persona's `agent_prompt`; no identity rule is appended."""
 
     contract: str = OUTPUT_CONTRACT
     retry_nudge: str = RETRY_NUDGE

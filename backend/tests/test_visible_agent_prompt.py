@@ -18,7 +18,7 @@ from sim.services.prompt import (
 
 
 def test_unified_source_retains_mandatory_rules_dynamic_facts_and_voice_identity():
-    p = PersonaProfile(name="Marina", description="OLD DESCRIPTION", agent_prompt=" exact\n ")
+    p = PersonaProfile(name="Marina", agent_prompt=" exact\n ")
     s = StrategyProfile(prompt="OLD STRATEGY")
     ctx = DialogContext(Stage.ENGAGED, "active", "client", "preview", "REF", datetime(2026, 1, 1),
                         persona_facts="PROGRAMMATIC CLOCK 2026-01-01")
@@ -34,7 +34,7 @@ def test_unified_source_retains_mandatory_rules_dynamic_facts_and_voice_identity
 
 
 def test_editable_agent_prompt_returns_empty_when_none():
-    p = PersonaProfile(name="name", description="description")
+    p = PersonaProfile(name="name")
     assert editable_agent_prompt(p) == ""
 
 

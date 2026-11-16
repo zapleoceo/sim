@@ -10,8 +10,7 @@ const MARINA: Persona = {
   ...EMPTY_PERSONA,
   id: 1,
   name: 'Марина',
-  age: 34,
-  description: 'Тёплая, энергичная',
+  agent_prompt: 'Ты Марина: тёплая, энергичная.',
   model: 'gpt-x',
   created_at: '2026-11-01T10:00:00Z',
 };
@@ -21,18 +20,18 @@ function backend(extra: Record<string, unknown> = {}) {
     'GET /api/personas': { items: [MARINA] },
     'GET /api/strategies': { items: [] },
     'GET /api/models': { items: [{ id: 'gpt-x', name: 'GPT X', subscription: true, available: true }] },
+    'GET /api/settings': { items: [], fixed: { persona: '', guard: '' } },
     ...extra,
   });
 }
 
 describe('personas pages', () => {
-  it('lists personas by name and status only: age, description and model live in the card', async () => {
+  it('lists personas by name and status only: the prompt and the model live in the card', async () => {
     backend();
     await renderApp('/personas');
     expect(await screen.findByText('Марина')).toBeInTheDocument();
     expect(screen.getByText('Активен')).toBeInTheDocument();
-    expect(screen.queryByText(/34/)).not.toBeInTheDocument();
-    expect(screen.queryByText('Тёплая, энергичная')).not.toBeInTheDocument();
+    expect(screen.queryByText(MARINA.agent_prompt)).not.toBeInTheDocument();
     expect(screen.queryByText('gpt-x')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Новый персонаж/ })).toHaveAttribute('href', '/personas/new');
   });
@@ -72,6 +71,7 @@ describe('personas pages', () => {
     await renderApp('/personas/new');
     await userEvent.click(await screen.findByRole('button', { name: 'Сохранить персонажа' }));
     expect(await screen.findByText('Укажите имя')).toBeVisible();
+    expect(screen.getByText('Напишите промпт')).toBeVisible();
     expect(log.some((r) => r.method === 'POST')).toBe(false);
     expect(screen.queryByRole('heading', { name: 'Проверить персонажа' })).not.toBeInTheDocument();
   });
@@ -80,6 +80,7 @@ describe('personas pages', () => {
     backend({ 'POST /api/personas': { ...MARINA, id: 7, name: 'Анна' } });
     const { router } = await renderApp('/personas/new');
     await userEvent.type(await screen.findByLabelText('Имя'), 'Анна');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Промпт' }), 'Ты Анна.');
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить персонажа' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas/7'));
   });
@@ -115,73 +116,16 @@ describe('personas pages', () => {
     backend({ 'GET /api/models': never, 'GET /api/strategies': never, 'GET /api/settings': never });
     await renderApp('/personas/1');
     expect(await screen.findByLabelText('Имя')).toHaveValue('Марина');
-    expect(await blockButton('Контекст модели')).toHaveAttribute('aria-expanded', 'false');
+    expect(await blockButton('Фото и кружочки')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('shows the assembled prompt piece by piece: whose text it is and where to change it', async () => {
-    const part = (key: string, source: string, field: string) => ({ key, title: `Кусок ${key}`, text: `текст ${key}`, source, field });
-    backend({
-      'GET /api/personas/1/prompt': {
-        system: 'текст description\n\nтекст strategy', fixed: '', strategy_id: 3, context: '- Тебе 45',
-        parts: [
-          part('description', 'persona', 'description'), part('strategy', 'strategy', 'offer'),
-          part('strategy_prompt', 'strategy', 'prompt'), part('output_contract', 'setting', 'output_contract'),
-        ],
-        rules: [
-          { key: 'call', title: 'Правило звонков', text: 'ты ИИ-ассистент' },
-          { key: 'media_tool', title: 'Фото и кружочки по решению персонажа', text: 'фото или кружочек' },
-        ],
-      },
-    });
+  it('says where the settings of her photos and video notes live, without a shared-instructions block', async () => {
+    backend({ 'GET /api/personas/1/media': { items: [] } });
     await renderApp('/personas/1');
-    await toggleBlock('Контекст модели');
-    const section = within(await screen.findByRole('region', { name: 'Контекст модели' }));
-    const piece = async (title: string) => within(await section.findByRole('listitem', { name: title }));
-
-    const own = await piece('Кусок description');
-    expect(own.getByText('текст description')).toBeInTheDocument();
-    expect(own.getByText('Промпт персонажа')).toBeInTheDocument();
-    expect(own.getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#persona-description');
-    expect((await piece('Кусок strategy')).getByRole('link', { name: 'Изменить в стратегии' })).toHaveAttribute('href', '/strategies/3');
-    expect((await piece('Кусок strategy_prompt')).getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#strategy-prompt');
-    const contract = await piece('Кусок output_contract');
-    expect(contract.getByText('Общая настройка')).toBeInTheDocument();
-    expect(contract.getByRole('link', { name: 'Изменить в «Общих правилах»' })).toHaveAttribute('href', '/settings#setting-output_contract');
-    const context = await piece('Контекст разговора');
-    expect(context.getByText('- Тебе 45')).toBeInTheDocument();
-    expect(context.getByRole('link', { name: 'Дата рождения' })).toHaveAttribute('href', '#persona-birth_date');
-
-    await userEvent.click(section.getByText('Технические правила и обработка'));
-    // the two rules that stay in the code: read-only, no field
-    const fixed = within(section.getByRole('group', { name: 'Фиксированные правила' }));
-    expect(fixed.getByText('Правило звонков')).toBeInTheDocument();
-    expect(fixed.getByText('ты ИИ-ассистент')).toBeInTheDocument();
-    expect(fixed.getByText('Фото и кружочки по решению персонажа')).toBeInTheDocument();
-    expect(fixed.queryByText(/Сгенерировано ИИ/)).not.toBeInTheDocument();
-    expect(fixed.getAllByText(/не редактируется/)).toHaveLength(2);
-    expect(fixed.queryByRole('textbox')).not.toBeInTheDocument();
-
-    expect(section.queryByLabelText('Полный промпт')).not.toBeInTheDocument();
-    await userEvent.click(section.getByRole('button', { name: /одним текстом/ }));
-    expect(section.getByLabelText('Полный промпт')).toHaveTextContent('текст description текст strategy');
-
-    // «Изменить» points at a field of a collapsed block: the block opens and the page scrolls to the field
-    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
-    expect(own.getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#persona-description');
-    await userEvent.click(context.getByRole('link', { name: 'Распорядок' }));
-    expect(await blockButton('Распорядок')).toHaveAttribute('aria-expanded', 'true');
-    await waitFor(() => expect(scroll.mock.contexts).toContain(document.getElementById('persona-routine')));
-  });
-
-  it('keeps only her own settings: the shared ones are linked to the page where they are edited', async () => {
-    backend();
-    await renderApp('/personas/1');
-    await blockButton('Профиль');
-    expect(screen.queryByRole('button', { name: 'Общие инструкции' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: /Формат ответа/ })).not.toBeInTheDocument();
     await toggleBlock('Фото и кружочки');
     const media = within(screen.getByRole('region', { name: 'Фото и кружочки' }));
-    expect(media.getByRole('link', { name: /в «Общих правилах»/ })).toHaveAttribute('href', '/settings#setting-persona_photo_model');
+    expect(media.getByText(/в «Общих правилах»/)).toBeVisible();
+    expect(document.querySelector('a[href="#shared"]')).toBeNull();
     expect(screen.getByText(/Идёт в описание кадра для её фото и кружочков/)).toBeInTheDocument();
   });
 

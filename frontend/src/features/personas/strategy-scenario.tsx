@@ -8,7 +8,6 @@ import { strategiesApi } from '@/lib/api/strategies';
 import type { Strategy } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { upsertById } from '@/lib/utils';
-import { STRATEGY_PROMPT_ANCHOR } from './persona-prompt-logic';
 
 /**
  * The scenario text of the persona's strategy, edited right on the persona page. It has its own
@@ -22,7 +21,6 @@ export function StrategyScenario({ strategy }: { strategy: Strategy }) {
     mutationFn: () => strategiesApi.savePrompt(strategy, draft),
     onSuccess: (saved) => {
       queryClient.setQueryData<Strategy[]>(qk.strategies, (list) => upsertById(list ?? [], saved));
-      void queryClient.invalidateQueries({ queryKey: qk.personaPrompts });
       setDraft(saved.prompt);
       toast.success('Сценарий стратегии сохранён');
     },
@@ -32,7 +30,6 @@ export function StrategyScenario({ strategy }: { strategy: Strategy }) {
   return (
     <div className="flex flex-col gap-2">
       <LongText
-        anchorId={STRATEGY_PROMPT_ANCHOR}
         label={`Сценарий стратегии «${strategy.name}»`}
         hint="Один текст: цель, шаги воронки, тон. Общий для всех персонажей с этой стратегией."
         value={draft}

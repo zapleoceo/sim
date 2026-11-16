@@ -44,7 +44,7 @@ def caption_prompt(
 ) -> list[dict[str, Any]]:
     system = (
         f"Ты пишешь подписи к постам в Instagram для виртуального персонажа {persona.name}.\n"
-        f"Описание персонажа:\n{persona.description}\n"
+        f"Описание персонажа (её промпт):\n{persona.agent_prompt}\n"
         f"Язык: {persona.language}\n"
         f"{rules.strip()}"
     )

@@ -7,7 +7,14 @@ from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
 from sim.services.guard import FACT_CONTROL, GUARD_CONTROL, GUARD_PROMPT, VOICE_CONTROL
-from sim.services.prompt import HISTORY_LIMIT, OUTPUT_CONTRACT, RETRY_NUDGE
+from sim.services.prompt import (
+    HISTORY_LIMIT,
+    OUTPUT_CONTRACT,
+    RETRY_NUDGE,
+    PersonaProfile,
+    StrategyProfile,
+    stable_system_prompt,
+)
 from tests.conftest import OPERATOR, OWNER, login
 
 
@@ -106,9 +113,8 @@ async def test_api_exposes_no_fixed_persona_rule_and_keeps_guard_control(api, wo
     await login(api, OWNER[0])
     fixed = (await api.get("/api/settings")).json()["fixed"]
     assert fixed == {"persona": "", "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"}
-    body = (await api.get(f"/api/personas/{world.persona.id}/prompt")).json()
-    assert body["fixed"] == "" and "ЧЕСТНОСТЬ" not in body["system"]
-    assert body["system"].endswith(OUTPUT_CONTRACT)
+    system = stable_system_prompt(PersonaProfile(name="Марина", agent_prompt="Ты Марина."), StrategyProfile())
+    assert "ЧЕСТНОСТЬ" not in system and system.endswith(OUTPUT_CONTRACT)
 
 
 async def test_history_limit_trims_what_the_model_sees(container, world, fake_llm):

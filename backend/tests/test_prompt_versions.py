@@ -18,17 +18,23 @@ from tests.test_migrations import alembic_config
 INITIAL = "Ты тестовая персона.\n\nХарактер: тёплая. Биография: 20 лет в проектах."
 
 
+async def save_prompt(api, persona_id: int, text: str, headers: dict):
+    """The persona form saved with a new prompt (the prompt is a field of the persona)."""
+    url = f"/api/personas/{persona_id}"
+    body = {**(await api.get(url)).json(), "gender": "female", "agent_prompt": text}
+    return await api.put(url, json=body, headers=headers)
+
+
 async def versions_of(api, persona_id: int) -> list[dict]:
     return (await api.get(f"/api/personas/{persona_id}/prompt/versions")).json()["items"]
 
 
 async def test_saving_the_prompt_keeps_every_text_newest_first(api, world):
     h = {"X-CSRF-Token": await login(api, *OWNER)}
-    url = f"/api/personas/{world.persona.id}/prompt"
     assert await versions_of(api, world.persona.id) == []
-    assert (await api.put(url, json={"text": "Версия 2"}, headers=h)).status_code == 200
-    assert (await api.put(url, json={"text": "Версия 2"}, headers=h)).status_code == 200   # same: no version
-    assert (await api.put(url, json={"text": "Версия 3"}, headers=h)).status_code == 200
+    assert (await save_prompt(api, world.persona.id, "Версия 2", h)).status_code == 200
+    assert (await save_prompt(api, world.persona.id, "Версия 2", h)).status_code == 200   # same: no version
+    assert (await save_prompt(api, world.persona.id, "Версия 3", h)).status_code == 200
     items = await versions_of(api, world.persona.id)
     assert [(v["text"], v["author"], v["note"]) for v in items] == [
         ("Версия 3", "Test", ""),
@@ -41,7 +47,7 @@ async def test_saving_the_prompt_keeps_every_text_newest_first(api, world):
 async def test_an_older_version_is_restored_as_the_newest(api, container, world):
     h = {"X-CSRF-Token": await login(api, *OWNER)}
     url = f"/api/personas/{world.persona.id}/prompt"
-    await api.put(url, json={"text": "Новая"}, headers=h)
+    await save_prompt(api, world.persona.id, "Новая", h)
     first = (await versions_of(api, world.persona.id))[-1]
     resp = await api.post(f"{url}/versions/{first['id']}/restore", headers=h)
     assert resp.status_code == 200, resp.text
@@ -56,7 +62,7 @@ async def test_an_older_version_is_restored_as_the_newest(api, container, world)
 
 async def test_only_the_owner_restores(api, world):
     owner = {"X-CSRF-Token": await login(api, *OWNER)}
-    await api.put(f"/api/personas/{world.persona.id}/prompt", json={"text": "Новая"}, headers=owner)
+    await save_prompt(api, world.persona.id, "Новая", owner)
     version_id = (await versions_of(api, world.persona.id))[-1]["id"]
     operator = {"X-CSRF-Token": await login(api, *OPERATOR)}
     resp = await api.post(f"/api/personas/{world.persona.id}/prompt/versions/{version_id}/restore",

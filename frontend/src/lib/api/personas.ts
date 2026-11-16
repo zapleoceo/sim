@@ -1,5 +1,5 @@
 import type {
-  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPrompt, PersonaPromptVersion, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, VideoNoteQueued,
+  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPromptVersion, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, VideoNoteQueued,
 } from '../models';
 import { http } from './http';
 
@@ -22,10 +22,6 @@ export const personasApi = {
     form.append('voice', String(voice));
     return http.post<PreviewAttachment>(`/api/personas/${id}/preview/attachment`, form, { silent: true });
   },
-  /** The persona's full system prompt (saved settings), without an appended identity block. */
-  prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
-  savePrompt: (id: number, text: string) => http.put<{ mode: 'unified'; agent_prompt: string }>(
-    `/api/personas/${id}/prompt`, { text }),
   /** Every saved text of the prompt, newest (in use) first. Silent: the editor works without it. */
   promptVersions: (id: number) =>
     http.get<ListResponse<PersonaPromptVersion>>(`/api/personas/${id}/prompt/versions`, { silent: true }).then((r) => r.items),

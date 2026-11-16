@@ -287,7 +287,7 @@ def test_0014_folds_shared_rules_into_each_persona_and_wraps_the_guard_rules(tmp
         for key, value in (("style_rule", "СТИЛЬ ИЗ БАЗЫ"), ("guard_rules", "1. правило владельца")):
             con.execute("INSERT INTO app_setting (key, value, updated_at) VALUES (?, ?, '2026-11-10 00:00:00')",
                         (key, json.dumps(value, ensure_ascii=False)))
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0031")   # 0033 drops description: read it before
     with sqlite3.connect(db) as con:
         description, prohibitions = con.execute("SELECT description, prohibitions FROM persona").fetchone()
         keys = dict(con.execute("SELECT key, value FROM app_setting").fetchall())
@@ -381,7 +381,7 @@ def test_0023_sets_eva_birth_date_and_leaves_other_personas_alone(tmp_path):
                 "(?, ?, '', '', 'd', '', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')",
                 (persona_id, name),
             )
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0031")   # 0033 drops age: read it before
     with sqlite3.connect(db) as con:
         assert con.execute("SELECT birth_date, age FROM persona WHERE id = 1").fetchone() == ("1989-01-26", 37)
         assert con.execute("SELECT birth_date FROM persona WHERE id = 2").fetchone() == (None,)

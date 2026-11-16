@@ -166,10 +166,10 @@ async def test_contextual_setting_roundtrips_api_without_changing_other_personas
     from tests.test_api_smoke import owner
 
     headers = await owner(api)
-    first = (await api.post("/api/personas", json={"name": "Марина"}, headers=headers)).json()
-    other = (await api.post("/api/personas", json={"name": "Ева"}, headers=headers)).json()
+    first = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=headers)).json()
+    other = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Ева"}, headers=headers)).json()
     result = await api.put(f"/api/personas/{first['id']}",
-                           json={"name": "Марина", "voice_ambience": "contextual"}, headers=headers)
+                           json={"agent_prompt": "Ты тест.", "name": "Марина", "voice_ambience": "contextual"}, headers=headers)
     assert result.status_code == 200 and result.json()["voice_ambience"] == "contextual"
     fetched = (await api.get(f"/api/personas/{other['id']}", headers=headers)).json()
     assert fetched["voice_ambience"] == "off"

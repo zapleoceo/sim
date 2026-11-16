@@ -48,8 +48,6 @@ export function SettingField({ item }: { item: AppSettingItem }) {
 
   const apply = (updated: AppSettingItem, message: string): void => {
     queryClient.setQueryData<AppSettingItem[]>(qk.settings, (list) => (list ? replaceSetting(list, updated) : list));
-    // The setting is a piece of every persona's prompt: the prompt maps are stale now.
-    void queryClient.invalidateQueries({ queryKey: qk.personaPrompts });
     setDraft(String(updated.value));
     toast.success(message);
   };

@@ -48,14 +48,12 @@ STRATEGY: dict[str, Any] = {
 PERSONAS: list[dict[str, Any]] = [
     {
         "name": MARINA,
-        "age": 45,
         "gender": "female",
         "language": "русский (переходит на украинский, если клиент пишет по-украински)",
         "agent_prompt": PERSONA_PROMPTS[MARINA],
     },
     {
         "name": EVA,
-        "age": 39,
         "gender": "female",
         "language": "русский и украинский (отвечает на языке клиента)",
         "agent_prompt": PERSONA_PROMPTS[EVA],

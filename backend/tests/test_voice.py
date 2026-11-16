@@ -237,9 +237,9 @@ async def test_persona_api_round_trips_voice_settings_and_validates(api):
     from tests.test_api_smoke import owner
 
     h = await owner(api)
-    created = (await api.post("/api/personas", json={"name": "Марина"}, headers=h)).json()
+    created = (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=h)).json()
     assert (created["voice_id"], created["voice_mode"], created["voice_style"]) == ("", "off", "")
-    body = {"name": "Марина", "voice_id": "Kore", "voice_mode": "mirror",
+    body = {"name": "Марина", "agent_prompt": "Ты тест.", "voice_id": "Kore", "voice_mode": "mirror",
             "voice_style": "тепло, спокойно"}
     upd = (await api.put(f"/api/personas/{created['id']}", json=body, headers=h)).json()
     assert (upd["voice_id"], upd["voice_mode"], upd["voice_style"]) == \
@@ -249,6 +249,6 @@ async def test_persona_api_round_trips_voice_settings_and_validates(api):
                 {"voice_mode": "always"},                      # voice replies without a voice
                 {"voice_mode": "sometimes", "voice_id": "Kore"},
                 {"voice_style": "x" * 301, "voice_id": "Kore"}):
-        resp = await api.put(f"/api/personas/{created['id']}", json={"name": "Марина", **bad},
+        resp = await api.put(f"/api/personas/{created['id']}", json={"agent_prompt": "Ты тест.", "name": "Марина", **bad},
                              headers=h)
         assert resp.status_code == 422, bad

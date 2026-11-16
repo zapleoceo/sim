@@ -1,17 +1,17 @@
 import type { Persona } from '@/lib/models';
 import {
-  EMPTY_PERSONA, ROUTINE_MAX, ageFromBirthDate, personaErrors, personaFromForm, personaToForm, personaToInput,
+  AGENT_PROMPT_MAX, EMPTY_PERSONA, ROUTINE_MAX, ageFromBirthDate, personaErrors, personaFromForm, personaToForm, personaToInput,
   type PersonaFormValues,
 } from './persona-schema';
 import { GEMINI_VOICES, VOICE_AMBIENCE_OPTIONS, VOICE_MODES, VOICE_OPTIONS } from './persona-voices';
 
-const valid: PersonaFormValues = personaToForm({ ...EMPTY_PERSONA, name: 'Марина', description: 'Тёплая, энергичная' });
+const valid: PersonaFormValues = personaToForm({ ...EMPTY_PERSONA, name: 'Марина', agent_prompt: 'Ты Марина: тёплая, энергичная.' });
 
 describe('persona form validation', () => {
   it('is invalid when empty', () => {
     const errors = personaErrors(personaToForm(EMPTY_PERSONA));
     expect(errors.name).toBe('Укажите имя');
-    expect(errors.description).toBeUndefined();
+    expect(errors.agent_prompt).toBe('Напишите промпт');
   });
 
   it('has no «are you a bot» field: the API dropped disclosure_text', () => {
@@ -51,15 +51,21 @@ describe('persona form validation', () => {
     expect(personaFromForm(valid).routine).toBe('');
   });
 
-  it('passes hidden prohibitions through unchanged', () => {
-    expect(personaFromForm({ ...valid, prohibitions: 'старое правило' }).prohibitions).toBe('старое правило');
+  it('requires the prompt, limits its length and sends it as typed', () => {
+    expect(personaErrors({ ...valid, agent_prompt: '  \n ' }).agent_prompt).toBe('Напишите промпт');
+    expect(personaErrors({ ...valid, agent_prompt: 'x'.repeat(AGENT_PROMPT_MAX + 1) }).agent_prompt)
+      .toBe(`Не длиннее ${AGENT_PROMPT_MAX} символов`);
+    expect(personaErrors({ ...valid, agent_prompt: 'x'.repeat(AGENT_PROMPT_MAX) }).agent_prompt).toBeUndefined();
+    const prompt = 'Ты Марина.\n\nЗапреты:\n- не обещай скидок\n';
+    expect(personaFromForm({ ...valid, agent_prompt: prompt }).agent_prompt).toBe(prompt);
   });
 
-  it('limits age to 18..100 but allows it to be empty', () => {
-    expect(personaErrors({ ...valid, age: '17' }).age).toBe('18–100');
-    expect(personaErrors({ ...valid, age: '101' }).age).toBe('18–100');
-    expect(personaErrors({ ...valid, age: '45' }).age).toBeUndefined();
-    expect(personaErrors({ ...valid, age: '' }).age).toBeUndefined();
+  it('has no age, description or prohibitions: the age comes from the birth date, the rest is in the prompt', () => {
+    for (const key of ['age', 'description', 'prohibitions']) {
+      expect(Object.keys(valid)).not.toContain(key);
+      expect(Object.keys(personaFromForm(valid))).not.toContain(key);
+    }
+    expect(Object.keys(EMPTY_PERSONA)).toContain('agent_prompt');
   });
 
   it('accepts http(s) and root-relative avatar URLs only', () => {
@@ -72,15 +78,13 @@ describe('persona form validation', () => {
   });
 
   it('builds a body with exactly the PersonaIn contract keys', () => {
-    const body = personaFromForm({ ...valid, age: '30', name: '  Марина ' });
+    const body = personaFromForm({ ...valid, name: '  Марина ' });
     expect(Object.keys(body).sort()).toEqual(Object.keys(EMPTY_PERSONA).sort());
-    expect(body.age).toBe(30);
     expect(body.name).toBe('Марина');
-    expect(personaFromForm(valid).age).toBeNull();
   });
 
   it('round-trips a saved persona', () => {
-    const p: Persona = { ...EMPTY_PERSONA, id: 3, name: 'Анна', age: 28, description: 'd', created_at: '' };
+    const p: Persona = { ...EMPTY_PERSONA, id: 3, name: 'Анна', agent_prompt: 'Ты Анна.', created_at: '' };
     expect(personaFromForm(personaToForm(personaToInput(p)))).toEqual(personaToInput(p));
   });
 

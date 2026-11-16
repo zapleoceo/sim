@@ -4,21 +4,27 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { personasApi } from '@/lib/api/personas';
 import { formatDateTime } from '@/lib/format';
+import type { Persona } from '@/lib/models';
 import { qk } from '@/lib/query';
 
 /**
  * Every saved text of the persona's prompt, newest (the one in use) first. «Восстановить» puts an
  * older text back in use as a new version, so the history only grows.
  */
-export function PersonaPromptVersions({ personaId, onRestored }: { personaId: number; onRestored?: () => void }) {
+export function PersonaPromptVersions({ personaId, onRestored }: {
+  personaId: number;
+  /** The restored text, now in use: the persona form shows it in its prompt field. */
+  onRestored?: (text: string) => void;
+}) {
   const queryClient = useQueryClient();
   const versions = useQuery({ queryKey: qk.personaPromptVersions(personaId), queryFn: () => personasApi.promptVersions(personaId) });
   const restore = useMutation({
     mutationFn: (versionId: number) => personasApi.restorePrompt(personaId, versionId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: qk.personaPrompt(personaId) });
-      await queryClient.invalidateQueries({ queryKey: ['persona-context', personaId] });
-      onRestored?.();
+    onSuccess: (body) => {
+      queryClient.setQueryData(qk.personaPromptVersions(personaId), body.items);
+      queryClient.setQueryData<Persona[]>(qk.personas, (list) =>
+        list?.map((p) => (p.id === personaId ? { ...p, agent_prompt: body.agent_prompt } : p)));
+      onRestored?.(body.agent_prompt);
       toast.success('Версия восстановлена');
     },
   });

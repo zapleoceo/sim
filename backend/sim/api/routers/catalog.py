@@ -11,19 +11,16 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
 from sim.api.schemas import (
-    AgentPromptIn,
     PersonaIn,
     PreviewIn,
     StrategyIn,
     guard_out,
     persona_out,
-    prompt_map_out,
     prompt_version_out,
     strategy_out,
 )
 from sim.domain.voice import speaks
 from sim.ports.speech import SpeechError
-from sim.services.context_inspection import inspect_context
 from sim.services.guard import GuardOutcome
 from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.models import catalog_items
@@ -64,11 +61,14 @@ async def list_personas(s: Db):
 
 
 @personas.post("", status_code=201)
-async def create_persona(body: PersonaIn, s: Db, _: Owner):
+async def create_persona(body: PersonaIn, c: App, s: Db, p: Owner):
     await check_strategy(s, body.strategy_id)
     if await PersonaRepo(s).by_name(body.name):
         raise HTTPException(409, "A persona with this name already exists")
-    return persona_out(await PersonaRepo(s).add(Persona(**body.model_dump())))
+    persona = await PersonaRepo(s).add(Persona(**body.model_dump()))
+    # Her first prompt is the first version of its history.
+    await PromptVersions(s, clock=c.clock).save(persona, body.agent_prompt, author=admin_who(p.user).name)
+    return persona_out(persona)
 
 
 @personas.get("/{persona_id}")
@@ -82,9 +82,13 @@ async def update_persona(persona_id: int, body: PersonaIn, c: App, s: Db, p: Own
     await check_strategy(s, body.strategy_id)
     after = body.model_dump()
     before = {key: getattr(persona, key) for key in after}
+    prompt = after["agent_prompt"]
     for key, value in after.items():
-        setattr(persona, key, value)
+        if key != "agent_prompt":
+            setattr(persona, key, value)
     try:
+        # The prompt changes only through its version history (one more version when it changed).
+        await PromptVersions(s, clock=c.clock).save(persona, prompt, author=admin_who(p.user).name)
         await s.flush()
     except IntegrityError as exc:
         raise HTTPException(409, "A persona with this name already exists") from exc
@@ -113,41 +117,14 @@ def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
     return guard_out(g.verdict, g.violations, g.model, draft)
 
 
-@personas.get("/{persona_id}/prompt")
-async def persona_prompt(persona_id: int, c: App, s: Db):
-    """Exactly what the persona's model gets as its system prompt (saved settings), and the same
-    text piece by piece with the place each piece is edited. `context` is an example of the
-    per-reply message that follows the client history in a real call; `rules` are fixed in the
-    code. `fixed` is empty, kept for compatibility. No model is called."""
-    persona = await persona_or_404(s, persona_id)
-    return prompt_map_out(await c.conversation(s).prompt_map(persona))
-
-
-@personas.get("/{persona_id}/context", dependencies=[Depends(owner_only)])
-async def persona_context(persona_id: int, c: App, s: Db, response: Response, dialog_id: int | None = None):
-    response.headers["Cache-Control"] = "no-store"
-    persona = await persona_or_404(s, persona_id)
-    try:
-        return await inspect_context(c.conversation(s), persona, dialog_id)
-    except ValueError as exc:
-        raise HTTPException(404, "Dialog not found for this persona") from exc
-
-
 async def save_prompt(c: Container, s: Db, p: Owner, persona: Persona, text: str,
                       note: str = "") -> None:
-    """The one way the admin changes a prompt: a new version and a journal line in her dialogs."""
+    """A restored prompt: a new version and a journal line in her dialogs."""
     before = {"agent_prompt": persona.agent_prompt}
     who = admin_who(p.user)
     if await PromptVersions(s, clock=c.clock).save(persona, text, author=who.name, note=note):
         await CommunicationJournal(s, clock=c.clock).persona_edited(
             persona.id, before, {"agent_prompt": text}, who, {})
-
-
-@personas.put("/{persona_id}/prompt")
-async def save_agent_prompt(persona_id: int, body: AgentPromptIn, c: App, s: Db, p: Owner):
-    persona = await persona_or_404(s, persona_id)
-    await save_prompt(c, s, p, persona, body.text)
-    return {"mode": "unified", "agent_prompt": persona.agent_prompt}
 
 
 @personas.get("/{persona_id}/prompt/versions")

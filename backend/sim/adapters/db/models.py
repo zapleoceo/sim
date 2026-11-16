@@ -174,8 +174,7 @@ class Persona(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
-    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Exact birthday and home time zone: age, zodiac and local time are computed by code
+    # Exact birthday (the ONLY place of her birthday and age: the prompt does not repeat them) and home time zone: age, zodiac and local time are computed by code
     # (sim.services.persona_clock) and given to the model, never left to its arithmetic.
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Kyiv", server_default="Europe/Kyiv")
@@ -184,12 +183,9 @@ class Persona(Base):
     routine: Mapped[str] = mapped_column(Text, default="", server_default="")
     gender: Mapped[str] = mapped_column(String(32), default="")
     avatar_url: Mapped[str] = mapped_column(Text, default="")
-    # Free text: who she is, character, biography, how she writes (Markdown-ish).
-    description: Mapped[str] = mapped_column(Text, default="")
-    # What she must never write or do: one rule per line.
-    prohibitions: Mapped[str] = mapped_column(Text, default="")
-    # The owner's single authoritative prompt. Migration 0031 populates it for all personas.
-    agent_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The owner's single prompt: who she is, character, biography, style, language of the chat,
+    # prohibitions. Everything a field holds (birthday, time zone, routine, voice) stays out of it.
+    agent_prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
     # Google Gemini TTS prebuilt voice name (sim.domain.voice.GEMINI_VOICES), "" = no voice.

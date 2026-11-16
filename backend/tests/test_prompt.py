@@ -26,7 +26,7 @@ from sim.services.prompt import (
 )
 
 PERSONA = PersonaProfile(
-    name="Марина", age=45, language="ru",
+    name="Марина", language="ru",
     agent_prompt="Ты Марина.\n\nХарактер: тёплая. Биография: 20 лет в проектах.",
 )
 STRATEGY = StrategyProfile(
