@@ -10,7 +10,7 @@ describe('persona prompt map logic', () => {
   });
 
   it('names the source and the place of a fixed rule', () => {
-    expect(sourceLabel('persona')).toBe('Поле персонажа');
+    expect(sourceLabel('persona')).toBe('Промпт персонажа');
     expect(sourceLabel('strategy')).toBe('Стратегия');
     expect(sourceLabel('setting')).toBe('Общая настройка');
     expect(rulePlace('call')).toBe('к промпту на звонке');

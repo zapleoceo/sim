@@ -26,9 +26,9 @@ const TOGGLE_ROW = 'flex min-h-[40px] items-center gap-2.5';
 
 /** The block every form field lives in: a field that failed validation opens its block. */
 const FIELD_SECTION: Record<keyof PersonaFormValues, SectionId> = {
-  name: 'profile', is_active: 'profile', gender: 'profile', language: 'profile', birth_date: 'profile',
+  name: 'profile', is_active: 'profile', gender: 'profile', birth_date: 'profile',
   age: 'profile', timezone: 'profile', avatar_url: 'profile',
-  description: 'prompt', prohibitions: 'prompt',
+  description: 'profile', prohibitions: 'profile', language: 'voice',
   routine: 'routine',
   voice_mode: 'voice', voice_id: 'voice', voice_style: 'voice', voice_ambience: 'voice', accept_calls: 'voice',
   model: 'strategy', strategy_id: 'strategy',
@@ -152,13 +152,6 @@ export function PersonaEditor({
           <Field label="Пол" hint="Идёт в описание кадра для её фото и кружочков; в промпт переписки не попадает">
             <SelectControl control={control} name="gender" options={GENDERS} />
           </Field>
-          <Field
-            label="Язык"
-            hint="Язык голоса на звонке (ru, uk или en; другое значение: модель определяет сама) и язык подписей к постам. Язык переписки задаёт промпт"
-            error={errors.language?.message}
-          >
-            <Input {...register('language')} autoComplete="off" />
-          </Field>
           <Field anchorId={personaFieldAnchor('birth_date')} label="Дата рождения" hint={birthDateHint(birthDate)} error={errors.birth_date?.message}>
             <Input type="date" {...register('birth_date')} />
           </Field>
@@ -169,41 +162,6 @@ export function PersonaEditor({
             <Input {...register('avatar_url')} placeholder="https://…" inputMode="url" />
           </Field>
         </FormGrid>
-      </Section>
-
-      <Section id="prompt" invalid={invalid.includes('prompt')} hint="Её собственный текст: модель получает его первым и как есть.">
-        <Controller
-          control={control}
-          name="description"
-          render={({ field }) => (
-            <LongText
-              anchorId={personaFieldAnchor('description')}
-              label="Промпт персонажа"
-              hint="Кто она, легенда, роль, стиль речи, что можно и нельзя."
-              error={errors.description?.message}
-              value={field.value}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
-              placeholder="Ты Марина, 45 лет, из Днепра… Как живёшь в роли, как пишешь, чего не делаешь."
-            />
-          )}
-        />
-        <Controller
-          control={control}
-          name="prohibitions"
-          render={({ field }) => (
-            <LongText
-              anchorId={personaFieldAnchor('prohibitions')}
-              label="Запреты"
-              hint="Правило на строку. Идут в промпт сразу после её текста, разделом «Чего нельзя никогда». Пусто: раздела нет."
-              error={errors.prohibitions?.message}
-              value={field.value}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
-              placeholder={'не обещать доход\nне обсуждать политику'}
-            />
-          )}
-        />
       </Section>
 
       <Section
@@ -232,9 +190,16 @@ export function PersonaEditor({
       <Section
         id="voice"
         invalid={invalid.includes('voice')}
-        hint="Голосовые сообщения и живые звонки в Telegram. Правило звонков показано в «Итоговом промпте»."
+        hint="Голосовые сообщения и живые звонки в Telegram. Правило звонков показано в «Контексте модели»."
       >
         <FormGrid>
+          <Field
+            label="Язык"
+            hint="Язык голоса на звонке (ru, uk или en) и подписей к постам. Язык переписки задаёт промпт."
+            error={errors.language?.message}
+          >
+            <Input {...register('language')} autoComplete="off" />
+          </Field>
           <Field label="Голосовые ответы" hint="Голос синтезирует Google Gemini TTS через AIbroker; текст ответа остаётся в диалоге">
             <SelectControl control={control} name="voice_mode" options={VOICE_MODE_OPTIONS} />
           </Field>

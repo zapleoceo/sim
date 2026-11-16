@@ -7,13 +7,13 @@ import { cn } from '@/lib/utils';
 /** The blocks of the persona page, in page order: from what is edited most often to what is edited rarely. */
 export const SECTIONS = [
   { id: 'profile', label: 'Профиль' },
-  { id: 'prompt', label: 'Характер и промпт' },
+  { id: 'prompt', label: 'Промпт' },
   { id: 'routine', label: 'Распорядок' },
   { id: 'voice', label: 'Голос и звонки' },
   { id: 'strategy', label: 'Модель и стратегия' },
   { id: 'media', label: 'Фото и кружочки' },
   { id: 'shared', label: 'Общие инструкции' },
-  { id: 'assembled', label: 'Итоговый промпт' },
+  { id: 'assembled', label: 'Контекст модели' },
 ] as const;
 
 export type SectionId = (typeof SECTIONS)[number]['id'];

@@ -59,7 +59,7 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
       <p className="text-xs text-muted-foreground">
-        Просмотр сохранённого промпта. Чтобы изменить текст, перейдите к его полю по ссылке «Изменить».
+        Что получает модель: каждый кусок откуда. Чтобы изменить текст, перейдите к его полю по ссылке «Изменить».
       </p>
       {isOwner && <PersonaContext key={personaId} personaId={personaId} />}
       <ol className="flex flex-col gap-4" aria-label="Части промпта">
@@ -102,7 +102,7 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
       <details className="rounded-lg border p-3">
         <summary className="cursor-pointer text-sm font-medium">Технические правила и обработка</summary>
         <p className="my-3 text-xs text-muted-foreground">
-          Эти правила задаёт код; здесь они доступны только для просмотра. Черновик проверяет{' '}
+          Эти правила задаёт код, здесь только для просмотра. Черновик проверяет{' '}
           <a href={`#${settingAnchor('guard_prompt')}`} className={LINK}>охранник</a>, стиль меняют{' '}
           <a href={`#${settingAnchor('typo_percent')}`} className={LINK}>настройки сообщений</a>.
         </p>

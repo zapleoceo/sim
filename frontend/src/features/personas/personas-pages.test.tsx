@@ -72,10 +72,6 @@ describe('personas pages', () => {
     await renderApp('/personas/new');
     await userEvent.click(await screen.findByRole('button', { name: 'Сохранить персонажа' }));
     expect(await screen.findByText('Укажите имя')).toBeVisible();
-    // the error is in a collapsed block: the block opens and is marked
-    await waitFor(() => expect(screen.getByText('Опишите персонажа')).toBeVisible());
-    expect(screen.getByRole('button', { name: /Характер и промпт/ })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: /Характер и промпт/ })).toHaveTextContent('Проверьте поля');
     expect(log.some((r) => r.method === 'POST')).toBe(false);
     expect(screen.queryByRole('heading', { name: 'Проверить персонажа' })).not.toBeInTheDocument();
   });
@@ -84,27 +80,24 @@ describe('personas pages', () => {
     backend({ 'POST /api/personas': { ...MARINA, id: 7, name: 'Анна' } });
     const { router } = await renderApp('/personas/new');
     await userEvent.type(await screen.findByLabelText('Имя'), 'Анна');
-    await toggleBlock('Характер и промпт');
-    await typeLongText('Промпт персонажа', 'Спокойная');
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить персонажа' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/personas/7'));
   });
 
-  it('shows every field of the persona and saves gender, language and prohibitions with the rest', async () => {
+  it('shows every field of the persona and saves gender, language with the rest', async () => {
     const log = backend({ 'PUT /api/personas/1': (r: { body: unknown }) => ({ ...MARINA, ...(r.body as object) }) });
     await renderApp('/personas/1');
     const profile = within(await screen.findByRole('region', { name: 'Профиль' }));
     expect(profile.getByText('Пол')).toBeVisible();
     expect(profile.getByLabelText('Часовой пояс')).toHaveValue('Europe/Kyiv');
-    await userEvent.clear(profile.getByLabelText('Язык'));
-    await userEvent.type(profile.getByLabelText('Язык'), 'uk');
-    await toggleBlock('Характер и промпт');
-    await typeLongText('Запреты', 'не обещать доход');
+    await toggleBlock('Голос и звонки');
+    await userEvent.clear(screen.getByLabelText('Язык'));
+    await userEvent.type(screen.getByLabelText('Язык'), 'uk');
     await toggleBlock('Распорядок');
     expect(screen.getByRole('button', { name: 'Редактировать: Распорядок недели' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить персонажа' }));
     await waitFor(() => expect(log.some((r) => r.method === 'PUT')).toBe(true));
-    expect(log.find((r) => r.method === 'PUT')?.body).toMatchObject({ language: 'uk', prohibitions: 'не обещать доход', gender: 'female' });
+    expect(log.find((r) => r.method === 'PUT')?.body).toMatchObject({ language: 'uk', gender: 'female' });
   });
 
   it('counts the age from the birth date', async () => {
@@ -122,7 +115,7 @@ describe('personas pages', () => {
     backend({ 'GET /api/models': never, 'GET /api/strategies': never, 'GET /api/settings': never });
     await renderApp('/personas/1');
     expect(await screen.findByLabelText('Имя')).toHaveValue('Марина');
-    expect(await blockButton('Итоговый промпт')).toHaveAttribute('aria-expanded', 'false');
+    expect(await blockButton('Контекст модели')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('shows the assembled prompt piece by piece: whose text it is and where to change it', async () => {
@@ -141,13 +134,13 @@ describe('personas pages', () => {
       },
     });
     await renderApp('/personas/1');
-    await toggleBlock('Итоговый промпт');
-    const section = within(await screen.findByRole('region', { name: 'Итоговый промпт' }));
+    await toggleBlock('Контекст модели');
+    const section = within(await screen.findByRole('region', { name: 'Контекст модели' }));
     const piece = async (title: string) => within(await section.findByRole('listitem', { name: title }));
 
     const own = await piece('Кусок description');
     expect(own.getByText('текст description')).toBeInTheDocument();
-    expect(own.getByText('Поле персонажа')).toBeInTheDocument();
+    expect(own.getByText('Промпт персонажа')).toBeInTheDocument();
     expect(own.getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#persona-description');
     expect((await piece('Кусок strategy')).getByRole('link', { name: 'Изменить в стратегии' })).toHaveAttribute('href', '/strategies/3');
     expect((await piece('Кусок strategy_prompt')).getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#strategy-prompt');
@@ -173,14 +166,10 @@ describe('personas pages', () => {
 
     // «Изменить» points at a field of a collapsed block: the block opens and the page scrolls to the field
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
-    const ownBlock = await blockButton('Характер и промпт');
-    expect(ownBlock).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.click(own.getByRole('link', { name: 'Изменить' }));
-    expect(ownBlock).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Редактировать: Промпт персонажа' })).toBeVisible();
-    await waitFor(() => expect(scroll.mock.contexts).toContain(document.getElementById('persona-description')));
+    expect(own.getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#persona-description');
     await userEvent.click(context.getByRole('link', { name: 'Распорядок' }));
     expect(await blockButton('Распорядок')).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() => expect(scroll.mock.contexts).toContain(document.getElementById('persona-routine')));
   });
 
   it('edits the shared instructions in place and refreshes the assembled prompt', async () => {
