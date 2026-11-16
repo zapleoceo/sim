@@ -108,6 +108,30 @@ async def test_interrupt_during_review_discards_old_audio_without_waiting():
     assert not playback.turns[-1].released
 
 
+async def test_next_turn_review_waits_for_playback_and_includes_approved_history():
+    first_checked = asyncio.Event()
+    clock = [NOW]
+    seen = []
+
+    async def review(history, draft):
+        seen.append((clock[0], list(history)))
+        first_checked.set()
+        return GuardOutcome("ok", draft)
+
+    out, trace = output()
+    playback = CallPlayback(review, clock=lambda: clock[0])
+    session = FakeSession([*speech_events(PCM), *speech_events(PCM)], end_after_events=True)
+    task = asyncio.create_task(playback.run(session, out, 24000, trace))
+    await first_checked.wait()
+    assert len(seen) == 1 and len(out) == len(PCM)
+    clock[0] += timedelta(seconds=10)
+    assert out.pop_frame() == PCM
+    await asyncio.wait_for(task, timeout=1)
+    assert len(seen) == 2 and seen[1][0] == clock[0]
+    assert any(t.role == "assistant" for t in seen[1][1])
+    assert out.pop_frame() == PCM and not playback.failure
+
+
 async def test_real_call_path_blocks_audio_and_marks_handoff(container, world, fake_llm):
     did = await chatting_world(container, world)
     fake_llm.guard_replies = [guard_json("block", ["Неверный день"])]

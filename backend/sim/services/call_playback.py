@@ -51,6 +51,16 @@ class CallPlayback:
             async with serial:
                 if epoch != self.epoch or failed.is_set():
                     return
+                # Review immediately before this turn can start, not behind old queued speech.
+                try:
+                    async with asyncio.timeout(MAX_TURN_SECONDS + 1):
+                        while len(out) and epoch == self.epoch and not failed.is_set():
+                            await asyncio.sleep(0.01)
+                except TimeoutError:
+                    reject("Воспроизведение предыдущей реплики не завершилось")
+                    return
+                if epoch != self.epoch or failed.is_set():
+                    return
                 started = self.clock()
                 history = [Turn(t.role, t.text) for t in self.turns[:before]
                            if t.role == "user" or t.released]
