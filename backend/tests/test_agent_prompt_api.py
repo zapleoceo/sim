@@ -21,7 +21,7 @@ async def test_prompt_saved_with_the_persona_reaches_preview_and_invalidates_pla
         persona = await s.get(Persona, world.persona.id)
         old_signature = signature(dialog, persona)
     text = "Synthetic unified instructions.\nKeep this line."
-    response = await api.put(url, json={**original, "agent_prompt": text}, headers=headers)
+    response = await api.put(url, json={**original, "gender": "female", "agent_prompt": text}, headers=headers)
     assert response.status_code == 200 and response.json()["agent_prompt"] == text
     assert (await api.get(url)).json()["agent_prompt"] == text
     fake_llm.replies = [decision_json(reply="Hello", stage="engaged")]

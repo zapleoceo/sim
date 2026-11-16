@@ -35,7 +35,7 @@ async def test_persona_and_strategy_crud(api):
     assert persona["model"] == "" and persona["strategy_id"] == strat["id"]
     assert (await api.post("/api/personas", json={"agent_prompt": "Ты тест.", "name": "Марина"}, headers=h)).status_code == 409
     upd = await api.put(f"/api/personas/{persona['id']}",
-                        json={"name": "Марина", "model": "claude-sub/claude-sonnet-5-5"}, headers=h)
+                        json={"agent_prompt": "Ты тест.", "name": "Марина", "model": "claude-sub/claude-sonnet-5-5"}, headers=h)
     assert upd.json()["model"] == "claude-sub/claude-sonnet-5-5"
     assert len((await api.get("/api/personas")).json()["items"]) == 1
     assert (await api.delete(f"/api/personas/{persona['id']}", headers=h)).status_code == 204
