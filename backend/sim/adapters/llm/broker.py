@@ -27,6 +27,7 @@ from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.ports.llm import LLMError, LLMResult
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoError, VideoResult
+from sim.services.job_execution import require_live_execution
 from sim.services.safe_payload import safe_payload
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,11 @@ DEFAULT_POLL_AFTER_S = 2.0
 MAX_POLL_SLEEP_S = 15.0
 # Any chat capability carries a subscription model; the Broker documents this one for images.
 IMAGE_CAPABILITY = "chat:fast"
+
+
+async def check_execution(request: httpx.Request) -> None:
+    """Every submit/poll uses the current worker's still-owned transaction."""
+    await require_live_execution()
 
 
 def is_subscription_model(model: str | None) -> bool:
@@ -133,7 +139,9 @@ class BrokerLLM:
     def client(self) -> httpx.AsyncClient:
         """One pooled client per adapter, created lazily (keep-alive to the broker across calls)."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=JOB_HTTP_TIMEOUT)
+            self._client = httpx.AsyncClient(
+                timeout=JOB_HTTP_TIMEOUT, event_hooks={"request": [check_execution]},
+            )
         return self._client
 
     async def aclose(self) -> None:
