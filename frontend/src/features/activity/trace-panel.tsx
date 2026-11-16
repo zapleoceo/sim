@@ -171,6 +171,7 @@ export function BrokerExchange({ exchange }: { exchange: TraceTimelineStep['brok
         {!payload ? <p>Полный {label.toLowerCase()} не сохранён</p> : <>
           {payload.truncated && <p role="note">Данные усечены по лимиту хранения.</p>}
           <Button size="sm" variant="outline" onClick={() => {
+            if (!navigator.clipboard) { setCopyStatus('Копирование недоступно в этом браузере'); return; }
             void navigator.clipboard.writeText(value).then(() => setCopyStatus(`${label} скопирован`), () => setCopyStatus('Не удалось скопировать'));
           }}>Копировать {label.toLowerCase()}</Button>
           <pre className="max-h-[50dvh] overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs [overflow-wrap:anywhere]">{value}</pre>

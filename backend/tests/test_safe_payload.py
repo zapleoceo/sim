@@ -12,9 +12,12 @@ from tests.conftest import OPERATOR, OWNER, login
 def test_nested_credentials_embedded_json_and_private_keys_are_removed():
     raw = {"Authorization": "short-auth", "nested": [{"api_key": "short-key", "cookie": "sid=private"}],
            "text": 'Bearer short.bearer password=hidden -----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----',
-           "json": '{"refresh_token":"short-refresh", "reply":"hello"}'}
+           "json": '{"refresh_token":"short-refresh", "reply":"hello"}',
+           "url": "https://user:private-pass@host/?token=private-query",
+           "headers_text": "Cookie: first=private-cookie; second=private-cookie-2"}
     result = json.dumps(safe_payload(raw))
-    for value in ("short-auth", "short-key", "sid=private", "short.bearer", "hidden", "private-material", "short-refresh"):
+    for value in ("short-auth", "short-key", "sid=private", "short.bearer", "hidden", "private-material", "short-refresh",
+                  "private-pass", "private-query", "private-cookie"):
         assert value not in result
     assert "hello" in result
 
