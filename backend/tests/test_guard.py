@@ -222,7 +222,9 @@ async def test_same_model_objection_survives_independent_ok_and_repairs_decision
     rejected = "No real video exists. Passing your request to a person."
     fake_llm.replies = [
         decision_json(reply=rejected, handoff_to_operator=True,
-                      handoff_reason="Unjustified identity verification"),
+                      handoff_reason="Unjustified identity verification",
+                      media={"kind": "video_note", "decision": "decline",
+                             "reason": "No real video exists"}),
         decision_json(reply="A synthetic clip is possible."),
     ]
     fake_llm.guard_replies = [
@@ -230,7 +232,7 @@ async def test_same_model_objection_survives_independent_ok_and_repairs_decision
         LLMResult(text=guard_json("ok"), model="fake-model"),
         guard_json("ok"),
     ]
-    await start(container, world)
+    await start(container, world, "Please send a video note")
     assert (await run_reply(container)).status == "sent"
     _, dialog, messages, jobs = await state(container)
     assert not dialog.ai_paused and not dialog.needs_operator

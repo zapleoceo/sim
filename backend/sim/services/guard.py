@@ -2,8 +2,9 @@
 is queued for sending.
 
 The guard runs on a DIFFERENT broker rotation than the generator (owner setting `guard_capability`,
-default "structured"). If the model that served the guard call is the same one that wrote the
+default "structured"). If a clean approval came from the same model that wrote the
 draft, the guard is re-run once on `guard_fallback_capability` (default "prefilter").
+Primary objections are retained immediately, irrespective of model identity.
 If that fallback still reports the generator model, the review fails closed. Missing model
 metadata remains accepted; independence cannot be verified when either model is unknown
 or different IDs alias the same model. Rewrite checks compare against the original generator,
