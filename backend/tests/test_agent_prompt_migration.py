@@ -23,7 +23,7 @@ def test_agent_prompt_single_head_upgrade_downgrade(tmp_path):
         insert(con, "persona", id=1, name="Марина", description="Ты Марина.",
                prohibitions="не обещать доход\nне просить пароли", strategy_id=1)
         insert(con, "persona", id=2, name="Ева", description="Ты Ева.",
-               prohibitions="", strategy_id=1, agent_prompt=None)
+               prohibitions="", strategy_id=1)
     command.upgrade(cfg, "0030")
     assert "agent_prompt" in columns(db, "persona")
     with sqlite3.connect(db) as con:

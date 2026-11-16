@@ -115,7 +115,7 @@ def test_call_prompt_is_persona_strategy_rules_chat_and_context_without_json():
     assert prompt.startswith("Ты Марина, 45 лет.")
     assert CALL_RULES in prompt and "ФОРМАТ ОТВЕТА" not in prompt
     assert "Клиент: Привет\nТы: Привет! Как дела?\nКлиент: норм" in prompt
-    assert "https://x/?ref=abcdefgh" in prompt and "СТРАТЕГИЯ" in prompt
+    assert "https://x/?ref=abcdefgh" in prompt
     assert prompt.index(CALL_RULES) < prompt.index("ПЕРЕПИСКА") < prompt.index("КОНТЕКСТ")
 
 

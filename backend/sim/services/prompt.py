@@ -18,6 +18,7 @@ from urllib.parse import quote
 
 from sim.domain.enums import ChannelKind, MediaKind, Stage
 from sim.services.humanize import plain_punctuation
+from sim.services.persona_routine import routine_block
 
 HISTORY_LIMIT = 40
 MAX_NEEDS = 12
@@ -197,13 +198,19 @@ def system_prompt_parts(
     answer format. Every persona must have `agent_prompt` set."""
     contract = PromptPart("output_contract", "Формат ответа персонажа", texts.contract.strip(),
                           "setting", "output_contract")
-    return [
+    parts = [
         PromptPart("agent_prompt", "Единый промпт агента", persona.agent_prompt or "",
                    "persona", "agent_prompt"),
+    ]
+    routine = routine_block(persona.routine)
+    if routine:
+        parts.append(PromptPart("routine", "Распорядок персонажа", routine, "persona", "routine"))
+    parts += [
         PromptPart("link_contract", "Правило ссылок", LINK_CONTRACT, "code", ""),
         PromptPart("unified_boundaries", "Честность и проверяемые факты", UNIFIED_BOUNDARIES, "code", ""),
         contract,
     ]
+    return parts
 
 
 def stable_system_prompt(
