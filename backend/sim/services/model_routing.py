@@ -20,6 +20,7 @@ def identity_question(history) -> bool:
         return False
     index = users[-1]
     text = unicodedata.normalize("NFKC", history[index].text).lower().replace("ё", "е")
+    text = text.replace("you’re", "you are").replace("you're", "you are")
     text = re.sub(r'"[^"\n]*"|«[^»]*»|“[^”]*”|`[^`]*`', " ", text)
     identity = r"\b(ии|ai|бот|робот|человек|человк|нейросет\w*|искусственн\w*|human|bot|robot|real person|intelligenza artificiale|umano|humano|pessoa real)\b"
     address = r"\b(ты|вы|you|u|sei|eres|você|voce|tu)\b"

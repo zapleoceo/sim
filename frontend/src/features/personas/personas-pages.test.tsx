@@ -26,6 +26,16 @@ function backend(extra: Record<string, unknown> = {}) {
 }
 
 describe('personas pages', () => {
+  it('shows independent route choices with honest disclosure and reserve limits', async () => {
+    backend();
+    await renderApp('/personas/1');
+    await screen.findByLabelText('Имя');
+    await toggleBlock('Модель и стратегия');
+    expect(screen.getByText('Вопросы об ИИ')).toBeVisible();
+    expect(screen.getByText('Подписочный резерв')).toBeVisible();
+    expect(screen.getByText(/Правдивое раскрытие ИИ и контролёр действуют/)).toBeVisible();
+    expect(screen.getByText(/Не используется при ожидании, неизвестном исходе/)).toBeVisible();
+  });
   it('lists personas by name and status only: the prompt and the model live in the card', async () => {
     backend();
     await renderApp('/personas');

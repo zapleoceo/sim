@@ -19,7 +19,7 @@ CATALOG = [{"id": RESERVE, "available": True, "billing_type": "subscription"}]
 
 @pytest.mark.parametrize("text", [
     "Ты ИИ?", "ты не человек?", "Вы настоящий человек или бот?", "ты человк?",
-    "Are you a human?", "you are not a bot?", "sei un robot?", "eres un humano?",
+    "Are you a human?", "you are not a bot?", "you're not human?", "sei un robot?", "eres un humano?",
     "Você é um humano?", "со мной разговаривает человек?",
 ])
 def test_direct_identity_route(text):
