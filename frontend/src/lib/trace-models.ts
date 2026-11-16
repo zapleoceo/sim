@@ -54,6 +54,7 @@ export interface TraceLlmUsage {
 }
 
 export interface TraceTimelineStep extends TraceStep {
+  broker_exchange?: Record<string, { content: unknown; truncated: boolean; redacted: boolean }> | null;
   offset_ms: number;
   in_trace: boolean;
   llm?: TraceLlmUsage;

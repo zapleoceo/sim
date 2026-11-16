@@ -18,10 +18,13 @@ class LLMResult:
     latency_ms: int = 0
     job_id: str | None = None
     finish_reason: str | None = None     # "stop" | "length" | ... as reported by the provider
+    exchange: dict[str, Any] | None = None  # sanitized actual adapter payloads, not reconstructed
 
 
 class LLMError(Exception):
     """The broker answered with an error or the job did not finish in budget."""
+
+    exchange: dict[str, Any] | None = None
 
 
 class LLMPort(Protocol):

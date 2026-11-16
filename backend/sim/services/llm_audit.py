@@ -17,6 +17,7 @@ from sim.adapters.db.session import transaction
 from sim.clock import Clock, utcnow
 from sim.ports.llm import LLMError, LLMPort, LLMResult
 from sim.services import tracing
+from sim.services.safe_payload import exchange_out, safe_payload
 from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
@@ -72,9 +73,9 @@ class AuditedLLM:
                 capability=capability,
                 model=model,
                 latency_ms=tracing.elapsed_ms(start),
-                error=str(exc)[:1000],
+                error=str(safe_payload(str(exc))["content"])[:1000],
             )
-            await self.record(call, started_at)
+            await self.record(call, started_at, exchange=exc.exchange)
             raise
         call = LlmCall(
             dialog_id=dialog_id,
@@ -90,10 +91,11 @@ class AuditedLLM:
             job_id=result.job_id,
             finish_reason=result.finish_reason,
         )
-        await self.record(call, started_at)
+        await self.record(call, started_at, exchange=result.exchange)
         return result
 
-    async def record(self, call: LlmCall, started_at: datetime | None = None) -> None:
+    async def record(self, call: LlmCall, started_at: datetime | None = None,
+                     *, exchange: dict[str, Any] | None = None) -> None:
         call.created_at = self.clock()
         call.trace_id = tracing.current_trace_id()
         try:
@@ -112,7 +114,8 @@ class AuditedLLM:
                 error=call.error,
                 detail={"model": call.model, "provider": call.provider, "tokens_in": call.tokens_in,
                         "tokens_out": call.tokens_out, "cost_usd": call.cost_usd,
-                        "finish_reason": call.finish_reason},
+                        "finish_reason": call.finish_reason,
+                        **({"broker_exchange": exchange_out(exchange)} if exchange is not None else {})},
                 dialog_id=call.dialog_id,
                 llm_call_id=call.id,
             )

@@ -5,6 +5,8 @@ from typing import Any
 
 from sim.adapters.db.models import Channel, Client, LlmCall, Message, Persona, TraceEvent
 from sim.api.schemas import dt, message_out
+from sim.services.safe_payload import exchange_out, safe_payload
+from sim.services.tracing import mask
 
 
 def context_out(client: Client | None, persona: Persona | None, channel: Channel | None) -> dict[str, Any]:
@@ -43,7 +45,8 @@ def trace_step_out(event: TraceEvent, client_id: int | None, client_name: str | 
         "id": event.id, "trace_id": event.trace_id, "kind": event.kind, "name": event.name,
         "status": event.status, "started_at": dt(event.started_at), "duration_ms": event.duration_ms,
         "attempt": event.attempt, "http_status": event.http_status, "actor": event.actor,
-        "error": event.error, "detail": event.detail or {},
+        "error": mask(event.error), "detail": safe_payload({k: v for k, v in (event.detail or {}).items()
+                                                             if k != "broker_exchange"})["content"],
         "client": {"id": client_id, "display_name": client_name or ""} if client_id else None,
         "admin_id": event.admin_id, "dialog_id": event.dialog_id, "channel_id": event.channel_id,
         "job_id": event.job_id, "message_id": event.message_id, "llm_call_id": event.llm_call_id,
@@ -64,6 +67,7 @@ def trace_out(trace_id: str, rows: Sequence[Any], calls: dict[int, LlmCall]) -> 
         step = trace_step_out(event, client_id, client_name)
         step["offset_ms"] = int((event.started_at - start).total_seconds() * 1000)
         step["in_trace"] = event.trace_id == trace_id
+        step["broker_exchange"] = exchange_out((event.detail or {}).get("broker_exchange"))
         if (call := calls.get(event.llm_call_id or 0)) is not None:
             step["llm"] = {"model": call.model, "provider": call.provider, "tokens_in": call.tokens_in,
                            "tokens_out": call.tokens_out, "cached_tokens": call.cached_tokens,
