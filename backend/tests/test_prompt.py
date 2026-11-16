@@ -207,7 +207,7 @@ def test_consecutive_same_role_turns_are_merged():
 # ---- decision parser ----------------------------------------------------------------------
 GOOD = (
     '{"reply": "Привет", "stage": "interested", "needs": ["a", "b"], "next_step": "x",'
-    ' "handoff_to_operator": true, "refused": false, "stop_contact": false}'
+    ' "handoff_to_operator": true, "handoff_reason": "Нужен специалист", "refused": false, "stop_contact": false}'
 )
 
 

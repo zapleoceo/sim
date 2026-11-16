@@ -103,7 +103,7 @@ async def test_inbox_flow_operator_takeover_and_stage_rules(api, world, containe
     sent = await api.post(f"/api/dialogs/{row['id']}/messages", json={"text": "Я оператор"}, headers=h)
     assert sent.status_code == 201 and sent.json()["author"] == "operator" and sent.json()["delivery"] == "queued"
     async with container.factory() as s:
-        assert (await s.scalars(select(Dialog))).unique().one().ai_paused is True
+        assert (await s.scalars(select(Dialog))).unique().one().ai_paused is False
         pending = await s.scalars(select(Job).where(Job.kind == "reply", Job.status == "pending"))
         assert pending.all() == []                                  # AI reply cancelled
 

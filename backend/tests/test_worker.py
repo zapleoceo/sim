@@ -135,7 +135,7 @@ async def test_send_failure_marks_message_failed_after_retries(container, world,
         assert (await s.get(Message, msg_id)).delivery is Delivery.FAILED
 
 
-async def test_followup_ladder_ends_in_no_response(container, world, fake_llm):
+async def test_legacy_ladder_is_retired_without_changing_client_status(container, world, fake_llm):
     fake_llm.replies = [decision_json(reply="первое")]
     await ingest(container, world.channel.id, inbound("hi"))
     worker = Worker(container)
@@ -153,9 +153,9 @@ async def test_followup_ladder_ends_in_no_response(container, world, fake_llm):
         await worker.tick()
     async with container.factory() as s:
         texts = [m.text for m in (await s.scalars(select(Message).order_by(Message.id))).all()]
-        assert texts[-3:] == ["follow-up 0", "follow-up 1", "follow-up 2"]
+        assert texts == ["hi", "первое"]
         client = (await s.scalars(select(Dialog))).unique().one().client
-        assert client.status is ClientStatus.NO_RESPONSE
+        assert client.status is ClientStatus.ACTIVE
 
 
 async def test_client_reply_cancels_followup(container, world):
@@ -168,7 +168,7 @@ async def test_client_reply_cancels_followup(container, world):
     await ingest(container, world.channel.id, inbound("ещё", ext="2"))
     async with container.factory() as s:
         followups = (await s.scalars(select(Job).where(Job.kind == jobkinds.FOLLOWUP))).all()
-        assert followups and all(j.status == "cancelled" for j in followups)
+        assert all(j.status == "cancelled" for j in followups)
 
 
 async def test_polling_channels_are_ingested(container, world):

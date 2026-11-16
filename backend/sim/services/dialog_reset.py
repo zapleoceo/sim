@@ -55,6 +55,9 @@ class DialogReset:
         dialog.last_message_text = ""
         dialog.last_message_direction = None
         dialog.last_message_at = None
+        dialog.activity_revision = (dialog.activity_revision or 0) + 1
+        dialog.reengagement_plan = None
+        await self.jobs.cancel_pending(jobkinds.REENGAGEMENT, f"reengagement:{dialog.id}")
         return int(res.rowcount or 0)  # type: ignore[attr-defined]
 
     async def clear_passport(self, client: Client) -> None:

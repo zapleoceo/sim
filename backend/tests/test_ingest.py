@@ -75,7 +75,7 @@ async def test_refused_client_stays_refused_and_gets_no_reply_job(container, wor
         assert (await s.scalars(select(Job))).all() == []
 
 
-async def test_own_message_pauses_ai_and_echo_is_ignored(container, world):
+async def test_own_message_keeps_ai_active_and_echo_is_ignored(container, world):
     await ingest(container, world.channel.id, inbound("a", ext="1"))
     async with transaction(container.factory) as s:
         dialog = (await s.scalars(select(Dialog))).unique().one()
@@ -94,7 +94,7 @@ async def test_own_message_pauses_ai_and_echo_is_ignored(container, world):
     )
     await ingest(container, world.channel.id, human)
     async with container.factory() as s:
-        assert (await s.scalars(select(Dialog))).unique().one().ai_paused is True
+        assert (await s.scalars(select(Dialog))).unique().one().ai_paused is False
         pending = await s.scalars(select(Job).where(Job.kind == "reply", Job.status == "pending"))
         assert pending.all() == []
 

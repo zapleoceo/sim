@@ -18,6 +18,7 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettingsService
+from sim.services.dialog_state import invalidate_plan
 from sim.services.ingest import IngestService
 from sim.services.journal import REPLY_DELAY, SYSTEM, CommunicationJournal, Who
 from sim.services.outbound import cancel_queued_ai
@@ -70,6 +71,7 @@ class AiPauseService:
         """An operator switched the AI off: replies still waiting for their send do not go out."""
         await self.log.ai_switched(dialog, True, who, reason)
         dialog.ai_paused = True
+        invalidate_plan(dialog)
         await cancel_queued_ai(self.session, dialog.id, "cancelled: AI paused by an operator")
 
     async def resume(self, dialog: Dialog, who: Who = SYSTEM, reason: str = "") -> Recovery:
@@ -86,6 +88,7 @@ class AiPauseService:
     async def recover(self, dialog: Dialog) -> Recovery:
         dialog.ai_paused = False
         dialog.needs_operator = False
+        invalidate_plan(dialog)
         waiting = await self.unanswered.of(dialog.id)
         if not waiting:
             return Recovery(NOTHING)

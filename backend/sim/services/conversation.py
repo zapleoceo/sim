@@ -156,6 +156,7 @@ def decision_fields(decision: Decision) -> dict[str, Any]:
         "needs": decision.needs,
         "next_step": decision.next_step,
         "handoff_to_operator": decision.handoff_to_operator,
+        "handoff_reason": decision.handoff_reason,
         "refused": decision.refused,
         "stop_contact": decision.stop_contact,
     }
@@ -352,6 +353,9 @@ class ConversationService:
             allowed_links=allowed,
             dialog_id=dialog_id,
             workflow=guard_workflow,
+            trusted_facts={"now_utc": ctx.now.isoformat() + "Z", "persona_facts": ctx.persona_facts},
+            context={"passport": ctx.passport, "summary": ctx.summary, "journal": ctx.journal,
+                     "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step},
         )
 
     async def ask(
@@ -442,6 +446,7 @@ class ConversationService:
             dialog_id, await self.dialog_context(dialog, persona, instruction=instruction))
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
+        activity_revision = dialog.activity_revision
         waiting = turns(await self.messages.unanswered(dialog_id))
         if delay and waiting:
             ctx = replace(ctx, delay_note=delay_note(
@@ -471,6 +476,8 @@ class ConversationService:
             return ReplyOutcome("skipped")  # the client refused meanwhile
         if dialog.ai_paused:                # a human took over meanwhile
             return ReplyOutcome("skipped") if followup else await self.paused(dialog_id)
+        if dialog.activity_revision != activity_revision:
+            return ReplyOutcome("superseded")
         newer = await self.messages.last(dialog_id, Direction.IN)
         if newer is not None and newer.id > cutoff:
             # The client wrote again while we were thinking: this answer is already stale. The
@@ -494,6 +501,7 @@ class ConversationService:
     async def handoff_failed(self, dialog: Dialog, draft: Draft) -> ReplyOutcome:
         """Two rejected decisions: one neutral reply, then a visible manager handoff."""
         reason = draft.rejection or "the generator could not produce an approved answer"
+        await self.mark_handoff(dialog, reason)
         dialog.needs_operator = True
         dialog.ai_paused = True
         await self.journal.record(dialog.id, HANDOFF, new="operator", who=SYSTEM,
@@ -507,6 +515,13 @@ class ConversationService:
             dialog, NEUTRAL_HANDOFF_REPLY, None, final=True,
         )
         return ReplyOutcome("needs_operator", draft.decision, message)
+
+    async def mark_handoff(self, dialog: Dialog, reason: str) -> None:
+        """The concrete triggering inbound keeps its historical reason after resuming AI."""
+        trigger = await self.messages.last(dialog.id, Direction.IN)
+        if trigger is not None:
+            trigger.handoff_reason = reason
+            trigger.handoff_at = self.clock()
 
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
@@ -554,9 +569,11 @@ class ConversationService:
             client.no_followups = client.no_followups or decision.stop_contact
             await self.followups.cancel(dialog.id)
         if decision.handoff_to_operator:
+            await self.mark_handoff(dialog, decision.handoff_reason or "Причина передачи не указана моделью")
             dialog.needs_operator = True
             dialog.ai_paused = True
-            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL)
+            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL,
+                                      reason=decision.handoff_reason)
             await self.followups.cancel(dialog.id)
 
         decision = replace(decision, reply=guard.text)
@@ -583,7 +600,7 @@ class ConversationService:
                 delay_s=delay, final=final)
         if not followup and not final:
             dialog.followup_step = 0
-            await self.followups.schedule(dialog, strategy, 0, message)
+            # The silence sweep updates one contextual plan after five minutes.
         # The passportist updates the lead passport (one job per dialog, coalesced).
         await self.jobs.upsert_pending(
             jobkinds.PASSPORT, {"dialog_id": dialog.id},
@@ -606,6 +623,7 @@ class ConversationService:
     ) -> Draft:
         """The same builder, model call and pre-send guard as production, without any dialog
         bookkeeping. `history` ends with the client's latest message."""
+        ctx = with_persona_facts(persona, ctx)
         prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
         rejection = ""
         for attempt in range(2):

@@ -45,7 +45,7 @@ async def test_reply_applies_decision_and_queues_send_and_followup(container, wo
     out = messages[-1]
     assert out.author is Author.AI and out.delivery is Delivery.QUEUED and out.model == "fake-model"
     kinds = [j.kind for j in jobs]
-    assert jobkinds.SEND in kinds and jobkinds.FOLLOWUP in kinds
+    assert jobkinds.SEND in kinds and jobkinds.FOLLOWUP not in kinds
     async with container.factory() as s:
         call = (await s.scalars(select(LlmCall).where(LlmCall.workflow == "reply"))).one()
         assert call.cached_tokens == 50 and call.workflow == "reply" and call.dialog_id == dialog.id

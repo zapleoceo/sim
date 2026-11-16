@@ -83,6 +83,7 @@ def persona_facts(birth: date | None, tz: str, now_utc: datetime, routine: str =
     local = local_time(tz, now_utc)
     today = local.date()
     lines = [
+        f"- Часовой пояс: {local.tzinfo}; UTC offset: {local:%z}; источник: серверные часы UTC",
         f"- Сейчас у тебя: {WEEKDAYS[local.weekday()]}, {human_date(today)}, {local:%H:%M} ({day_part(local.hour)})",
         f"- Вчера было: {WEEKDAYS[(today - timedelta(days=1)).weekday()]}, завтра: {WEEKDAYS[(today + timedelta(days=1)).weekday()]}",
     ]

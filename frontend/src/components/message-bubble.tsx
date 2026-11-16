@@ -40,6 +40,9 @@ export function MessageBubble({ vm, details = false }: { vm: MessageVm; details?
         {vm.authorLabel && <span className="text-[11px] font-medium text-muted-foreground">{vm.authorLabel}</span>}
         <MessageContent message={msg} />
         {details && <MessageMetadata message={msg} />}
+        {msg.handoff_reason && <span role="note" className="text-xs text-warning">
+          Причина передачи оператору: {msg.handoff_reason}
+        </span>}
         <span className="flex items-center justify-end gap-1 text-[11px] text-muted-foreground tabular">
           {vm.time}
           {dm && DIcon && (

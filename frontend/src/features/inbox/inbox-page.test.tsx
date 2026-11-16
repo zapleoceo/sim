@@ -40,6 +40,22 @@ const detail: DialogDetail = {
   ],
 };
 
+it('shows exact continuation text and time and keeps the historical handoff mark', async () => {
+  api({ 'GET /api/dialogs/1': { ...detail,
+    dialog: { ...detail.dialog, needs_operator: false, ai_paused: false,
+      reengagement_plan: { status: 'scheduled', text: 'Как растут цветы?',
+        at: '2026-11-16T13:00:00Z', reason: 'Тема из паспорта' } },
+    messages: [{ ...detail.messages[0], handoff_reason: 'Нужен специалист' }],
+  } });
+  await renderApp('/inbox?d=1');
+  const plan = await screen.findByRole('status', { name: 'План продолжения разговора' });
+  expect(plan).toHaveTextContent('Как растут цветы?');
+  expect(plan).toHaveTextContent('Время:');
+  expect(plan).toHaveTextContent('запланировано');
+  expect(await screen.findByText(/Причина передачи оператору: Нужен специалист/)).toBeInTheDocument();
+  expect(screen.queryByText(/поставит ИИ.*паузу/)).not.toBeInTheDocument();
+});
+
 /** A backend that remembers the stage it was given, so a refetch after the change agrees with it. */
 function stageRoutes(): Record<string, FakeReply> {
   let stage: Stage = client.stage;

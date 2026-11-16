@@ -14,6 +14,14 @@ def turns(messages: list[Message]) -> list[Message]:
 
 
 def apply_message(dialog: Dialog, message: Message) -> None:
+    invalidate_plan(dialog)
     dialog.last_message_text = message.text[:PREVIEW_LEN]
     dialog.last_message_direction = message.direction
     dialog.last_message_at = message.created_at
+
+
+def invalidate_plan(dialog: Dialog) -> None:
+    """Advance the context fence; preserve the previous proposal for operator inspection."""
+    dialog.activity_revision = (dialog.activity_revision or 0) + 1
+    if dialog.reengagement_plan:
+        dialog.reengagement_plan = {**dialog.reengagement_plan, "status": "outdated"}

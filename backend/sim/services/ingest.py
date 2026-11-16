@@ -24,7 +24,7 @@ from sim.services.dialog_reset import DialogReset, is_reset
 from sim.services.dialog_state import EDIT_PREFIX, apply_message
 from sim.services.followup import FollowupService
 from sim.services.funnel import FunnelService
-from sim.services.journal import RESET, THE_OWNER, CommunicationJournal
+from sim.services.journal import RESET, CommunicationJournal
 from sim.services.media import MEDIA_KINDS, MEDIA_MAX_ATTEMPTS, VOICE_KINDS, placeholder_for
 from sim.services.outbound import cancel_queued_ai
 from sim.services.reply_journal import ReplyJournal
@@ -162,6 +162,7 @@ class IngestService:
         dialog.followup_step = 0
         apply_message(dialog, message)
         await self.followups.cancel(dialog.id)
+        await cancel_queued_ai(self.session, dialog.id, "cancelled: dialog context changed")
         channel.last_activity_at = self.clock()
         queued = await self.queue_reply(dialog, client)
         if not queued and dialog.ai_paused:   # stored, but nobody will answer: say so
@@ -283,6 +284,7 @@ class IngestService:
         text = (msg.text or "").strip()
         if dialog is None or not text:
             return IngestResult(duplicate=True)
+        await lock(self.session, NS_DIALOG, dialog.id)
         message = Message(
             dialog_id=dialog.id,
             direction=Direction.IN,
@@ -301,15 +303,18 @@ class IngestService:
         return IngestResult(message=message, dialog=dialog, client=dialog.client)
 
     async def ingest_own(self, dialog: Dialog | None, msg: InboundMessage) -> IngestResult:
-        """A message sent from the account itself (phone app). A human took the wheel: the AI
-        pauses on this dialog. Echoes of our own AI/operator sends are recognised and dropped."""
-        if dialog is None or not (msg.text or "").strip():
+        """Phone-account messages use OPERATOR authorship, without an implicit AI pause.
+        Echoes of our own AI/operator sends are recognised and dropped."""
+        if dialog is None or not ((msg.text or "").strip() or msg.media_kind):
             return IngestResult(duplicate=True)
+        await lock(self.session, NS_DIALOG, dialog.id)
         now = self.clock()
-        text = msg.text.strip()
+        text = (msg.text or "").strip() or placeholder_for(msg.media_kind)
         for recent in await self.messages.recent(dialog.id, 6):
             if (
                 recent.direction is Direction.OUT
+                and bool((msg.text or "").strip())
+                and recent.media_kind == msg.media_kind
                 and recent.text.strip() == text
                 and now - recent.created_at < ECHO_WINDOW
             ):
@@ -321,15 +326,14 @@ class IngestService:
             direction=Direction.OUT,
             author=Author.OPERATOR,
             text=text,
+            media_kind=msg.media_kind,
             external_id=msg.external_id,
             delivery=Delivery.SENT,
             created_at=to_naive_utc(msg.occurred_at),
         )
         await self.messages.add(message)
         apply_message(dialog, message)
-        await self.log.ai_switched(
-            dialog, True, THE_OWNER, "сообщение отправлено с подключённого аккаунта")
-        dialog.ai_paused = True
+        await self.queue_media(dialog, message, msg)
         await cancel_queued_ai(self.session, dialog.id, "cancelled: the owner wrote from the phone")
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
         await self.followups.cancel(dialog.id)

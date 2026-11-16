@@ -142,7 +142,6 @@ async def test_an_operator_message_and_a_hand_edit_of_the_card_are_journaled(api
     await api.patch(f"/api/clients/{dialog.client_id}", json={"notes": "VIP"}, headers=h)
     events = await events_of(container)
     assert [(e.kind, e.from_value, e.to_value, e.actor, e.reason) for e in events] == [
-        ("ai_pause", "on", "paused", "operator", "оператор написал в диалог"),
         ("notes", "", "VIP", "operator", ""),
     ]
 
@@ -155,7 +154,7 @@ async def test_model_decisions_are_journaled_as_the_model(container, world, fake
     assert [(e.kind, e.from_value, e.to_value, e.actor, e.reason) for e in events] == [
         ("needs", "", "карьера", "model", ""),
         ("stage", "first_contact", "interested", "model", ""),
-        ("handoff", "", "operator", "model", ""),
+        ("handoff", "", "operator", "model", "Нужен специалист"),
     ]
     fake_llm.passport_replies = ["Кто он: Анна.\nЦели: карьера."]
     async with transaction(container.factory) as s:

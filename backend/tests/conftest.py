@@ -59,6 +59,7 @@ def decision_json(**over: Any) -> str:
         "needs": [],
         "next_step": "узнать цели",
         "handoff_to_operator": False,
+        "handoff_reason": "Нужен специалист" if over.get("handoff_to_operator") else "",
         "refused": False,
         "stop_contact": False,
     }

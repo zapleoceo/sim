@@ -271,7 +271,7 @@ async def test_blocked_followup_stops_the_ladder_and_needs_operator(container, w
     _, dialog, _, jobs = await state(container)
     assert dialog.needs_operator and dialog.followup_step == 0
     # no further rung was scheduled: only the job queued after the first reply exists
-    assert len([j for j in jobs if j.kind == jobkinds.FOLLOWUP]) == 1
+    assert not [j for j in jobs if j.kind == jobkinds.FOLLOWUP]
 
 
 async def test_operator_messages_are_not_guarded(container, world, fake_llm, connector):

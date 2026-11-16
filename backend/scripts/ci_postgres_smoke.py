@@ -161,6 +161,7 @@ def main():
     # The concurrency gate drives the current ORM (JobRepo), so it needs the head schema.
     command.upgrade(cfg, "head")
     asyncio.run(schema_and_concurrency(url))
+    asyncio.run(reengagement_concurrency(url))
     # Disposable DB only: 0008 schema downgrade loses operator data. Production must not do this.
     command.downgrade(cfg, "0007")
     asyncio.run(check_state(url, "0007"))
@@ -206,6 +207,73 @@ async def trace_log_roundtrip(url):
         deleted = await tracer.purge(30, batch=1)
         if deleted != 2:
             raise AssertionError(f"trace purge deleted {deleted} rows, expected 2")
+    finally:
+        await engine.dispose()
+
+
+async def reengagement_concurrency(url):
+    """Real transaction locks fence simultaneous sweeps and stale delivery eligibility."""
+    from sim.adapters.db.locks import NS_DIALOG, lock
+    from sim.adapters.db.models import Channel, Client, Dialog, Message, Persona
+    from sim.domain.enums import Author, ChannelKind, Delivery, Direction, SessionStatus
+    from sim.services.dialog_state import apply_message
+    from sim.services.reengagement import ReengagementService, signature
+
+    engine = create_async_engine(url)
+    factory = make_session_factory(engine)
+    now = datetime(2026, 11, 16, 12)
+    try:
+        async with transaction(factory) as s:
+            p = Persona(name="CI synthetic silence")
+            s.add(p)
+            await s.flush()
+            ch = Channel(persona_id=p.id, kind=ChannelKind.TELEGRAM, name="fake", status=SessionStatus.ACTIVE)
+            c = Client(persona_id=p.id, ref_code="silence-ci")
+            s.add_all([ch, c])
+            await s.flush()
+            d = Dialog(channel_id=ch.id, client_id=c.id, external_thread_id="fake",
+                       last_message_at=now - timedelta(minutes=6))
+            s.add(d)
+            await s.flush()
+            did = d.id
+        async with transaction(factory) as first:
+            assert await ReengagementService(first, clock=lambda: now).sweep() == 1
+            async with transaction(factory) as second:
+                assert await ReengagementService(second, clock=lambda: now).sweep() == 0
+        async with transaction(factory) as s:
+            d = await s.get(Dialog, did)
+            p = await s.get(Persona, d.client.persona_id)
+            m = Message(dialog_id=did, direction=Direction.OUT, author=Author.AI,
+                        text="synthetic plan", delivery=Delivery.QUEUED)
+            s.add(m)
+            await s.flush()
+            d.reengagement_plan = {"revision": d.activity_revision, "signature": signature(d, p),
+                "message_id": m.id, "status": "scheduled", "at": now.isoformat() + "Z"}
+            mid, revision = m.id, d.activity_revision
+        # An inbound writer owns the exact lock used by final pre-send checking.
+        async with transaction(factory) as writer:
+            await lock(writer, NS_DIALOG, did)
+            d = await writer.get(Dialog, did)
+            incoming = Message(dialog_id=did, direction=Direction.IN, author=Author.CLIENT,
+                               text="new context", delivery=Delivery.SENT, created_at=now)
+            writer.add(incoming)
+            await writer.flush()
+            apply_message(d, incoming)
+            reached = asyncio.Event()
+
+            async def sender():
+                async with transaction(factory) as s:
+                    reached.set()
+                    await lock(s, NS_DIALOG, did)
+                    d = await s.get(Dialog, did)
+                    m = await s.get(Message, mid)
+                    return await ReengagementService(s, clock=lambda: now).send_valid(d, m, revision)
+
+            attempt = asyncio.create_task(sender())
+            await reached.wait()
+            assert not attempt.done()
+        assert await asyncio.wait_for(attempt, timeout=10) is False
+        print("PostgreSQL contextual-plan sweep and inbound/send fencing PASS")
     finally:
         await engine.dispose()
 

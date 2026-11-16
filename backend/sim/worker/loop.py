@@ -19,6 +19,7 @@ from sim.ports.channel import PollingChannelPort
 from sim.services import tracing
 from sim.services.app_settings import trace_retention_days
 from sim.services.conversation import ConversationError
+from sim.services.reengagement import ReengagementService
 from sim.services.send_receipts import SendUncertain
 from sim.services.tracing import TraceContext, trace_scope
 from sim.wiring import Container
@@ -72,6 +73,8 @@ class Worker:
         self.last_purge = float("-inf")
         self.watch_task: asyncio.Task[int] | None = None
         self.last_watch = float("-inf")
+        self.reengagement_task: asyncio.Task[int] | None = None
+        self.last_reengagement = float("-inf")
         # Channel kinds a push event (e.g. a new Telegram message) asked to poll right now.
         self.wake: set[ChannelKind] = set()
         for kind, conn in self.c.registry.items():
@@ -313,6 +316,20 @@ class Worker:
             self.watch_task = asyncio.create_task(self.watch_unanswered())
 
     # ---- lifecycle -----------------------------------------------------------------------
+    async def sweep_reengagement(self) -> int:
+        try:
+            async with transaction(self.c.factory) as s:
+                return await ReengagementService(s, clock=self.c.clock).sweep()
+        except Exception:
+            log.exception("reengagement sweep failed")
+            return 0
+
+    def maybe_start_reengagement(self, now: float) -> None:
+        busy = self.reengagement_task is not None and not self.reengagement_task.done()
+        if not busy and now - self.last_reengagement >= 15:
+            self.last_reengagement = now
+            self.reengagement_task = asyncio.create_task(self.sweep_reengagement())
+
     def install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -332,6 +349,7 @@ class Worker:
                     self.maybe_start_poll(asyncio.get_running_loop().time())
                     self.maybe_start_purge(asyncio.get_running_loop().time())
                     self.maybe_start_watch(asyncio.get_running_loop().time())
+                    self.maybe_start_reengagement(asyncio.get_running_loop().time())
                 except Exception:
                     log.exception("worker tick failed")
                 # A completion immediately frees a slot. The timeout also checks newly due
@@ -344,7 +362,7 @@ class Worker:
         finally:
             stop_task.cancel()
             await asyncio.gather(stop_task, return_exceptions=True)
-            purge = [t for t in (self.purge_task, self.watch_task) if t is not None]
+            purge = [t for t in (self.purge_task, self.watch_task, self.reengagement_task) if t is not None]
             await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(), *purge,
                                  return_exceptions=True)
             self.reap_jobs()

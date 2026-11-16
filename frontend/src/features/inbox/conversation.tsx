@@ -222,6 +222,15 @@ export function Conversation({
           {onReplyNow && <Button size="sm" variant="outline" onClick={onReplyNow}>Ответить сейчас</Button>}
         </div>
       )}
+      {dialog.reengagement_plan && <div role="status" aria-label="План продолжения разговора"
+        className="flex-none border-b bg-muted/60 px-4 py-2 text-sm">
+        <strong>Продолжение разговора: {({analyzing: 'анализ', scheduled: 'запланировано',
+          outdated: 'устарел, будет пересмотрен', no_send: 'не писать', blocked: 'отклонено',
+          failed: 'ошибка', sent: 'отправлено', cancelled: 'отменено'} as Record<string, string>)[dialog.reengagement_plan.status] ?? dialog.reengagement_plan.status}</strong>
+        {dialog.reengagement_plan.at && <div>Время: {new Date(dialog.reengagement_plan.at).toLocaleString()} (ваш часовой пояс)</div>}
+        {dialog.reengagement_plan.text && <p className="whitespace-pre-wrap">{dialog.reengagement_plan.text}</p>}
+        {dialog.reengagement_plan.reason && <p className="text-xs text-muted-foreground">{dialog.reengagement_plan.reason}</p>}
+      </div>}
       {!compact && <div className="flex-none border-b px-4 py-1.5">
         <Link
           to="/clients/$id"
@@ -265,7 +274,7 @@ export function Conversation({
         {!dialog.ai_paused && (
           <p role="note" className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground sm:text-xs">
             <Info className="size-3.5 flex-none" />
-            Ответ оператора поставит ИИ в этом диалоге на паузу.
+            Ответ оператора обновит контекст. Пауза ИИ управляется переключателем.
           </p>
         )}
         {!capabilities.text && <p className="text-xs text-warning">Канал не подключён: отправка недоступна.</p>}
