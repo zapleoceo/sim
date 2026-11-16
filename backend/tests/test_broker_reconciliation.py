@@ -257,3 +257,20 @@ async def test_untrusted_lookup_never_authorizes_submission(container, monkeypat
         await new.chat(MESSAGES)
     assert len(posts) == 1
     await new.aclose()
+
+
+async def test_concurrent_terminal_checkpoint_is_authoritative(container, monkeypatch):
+    store = BrokerRequests(container.factory, container.box)
+
+    async def transport(request):
+        if request.method == "POST":
+            return httpx.Response(200, json={"job_id": 61})
+        async with container.factory() as s:
+            entry = store.entry(await s.get(BrokerRequest, (800001, 0)))
+        await store.checkpoint(entry, status="error", response={"status": "error", "error": "first terminal"})
+        return httpx.Response(200, json=DONE)  # late contradictory observer must not override
+
+    broker, _, _ = adapter(container, monkeypatch, 1, transport)
+    with pytest.raises(BrokerTerminalError, match="first terminal"):
+        await broker.chat(MESSAGES)
+    await broker.aclose()

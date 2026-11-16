@@ -273,10 +273,14 @@ class BrokerLLM:
             data = await self.poll(self.client, {"job_id": entry.remote_id},
                 str(params["capability"]), time.perf_counter() + self.budget_for(body.get("model")))
         except BrokerTerminalError as exc:
-            await self.requests.checkpoint(entry, status="error", response=exc.data)
+            settled = await self.requests.checkpoint(entry, status="error", response=exc.data)
+            if settled.status == "done":
+                return settled, settled.response
             raise
         entry = await self.requests.checkpoint(entry, status="done", response=data)
-        return entry, data
+        if entry.status == "error":
+            raise BrokerTerminalError(entry.response)
+        return entry, entry.response
 
     async def lookup_request(self, entry: RequestEntry) -> str:
         await require_live_execution()
