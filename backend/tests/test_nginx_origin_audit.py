@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import grp
 import http.client
 import json
 import shutil
@@ -73,6 +74,8 @@ def test_sim_tls_routes_and_audit_never_persist_oauth_payload():
     # Short path: AF_UNIX socket names have a strict length limit.
     with tempfile.TemporaryDirectory(prefix="sim-audit-") as directory:
         root = Path(directory)
+        root.chown(-1, grp.getgrnam("www-data").gr_gid)
+        root.chmod(0o750)
         cert, key = root / "cert.pem", root / "key.pem"
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
                         "-subj", "/CN=sim.example.test", "-addext",
@@ -93,7 +96,8 @@ def test_sim_tls_routes_and_audit_never_persist_oauth_payload():
             "/var/log/sim-nginx/access-audit.log", str(root / "access.log")).replace(
             "/run/sim-nginx-audit/socket", str(root / "audit.sock"))
         config = root / "nginx.conf"
-        config.write_text(f"""pid {root / 'nginx.pid'};
+        config.write_text(f"""user www-data;
+pid {root / 'nginx.pid'};
 error_log {root / 'global-errors.log'} warn;
 events {{ worker_connections 64; }}
 http {{

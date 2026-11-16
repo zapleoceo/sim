@@ -56,7 +56,8 @@ audit logs and old logs. Cloudflare rule rollback requires recorded pre-change
 values; never downgrade zone-wide settings. A failed local check triggers local
 rollback; an unknown Cloudflare state blocks activation instead of being guessed.
 
-CI uses real nginx/rsyslog with a disposable certificate, loopback-only fake backend,
+CI uses real nginx/rsyslog inside a disposable Ubuntu22.04 container with network
+disabled during testing (no host service/AppArmor changes), a disposable certificate, loopback-only fake backend,
 synthetic secrets,502/303 responses, hostname verification and a neighboring vhost.
 It verifies method/path/status audit and absence of request/response secrets in all
 test logs. No local tests, production tokens, real providers or client messages.
