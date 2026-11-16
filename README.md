@@ -29,6 +29,26 @@ supplied. CI uses synthetic profiles, photos, transports and model responses.
 Production activation requires choosing the intended existing channel; no new
 credentials are created. Private/unavailable fields are never reconstructed.
 
+### Worker recovery
+
+Worker crash recovery uses a 90-second claim grace and a PostgreSQL execution row
+lock. Live handlers retain the lock through effects and completion commit; other
+workers skip the locked job even after expiry. Connection loss releases the lock;
+reclaim increments the generation and rejects late old handlers before execution.
+Startup never resets another worker's lease. Pre-upgrade leases retain their old
+expiry. Durable send receipts still prevent blind retries of uncertain sends.
+Persisting/reconciling remote Broker job IDs across a crash remains separate work.
+SQLite is for development/tests; the multi-worker guarantee is checked against
+disposable PostgreSQL in CI, without real connectors or provider calls.
+Before Broker requests and outgoing chat transport effects, the worker checks
+its original transaction/connection and generation. Loss of that connection stops
+later effects; it cannot undo an already in-flight request. Durable send intents
+survive rollback and prevent a second send when its acknowledgement is unknown.
+The PostgreSQL gate runs the full Worker handler through virtual lease expiry and
+real termination of its isolated test connection, using persisted receipts and
+fake transport effects. An expired lease is described neutrally in the inbox:
+it can mean either a long-running model or a pending recovery, not proof of a crash.
+
 ИИ-персонажи (виртуальные представители): Instagram — привлечение, WhatsApp и Telegram — личное
 общение, воронка до регистрации и первой оплаты у партнёра. Документированный URL: https://sim.zapleo.com.
 
@@ -40,8 +60,8 @@ credentials are created. Private/unavailable fields are never reconstructed.
 upload для того же поста, receipt позволяет восстановить локальный статус при совпадении
 payload/account. Это не полная готовность публикаций из UI.
 Входящие голосовые обрабатываются отдельным путём транскрипции.
-Сгенерированные фото и кружочки персонажа уходят без пометок: без подписи и без отдельного
-сообщения перед кружочком. Кружочки ИИ по-прежнему отправляются только на аккаунт из настройки
+Сгенерированные фото подписаны «Сгенерировано ИИ», новые кружочки содержат отметку
+`AI generated` внутри кадра, без отдельного сообщения. Кружочки ИИ отправляются только на аккаунт из настройки
 «Telegram id для кружочков ИИ» (Аккаунты владельца).
 Аккаунты владельца (Общие правила → «Аккаунты владельца», числовые Telegram id через запятую):
 с ними персонаж отвечает сразу, без задержки по распорядку и занятости, и присылает фото и

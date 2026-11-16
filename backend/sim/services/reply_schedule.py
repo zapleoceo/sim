@@ -181,6 +181,8 @@ def plan_reason(job: Job, delay: Mapping[str, Any], tz: str, now: datetime) -> s
     """Why the planned reply waits, for the dialog card: a model call is running now, a retry
     after a failed attempt (with the error), her routine, an AI pause, or the plain debounce."""
     if job.status == "running":
+        if job.locked_until is not None and job.locked_until < now:
+            return "ответ ещё готовится или ожидает восстановления; отправка не подтверждена"
         return WRITING
     parts = []
     if job.attempts and job.last_error:

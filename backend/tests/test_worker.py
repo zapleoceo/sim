@@ -11,6 +11,7 @@ from sim.adapters.db.session import transaction
 from sim.clock import utcnow
 from sim.domain.enums import ChannelKind, ClientStatus, Delivery
 from sim.services import jobkinds
+from sim.services.send_receipts import SendUncertain
 from sim.worker.handlers import Handler
 from sim.worker.loop import Worker
 from tests.conftest import FakeConnector, decision_json, inbound
@@ -61,6 +62,39 @@ async def test_success_completes_job(container):
     worker = Worker(container, {"ok": Handler(ok)})
     assert await worker.tick() == 1
     assert calls == [{"n": 1}] and (await job_row(container, job_id)).status == "done"
+
+
+async def test_old_owner_cannot_execute_after_reclaim(container):
+    calls = []
+
+    async def handler(c, s, payload):
+        calls.append(payload)
+
+    job_id = await enqueue(container, "owned")
+    async with transaction(container.factory) as s:
+        row = await s.get(Job, job_id)
+        row.status, row.attempts = "running", 2
+        row.locked_until = utcnow() + timedelta(seconds=90)
+    worker = Worker(container, {"owned": Handler(handler)})
+    status, _, detail = await worker.attempt(job_id, "owned", {}, 1)
+    assert status == "skipped" and detail["fenced"] and not calls
+    await worker.attempt(job_id, "owned", {}, 2)
+    assert calls == [{}] and (await job_row(container, job_id)).status == "done"
+
+
+async def test_recovered_uncertain_send_is_terminal_not_repeated(container):
+    calls = []
+
+    async def reconcile(c, s, payload):
+        calls.append("receipt checked")
+        raise SendUncertain("receipt has no acknowledgement")
+
+    job_id = await enqueue(container, "send")
+    worker = Worker(container, {"send": Handler(reconcile)})
+    await worker.tick()
+    assert (await job_row(container, job_id)).status == "failed"
+    assert await worker.tick() == 0
+    assert calls == ["receipt checked"]
 
 
 async def test_failure_retries_with_backoff_then_fails_and_runs_giveup(container):

@@ -116,8 +116,8 @@ async def test_try_lock_is_exclusive_until_the_transaction_ends(container):
         assert await try_lock(c, NS_REPLY, 7) is True           # released on commit
 
 
-def test_lease_outlives_two_subscription_budgets():
+def test_recovery_grace_is_independent_of_model_budget():
     s = Settings(broker_subscription_budget_s=600, broker_poll_budget_s=180, _env_file=None)
-    assert lease_seconds(s) > 2 * 600
+    assert lease_seconds(s) == 90
     bigger = Settings(broker_subscription_budget_s=900, _env_file=None)
-    assert lease_seconds(bigger) > 2 * 900                     # derived, not a constant
+    assert lease_seconds(bigger) == 90  # live execution holds a PostgreSQL row lock
