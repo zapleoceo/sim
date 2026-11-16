@@ -1,8 +1,8 @@
 import { Link } from '@tanstack/react-router';
 import {
-  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, PauseCircle, SendHorizontal, Square, User, Zap,
+  ArrowLeft, Eraser, Info, MessageCircle, Mic, Paperclip, PanelRightClose, PanelRightOpen, SendHorizontal, Square, User, Zap,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon, NeedsOperatorBadge, StageChip, StatusBadge } from '@/components/badges';
 import { StageDropdown } from '@/components/choice-dropdown';
@@ -16,10 +16,10 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
-import { voiceNotice } from '@/lib/voice-notice';
-import { formatZonedDateTime } from '@/lib/format';
-import { CompactConversationHeader, CompactOperatorBanner } from './conversation-compact';
-import { PAUSE_NOTE, groupFeedByDay, isSendKey, pauseNotice, replyPlanNotice } from './inbox-logic';
+import { ConversationState } from './conversation-state';
+import { useConversationScroll } from './use-conversation-scroll';
+import { CompactConversationHeader } from './conversation-compact';
+import { PAUSE_NOTE, groupFeedByDay, isSendKey, pauseNotice } from './inbox-logic';
 
 
 export function Conversation({
@@ -71,27 +71,14 @@ export function Conversation({
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState('');
   const [stageBusy, setStageBusy] = useState(false);
-  const [bannerHidden, setBannerHidden] = useState(false);
   const recorder = useVoiceRecorder();
   const fileInput = useRef<HTMLInputElement>(null);
   const textRequest = useRef<{ text: string; id: string } | null>(null);
   const pendingMedia = useRef<{ kind: 'voice' | 'file'; file: Blob | File; name: string; caption: string; id: string } | null>(null);
   const capabilities = dialog.send_capabilities ?? { text: true, voice: false, attachment: false };
-  const scroller = useRef<HTMLDivElement>(null);
+  const scroll = useConversationScroll(dialog.id, messages.length);
   const groups = groupFeedByDay(messages, events);
   const paused = pauseNotice(dialog);
-  const planned = replyPlanNotice(dialog);
-  const lastHandoff = events?.filter((e) => e.kind === 'handoff').at(-1);
-  const voiceProblem = voiceNotice(lastHandoff?.reason);
-  const operatorText = voiceProblem
-    ? `${voiceProblem} ${dialog.ai_paused ? 'ИИ выключен. Проверьте разговор перед включением.' : 'ИИ включён. Проверьте, нужен ли ответ вручную.'}`
-    : (dialog.ai_paused ? 'Нужен ответ оператора. ИИ выключен; проверьте переписку.' : 'Нужен ответ оператора. ИИ включён.');
-
-  useEffect(() => {
-    const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, events?.length, dialog.id]);
-
   const send = async (): Promise<void> => {
     const value = text.trim();
     if (!value || sending || !capabilities.text) return;
@@ -167,13 +154,6 @@ export function Conversation({
             {dialog.needs_operator && <NeedsOperatorBadge />}
           </span>
         </div>
-        {dialog.needs_operator && (
-          <Tip label="Снять отметку «нужен оператор»">
-            <Button variant="outline" size="sm" onClick={onResolve}>
-              Обработано
-            </Button>
-          </Tip>
-        )}
         {onClearChat && (
           <Tip label="Удалить историю этого диалога в SIM (в мессенджере она останется)">
             <Button variant="ghost" size="icon-sm" aria-label="Очистить чат" disabled={clearing} onClick={onClearChat}>
@@ -208,37 +188,8 @@ export function Conversation({
         )}
       </header>
       )}
-      {dialog.needs_operator && compact && !bannerHidden && <CompactOperatorBanner text={operatorText} onDismiss={() => setBannerHidden(true)} />}
-      {dialog.needs_operator && !compact && <div role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm font-semibold">
-        {operatorText}
-      </div>}
-      {paused && (
-        <div role="status" aria-label="ИИ выключен"
-          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-warning/15 px-3 py-1.5 text-sm sm:px-4 sm:py-2">
-          <PauseCircle className="size-4 flex-none text-warning" aria-hidden />
-          <span className="min-w-0 flex-1">
-            <strong className="font-semibold">ИИ выключен.</strong> {paused.text}
-          </span>
-          <Button size="sm" onClick={() => onToggleAi(false)}>Включить ИИ</Button>
-        </div>
-      )}
-      {planned && (
-        <div role="status" aria-label="Ответ отложен"
-          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-muted/60 px-3 py-1.5 text-sm sm:px-4 sm:py-2">
-          <span className="min-w-0 flex-1">{planned}</span>
-          {onReplyNow && <Button size="sm" variant="outline" onClick={onReplyNow}>Ответить сейчас</Button>}
-        </div>
-      )}
-      {dialog.reengagement_plan && <div role="status" aria-label="План продолжения разговора"
-        className="flex-none border-b bg-muted/60 px-4 py-2 text-sm">
-        <strong>Продолжение разговора: {({analyzing: 'анализ', scheduled: 'запланировано',
-          outdated: 'устарел', no_send: 'не писать', blocked: 'отклонено',
-          failed: 'ошибка', sent: 'отправлено', cancelled: 'отменено'} as Record<string, string>)[dialog.reengagement_plan.status] ?? dialog.reengagement_plan.status}</strong>
-        {dialog.reengagement_plan.at && <div>Время: {formatZonedDateTime(dialog.reengagement_plan.at)} (ваше время)</div>}
-        {dialog.reengagement_plan.text && <p className="whitespace-pre-wrap">{dialog.reengagement_plan.text}</p>}
-        {dialog.reengagement_plan.reason && <p className="text-xs text-muted-foreground">{dialog.reengagement_plan.reason}</p>}
-      </div>}
-      {!compact && <div className="flex-none border-b px-4 py-1.5">
+      <ConversationState detail={detail} onToggleAi={onToggleAi} onReplyNow={onReplyNow} onResolve={onResolve} />
+      <div className="flex-none border-b px-4 py-1.5">
         <Link
           to="/clients/$id"
           params={{ id: String(client.id) }}
@@ -247,10 +198,11 @@ export function Conversation({
         >
           Лента клиента — все каналы
         </Link>
-      </div>}
+      </div>
 
       <div
-        ref={scroller}
+        ref={scroll.scroller}
+        onScroll={scroll.onScroll}
         tabIndex={0}
         role="log"
         aria-live="polite"
@@ -277,6 +229,7 @@ export function Conversation({
         )}
       </div>
 
+      {scroll.pending > 0 && <Button variant="secondary" size="sm" className="mx-auto my-1" onClick={scroll.jump}>Новые сообщения: {scroll.pending} ↓</Button>}
       <footer className="flex flex-none flex-col gap-1.5 border-t bg-background px-2 py-2 sm:gap-2 sm:px-4 sm:py-3">
         {!dialog.ai_paused && (
           <p role="note" className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground sm:text-xs">

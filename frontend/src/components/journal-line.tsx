@@ -1,6 +1,7 @@
 import type { EventVm } from '@/features/inbox/journal-logic';
 import { cn } from '@/lib/utils';
 import { voiceNotice } from '@/lib/voice-notice';
+import { formatZonedDateTime } from '@/lib/format';
 
 /**
  * One line of the communication journal inside the feed: a service record, not a message to the
@@ -22,9 +23,13 @@ export function JournalLine({ vm }: { vm: EventVm }) {
           {vm.change && <span className="min-w-0 font-medium break-words">{vm.change}</span>}
         </span>
         <span className="text-muted-foreground">
-          {vm.who} · {vm.time} · <span className={cn(!vm.hasReason && 'italic')}>{voiceReason ?? (vm.hasReason ? `причина: ${vm.reason}` : vm.reason)}</span>
+          {vm.who} · <time dateTime={vm.event.created_at} title={`${formatZonedDateTime(vm.event.created_at)} (ваше время)`}>{vm.time}</time>
         </span>
-        {voiceReason && <details><summary>Подробности</summary>{vm.reason}</details>}
+        {vm.event.kind === 'notes' && <span className="font-medium">Внутренняя заметка · клиенту не отправляется</span>}
+        <details><summary className="cursor-pointer">Подробности события</summary>
+          <span className={cn(!vm.hasReason && 'italic')}>{voiceReason ?? (vm.hasReason ? `Причина: ${vm.reason}` : vm.reason)}</span>
+          {voiceReason && <p>{vm.reason}</p>}
+        </details>
       </div>
     </div>
   );
