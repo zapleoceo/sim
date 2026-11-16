@@ -96,7 +96,7 @@ class BrokerLiveSession:
         self.model = str(ready["model"]) if ready.get("model") else None
         self.provider = str(ready["provider"]) if ready.get("provider") else None
         self.queue: asyncio.Queue[Any] = asyncio.Queue()
-        self.summary = LiveVoiceSummary(end_reason="no_summary")
+        self.summary = LiveVoiceSummary(end_reason="no_summary", model=self.model, provider=self.provider)
         self.finished = False
         self.reader = asyncio.ensure_future(self.read())
 

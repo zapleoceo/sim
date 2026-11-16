@@ -364,6 +364,16 @@ async def test_a_broker_refusal_never_picks_up(container, world):
     assert outcome.status == "refused" and not call.answered
 
 
+async def test_pending_operator_flag_is_checked_before_opening_live_provider(container, world):
+    did = await chatting_world(container, world)
+    async with transaction(container.factory) as s:
+        dialog = await s.get(Dialog, did)
+        dialog.ai_paused, dialog.needs_operator = False, True
+    live = FakeLive()
+    outcome = await service(container, live).handle(world.channel.id, FakeCall())
+    assert outcome.status == "skipped:operator_dialog" and not live.opened
+
+
 async def test_a_failed_answer_closes_the_session(container, world):
     dialog_id = await chatting_world(container, world)
     session = FakeSession()

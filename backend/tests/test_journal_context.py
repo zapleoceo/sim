@@ -179,8 +179,8 @@ async def test_a_reply_put_off_by_her_routine_and_the_operator_overrides_are_jou
     await api.post(f"/api/dialogs/{dialog.id}/reply-now", headers=h)
     events = await events_of(container)
     assert [(e.kind, e.from_value, e.to_value, e.actor, e.reason) for e in events] == [
-        ("reply_delay", "", "ответ отложен до 09:40", "system",
-         "на работе: консультации с клиентами до 13:00"),
+        ("reply_delay", "", "reply_at:2026-11-13T09:40:00Z", "system",
+         "на работе: консультации с клиентами до 13:00 (распорядок: UTC)"),
         ("urgent", "обычный", "срочный", "operator", ""),
         ("reply_delay", "", "ответить сейчас, не дожидаясь распорядка", "operator", ""),
     ]

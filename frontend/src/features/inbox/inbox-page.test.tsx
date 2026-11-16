@@ -494,7 +494,7 @@ describe('InboxPage on a desktop', () => {
     await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     expect(screen.queryByRole('button', { name: 'Действия с диалогом' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Обработано' })).toBeInTheDocument();
-    expect(screen.getByText(/ИИ остановлен; проверьте переписку/)).toBeInTheDocument();
+    expect(screen.getByText('Нужен ответ оператора. ИИ включён.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Скрыть уведомление' })).not.toBeInTheDocument();
   });
