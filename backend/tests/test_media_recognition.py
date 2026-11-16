@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from sim.ports.llm import LLMResult
-from sim.services.safe_payload import safe_payload
 from sim.services.media_recognition import (
     DEFAULT_MODEL,
     MAX_FILE_BYTES,
@@ -12,6 +11,7 @@ from sim.services.media_recognition import (
     UnsupportedMedia,
     prepare,
 )
+from sim.services.safe_payload import safe_payload
 
 
 def client():
