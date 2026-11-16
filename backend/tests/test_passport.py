@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from alembic import command
 from sqlalchemy import select
 
 from sim.adapters.db.models import Client, Dialog, Job
 from sim.adapters.db.session import transaction
+from sim.ports.llm import LLMError, LLMResult
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettingsService
 from sim.services.passport import PASSPORT_MAX, PASSPORT_PROMPT, PASSPORT_WORKFLOW, passport_request
@@ -65,11 +67,21 @@ async def test_the_passportist_rewrites_the_passport_with_the_owner_instruction(
     assert "Днепра" in messages[1]["content"] and "Днепра" not in messages[0]["content"]
 
 
-async def test_the_passport_is_capped_and_an_empty_answer_keeps_the_old_one(container, world, fake_llm):
+@pytest.mark.parametrize("answer", [
+    LLMResult(text="x" * (PASSPORT_MAX + 1), finish_reason="stop"),
+    LLMResult(text="Incomplete replacement", finish_reason="length"),
+])
+async def test_incomplete_passport_keeps_the_complete_saved_version(container, world, fake_llm, answer):
     await start(container, world)
-    fake_llm.passport_replies = ["я" * (PASSPORT_MAX + 50)]
+    fake_llm.passport_replies = ["x" * PASSPORT_MAX]
     assert await update_passport(container)
-    assert len((await the_client(container)).passport) == PASSPORT_MAX
+    previous = await the_client(container)
+    fake_llm.passport_replies = [answer]
+    with pytest.raises(LLMError, match="passport response incomplete"):
+        await update_passport(container)
+    saved = await the_client(container)
+    assert saved.passport == previous.passport
+    assert saved.passport_updated_at == previous.passport_updated_at
     fake_llm.passport_replies = ["   "]
     assert await update_passport(container) is False
     assert len((await the_client(container)).passport) == PASSPORT_MAX
