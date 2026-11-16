@@ -11,12 +11,20 @@ from sim.adapters.db.models import Dialog, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.pcm import PcmBuffer
 from sim.domain.enums import Delivery
-from sim.ports.live_voice import AUDIO, INTERRUPTED, TRANSCRIPT, TURN_COMPLETE, LiveVoiceEvent
+from sim.ports.live_voice import AUDIO, INTERRUPTED, TURN_COMPLETE, LiveVoiceEvent
 from sim.services.call_playback import MAX_TURN_SECONDS, CallPlayback
 from sim.services.call_trace import CallTrace
 from sim.services.guard import BLOCKED, GuardOutcome
 from tests.conftest import guard_json
-from tests.test_calls import FakeCall, FakeLive, FakeSession, chatting_world, dialog_messages, service, speech_events
+from tests.test_calls import (
+    FakeCall,
+    FakeLive,
+    FakeSession,
+    chatting_world,
+    dialog_messages,
+    service,
+    speech_events,
+)
 
 NOW = datetime(2026, 12, 31, 22, 59, 55)
 PCM = b"\x02\x00" * 240
