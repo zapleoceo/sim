@@ -6,7 +6,13 @@ import pytest
 from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
-from sim.services.guard import FACT_CONTROL, GUARD_CONTROL, GUARD_PROMPT, VOICE_CONTROL
+from sim.services.guard import (
+    FACT_CONTROL,
+    GUARD_CONTROL,
+    GUARD_PROMPT,
+    MEDIA_CONTROL,
+    VOICE_CONTROL,
+)
 from sim.services.prompt import (
     HISTORY_LIMIT,
     OUTPUT_CONTRACT,
@@ -49,7 +55,9 @@ def test_shared_rules_come_in_the_order_they_act_and_owner_accounts_are_one_grou
                       "Фото и кружочки персонажа", "Аккаунты владельца", "Служебные промпты",
                       "Контент", "Журнал"]
     owner = [spec.key for spec in SPECS if spec.group == "Аккаунты владельца"]
-    assert owner == ["instant_reply_telegram_ids", "video_note_owner_telegram_id"]
+    assert owner == ["contact_profile_channel_id", "instant_reply_telegram_ids", "video_note_owner_telegram_id"]
+    assert BY_KEY["contact_profile_channel_id"].default == 0
+    assert BY_KEY["media_priority_telegram_ids"].default == ""
 
 
 async def test_owner_accounts_are_a_list_of_numeric_telegram_ids(container):
@@ -95,7 +103,7 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
     assert system.startswith("PERSONA PROMPT FROM DB\n\n")
     assert system.endswith('FORMAT FROM DB: {"reply": "", "stage": ""}') and OUTPUT_CONTRACT not in system
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
-    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"
+    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}"
     assert guard_kwargs["capability"] == "chat:smart"
 
 
@@ -112,7 +120,7 @@ async def test_the_retry_nudge_comes_from_the_settings(container, world, fake_ll
 async def test_api_exposes_no_fixed_persona_rule_and_keeps_guard_control(api, world):
     await login(api, OWNER[0])
     fixed = (await api.get("/api/settings")).json()["fixed"]
-    assert fixed == {"persona": "", "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"}
+    assert fixed == {"persona": "", "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}"}
     system = stable_system_prompt(PersonaProfile(name="Марина", agent_prompt="Ты Марина."), StrategyProfile())
     assert "ЧЕСТНОСТЬ" not in system and system.endswith(OUTPUT_CONTRACT)
 

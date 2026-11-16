@@ -12,7 +12,7 @@ from typing import Any
 from sim.adapters.db.models import Dialog, Message
 from sim.domain.enums import Author, Delivery, Direction
 
-AI_LABEL = "Сгенерировано ИИ"      # kept for backward compat: old label messages in history
+AI_LABEL = "Сгенерировано ИИ"      # visible photo disclosure and old standalone labels
 MEDIA_URL = "/api/media/"
 AI_VIDEO_PREFIX = "aivn_"            # generated video notes
 AI_PHOTO_PREFIX = "aiph_"            # generated photos

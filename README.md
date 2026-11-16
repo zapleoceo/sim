@@ -1,5 +1,36 @@
 # Sim
 
+### Current-contact profile and requested media
+
+Owner settings `media_priority_telegram_ids` (empty by default) prefer permissible
+requested media without arbitrary mood refusals. Generator and guard receive the
+same policy; availability, cooldown, opt-out, pauses and failures still apply.
+A preference is not a delivery guarantee.
+
+Generated photos carry the visible «Сгенерировано ИИ» caption. Newly encoded video
+notes carry an in-frame `AI generated` mark inside Telegram's circular crop; encoder
+cache version 2 prevents reusing old unmarked cached clips for new requests.
+Already delivered or queued old clips are not rewritten by this release.
+
+`contact_profile_channel_id` defaults to 0 (disabled). One explicitly selected
+Telegram-user channel may read the **current dialog's** name, username, bio and
+one small available profile photo when the latest inbound mentions a profile or
+avatar. The persisted channel/client/peer identity must match. No arbitrary RPC,
+other-contact lookup, account management, bulk history or security operation is
+exposed. Reads have a six-second budget and 512 KiB photo limit, respect Telegram
+privacy, and never fetch remote URLs. Photos reach only the already selected model
+if its current Broker catalog confirms image input; no alternate-model fallback.
+Diagnostics record operation/status, not profile payload or image bytes. Known
+stored usernames reach text/voice context and guard even with live reads disabled.
+
+These are bounded service tools invoked by code on profile requests, **not** an
+unrestricted LLM tool/RPC interface. Existing dialog history is the only chat history
+supplied. CI uses synthetic profiles, photos, transports and model responses.
+Production activation requires choosing the intended existing channel; no new
+credentials are created. Private/unavailable fields are never reconstructed.
+
+### Worker recovery
+
 Worker crash recovery uses a 90-second claim grace and a PostgreSQL execution row
 lock. Live handlers retain the lock through effects and completion commit; other
 workers skip the locked job even after expiry. Connection loss releases the lock;
@@ -29,8 +60,8 @@ it can mean either a long-running model or a pending recovery, not proof of a cr
 upload для того же поста, receipt позволяет восстановить локальный статус при совпадении
 payload/account. Это не полная готовность публикаций из UI.
 Входящие голосовые обрабатываются отдельным путём транскрипции.
-Сгенерированные фото и кружочки персонажа уходят без пометок: без подписи и без отдельного
-сообщения перед кружочком. Кружочки ИИ по-прежнему отправляются только на аккаунт из настройки
+Сгенерированные фото подписаны «Сгенерировано ИИ», новые кружочки содержат отметку
+`AI generated` внутри кадра, без отдельного сообщения. Кружочки ИИ отправляются только на аккаунт из настройки
 «Telegram id для кружочков ИИ» (Аккаунты владельца).
 Аккаунты владельца (Общие правила → «Аккаунты владельца», числовые Telegram id через запятую):
 с ними персонаж отвечает сразу, без задержки по распорядку и занятости, и присылает фото и

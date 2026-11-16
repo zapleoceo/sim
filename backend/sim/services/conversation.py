@@ -35,6 +35,7 @@ from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, Communicatio
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import MediaDecision
 from sim.services.outbound import OutboundService, cancel_queued_ai
+from sim.services.owner_accounts import is_owner_account
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
 from sim.services.persona_media_tool import PersonaMediaTool
@@ -278,6 +279,7 @@ class ConversationService:
             stage=client.stage,
             status=client.status.value,
             client_name=client.display_name,
+            client_handle=client.handle or "",
             channel_kind=dialog.channel.kind.value,
             ref_code=client.ref_code,
             now=self.clock(),
@@ -337,7 +339,9 @@ class ConversationService:
             workflow=guard_workflow,
             trusted_facts={"now_utc": ctx.now.isoformat() + "Z", "persona_facts": ctx.persona_facts},
             context={"medium": medium, "passport": ctx.passport, "summary": ctx.summary, "journal": ctx.journal,
-                     "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step},
+                     "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step,
+                     "client_handle": ctx.client_handle, "contact_profile": ctx.contact_profile,
+                     "media_priority": ctx.media_priority, "media_offer": ctx.media},
         )
 
     async def ask(
@@ -438,7 +442,11 @@ class ConversationService:
             # What she may attach to this reply (or that she must not promise any media) and
             # what she already decided about media in this dialog.
             offer = await self.media_tool.offer(dialog, persona, port)
-            ctx = replace(ctx, media=await self.media_tool.context(dialog, persona, offer))
+            cfg = await self.config()
+            ctx = replace(ctx, media=await self.media_tool.context(dialog, persona, offer),
+                          media_priority=is_owner_account(dialog, cfg.media_priority_telegram_ids))
+        if not followup:
+            ctx = await self.contact_context(dialog, persona, ctx, port, last.text)
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
         if not followup:
@@ -471,6 +479,14 @@ class ConversationService:
         voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
+
+    async def contact_context(self, dialog, persona, ctx, port, request):
+        from sim.services.contact_profile import CurrentContactProfile  # noqa: PLC0415
+
+        cfg = await self.config()
+        result = await CurrentContactProfile(self.session, self.llm, clock=self.clock).read(
+            dialog, port, request, channel_id=cfg.contact_profile_channel_id, model=persona.model or "")
+        return replace(ctx, contact_profile=result.text, contact_photo=result.photo)
 
     async def paused(self, dialog_id: int) -> ReplyOutcome:
         """The reply job met a paused dialog. Nothing is created (the pause stops the AI); when

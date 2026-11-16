@@ -257,6 +257,42 @@ async def test_no_media_is_queued_when_the_reply_ends_the_conversation(container
     assert await media_jobs(container) == []
 
 
+async def test_priority_contact_rewrites_arbitrary_refusal_without_bypassing_guard(
+        container, world, fake_llm, studio):
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Dialog))).unique().one().external_thread_id = "12345"
+    await set_setting(container, "media_priority_telegram_ids", "12345")
+    fake_llm.replies = [decision_json(reply="Не по настроению", media={
+        "kind": "photo", "decision": "decline", "reason": "не по настроению"}),
+        decision_json(reply="Вечерний балкон", media=ASK)]
+    fake_llm.guard_replies = [json.dumps({"verdict": "block", "violations": [
+        "Произвольный отказ вместо доступного допустимого медиа"], "fixed_reply": ""})]
+    await run_reply(container)
+    assert len(fake_llm.gen_calls) == 2 and len(await media_jobs(container)) == 1
+    assert any("ПРЕДПОЧТЕНИЕ КОНТАКТА" in str(m["content"])
+               for m in fake_llm.gen_calls[-1][0])
+    checked = json.loads(fake_llm.guard_calls[-1][0][-1]["content"])
+    assert checked["context"]["media_priority"] is True
+    assert "Не отказывай по настроению" in checked["context"]["media_offer"]
+
+
+async def test_priority_does_not_enable_missing_generator(container, world, fake_llm, studio):
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Dialog))).unique().one().external_thread_id = "12345"
+    await set_setting(container, "media_priority_telegram_ids", "12345")
+    await set_setting(container, "persona_photo_model", "")
+    fake_llm.replies = [decision_json(reply="Генерация сейчас недоступна", media={
+        "kind": "photo", "decision": "decline", "reason": "генератор недоступен"})]
+    await run_reply(container)
+    assert NO_MEDIA in context_of(fake_llm) and await media_jobs(container) == []
+
+
+async def test_other_contact_does_not_receive_priority_policy(container, world, fake_llm, studio):
+    await set_setting(container, "media_priority_telegram_ids", "12345")
+    await run_reply(container)
+    assert "ПРЕДПОЧТЕНИЕ КОНТАКТА" not in context_of(fake_llm)
+
+
 # ---- the job: generate, cache, send ----------------------------------------------------------
 
 async def ask_for_a_photo(container, fake_llm) -> None:
@@ -264,7 +300,7 @@ async def ask_for_a_photo(container, fake_llm) -> None:
     await run_reply(container)
 
 
-async def test_the_photo_is_generated_from_her_gallery_and_sent_without_a_caption(
+async def test_the_photo_is_generated_from_her_gallery_and_sent_with_disclosure(
         container, world, fake_llm, studio):
     port, images = studio
     await ask_for_a_photo(container, fake_llm)
@@ -282,7 +318,7 @@ async def test_the_photo_is_generated_from_her_gallery_and_sent_without_a_captio
 
     async with transaction(container.factory) as s:
         await container.outbound(s).deliver(photo.id)
-    assert port.photos == [("chat-1", PNG, "")]
+    assert port.photos == [("chat-1", PNG, AI_LABEL)]
     assert (await rows(container, Message))[-1].delivery is Delivery.SENT
 
 
@@ -300,7 +336,7 @@ async def test_the_same_request_takes_the_picture_from_the_cache(container, worl
     assert first_photo.media_url == second_photo.media_url
 
 
-async def test_a_generated_photo_goes_out_without_a_caption(container, world, studio):
+async def test_a_generated_photo_keeps_disclosure_even_for_operator_caption(container, world, studio):
     port, _ = studio
     name = await container.media.save_as(f"{AI_PHOTO_PREFIX}{'a' * 40}.png", PNG)
     async with transaction(container.factory) as s:
@@ -311,10 +347,10 @@ async def test_a_generated_photo_goes_out_without_a_caption(container, world, st
         s.add(message)
         await s.flush()
         message_id = message.id
-        assert media_caption(message) == ""
+        assert media_caption(message) == AI_LABEL
     async with transaction(container.factory) as s:
         await container.outbound(s).deliver(message_id)
-    assert port.photos == [("chat-1", PNG, "")]
+    assert port.photos == [("chat-1", PNG, AI_LABEL)]
     plain = Message(text="подпись оператора", media_kind="photo", media_url=MEDIA_URL + "abcdefgh1234.jpg")
     assert media_caption(plain) == "подпись оператора"
 
