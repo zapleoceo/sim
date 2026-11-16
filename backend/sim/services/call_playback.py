@@ -1,21 +1,45 @@
-"""Bounded turn audio gate. Receiving interruptions never waits on a model review."""
+"""Bounded turn audio gate. Receiving interruptions never waits on a model review.
+
+Each finished reply of the model is reviewed before a byte of it plays; the review, its time and
+its verdict become steps of the call's «Ход звонка» (`CallTrace.step`). Two exceptions keep the
+call alive and quick without loosening the gate:
+- the first reply, when it is exactly the fixed «Алло» the greeting asks for, plays without a
+  model review: there is nothing in it to check, and the caller hears her at once;
+- a review that fails technically (error, timeout) drops only that reply, unheard; the call
+  goes on. `MAX_REVIEW_FAILURES` such failures in a row end it, as does any real verdict
+  against a reply."""
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from sim.adapters.pcm import PcmBuffer, resample
 from sim.clock import Clock, utcnow
 from sim.ports.live_voice import AUDIO, INTERRUPTED, TRANSCRIPT, TURN_COMPLETE, LiveVoiceSession
-from sim.services.call_trace import CallTrace
-from sim.services.guard import BLOCKED, GuardOutcome
+from sim.services.call_trace import CallTrace, seconds
+from sim.services.guard import BLOCKED, OK, GuardOutcome
 from sim.services.prompt import Turn
 
 REVIEW_TIMEOUT_S = 20.0
 MAX_TURN_SECONDS = 30
 MAX_WAITING_TURNS = 2
+MAX_REVIEW_FAILURES = 2
+HELLO = "алло"
+QUOTE_MAX = 120
+REVIEW_FAILED = "Проверка ответа не завершилась. Ответ не прозвучал."
 Review = Callable[[list[Turn], str], Awaitable[GuardOutcome]]
+
+
+def is_hello(text: str) -> bool:
+    """The fixed first word of a call, whatever the punctuation and case."""
+    return re.sub(r"[^\w]+", "", text.lower()) == HELLO
+
+
+def quote(text: str) -> str:
+    text = " ".join(text.split())
+    return f"«{text[:QUOTE_MAX]}{'…' if len(text) > QUOTE_MAX else ''}»"
 
 
 class CallContextChanged(Exception):
@@ -43,6 +67,7 @@ class CallPlayback:
         self.review, self.clock, self.timeout = review, clock, timeout
         self.turns: list[PlaybackTurn] = []
         self.failure = ""
+        self.review_failures = 0          # technical review failures in a row
         self.epoch = 0
         self.playing: PlaybackTurn | None = None
         self.drained = asyncio.Event()
@@ -58,6 +83,21 @@ class CallPlayback:
         if turn.delivered and self.playing is turn:
             self.cancel_playback()
 
+    async def reviewed(self, history: list[Turn], draft: str) -> GuardOutcome:
+        """The review within `timeout`; one that straddles a minute boundary is redone, since
+        the reply may name the time. Raises on a technical failure (TimeoutError included)."""
+        async with asyncio.timeout(self.timeout):
+            for attempt in range(2):
+                reviewed_at = self.clock().replace(second=0, microsecond=0)
+                verdict = await self.review(history, draft)
+                if not verdict.allowed or verdict.text != draft:
+                    return verdict
+                if self.clock().replace(second=0, microsecond=0) == reviewed_at:
+                    return verdict
+                if attempt == 1:
+                    return GuardOutcome(BLOCKED, draft, ["Clock changed during both reviews"])
+        raise AssertionError("unreachable")  # pragma: no cover
+
     async def run(self, session: LiveVoiceSession, out: PcmBuffer, rate_hz: int,
                   trace: CallTrace) -> None:
         pending = bytearray()
@@ -67,6 +107,7 @@ class CallPlayback:
         failed = asyncio.Event()
 
         def reject(reason: str) -> None:
+            trace.step("playback_stopped", f"Звонок завершается: {reason}")
             self.failure = reason
             out.clear()
             self.cancel_playback()
@@ -86,33 +127,52 @@ class CallPlayback:
                 if epoch != self.epoch or failed.is_set():
                     return
                 started = self.clock()
+                said = quote(turn.text)
                 history = [Turn(t.role, t.text) for t in self.turns[:before]
                            if t.role == "user" or t.delivered]
+                first = not any(t.role == "assistant" for t in self.turns[:before])
                 try:
-                    async with asyncio.timeout(self.timeout):
-                        for attempt in range(2):
-                            reviewed_at = self.clock().replace(second=0, microsecond=0)
-                            verdict = await self.review(history, turn.text)
-                            if not verdict.allowed or verdict.text != turn.text:
-                                break
-                            if self.clock().replace(second=0, microsecond=0) == reviewed_at:
-                                break
-                            if attempt == 1:
-                                verdict = GuardOutcome(BLOCKED, turn.text, ["Clock changed during both reviews"])
+                    if first and is_hello(turn.text):
+                        verdict = GuardOutcome(OK, turn.text)
+                        trace.step("voice_review", f"Её реплика {said}: фиксированное приветствие, "
+                                   "звучит без проверки", skipped=True)
+                    else:
+                        verdict = await self.reviewed(history, turn.text)
                 except CallContextChanged:
                     turn.cancel_reason = "Разговор обновился. Старый ответ отменён."
-                    trace.event("voice_review_cancelled", reason="context_changed")
+                    trace.step("voice_review_cancelled", f"Её реплика {said} отменена: во время "
+                               "проверки разговор обновился", reason="context_changed")
                     return
-                except Exception:
-                    verdict = GuardOutcome(BLOCKED, turn.text, ["Проверка ответа не завершилась. Ответ не прозвучал."])
+                except Exception as exc:
+                    if epoch != self.epoch or failed.is_set():
+                        return
+                    took = seconds((self.clock() - started).total_seconds())
+                    cause = "не уложилась во время" if isinstance(exc, TimeoutError) else \
+                        f"ошибка {type(exc).__name__}"
+                    turn.guard = GuardOutcome(BLOCKED, turn.text, [REVIEW_FAILED])
+                    turn.cancel_reason = REVIEW_FAILED
+                    self.review_failures += 1
+                    trace.step("voice_review_failed", f"Её реплика {said}: проверка {cause} "
+                               f"({took}) — реплика не прозвучала, звонок продолжается",
+                               error=type(exc).__name__)
+                    if self.review_failures >= MAX_REVIEW_FAILURES:
+                        reject(f"Проверка ответа не завершилась {self.review_failures} раза подряд")
+                    return
                 turn.guard = verdict
                 if epoch != self.epoch or failed.is_set():
                     return
-                trace.event("voice_review", elapsed_ms=int((self.clock() - started).total_seconds() * 1000),
-                            allowed=verdict.allowed, unchanged=verdict.text == turn.text)
+                self.review_failures = 0
+                took = seconds((self.clock() - started).total_seconds())
                 if not verdict.allowed or verdict.text != turn.text:
-                    reject("; ".join(verdict.violations) or "Контролёр изменил голосовую реплику")
+                    why = "; ".join(verdict.violations) or "Контролёр изменил голосовую реплику"
+                    trace.step("voice_review", f"Её реплика {said}: проверка {took} — "
+                               f"запрещена ({why})", allowed=False)
+                    reject(why)
                     return
+                if not (first and is_hello(turn.text)):
+                    trace.step("voice_review", f"Её реплика {said}: проверка {took} — разрешена"
+                               f"{', модель ' + verdict.model if verdict.model else ''}",
+                               allowed=True)
                 # No await between the interruption fence and releasing approved bytes.
                 out.push(resample(audio, session.output_rate_hz, rate_hz))
                 tail = out.flush_tail()
@@ -128,7 +188,8 @@ class CallPlayback:
                 if failed.is_set():
                     break
                 if event.kind == AUDIO:
-                    trace.first("first_model_audio", bytes=len(event.pcm))
+                    trace.first("first_model_audio", "Модель начала отвечать голосом "
+                                "(звук ждёт проверки реплики)", bytes=len(event.pcm))
                     trace.count("model_audio_bytes", len(event.pcm))
                     pending.extend(event.pcm)
                     if len(pending) > session.output_rate_hz * 2 * MAX_TURN_SECONDS:
@@ -142,9 +203,11 @@ class CallPlayback:
                             break
                     elif event.role == "user" and event.text.strip():
                         self.turns.append(PlaybackTurn("user", event.text.strip(), released=True))
+                        trace.step("caller_said", f"Клиент: {quote(event.text)}")
                 elif event.kind == INTERRUPTED:
                     self.epoch += 1
-                    trace.event("interrupted", dropped_bytes=len(out) + len(pending))
+                    trace.step("interrupted", "Клиент заговорил — её недоговорённая реплика "
+                               "сброшена", dropped_bytes=len(out) + len(pending))
                     trace.count("interruptions")
                     pending.clear()
                     text.clear()

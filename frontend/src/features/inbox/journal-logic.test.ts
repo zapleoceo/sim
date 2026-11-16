@@ -41,6 +41,14 @@ describe('communication journal in the feed', () => {
     expect(vm).toMatchObject({ tag: 'ИИ', change: 'включён → на паузе', who: 'система', reason: NO_REASON, hasReason: false });
   });
 
+  it('shows the course of a call as its steps, one per line', () => {
+    const vm = toEventVm(event(1, '2026-11-11T09:05:00Z', { kind: 'call_steps', from: '', to: '', actor: 'system', actor_name: '',
+      reason: '+0,0 с · Входящий звонок\n\n  +6,3 с · Пауза перед ответом 6,3 с  \n+7,1 с · Трубка снята' }));
+    expect(vm).toMatchObject({ tag: 'Ход звонка', change: '', who: 'система', hasReason: true });
+    expect(vm.steps).toEqual(['+0,0 с · Входящий звонок', '+6,3 с · Пауза перед ответом 6,3 с', '+7,1 с · Трубка снята']);
+    expect(toEventVm(event(2, '2026-11-11T09:05:00Z', { reason: 'a\nb' })).steps).toEqual([]);
+  });
+
   it('reads stored values as the operator knows them and passes the unknown through', () => {
     expect(eventValue('status', 'no_response')).toBe('Нет ответа');
     expect(eventValue('handoff', 'operator')).toBe('диалог ждёт оператора');

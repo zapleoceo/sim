@@ -15,6 +15,12 @@ Kinds and who writes them:
   unanswered messages when an AI pause was lifted;
 - `urgent`: «Срочный» was switched on or off;
 - `handoff`: the model or the system gave the dialog to an operator;
+- `call_issue`: a call could not start or ended with a technical problem, with its cause
+  (`sim.services.calls`); the persona reads it for a day;
+- `call_steps`: «Ход звонка», every action of one call that shaped her answer (the pause before
+  picking up, the voice session, each reviewed reply, how it ended) with its time since the
+  ring (`sim.services.call_trace`). A multi-line technical record for the admin only: the
+  persona never reads it;
 - `resolved`: «Обработано»;
 - `chat_cleared`, `passport_cleared`, `reset`: the wipes of `DialogReset`;
 - `persona`, `strategy`, `model`: the persona, its strategy or its model were changed (in the
@@ -45,6 +51,7 @@ AI_PAUSE = "ai_pause"
 REPLY_DELAY = "reply_delay"
 HANDOFF = "handoff"
 CALL_ISSUE = "call_issue"
+CALL_STEPS = "call_steps"
 RESOLVED = "resolved"
 CHAT_CLEARED = "chat_cleared"
 PASSPORT_CLEARED = "passport_cleared"
@@ -70,6 +77,7 @@ MODEL_ACTOR = "model"
 
 VALUE_MAX = 500
 REASON_MAX = 1000
+STEPS_MAX = 8000          # a «Ход звонка» record keeps its lines and may be long
 FEED_LIMIT = 500          # newest records shown in the dialog feed
 CONTEXT_EVENTS = 20       # newest records of the window given to the persona
 CONTEXT_VALUE_MAX = 160   # and how much of a long value or reason she reads
@@ -77,7 +85,7 @@ FANOUT_DAYS = 30          # a persona-wide change is journaled in dialogs active
 NO_REASON = "не указана"
 
 KIND_LABELS = {
-    CALL_ISSUE: "техническая проблема звонка",
+    CALL_ISSUE: "техническая проблема звонка", CALL_STEPS: "ход звонка",
     STAGE: "смена этапа", STATUS: "смена статуса", AI_PAUSE: "ИИ в диалоге",
     REPLY_DELAY: "время ответа", HANDOFF: "передача оператору", RESOLVED: "обработано",
     CHAT_CLEARED: "чат очищен", PASSPORT_CLEARED: "паспорт очищен",
@@ -143,6 +151,12 @@ def clip(value: object, limit: int = VALUE_MAX) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+def clip_lines(value: object, limit: int) -> str:
+    """Like `clip`, but each line keeps its own place: a step-by-step record stays readable."""
+    lines = (" ".join(line.split()) for line in str(value or "").splitlines())
+    return "\n".join(line for line in lines if line)[:limit]
+
+
 def changed_lines(old: str, new: str) -> tuple[str, str]:
     """(removed, added) lines of a rewritten text: what a passport update really changed."""
     before = [line.strip() for line in old.splitlines() if line.strip()]
@@ -173,7 +187,8 @@ class CommunicationJournal:
               reason: str, now: datetime) -> DialogEvent:
         return DialogEvent(
             dialog_id=dialog_id, kind=kind, from_value=clip(old), to_value=clip(new),
-            actor=who.actor, actor_name=who.name[:120], reason=clip(reason, REASON_MAX),
+            actor=who.actor, actor_name=who.name[:120],
+            reason=clip_lines(reason, STEPS_MAX) if kind == CALL_STEPS else clip(reason, REASON_MAX),
             created_at=now,
         )
 
@@ -229,7 +244,9 @@ class CommunicationJournal:
         wipes = [i for i, event in enumerate(events) if event.kind in WIPES]
         if wipes:
             events = events[wipes[-1] + 1:]
-        # Technical incidents remain in the feed, but cease to prime later conversations.
+        # The course of a call is for the admin only; technical incidents remain in the feed,
+        # but cease to prime later conversations.
+        events = [e for e in events if e.kind != CALL_STEPS]
         events = [e for e in events if e.kind != CALL_ISSUE
                   or e.created_at >= self.clock() - timedelta(hours=24)]
         lines = [event_line(event) for event in events[-CONTEXT_EVENTS:]]

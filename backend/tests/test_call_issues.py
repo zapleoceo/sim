@@ -29,7 +29,7 @@ async def test_record_failure_preserves_existing_policy(container, world, paused
 async def test_call_issue_context_is_scoped_recent_and_not_an_instruction(container, world):
     did = await chatting_world(container, world)
     now = container.clock()
-    await service(container, FakeLive()).record_issue(did, "provider_open_failed")
+    await service(container, FakeLive()).record_unanswered(did, "", "provider_open_failed")
     async with container.factory() as s:
         journal = CommunicationJournal(s, clock=lambda: now)
         lines = await journal.context_lines(did, now - timedelta(days=2))

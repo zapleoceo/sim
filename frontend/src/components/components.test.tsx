@@ -6,7 +6,9 @@ import { Avatar } from './avatar';
 import { ChannelIcon, StageChip, StatusBadge } from './badges';
 import { ConfirmProvider, useConfirm } from './confirm';
 import { Field } from './field';
+import { toEventVm } from '@/features/inbox/journal-logic';
 import { GuardBadge } from './guard-badge';
+import { JournalLine } from './journal-line';
 import { MessageBubble } from './message-bubble';
 import { MessageContent, MessageMetadata } from './message-parts';
 import { OptionSelect, decodeOption, type Option } from './option-select';
@@ -160,5 +162,15 @@ describe('OptionSelect layout', () => {
     const trigger = screen.getByRole('combobox', { name: 'Стратегия' });
     expect(trigger).toHaveClass('min-w-0');
     expect(trigger.querySelector('[data-slot="select-value"]')).toHaveTextContent(long);
+  });
+
+  it('journal line lists every step of a call', () => {
+    render(<JournalLine vm={toEventVm({ id: 1, kind: 'call_steps', from: '', to: '', actor: 'system', actor_name: '',
+      reason: '+0,0 с · Входящий звонок\n+6,3 с · Пауза перед ответом 6,3 с', created_at: '2026-11-11T10:00:00Z' })} />);
+    expect(screen.getByText('Ход звонка')).toBeInTheDocument();
+    expect(screen.getByText('Все шаги (2)')).toBeInTheDocument();
+    const steps = screen.getByRole('list', { name: 'Шаги звонка', hidden: true });
+    expect(steps.querySelectorAll('li')).toHaveLength(2);
+    expect(steps).toHaveTextContent('Пауза перед ответом 6,3 с');
   });
 });

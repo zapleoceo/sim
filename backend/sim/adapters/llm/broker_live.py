@@ -35,7 +35,9 @@ log = logging.getLogger(__name__)
 LIVE_PATH = "/v1/live"
 USER_AGENT = "sim-live/1.0"          # Cloudflare in front of the Broker refuses a bare client
 CONNECT_TIMEOUT_S = 15.0
-READY_TIMEOUT_S = 45.0               # the Broker walks its keys while connecting to Google
+# The Broker walks its keys while connecting to Google. A caller rarely waits longer than this,
+# and the call service retries a refusal once while the phone still rings.
+READY_TIMEOUT_S = 30.0
 DONE_TIMEOUT_S = 15.0
 _END = object()
 
@@ -182,7 +184,8 @@ class BrokerLiveVoice:
         except Exception as exc:
             with contextlib.suppress(Exception):
                 await ws.close()
-            raise LiveVoiceError(f"live: no answer to start: {type(exc).__name__}") from exc
+            waited = f" in {READY_TIMEOUT_S:.0f} s" if isinstance(exc, TimeoutError) else ""
+            raise LiveVoiceError(f"live: no answer to start{waited}: {type(exc).__name__}") from exc
         if not isinstance(first, dict) or first.get("type") != "ready":
             with contextlib.suppress(Exception):
                 await ws.close()

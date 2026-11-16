@@ -47,7 +47,9 @@ SEND = "send"          # one transport send of an outbound message
 PARTNER = "partner"    # a partner (registration/deposit) event recorded
 WATCH = "watch"        # a reply that was not created or is overdue (sim.services.reply_journal);
 #                        the persona's media decision (sim.services.media_decisions)
-KINDS = (HTTP, WEBHOOK, INBOUND, POLL, JOB, LLM, GUARD, SEND, PARTNER, WATCH)
+CALL = "call"          # one incoming phone call, its steps in `detail.steps` (sim.services.calls);
+#                        the guard and LLM calls of the call share its trace
+KINDS = (HTTP, WEBHOOK, INBOUND, POLL, JOB, LLM, GUARD, SEND, PARTNER, WATCH, CALL)
 
 OK = "ok"
 ERROR = "error"

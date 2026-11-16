@@ -11,8 +11,14 @@ from sim.adapters.db.models import Dialog, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.pcm import PcmBuffer
 from sim.domain.enums import Delivery
-from sim.ports.live_voice import AUDIO, INTERRUPTED, TURN_COMPLETE, LiveVoiceEvent
-from sim.services.call_playback import MAX_TURN_SECONDS, CallContextChanged, CallPlayback
+from sim.ports.live_voice import AUDIO, INTERRUPTED, TRANSCRIPT, TURN_COMPLETE, LiveVoiceEvent
+from sim.services.call_playback import (
+    MAX_TURN_SECONDS,
+    REVIEW_FAILED,
+    CallContextChanged,
+    CallPlayback,
+    is_hello,
+)
 from sim.services.call_trace import CallTrace
 from sim.services.guard import BLOCKED, GuardOutcome
 from tests.conftest import guard_json
@@ -72,8 +78,74 @@ async def test_rejected_or_stale_audio_never_released(mode):
     playback = CallPlayback(review, clock=lambda: clock[0], timeout=0.01)
     out, trace = output()
     await playback.run(FakeSession(speech_events(PCM), end_after_events=True), out, 24000, trace)
-    assert len(out) == 0 and playback.failure
+    assert len(out) == 0
     assert not playback.turns[-1].released
+    if mode in ("error", "timeout"):
+        # A technical failure drops this reply only; the call goes on.
+        assert not playback.failure and playback.turns[-1].cancel_reason == REVIEW_FAILED
+        assert any("реплика не прозвучала, звонок продолжается" in s for s in trace.steps)
+    else:
+        assert playback.failure
+        assert any("Звонок завершается" in s for s in trace.steps)
+
+
+def two_replies(first: str, second: str) -> list[LiveVoiceEvent]:
+    return [LiveVoiceEvent(TRANSCRIPT, role="assistant", text=first),
+            LiveVoiceEvent(AUDIO, pcm=PCM), LiveVoiceEvent(TURN_COMPLETE),
+            LiveVoiceEvent(TRANSCRIPT, role="assistant", text=second),
+            LiveVoiceEvent(AUDIO, pcm=PCM), LiveVoiceEvent(TURN_COMPLETE)]
+
+
+async def test_repeated_review_failures_end_the_call():
+    async def review(history, draft):
+        raise RuntimeError("offline fake error")
+
+    playback = CallPlayback(review, clock=lambda: NOW)
+    out, trace = output()
+    session = FakeSession(two_replies("Да, слушаю.", "Расскажу подробнее."), end_after_events=True)
+    await playback.run(session, out, 24000, trace)
+    assert len(out) == 0 and playback.failure.startswith("Проверка ответа не завершилась 2 раза")
+    assert all(not t.released for t in playback.turns)
+
+
+@pytest.mark.parametrize("hello", ["Алло?", "алло", " АЛЛО! "])
+async def test_the_first_hello_plays_without_a_review(hello):
+    reviewed: list[str] = []
+
+    async def review(history, draft):
+        reviewed.append(draft)
+        return GuardOutcome("ok", draft)
+
+    playback = CallPlayback(review, clock=lambda: NOW)
+    out, trace = output()
+    events = [LiveVoiceEvent(TRANSCRIPT, role="assistant", text=hello),
+              LiveVoiceEvent(AUDIO, pcm=PCM), LiveVoiceEvent(TURN_COMPLETE)]
+    await playback.run(FakeSession(events, end_after_events=True), out, 24000, trace)
+    assert reviewed == [] and out.pop_frame() == PCM
+    assert playback.turns[0].released and playback.turns[0].guard.allowed
+    assert any("фиксированное приветствие, звучит без проверки" in s for s in trace.steps)
+
+
+async def test_a_hello_after_her_first_reply_is_reviewed_like_any_reply():
+    reviewed: list[str] = []
+
+    async def review(history, draft):
+        reviewed.append(draft)
+        if draft == "Здравствуйте":
+            raise RuntimeError("offline fake error")     # dropped unheard, the call goes on
+        return GuardOutcome("ok", draft)
+
+    playback = CallPlayback(review, clock=lambda: NOW)
+    out, trace = output()
+    await playback.run(FakeSession(two_replies("Здравствуйте", "Алло"), end_after_events=True),
+                       out, 24000, trace)
+    assert reviewed == ["Здравствуйте", "Алло"] and not playback.failure
+    assert out.pop_frame() == PCM and playback.turns[-1].released
+
+
+def test_only_the_bare_hello_counts_as_the_greeting():
+    assert is_hello("Алло?") and is_hello("  алло… ")
+    assert not is_hello("Алло, это Марина") and not is_hello("Здравствуйте")
 
 
 @pytest.mark.parametrize("mode", ["no_transcript", "unfinished", "oversize"])
