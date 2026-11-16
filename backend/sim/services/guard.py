@@ -238,6 +238,13 @@ class Guard:
         workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
         result = await self.call(messages, self.capability, dialog_id, workflow, self.model)
+        verdict = parse_verdict(result)
+        if verdict is None:
+            raise GuardError(f"guard returned an unusable verdict (model={result.model})")
+        # Independence is required to approve a draft, never to retain an objection.
+        # A second rotation must not erase block/rewrite or contradictory ok feedback.
+        if verdict.verdict != "ok" or verdict.violations or verdict.fixed_reply:
+            return verdict, result.model
         if same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",

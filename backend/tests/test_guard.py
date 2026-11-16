@@ -208,6 +208,58 @@ async def test_same_model_as_generator_triggers_the_fallback_capability(containe
     assert {r.model for r in rows} == {"fake-model", "fake-guard"}   # both models are on record
 
 
+@pytest.mark.parametrize("verdict,violations,fixed", [
+    ("block", ["Available synthetic media was declined without a reason"], ""),
+    ("rewrite", ["Unjustified handoff"], "Replacement must not be sent"),
+    ("ok", ["Unjustified handoff"], ""),
+    ("ok", [], "Replacement must not be sent"),
+])
+async def test_same_model_objection_survives_independent_ok_and_repairs_decision(
+    container, world, fake_llm, connector, verdict, violations, fixed,
+):
+    # Synthetic reproduction of the video-note incident: never publish the declined
+    # draft/handoff merely because a second rotation would have returned ok.
+    rejected = "No real video exists. Passing your request to a person."
+    fake_llm.replies = [
+        decision_json(reply=rejected, handoff_to_operator=True,
+                      handoff_reason="Unjustified identity verification"),
+        decision_json(reply="A synthetic clip is possible."),
+    ]
+    fake_llm.guard_replies = [
+        LLMResult(text=guard_json(verdict, violations, fixed), model="fake-model"),
+        LLMResult(text=guard_json("ok"), model="fake-model"),
+        guard_json("ok"),
+    ]
+    await start(container, world)
+    assert (await run_reply(container)).status == "sent"
+    _, dialog, messages, jobs = await state(container)
+    assert not dialog.ai_paused and not dialog.needs_operator
+    assert [m.text for m in ai_messages(messages)] == ["A synthetic clip is possible"]
+    assert sum(j.kind == jobkinds.SEND for j in jobs) == 1
+    assert connector.port.sent == []
+    assert [kw["capability"] for _, kw in fake_llm.guard_calls] == [
+        "structured", "structured", "prefilter",
+    ]
+    assert len(fake_llm.gen_calls) == 2
+    if violations:
+        assert violations[0] in fake_llm.gen_calls[1][0][-1]["content"]
+
+
+async def test_independent_block_after_same_model_ok_is_preserved(container, world, fake_llm):
+    fake_llm.replies = [decision_json(reply="Rejected draft"), decision_json(reply="Repaired reply")]
+    fake_llm.guard_replies = [
+        LLMResult(text=guard_json("ok"), model="fake-model"),
+        guard_json("block", ["Unsupported claim"]),
+        guard_json("ok"),
+    ]
+    await start(container, world)
+    assert (await run_reply(container)).status == "sent"
+    _, dialog, messages, _ = await state(container)
+    assert not dialog.ai_paused and not dialog.needs_operator
+    assert [m.text for m in ai_messages(messages)] == ["Repaired reply"]
+    assert "Unsupported claim" in fake_llm.gen_calls[1][0][-1]["content"]
+
+
 @pytest.mark.parametrize("model", ["fake-model", "  FAKE-MODEL  "])
 @pytest.mark.parametrize("rewrite", [False, True])
 async def test_same_model_fallback_fails_closed(

@@ -1,5 +1,14 @@
 # Sim
 
+### Guard independence preserves objections
+
+A primary guard objection (block, legacy rewrite or contradictory ok) returns to
+the generator even when that guard used the generator's model. Only a clean ok
+requires a second independent rotation. Its approval cannot erase an earlier
+objection. A repaired complete decision is checked anew before any send or handoff.
+Regression coverage uses synthetic media-refusal decisions and both verdict orders;
+no live models or channel messages are used.
+
 ### Current-contact profile and requested media
 
 Owner settings `media_priority_telegram_ids` (empty by default) prefer permissible
