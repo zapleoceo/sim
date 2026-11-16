@@ -6,7 +6,13 @@ import pytest
 from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
-from sim.services.guard import FACT_CONTROL, GUARD_CONTROL, GUARD_PROMPT, MEDIA_CONTROL, VOICE_CONTROL
+from sim.services.guard import (
+    FACT_CONTROL,
+    GUARD_CONTROL,
+    GUARD_PROMPT,
+    MEDIA_CONTROL,
+    VOICE_CONTROL,
+)
 from sim.services.prompt import (
     HISTORY_LIMIT,
     OUTPUT_CONTRACT,
