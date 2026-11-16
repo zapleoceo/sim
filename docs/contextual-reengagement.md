@@ -11,8 +11,12 @@ Old pending ladder jobs are retired by their handler.
 The ordinary routine rules can postpone the selected time. AI pause, operator handoff,
 inactive client/persona/channel, opt-out, and the 24-hour WhatsApp/Instagram conversation window
 block proactive delivery. Unknown provider restrictions still fail through the transport.
-One successful proactive contact is made per context revision: it does not recursively trigger
-another unsolicited contact. A new message or changed lead/persona context permits reassessment.
+Confirmed delivery updates the inbox preview, message time and activity revision from the
+durable send receipt's server timestamp. Five minutes after delivery, the updated conversation
+is assessed again, including the previous contact. This assessment may choose `no_send`.
+Code permits only one proactive contact until a new delivered human message arrives; even a
+model proposing another message cannot create an unsolicited ladder. Context changes permit
+reassessment but do not reset this contact budget. Repeated sweeps coalesce the completed assessment.
 
 Every message invalidates the context revision; edits and phone-account outgoing messages do
 too. Existing proposals are revised rather than duplicated. Before transport, the text is
@@ -30,6 +34,9 @@ text but do not silently resolve handoff or remove an explicit pause. Resume cha
 status and retains the triggering inbound message's historical handoff reason and timestamp.
 AI handoff requires a reason in its decision; malformed decisions retry and ultimately follow
 the existing explicit failure handoff with a system reason.
+The planner also reviews empty-text handoff, stop-contact and refusal decisions. Only a guard
+approval with no invented text and an unchanged context can apply those control actions without
+queuing a message. A blocked, rewritten or superseded empty decision changes no control state.
 
 Date, weekday, time, offset and timezone are calculated by `persona_clock` from the injected
 server UTC clock. Generator and guard receive the same facts; retries/rewrites retain them,

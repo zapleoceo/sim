@@ -142,9 +142,11 @@ async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> No
 
 async def send_reengagement(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
     """Fresh time review, then the serialized transport boundary. No rewrite sent invisibly."""
+    from sim.adapters.db.models import OutboundSendIntent
     from sim.domain.enums import Delivery
     from sim.ports.llm import LLMResult
     from sim.services.conversation import history_turns, with_persona_facts
+    from sim.services.dialog_state import apply_message
     from sim.services.prompt import Decision
 
     message = await s.get(Message, int(payload["message_id"]))
@@ -183,7 +185,14 @@ async def send_reengagement(c: Container, s: AsyncSession, payload: dict[str, An
         dialog.activity_revision += 1
         return
     await c.outbound(s).deliver(message.id)
-    dialog.reengagement_plan = {**dialog.reengagement_plan, "status": message.delivery.value}
+    plan = dict(dialog.reengagement_plan)
+    if message.delivery is Delivery.SENT:
+        receipt = await s.get(OutboundSendIntent, message.id)
+        message.created_at = receipt.sent_at
+        apply_message(dialog, message)
+        # Keep the analyzed revision: delivery is new context requiring another assessment.
+        plan.update(last_sent_id=message.id, delivered_at=receipt.sent_at.isoformat() + "Z")
+    dialog.reengagement_plan = {**plan, "status": message.delivery.value}
 
 
 async def giveup_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:

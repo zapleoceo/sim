@@ -26,7 +26,7 @@ from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
-from sim.services.dialog_state import turns
+from sim.services.dialog_state import invalidate_plan, turns
 from sim.services.followup import FollowupService
 from sim.services.funnel import MODEL_DECISION, FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
@@ -34,7 +34,7 @@ from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import MediaDecision
-from sim.services.outbound import OutboundService
+from sim.services.outbound import OutboundService, cancel_queued_ai
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
 from sim.services.persona_media_tool import PersonaMediaTool
@@ -539,6 +539,31 @@ class ConversationService:
         stmt = select(Dialog).where(Dialog.id == dialog_id).execution_options(populate_existing=True)
         return (await self.session.scalars(stmt)).unique().one()
 
+    async def apply_control(self, dialog: Dialog, decision: Decision, guard: GuardOutcome | None) -> bool:
+        """Apply checked stop/handoff independently of sending text. Caller holds NS_DIALOG."""
+        control = decision.refused or decision.stop_contact or decision.handoff_to_operator
+        if not control:
+            return False
+        if guard is None or not guard.allowed:
+            raise ValueError("control decision requires guard approval")
+        if decision.handoff_to_operator and not decision.handoff_reason.strip():
+            raise ValueError("handoff reason required")
+        if decision.refused or decision.stop_contact:
+            reason = "client asked to stop" if decision.stop_contact else "client refused"
+            await self.funnel.set_status(dialog.client, ClientStatus.REFUSED, Actor.AI, reason)
+            dialog.client.no_followups = dialog.client.no_followups or decision.stop_contact
+        if decision.handoff_to_operator:
+            await self.mark_handoff(dialog, decision.handoff_reason)
+            dialog.needs_operator = True
+            dialog.ai_paused = True
+            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL,
+                                      reason=decision.handoff_reason)
+        await self.followups.cancel(dialog.id)
+        await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
+        await cancel_queued_ai(self.session, dialog.id, "cancelled: approved control decision")
+        invalidate_plan(dialog)
+        return True
+
     async def apply(
         self,
         dialog: Dialog,
@@ -565,24 +590,11 @@ class ConversationService:
                 await self.funnel.advance(client, decision.stage, Actor.AI, MODEL_DECISION)
             except FunnelRuleError:
                 log.info("ignored forbidden AI stage %s for client %s", decision.stage, client.id)
-        stop = decision.refused or decision.stop_contact
-        if stop:
-            reason = "client asked to stop" if decision.stop_contact else "client refused"
-            await self.funnel.set_status(client, ClientStatus.REFUSED, Actor.AI, reason)
-            client.no_followups = client.no_followups or decision.stop_contact
-            await self.followups.cancel(dialog.id)
-        if decision.handoff_to_operator:
-            await self.mark_handoff(dialog, decision.handoff_reason or "Причина передачи не указана моделью")
-            dialog.needs_operator = True
-            dialog.ai_paused = True
-            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL,
-                                      reason=decision.handoff_reason)
-            await self.followups.cancel(dialog.id)
+        final = await self.apply_control(dialog, decision, guard)
 
         decision = replace(decision, reply=guard.text)
         # A voice note is one message; text goes as 1-3 messages with a typing pause between them.
         parts = [guard.text] if voice else bubbles(guard.text)
-        final = stop or decision.handoff_to_operator   # nothing follows this reply
         # The first part goes out at once. The SEND job of each next part starts when the part
         # before it is due, shows «печатает…» for the pause and only then sends.
         delay = 0.0

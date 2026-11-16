@@ -56,7 +56,8 @@ async def plan(c, world, llm):
         return did, dict(j.payload)
 
 
-async def test_five_minutes_triggers_analysis_not_send_and_one_exact_plan(container, world, fake_llm, connector):
+@pytest.mark.parametrize("second_reply", ["", "Ещё одно напоминание"])
+async def test_delivery_reassessed_after_silence_without_spam(container, world, fake_llm, connector, second_reply):
     did, payload = await plan(container, world, fake_llm)
     assert connector.port.sent == []
     assert await sweep(container) == 0
@@ -72,7 +73,65 @@ async def test_five_minutes_triggers_analysis_not_send_and_one_exact_plan(contai
     async with transaction(container.factory) as s:
         await run_send(container, s, payload)
     assert connector.port.sent == [("chat-1", "Как растут цветы?")]
-    assert await sweep(container) == 0  # no unsolicited infinite ladder
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert d.last_message_text == "Как растут цветы?"
+        assert d.last_message_at == NOW + timedelta(hours=1)
+        assert d.reengagement_plan["delivered_at"] == "2026-11-16T13:00:00Z"
+        assert d.activity_revision > d.reengagement_plan["revision"]
+    container.clock = lambda: NOW + timedelta(hours=1, minutes=4, seconds=59)
+    assert await sweep(container) == 0
+    container.clock = lambda: NOW + timedelta(hours=1, minutes=5)
+    fake_llm.replies = [decision_json(reply=second_reply, plan_reason="Ждём ответа",
+                                    send_at="2026-11-16T14:00:00Z" if second_reply else None)]
+    assert await sweep(container) == 1
+    await Worker(container).tick()
+    assert len(fake_llm.gen_calls) == 2
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert d.reengagement_plan["status"] == "no_send"
+        assert d.reengagement_plan["last_sent_id"] == payload["message_id"]
+    assert await sweep(container) == 0  # assessment is coalesced, no model/transport loop
+    assert connector.port.sent == [("chat-1", "Как растут цветы?")]
+
+
+@pytest.mark.parametrize("flag", ["handoff_to_operator", "stop_contact", "refused"])
+@pytest.mark.parametrize("verdict", ["ok", "block", "rewrite", "superseded"])
+async def test_empty_control_decision_guarded_without_send(container, world, fake_llm, connector, flag, verdict):
+    from tests.conftest import guard_json
+
+    did = await setup_dialog(container, world)
+    fake_llm.replies = [decision_json(reply="", plan_reason="Контекст требует действия",
+        send_at=None, handoff_reason="Требуется специалист", **{flag: True})]
+    if verdict in ("block", "rewrite"):
+        fake_llm.guard_replies = [guard_json(verdict, ["Проверка решения"], "Неожиданный текст")]
+    elif verdict == "superseded":
+        original = fake_llm.chat
+
+        async def interleave(messages, **kw):
+            if kw.get("workflow") == "guard":
+                await ingest(container, world.channel.id, inbound("Новый контекст", ext="new", at=NOW))
+            return await original(messages, **kw)
+
+        fake_llm.chat = interleave
+    assert await sweep(container) == 1
+    await Worker(container).tick()
+    assert fake_llm.guard_calls
+    data = json.loads(fake_llm.guard_calls[0][0][1]["content"])
+    assert data["decision"][flag] is True
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        applied = verdict == "ok"
+        assert d.needs_operator is (applied and flag == "handoff_to_operator")
+        assert d.ai_paused is (applied and flag == "handoff_to_operator")
+        assert d.client.no_followups is (applied and flag == "stop_contact")
+        assert (d.client.status is ClientStatus.REFUSED) is (applied and flag != "handoff_to_operator")
+        if applied and flag == "handoff_to_operator":
+            trigger = await s.scalar(select(Message).where(Message.dialog_id == did, Message.direction == Direction.IN))
+            assert trigger.handoff_reason == "Требуется специалист"
+        assert not (await s.scalars(select(Message).where(
+            Message.dialog_id == did, Message.delivery == Delivery.QUEUED))).all()
+    assert connector.port.sent == []
 
 
 @pytest.mark.parametrize("change", ["inbound", "phone", "pause", "optout", "status", "passport"])
