@@ -83,7 +83,7 @@ def test_sim_tls_routes_and_audit_never_persist_oauth_payload():
             "/var/log/sim-nginx/error-audit.log", str(root / "errors.log"))
         audit_path = root / "rsyslog.conf"
         audit_path.write_text(audit)
-        subprocess.run([rsyslog, "-N1", "-f", str(audit_path)], check=True, capture_output=True)
+        subprocess.run([rsyslog, "-N1", "-f", str(audit_path)], check=True)
         backend = ThreadingHTTPServer(("127.0.0.1", 0), FakeBackend)
         threading.Thread(target=backend.serve_forever, daemon=True).start()
         port, unavailable = free_port(), free_port()
@@ -134,8 +134,7 @@ http {{
             with process([rsyslog, "-n", "-i", str(root / "audit.pid"), "-f", str(audit_path)],
                          root / "audit-process.log"):
                 wait_for(lambda: (root / "audit.sock").exists())
-                subprocess.run([nginx, "-t", "-p", str(root), "-c", str(config)],
-                               check=True, capture_output=True)
+                subprocess.run([nginx, "-t", "-p", str(root), "-c", str(config)], check=True)
                 with process([nginx, "-p", str(root), "-c", str(config), "-g", "daemon off;"],
                              root / "nginx-process.log"):
                     wait_for(lambda: (root / "nginx.pid").exists())

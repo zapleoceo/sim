@@ -53,9 +53,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install isolated nginx audit test tools
         run: sudo apt-get install -y nginx-core rsyslog
+      - name: Isolated nginx TLS and audit regression
+        working-directory: backend
+        run: uv run --frozen pytest -q tests/test_nginx_origin_audit.py
       - name: Backend unit tests
         working-directory: backend
-        run: uv run --frozen pytest -q
+        run: uv run --frozen pytest -q --ignore=tests/test_nginx_origin_audit.py
       - name: Ruff
         working-directory: backend
         run: uv run --frozen ruff check .
