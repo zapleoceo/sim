@@ -27,18 +27,17 @@ from sim.worker.handlers import HANDLERS, Handler
 
 log = logging.getLogger(__name__)
 
-LEASE_MARGIN_S = 300   # HTTP overhead, DB work and clock skew on top of the model calls
+RECOVERY_LEASE_S = 90
 CLAIM_BATCH = 4
 
 
 def lease_seconds(settings: Settings) -> int:
-    """How long a claimed job is ours. ConversationService.ask() may make TWO broker calls (one
-    retry on bad JSON), each up to the longest poll budget: the lease must outlive both, or
-    a second worker re-claims the job while the first is still answering."""
-    longest = max(settings.broker_poll_budget_s, settings.broker_subscription_budget_s)
-    # ...plus up to four guard calls (verdict + same-model fallback, twice after a rewrite),
-    # which run on non-subscription rotations.
-    return int(2 * longest + 4 * settings.broker_poll_budget_s) + LEASE_MARGIN_S
+    """Crash recovery grace; a live handler is protected by its execution row lock.
+
+    Unlike a model-budget-sized lease, this does not leave a dead process's work
+    unavailable for tens of minutes. Existing leases are never reset at startup.
+    """
+    return RECOVERY_LEASE_S
 
 
 class Claim(NamedTuple):
@@ -166,7 +165,16 @@ class Worker:
         else:
             try:
                 async with transaction(self.c.factory) as s:
+                    repo = JobRepo(s)
+                    if await repo.lock_attempt(job_id, claim_attempt) is None:
+                        return tracing.SKIPPED, None, {"fenced": True}
                     detail.update(await handler.run(self.c, s, payload) or {})
+                    # One commit: no window between handler effects and settlement
+                    # for another worker to reclaim an expired lease.
+                    done = await repo.complete(job_id, self.c.clock(), claim_attempt=claim_attempt)
+                    if not done:
+                        raise ConversationError("job ownership changed during execution")
+                return tracing.OK, None, detail
             except (ConversationError, SendUncertain) as exc:
                 error, retry = str(exc), False
             except Exception as exc:  # any failure is retried with backoff

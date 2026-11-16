@@ -63,6 +63,24 @@ async def test_success_completes_job(container):
     assert calls == [{"n": 1}] and (await job_row(container, job_id)).status == "done"
 
 
+async def test_old_owner_cannot_execute_after_reclaim(container):
+    calls = []
+
+    async def handler(c, s, payload):
+        calls.append(payload)
+
+    job_id = await enqueue(container, "owned")
+    async with transaction(container.factory) as s:
+        row = await s.get(Job, job_id)
+        row.status, row.attempts = "running", 2
+        row.locked_until = utcnow() + timedelta(seconds=90)
+    worker = Worker(container, {"owned": Handler(handler)})
+    status, _, detail = await worker.attempt(job_id, "owned", {}, 1)
+    assert status == "skipped" and detail["fenced"] and not calls
+    await worker.attempt(job_id, "owned", {}, 2)
+    assert calls == [{}] and (await job_row(container, job_id)).status == "done"
+
+
 async def test_failure_retries_with_backoff_then_fails_and_runs_giveup(container):
     given_up = []
 

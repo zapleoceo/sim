@@ -1,5 +1,15 @@
 # Sim
 
+Worker crash recovery uses a 90-second claim grace and a PostgreSQL execution row
+lock. Live handlers retain the lock through effects and completion commit; other
+workers skip the locked job even after expiry. Connection loss releases the lock;
+reclaim increments the generation and rejects late old handlers before execution.
+Startup never resets another worker's lease. Pre-upgrade leases retain their old
+expiry. Durable send receipts still prevent blind retries of uncertain sends.
+Persisting/reconciling remote Broker job IDs across a crash remains separate work.
+SQLite is for development/tests; the multi-worker guarantee is checked against
+disposable PostgreSQL in CI, without real connectors or provider calls.
+
 ИИ-персонажи (виртуальные представители): Instagram — привлечение, WhatsApp и Telegram — личное
 общение, воронка до регистрации и первой оплаты у партнёра. Документированный URL: https://sim.zapleo.com.
 

@@ -124,6 +124,19 @@ class JobRepo(Repository[Job]):
                 claimed.append(job)
         return claimed
 
+    async def lock_attempt(self, job_id: int, claim_attempt: int) -> Job | None:
+        """Own the execution transaction, not just the completion update.
+
+        PostgreSQL releases this row lock on connection/process loss. Reclaim uses
+        SKIP LOCKED, so a live handler remains protected even beyond its lease.
+        The lock must stay held through handler effects AND completion commit.
+        """
+        return await self.session.scalar(
+            select(Job).where(
+                Job.id == job_id, Job.status == "running", Job.attempts == claim_attempt,
+            ).with_for_update(skip_locked=True)
+        )
+
     async def complete(self, job_id: int, now: datetime, *, claim_attempt: int) -> bool:
         """Complete only this running claim; a newer claim or terminal state wins.
 
