@@ -637,7 +637,7 @@ async def test_a_dropped_broker_socket_ends_the_session():
     ws = FakeSocket({"type": "ready"}, [ConnectionError("gone")])
     session = await broker(ws)[0].open(voice="Kore", system="")
     assert [e async for e in session.events()] == []
-    assert (await session.finish()).end_reason == "no_summary"
+    assert (await session.finish()).end_reason == "transport_error"
     assert (session.input_rate_hz, session.output_rate_hz) == (16000, 24000)
 
 
