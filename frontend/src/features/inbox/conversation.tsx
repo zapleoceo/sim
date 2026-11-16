@@ -16,6 +16,8 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tip } from '@/components/ui/tooltip';
 import type { DialogDetail, Stage } from '@/lib/models';
+import { voiceNotice } from '@/lib/voice-notice';
+import { formatZonedDateTime } from '@/lib/format';
 import { CompactConversationHeader, CompactOperatorBanner } from './conversation-compact';
 import { PAUSE_NOTE, groupFeedByDay, isSendKey, pauseNotice, replyPlanNotice } from './inbox-logic';
 
@@ -79,6 +81,11 @@ export function Conversation({
   const groups = groupFeedByDay(messages, events);
   const paused = pauseNotice(dialog);
   const planned = replyPlanNotice(dialog);
+  const lastHandoff = events?.filter((e) => e.kind === 'handoff').at(-1);
+  const voiceProblem = voiceNotice(lastHandoff?.reason);
+  const operatorText = voiceProblem
+    ? `${voiceProblem} ${dialog.ai_paused ? 'ИИ выключен. Проверьте разговор перед включением.' : 'ИИ включён. Проверьте, нужен ли ответ вручную.'}`
+    : (dialog.ai_paused ? 'Нужен ответ оператора. ИИ выключен; проверьте переписку.' : 'Нужен ответ оператора. ИИ включён.');
 
   useEffect(() => {
     const el = scroller.current;
@@ -201,9 +208,9 @@ export function Conversation({
         )}
       </header>
       )}
-      {dialog.needs_operator && compact && !bannerHidden && <CompactOperatorBanner onDismiss={() => setBannerHidden(true)} />}
+      {dialog.needs_operator && compact && !bannerHidden && <CompactOperatorBanner text={operatorText} onDismiss={() => setBannerHidden(true)} />}
       {dialog.needs_operator && !compact && <div role="alert" className="border-b bg-warning/15 px-4 py-2 text-sm font-semibold">
-        Требуется ответ менеджера. ИИ остановлен; проверьте переписку и ответьте клиенту.
+        {operatorText}
       </div>}
       {paused && (
         <div role="status" aria-label="ИИ выключен"
@@ -225,9 +232,9 @@ export function Conversation({
       {dialog.reengagement_plan && <div role="status" aria-label="План продолжения разговора"
         className="flex-none border-b bg-muted/60 px-4 py-2 text-sm">
         <strong>Продолжение разговора: {({analyzing: 'анализ', scheduled: 'запланировано',
-          outdated: 'устарел, будет пересмотрен', no_send: 'не писать', blocked: 'отклонено',
+          outdated: 'устарел', no_send: 'не писать', blocked: 'отклонено',
           failed: 'ошибка', sent: 'отправлено', cancelled: 'отменено'} as Record<string, string>)[dialog.reengagement_plan.status] ?? dialog.reengagement_plan.status}</strong>
-        {dialog.reengagement_plan.at && <div>Время: {new Date(dialog.reengagement_plan.at).toLocaleString()} (ваш часовой пояс)</div>}
+        {dialog.reengagement_plan.at && <div>Время: {formatZonedDateTime(dialog.reengagement_plan.at)} (ваше время)</div>}
         {dialog.reengagement_plan.text && <p className="whitespace-pre-wrap">{dialog.reengagement_plan.text}</p>}
         {dialog.reengagement_plan.reason && <p className="text-xs text-muted-foreground">{dialog.reengagement_plan.reason}</p>}
       </div>}

@@ -40,6 +40,23 @@ async def test_dedup_by_external_id(container, world):
         assert len((await s.scalars(select(Job))).all()) == 1
 
 
+async def test_empty_records_do_not_create_or_invalidate_conversation(container, world):
+    assert (await ingest(container, world.channel.id, inbound("", ext="service-new"))).dialog is None
+    result = await ingest(container, world.channel.id, inbound("Hello", ext="real"))
+    async with container.factory() as s:
+        before = await s.get(Dialog, result.dialog.id)
+        revision, unread, preview = before.activity_revision, before.unread, before.last_message_text
+        jobs = list(await s.scalars(select(Job.id)))
+    for own in (False, True):
+        result = await ingest(container, world.channel.id, inbound("  ", ext=f"empty-{own}", from_me=own))
+        assert result.message is None and not result.reply_queued
+    async with container.factory() as s:
+        after = await s.get(Dialog, result.dialog.id)
+        assert (after.activity_revision, after.unread, after.last_message_text) == (revision, unread, preview)
+        assert list(await s.scalars(select(Job.id))) == jobs
+        assert len(list(await s.scalars(select(Message)))) == 1
+
+
 async def test_burst_debounces_into_one_reply_job(container, world):
     await ingest(container, world.channel.id, inbound("a", ext="1"))
     async with container.factory() as s:

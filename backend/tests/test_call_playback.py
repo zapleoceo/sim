@@ -12,7 +12,7 @@ from sim.adapters.db.session import transaction
 from sim.adapters.pcm import PcmBuffer
 from sim.domain.enums import Delivery
 from sim.ports.live_voice import AUDIO, INTERRUPTED, TURN_COMPLETE, LiveVoiceEvent
-from sim.services.call_playback import MAX_TURN_SECONDS, CallPlayback
+from sim.services.call_playback import MAX_TURN_SECONDS, CallContextChanged, CallPlayback
 from sim.services.call_trace import CallTrace
 from sim.services.guard import BLOCKED, GuardOutcome
 from tests.conftest import guard_json
@@ -196,7 +196,7 @@ async def test_interruption_after_release_never_marks_incomplete_turn_sent(conta
     assert f"{played_frames * len(PCM)}/{2 * len(PCM)}" in row.error
 
 
-async def test_real_call_path_blocks_audio_and_marks_handoff(container, world, fake_llm):
+async def test_real_call_path_blocks_audio_without_handoff(container, world, fake_llm):
     did = await chatting_world(container, world)
     fake_llm.guard_replies = [guard_json("block", ["Неверный день"])]
     session = FakeSession(speech_events(PCM), end_after_events=True)
@@ -205,10 +205,12 @@ async def test_real_call_path_blocks_audio_and_marks_handoff(container, world, f
     assert call.played == [] and call.hung_up
     rows = await dialog_messages(container, did)
     assert rows[-1].delivery is Delivery.CANCELLED and rows[-1].guard_verdict == BLOCKED
-    assert rows[-2].handoff_reason and "Неверный день" in rows[-2].handoff_reason
+    assert not any(row.handoff_reason for row in rows)
+    assert "Неверный день" in next(row for row in rows if row.media_kind == "call").error
     async with container.factory() as s:
         d = await s.get(Dialog, did)
-        assert d.ai_paused and d.needs_operator
+        assert not d.ai_paused and not d.needs_operator
+    assert (await service(container, FakeLive()).review_turn(did, [], "Hello", "voice-model")).allowed
 
 
 async def test_review_uses_current_code_clock_and_live_context(container, world, fake_llm):
@@ -227,6 +229,8 @@ async def test_review_uses_current_code_clock_and_live_context(container, world,
     assert "31 декабря 2026" in payload["trusted_facts"]["persona_facts"]
     assert "America/New_York" in payload["trusted_facts"]["persona_facts"]
     assert payload["dialog"][-1]["text"] == "Какой сегодня день?"
+    assert payload["context"]["medium"] == "voice"
+    assert fake_llm.guard_calls[-1][1]["workflow"] == "call_guard"
 
 
 async def test_pause_during_voice_review_blocks_release(container, world, fake_llm):
@@ -241,3 +245,73 @@ async def test_pause_during_voice_review_blocks_release(container, world, fake_l
     fake_llm.chat = pause
     outcome = await service(container, FakeLive()).review_turn(did, [], "Ответ", "voice-model")
     assert not outcome.allowed
+
+
+async def test_empty_connector_record_during_review_does_not_drop_audio(container, world, fake_llm):
+    from tests.conftest import inbound
+    from tests.test_ingest import ingest
+
+    did = await chatting_world(container, world)
+    original = fake_llm.chat
+
+    async def delayed(messages, **kw):
+        await ingest(container, world.channel.id, inbound("", ext="call-service"))
+        return await original(messages, **kw)
+
+    fake_llm.chat = delayed
+    outcome = await service(container, FakeLive()).review_turn(did, [], "Hello", "voice-model")
+    assert outcome.allowed
+
+
+async def test_real_update_during_review_cancels_candidate_without_pause(container, world, fake_llm):
+    did = await chatting_world(container, world)
+    original = fake_llm.chat
+
+    async def update(messages, **kw):
+        async with transaction(container.factory) as s:
+            (await s.get(Dialog, did)).activity_revision += 1
+        return await original(messages, **kw)
+
+    fake_llm.chat = update
+    svc = service(container, FakeLive())
+    with pytest.raises(CallContextChanged):
+        await svc.review_turn(did, [], "Old answer", "voice-model")
+    fake_llm.chat = original
+    assert (await svc.review_turn(did, [], "Fresh answer", "voice-model")).allowed
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert not d.ai_paused and not d.needs_operator
+
+
+async def test_stale_candidate_does_not_close_next_turn_or_mark_handoff(container, world):
+    did = await chatting_world(container, world)
+    checked = asyncio.Event()
+    calls = []
+
+    async def review(history, draft):
+        calls.append(draft)
+        if len(calls) == 1:
+            checked.set()
+            raise CallContextChanged()
+        assert all(t.text != "Old answer" for t in history)
+        return GuardOutcome("ok", draft)
+
+    class Session(FakeSession):
+        async def events(self):
+            for event in speech_events(PCM, text="Old answer"):
+                yield event
+            await checked.wait()
+            for event in speech_events(PCM, text="Fresh answer"):
+                yield event
+
+    out, trace = output()
+    playback = CallPlayback(review, clock=lambda: NOW)
+    session = Session()
+    await playback.run(session, out, 24000, trace)
+    assert not playback.failure and not next(t for t in playback.turns if t.role == "assistant").released
+    assert playback.turns[-1].released and len(out) == len(PCM)
+    await service(container, FakeLive()).record(did, await session.finish(), NOW,
+        turns=playback.turns, failure=playback.failure)
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert not d.ai_paused and not d.needs_operator

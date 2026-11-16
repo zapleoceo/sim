@@ -40,6 +40,21 @@ const detail: DialogDetail = {
   ],
 };
 
+it.each([true, false])('voice failure banner follows current pause=%s, not the historical event', async (paused) => {
+  api({ 'GET /api/dialogs/1': { ...detail,
+    dialog: { ...detail.dialog, ai_paused: paused, needs_operator: true },
+    events: [{ id: 99, kind: 'handoff', from: '', to: 'operator', actor: 'system', actor_name: '',
+      reason: 'Голос не воспроизведён: Контекст изменился во время проверки голоса',
+      created_at: '2026-11-16T09:46:54Z' }],
+  } });
+  await renderApp('/inbox?d=1');
+  const banner = await screen.findByRole('alert');
+  expect(banner).toHaveTextContent('Разговор обновился. Старый голосовой ответ отменён.');
+  expect(banner).toHaveTextContent(paused ? 'ИИ выключен. Проверьте разговор перед включением.' : 'ИИ включён.');
+  expect(banner).not.toHaveTextContent('Контекст изменился во время проверки голоса');
+  expect(banner).not.toHaveTextContent('Требуется ответ менеджера');
+});
+
 it('shows exact continuation text and time and keeps the historical handoff mark', async () => {
   api({ 'GET /api/dialogs/1': { ...detail,
     dialog: { ...detail.dialog, needs_operator: false, ai_paused: false,
@@ -132,7 +147,7 @@ describe('InboxPage', () => {
     expect(await screen.findByText('Анна Клиентова')).toBeInTheDocument();
     expect(screen.getByLabelText('2 непрочитанных')).toBeInTheDocument();
     expect(screen.getByText('нужен оператор')).toBeInTheDocument();
-    expect(screen.getByText(/Требуется ответ менеджера/)).toBeInTheDocument();
+    expect(screen.getByText(/Нужен ответ оператора/)).toBeInTheDocument();
   });
 
   it('opens a dialog, marks it read and sends an operator reply with CSRF', async () => {
@@ -259,7 +274,8 @@ describe('InboxPage: ответ отложен по распорядку', () =>
     plannedApi();
     await renderApp('/inbox?d=1');
     const bar = await screen.findByRole('status', { name: 'Ответ отложен' });
-    expect(bar).toHaveTextContent(/Ответит в \d{2}:\d{2} — на работе: консультации с клиентами до 13:00/);
+    expect(bar).toHaveTextContent('Ответ запланирован:');
+    expect(bar).toHaveTextContent('(ваше время) — на работе: консультации с клиентами до 13:00');
     expect(within(bar).getByRole('button', { name: 'Ответить сейчас' })).toBeInTheDocument();
     expect(screen.getByRole('switch')).toBeChecked();          // a delay is not an AI pause
     expect(screen.getByRole('button', { name: 'Срочный диалог' })).toHaveAttribute('aria-pressed', 'false');
@@ -402,7 +418,7 @@ describe('InboxPage on a phone (380 px)', () => {
       const sent = log.find((r) => r.method === 'POST' && r.path === '/api/dialogs/1/resolve');
       expect(sent?.headers['X-CSRF-Token']).toBe(CSRF);
     });
-    await waitFor(() => expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/Нужен ответ оператора/)).not.toBeInTheDocument());
   });
 
   it('changes the stage with the same dropdown, opened from the menu', async () => {
@@ -444,9 +460,9 @@ describe('InboxPage on a phone (380 px)', () => {
 
   it('shows a short operator banner that can be closed', async () => {
     await openDialog();
-    expect(screen.getByText('Требуется ответ менеджера. ИИ остановлен.')).toBeInTheDocument();
+    expect(screen.getByText('Нужен ответ оператора. ИИ включён.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Скрыть уведомление' }));
-    expect(screen.queryByText(/Требуется ответ менеджера/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Нужен ответ оператора/)).not.toBeInTheDocument();
     // The flag is still reachable: the menu keeps the badge and the action.
     await userEvent.click(screen.getByRole('button', { name: MENU }));
     expect(within(await screen.findByRole('menu')).getByText('нужен оператор')).toBeInTheDocument();
@@ -478,7 +494,7 @@ describe('InboxPage on a desktop', () => {
     await screen.findByRole('textbox', { name: 'Сообщение клиенту' });
     expect(screen.queryByRole('button', { name: 'Действия с диалогом' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Обработано' })).toBeInTheDocument();
-    expect(screen.getByText(/ИИ остановлен; проверьте переписку/)).toBeInTheDocument();
+    expect(screen.getByText('Нужен ответ оператора. ИИ включён.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Скрыть уведомление' })).not.toBeInTheDocument();
   });

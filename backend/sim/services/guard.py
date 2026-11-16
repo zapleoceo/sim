@@ -83,6 +83,15 @@ trusted_facts вычислен серверным кодом: это источ�
 выдумывать факты. Не меняй стиль, юмор и творческие темы. При handoff_to_operator=true
 обязательна конкретная handoff_reason, объясняющая необходимость человека, иначе block."""
 
+VOICE_CONTROL = """Если context.medium = voice, проверяй смысловую связь ответа с последней понятной
+репликой и доступным контекстом. Обрывок ASR, имя или упоминание другого реального человека
+не равны вопросу «ты ИИ?» или просьбе сменить язык: при неоднозначности уместно уточнение.
+Прямой вопрос о природе персонажа требует правдивого ответа; не скрывай ИИ и не подменяй
+его человеком. Не разрешай без основания отрицать возможность помощи оператора или обещать
+переключение звонка. Склеенные несовместимые ответы и потеря смысла требуют исправления;
+обычная разговорная незавершённость, стиль и краткость сами по себе не нарушение.
+Голосовой черновик должен пройти без изменений: исправленное аудио ещё не существует."""
+
 
 class GuardError(LLMError):
     """The guard could not give a usable verdict: fail closed, the caller retries."""
@@ -111,7 +120,7 @@ class GuardOutcome:
 def guard_system_prompt(prompt_text: str = GUARD_PROMPT) -> str:
     """The owner's guard prompt + the decision consistency contract. Persona and strategy wishes are not the
     guard's business (they are tuned in the simulator)."""
-    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}"
+    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"
 
 
 def guard_user_message(

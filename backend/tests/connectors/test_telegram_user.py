@@ -391,6 +391,17 @@ async def test_media_refs_and_kinds(conn, made):
         ("audio", f"{MEDIA_PREFIX}10:3")]
 
 
+async def test_service_and_empty_records_advance_cursor_without_becoming_messages(conn, made):
+    port, c = await port_for(conn, made)
+    service = msg(1, "call status")
+    service.action = SimpleNamespace(duration=30)
+    c.dialogs = [dialog(user(10), 3, unread=3)]
+    c.history = {10: [service, msg(2, ""), msg(3, "", voice=True)]}
+    assert [m.external_id for m in await port.fetch_inbound()] == ["10:3"]
+    assert port.s.cursor[10] == 3
+    assert await port.fetch_inbound() == []
+
+
 async def test_read_flood_wait_backs_off(made):
     c = FakeClient(script={"dialogs": flood(60)})
     clock = [0.0]

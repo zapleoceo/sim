@@ -206,7 +206,8 @@ class TelethonTransport:
             raw.reverse()
         return [
             {"id": int(m.id), "from_me": bool(m.out), "text": str(m.message or ""),
-             "date": to_naive_utc(m.date), "media_kind": media_kind_of(m)}
+             "date": to_naive_utc(m.date), "media_kind": media_kind_of(m),
+             "service": getattr(m, "action", None) is not None}
             for m in raw
         ]
 
@@ -312,7 +313,11 @@ class TelegramUserAdapter:
     def select(
         self, raw: list[dict[str, Any]], dialog: dict[str, Any], *, first_sync: bool
     ) -> list[dict[str, Any]]:
-        fresh = [m for m in raw if f"{dialog['peer_id']}:{m['id']}" not in self.s.sent]
+        # Phone-call/status service records advance the cursor, but are not conversational
+        # messages. Ingesting an empty call record can invalidate a live voice review.
+        fresh = [m for m in raw if not m.get("service")
+                 and (m["text"].strip() or m["media_kind"])
+                 and f"{dialog['peer_id']}:{m['id']}" not in self.s.sent]
         if not first_sync:
             return fresh
         # First sight of this dialog: answering months-old history would be wrong. Take what

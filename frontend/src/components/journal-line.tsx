@@ -1,5 +1,6 @@
 import type { EventVm } from '@/features/inbox/journal-logic';
 import { cn } from '@/lib/utils';
+import { voiceNotice } from '@/lib/voice-notice';
 
 /**
  * One line of the communication journal inside the feed: a service record, not a message to the
@@ -7,6 +8,7 @@ import { cn } from '@/lib/utils';
  * who did it and why.
  */
 export function JournalLine({ vm }: { vm: EventVm }) {
+  const voiceReason = voiceNotice(vm.reason);
   return (
     <div className="my-0.5 flex justify-center">
       <div
@@ -20,8 +22,9 @@ export function JournalLine({ vm }: { vm: EventVm }) {
           {vm.change && <span className="min-w-0 font-medium break-words">{vm.change}</span>}
         </span>
         <span className="text-muted-foreground">
-          {vm.who} · {vm.time} · <span className={cn(!vm.hasReason && 'italic')}>{vm.hasReason ? `причина: ${vm.reason}` : vm.reason}</span>
+          {vm.who} · {vm.time} · <span className={cn(!vm.hasReason && 'italic')}>{voiceReason ?? (vm.hasReason ? `причина: ${vm.reason}` : vm.reason)}</span>
         </span>
+        {voiceReason && <details><summary>Подробности</summary>{vm.reason}</details>}
       </div>
     </div>
   );

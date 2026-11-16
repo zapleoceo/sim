@@ -134,6 +134,9 @@ def test_call_keeps_chat_persona_and_answers_identity_questions_honestly(name):
         assert must in identity
     assert "ИИ-ассистент человека" not in prompt
     assert "говори о нём в третьем лице" not in prompt
+    assert "само по себе не вопрос о твоей" in identity
+    assert "На прямой вопрос об ИИ отвечай честно" in identity
+    assert "Сначала коротко уточни" in CALL_RULES
 
 
 def test_first_turn_requests_only_hello_for_any_persona():
@@ -266,9 +269,9 @@ async def dialog_messages(container, dialog_id) -> list[Message]:
             select(Message).where(Message.dialog_id == dialog_id).order_by(Message.id)))
 
 
-def speech_events(audio):
+def speech_events(audio, text="Да, привет! Слушаю."):
     return [LiveVoiceEvent(TRANSCRIPT, role="user", text="Алло, это Марина?"),
-            LiveVoiceEvent(TRANSCRIPT, role="assistant", text="Да, привет! Слушаю."),
+            LiveVoiceEvent(TRANSCRIPT, role="assistant", text=text),
             LiveVoiceEvent(AUDIO, pcm=audio), LiveVoiceEvent(TURN_COMPLETE)]
 
 
@@ -297,6 +300,7 @@ async def test_answers_a_known_client_and_writes_the_transcript(container, world
         (Author.AI, Direction.OUT, "Да, привет! Слушаю.")
     assert outcome.message_ids == [header.id, said.id, answer.id]
     assert answer.guard_verdict == "ok"
+    assert answer.model == header.model == "gemini/gemini-3.8-live"
     async with container.factory() as s:
         dialog = await s.get(Dialog, dialog_id)
         assert dialog.last_message_text == "Да, привет! Слушаю."
@@ -360,6 +364,16 @@ async def test_a_broker_refusal_never_picks_up(container, world):
     assert outcome.status == "refused" and not call.answered
 
 
+async def test_pending_operator_flag_is_checked_before_opening_live_provider(container, world):
+    did = await chatting_world(container, world)
+    async with transaction(container.factory) as s:
+        dialog = await s.get(Dialog, did)
+        dialog.ai_paused, dialog.needs_operator = False, True
+    live = FakeLive()
+    outcome = await service(container, live).handle(world.channel.id, FakeCall())
+    assert outcome.status == "skipped:operator_dialog" and not live.opened
+
+
 async def test_a_failed_answer_closes_the_session(container, world):
     dialog_id = await chatting_world(container, world)
     session = FakeSession()
@@ -387,7 +401,7 @@ async def test_a_dead_pacer_ends_the_call_loudly_instead_of_a_silent_line(
         service(container, FakeLive(session)).handle(world.channel.id, call), 5)
     assert outcome.status == "answered" and call.hung_up and session.finished == 1
     assert "pacer stopped: RuntimeError: not in a call" in caplog.text
-    assert "the caller never heard her (model audio 4800 bytes" in caplog.text
+    assert "no speech frames accepted by transport (model audio 4800 bytes" in caplog.text
     assert (await dialog_messages(container, dialog_id))[-3].media_kind == CALL_KIND
     unheard = (await dialog_messages(container, dialog_id))[-1]
     assert unheard.delivery is Delivery.CANCELLED and "0/" in unheard.error
@@ -623,7 +637,7 @@ async def test_a_dropped_broker_socket_ends_the_session():
     ws = FakeSocket({"type": "ready"}, [ConnectionError("gone")])
     session = await broker(ws)[0].open(voice="Kore", system="")
     assert [e async for e in session.events()] == []
-    assert (await session.finish()).end_reason == "no_summary"
+    assert (await session.finish()).end_reason == "transport_error"
     assert (session.input_rate_hz, session.output_rate_hz) == (16000, 24000)
 
 

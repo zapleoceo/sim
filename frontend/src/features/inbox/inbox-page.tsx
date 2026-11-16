@@ -398,7 +398,7 @@ export function InboxPage() {
           {(operatorQueue.data?.total ?? 0) > 0 && <button type="button"
             className="w-full border-b bg-warning/15 px-3 py-1.5 text-left text-xs font-semibold sm:py-2 sm:text-sm"
             onClick={() => setFilter({ ...DEFAULT_DIALOG_FILTER, source: 'real', needs_operator: true })}>
-            Требуется ответ менеджера: {operatorQueue.data?.total} · открыть очередь
+            Нужен ответ оператора: {operatorQueue.data?.total} · открыть очередь
           </button>}
           <div className="flex items-center gap-2 border-b p-2">
             <OptionSelect<number | null> value={newTestPersonaId} onChange={setNewTestPersonaId}
