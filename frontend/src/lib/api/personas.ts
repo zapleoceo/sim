@@ -32,7 +32,7 @@ export const personasApi = {
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
 
-  /** Owner: queue an AI video note; it goes only to the account from the «Кружочки ИИ» setting. */
+  /** Owner: queue an AI video note; it goes only to the account from the «Telegram id для кружочков ИИ» setting. */
   videoNote: (id: number, prompt: string) =>
     http.post<VideoNoteQueued>(`/api/personas/${id}/video-note`, { prompt }, { silent: true }),
 

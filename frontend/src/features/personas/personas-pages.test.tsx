@@ -1,8 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
-import type { AppSettingItem, Persona, Strategy } from '@/lib/models';
-import { AGENTS_TITLE } from '../settings/settings-page';
+import type { Persona, Strategy } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
 import { blockButton, openLongText, toggleBlock, typeLongText } from '@/test/persona-blocks';
 import { CSRF, renderApp, testUser } from '@/test/render-app';
@@ -35,35 +34,6 @@ describe('personas pages', () => {
     expect(screen.queryByText(MARINA.agent_prompt)).not.toBeInTheDocument();
     expect(screen.queryByText('gpt-x')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Новый персонаж/ })).toHaveAttribute('href', '/personas/new');
-  });
-
-  it('shows the agents shared by every persona below the list', async () => {
-    const setting = (key: string, group: string, label: string, value: string): AppSettingItem => ({
-      key, group, label, help: '', kind: 'text', min: null, max: null, value, default: value, is_default: true,
-      updated_at: null, updated_by_id: null,
-    });
-    backend({
-      'GET /api/settings': {
-        items: [
-          setting('output_contract', 'Ответ персонажа', 'Формат ответа', 'JSON'),
-          setting('guard_prompt', 'Охранник', 'Промпт охранника', 'проверь'),
-          setting('passport_prompt', 'Паспортистка', 'Инструкция паспортистки', 'веди паспорт'),
-          setting('summary_prompt', 'Саммари диалога', 'Инструкция саммари', 'веди саммари'),
-        ],
-        fixed: { persona: '', guard: '' },
-      },
-    });
-    await renderApp('/personas');
-    const agents = within(await screen.findByRole('region', { name: AGENTS_TITLE }));
-    expect(agents.getByText(/охранник проверяет ответ перед отправкой/)).toBeInTheDocument();
-    expect(await agents.findByLabelText('Промпт охранника')).toHaveValue('проверь');
-    expect(agents.getByLabelText('Инструкция паспортистки')).toHaveValue('веди паспорт');
-    expect(agents.getByLabelText('Инструкция саммари')).toHaveValue('веди саммари');
-    // the shared rules stay on «Общие правила»
-    expect(screen.queryByLabelText('Формат ответа')).not.toBeInTheDocument();
-    // the list comes first, the agents after it
-    const list = screen.getByRole('link', { name: /Марина/ });
-    expect(list.compareDocumentPosition(screen.getByRole('heading', { name: AGENTS_TITLE }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('sends operators away from personas', async () => {

@@ -104,7 +104,7 @@ export function SimulationsPage() {
   const reading = selected !== null;
 
   return (
-    <Page>
+    <Page width="wide">
       <PageHeader
         title="Симуляции"
         subtitle="Тестовые диалоги админов с персонажами в боте. Не попадают в диалоги, клиентов и аналитику."

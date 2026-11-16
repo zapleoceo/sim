@@ -55,7 +55,7 @@ export function DashboardPage() {
   return (
     <>
       {summary.isFetching && <RoutePending />}
-      <Page>
+      <Page width="wide">
         <PageHeader title="Аналитика" subtitle="Контакты, конверсия и затраты за период">
           <div role="group" aria-label="Быстрый выбор периода" className="flex gap-1">
             {PRESETS.map((days) => (

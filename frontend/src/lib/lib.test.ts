@@ -6,7 +6,7 @@ import {
 } from './format';
 import { checkStageDrop } from './funnel-rules';
 import type { Stage } from './models';
-import { NAV, visibleNav } from './nav';
+import { NAV, bottomSlots, inAgents, visibleNav } from './nav';
 import { shouldRetry } from './query';
 import { parseActivitySearch, parseInboxSearch, parseLoginSearch, safeReturnUrl } from './search';
 import { resolveDark } from './theme';
@@ -49,11 +49,21 @@ describe('roles and navigation', () => {
     const operator = visibleNav('operator').map((i) => i.path);
     expect(operator).toEqual(['/inbox', '/clients', '/funnel', '/dashboard', '/activity']);
     expect(visibleNav('owner').map((i) => i.path)).toContain('/settings');
-    // the agents live on «Персонажи», not in a menu item of their own
-    expect(visibleNav('owner').map((i) => i.path)).toContain('/personas');
-    expect(NAV.map((i) => i.path)).not.toContain('/agents');
+    expect(visibleNav('owner').map((i) => i.path)).toContain('/agents');
     expect(visibleNav('owner').map((i) => i.path)).not.toContain('/admins');
     expect(visibleNav('superadmin')).toHaveLength(NAV.length);
+  });
+
+  it('puts the agents behind one bottom slot that is active in any of their sections', () => {
+    const owner = visibleNav('owner');
+    const slots = bottomSlots(owner);
+    expect(slots.map((s) => s.label)).toEqual(['Диалоги', 'Клиенты', 'Агенты', 'Аналитика']);
+    expect(slots[2].match).toEqual(['/personas', '/channels', '/simulations', '/content', '/studio']);
+    expect(inAgents(owner, '/personas/3')).toBe(true);
+    expect(inAgents(owner, '/studio')).toBe(true);
+    expect(inAgents(owner, '/inbox')).toBe(false);
+    expect(inAgents(visibleNav('operator'), '/personas')).toBe(false);
+    expect(bottomSlots(visibleNav('operator')).map((s) => s.label)).toEqual(['Диалоги', 'Клиенты', 'Воронка', 'Аналитика']);
   });
 });
 

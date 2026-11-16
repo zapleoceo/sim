@@ -121,21 +121,19 @@ const settingsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'SettingsPage'),
 });
 
-/** The old agents page: the agents now live on «Персонажи», below the list. */
 const agentsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agents',
-  beforeLoad: () => {
-    throw redirect({ to: '/personas' });
-  },
+  beforeLoad: ownerOnly,
+  component: lazyRouteComponent(() => import('@/features/settings/settings-page'), 'AgentsPage'),
 });
 
-/** The old guard page: the guard is one of the agents on «Персонажи». */
+/** The old guard page: the guard now lives on «Помощники». */
 const guardRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/guard',
   beforeLoad: () => {
-    throw redirect({ to: '/personas' });
+    throw redirect({ to: '/agents' });
   },
 });
 
@@ -216,7 +214,7 @@ export const routeTree = rootRoute.addChildren([
 /** Page titles by first path segment (document.title). */
 export const TITLES: Record<string, string> = {
   login: 'Вход', studio: 'Студия', inbox: 'Диалоги', clients: 'Клиенты', activity: 'Активность', funnel: 'Воронка',
-  dashboard: 'Аналитика', personas: 'Персонажи', settings: 'Общие правила', guard: 'Охранник', strategies: 'Стратегии', simulations: 'Симуляции', channels: 'Каналы',
+  dashboard: 'Аналитика', personas: 'Персонажи', settings: 'Общие правила', agents: 'Помощники', guard: 'Помощники', strategies: 'Стратегии', simulations: 'Симуляции', channels: 'Каналы',
   content: 'Контент', partner: 'Партнёр', admins: 'Администраторы',
 };
 

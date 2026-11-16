@@ -9,9 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { personasApi } from '@/lib/api/personas';
 import { qk } from '@/lib/query';
-import { AgentSettings } from '../settings/settings-page';
 
-/** «Персонажи»: the list of personas and, below it, the agents every persona shares. */
 export function PersonasPage() {
   const personas = useQuery({ queryKey: qk.personas, queryFn: personasApi.list });
 
@@ -57,7 +55,6 @@ export function PersonasPage() {
           ))}
         </ul>
       )}
-      <AgentSettings />
     </Page>
   );
 }

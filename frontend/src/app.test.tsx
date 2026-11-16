@@ -70,8 +70,10 @@ describe('app shell and guards', () => {
     fakeApi(EMPTY_LISTS);
     await renderApp('/inbox');
     const bar = screen.getByRole('navigation', { name: 'Быстрая навигация' });
-    expect(within(bar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Студия', 'Диалоги', 'Клиенты', 'Воронка']);
+    expect(within(bar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Диалоги', 'Клиенты', 'Агенты', 'Аналитика']);
     expect(within(bar).getByRole('link', { name: 'Диалоги' })).toHaveAttribute('aria-current', 'page');
+    // No agents' switcher outside their sections.
+    expect(screen.queryByRole('navigation', { name: 'Разделы агентов' })).toBeNull();
     expect(bar.children).toHaveLength(5);
     // The bar leaves the screen while the phone keyboard is open, and its icons are 20 px.
     expect(bar).toHaveClass('kb:hidden', 'md:hidden');
@@ -84,8 +86,35 @@ describe('app shell and guards', () => {
     }
   });
 
+  it('groups the agents\' sections: sidebar group, one bottom slot and a switcher on their pages', async () => {
+    fakeApi(EMPTY_LISTS);
+    await renderApp('/channels');
+    const sidebar = screen.getByRole('navigation', { name: 'Разделы' });
+    const agents = within(sidebar).getByRole('group', { name: 'Агенты' });
+    expect(within(agents).getAllByRole('link').map((a) => a.textContent)).toEqual(
+      ['Персонажи', 'Каналы', 'Симуляции', 'Контент', 'Студия']);
+    expect(within(within(sidebar).getByRole('group', { name: 'Настройка' })).getByRole('link', { name: 'Помощники' }))
+      .toBeInTheDocument();
+    const bar = screen.getByRole('navigation', { name: 'Быстрая навигация' });
+    expect(within(bar).getByRole('link', { name: 'Агенты' })).toHaveAttribute('aria-current', 'page');
+    const tabs = screen.getByRole('navigation', { name: 'Разделы агентов' });
+    expect(tabs).toHaveClass('md:hidden');
+    expect(within(tabs).getByRole('link', { name: 'Каналы' })).toHaveAttribute('aria-current', 'page');
+    await userEvent.click(within(tabs).getByRole('link', { name: 'Персонажи' }));
+    expect(await within(screen.getByRole('navigation', { name: 'Разделы агентов' })).findByRole('link', { name: 'Персонажи' }))
+      .toHaveAttribute('aria-current', 'page');
+  });
+
+  it('an operator has no agents slot and no switcher', async () => {
+    fakeApi(EMPTY_LISTS);
+    await renderApp('/inbox', { user: testUser('operator') });
+    const bar = screen.getByRole('navigation', { name: 'Быстрая навигация' });
+    expect(within(bar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Диалоги', 'Клиенты', 'Воронка', 'Аналитика']);
+  });
+
   it('page titles follow the section', () => {
     expect(titleFor('/clients/5')).toBe('Клиенты — Sim');
     expect(titleFor('/')).toBe('Sim — админ-панель');
+    expect(titleFor('/agents')).toBe('Помощники — Sim');
   });
 });

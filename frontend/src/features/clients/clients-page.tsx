@@ -103,7 +103,7 @@ export function ClientsPage() {
   const count = clientFilterCount(filter);
 
   return (
-    <Page>
+    <Page width="wide">
       <PageHeader title="Клиенты" subtitle={`${total} в выборке`} />
       <FilterBar
         activeCount={count}
