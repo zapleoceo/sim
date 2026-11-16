@@ -19,12 +19,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parent
 sys.path.insert(0, str(BACKEND))
+from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
+
 from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
 from sim.adapters.db.session import make_session_factory, transaction  # noqa: E402
 from sim.clock import utcnow  # noqa: E402
 from sim.services.send_receipts import SendReceipts, SendUncertain  # noqa: E402
 from sim.services.tracing import Tracer  # noqa: E402
-from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
 
 
 def require_disposable():

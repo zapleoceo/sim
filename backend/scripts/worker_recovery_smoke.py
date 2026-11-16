@@ -87,7 +87,7 @@ async def worker_recovery_checks(factory):
     try:
         await asyncio.wait_for(started.wait(), 10)
         async with transaction(factory) as s:
-            assert await s.scalar(text("select pg_terminate_backend(:pid)"), {"pid": backend_pid[0]})
+            assert await s.scalar(text("select pg_terminate_backend(:pid, 5000)"), {"pid": backend_pid[0]})
         now[0] += timedelta(seconds=91)
         async with transaction(factory) as s:
             [next_claim] = await JobRepo(s).claim(now[0], 90, 1)
