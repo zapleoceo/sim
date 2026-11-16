@@ -28,6 +28,8 @@ def test_bounded_payload_and_read_projection_preserve_truncation_without_reconst
     assert exchange_out(None) is None
     assert exchange_out({"request": payload})["request"]["truncated"]
     assert "response" not in exchange_out({"request": payload})
+    assert "synthetic-project-secret" not in json.dumps(safe_payload(
+        {"synthetic-project-secret": "echo"}, secrets=("synthetic-project-secret",)))
 
 
 @respx.mock

@@ -46,9 +46,9 @@ def safe_payload(value: Any, *, secrets: tuple[str, ...] = ()) -> dict[str, Any]
                 if index >= 500 or remaining <= 0 or nodes <= 0:
                     truncated = True
                     break
-                name = str(key)[:120]
-                remaining -= len(name)
-                out[name] = "[REDACTED]" if SECRET_KEY.search(name) else clean(val, depth + 1)
+                original_name = str(key)
+                name = str(clean(original_name, depth + 1))[:120]
+                out[name] = "[REDACTED]" if SECRET_KEY.search(original_name) else clean(val, depth + 1)
             return out
         if isinstance(item, (list, tuple)):
             out = []
