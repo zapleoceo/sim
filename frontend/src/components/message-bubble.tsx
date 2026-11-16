@@ -3,6 +3,7 @@ import { MessageContent, MessageMetadata } from '@/components/message-parts';
 import { Tip } from '@/components/ui/tooltip';
 import { deliveryMeta, type DeliveryIcon, type MessageVm } from '@/features/inbox/inbox-logic';
 import { cn } from '@/lib/utils';
+import { voiceNotice } from '@/lib/voice-notice';
 
 const DELIVERY_ICONS: Record<DeliveryIcon, LucideIcon> = { clock: Clock, check: Check, alert: AlertCircle, ban: Ban };
 
@@ -23,6 +24,7 @@ export function MessageBubble({ vm, details = false }: { vm: MessageVm; details?
     );
   }
   const blocked = msg.guard?.verdict === 'blocked';
+  const voiceReason = voiceNotice(msg.handoff_reason || msg.error);
   const dm = msg.direction === 'out' ? deliveryMeta(msg.delivery, msg.guard) : null;
   const DIcon = dm ? DELIVERY_ICONS[dm.icon] : null;
   return (
@@ -40,7 +42,10 @@ export function MessageBubble({ vm, details = false }: { vm: MessageVm; details?
         {vm.authorLabel && <span className="text-[11px] font-medium text-muted-foreground">{vm.authorLabel}</span>}
         <MessageContent message={msg} />
         {details && <MessageMetadata message={msg} />}
-        {msg.handoff_reason && <span role="note" className="text-xs text-warning">
+        {voiceReason && <div className="text-xs text-warning"><span role="note">{voiceReason}</span>
+          <details><summary>Подробности</summary>{msg.handoff_reason || msg.error}</details>
+        </div>}
+        {msg.handoff_reason && !voiceReason && <span role="note" className="text-xs text-warning">
           Причина передачи оператору: {msg.handoff_reason}
         </span>}
         <span className="flex items-center justify-end gap-1 text-[11px] text-muted-foreground tabular">

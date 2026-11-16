@@ -109,6 +109,9 @@ class IngestService:
 
     async def accept(self, channel: Channel, msg: InboundMessage) -> IngestResult:
         dialog = await self.dialogs.by_thread(channel.id, msg.external_thread_id)
+        if not (msg.text or "").strip() and not msg.media_kind:
+            # Defensive boundary for connectors: status/empty service records are not turns.
+            return IngestResult(dialog=dialog, client=dialog.client if dialog else None)
         if dialog and msg.external_id and await self.messages.by_external(dialog.id, msg.external_id):
             return IngestResult(duplicate=True, dialog=dialog, client=dialog.client)
         if is_reset(msg.text) and not msg.media_kind and not msg.is_edit:

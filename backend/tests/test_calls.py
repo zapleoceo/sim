@@ -134,6 +134,9 @@ def test_call_keeps_chat_persona_and_answers_identity_questions_honestly(name):
         assert must in identity
     assert "ИИ-ассистент человека" not in prompt
     assert "говори о нём в третьем лице" not in prompt
+    assert "само по себе не вопрос о твоей" in identity
+    assert "На прямой вопрос об ИИ отвечай честно" in identity
+    assert "Сначала коротко уточни" in CALL_RULES
 
 
 def test_first_turn_requests_only_hello_for_any_persona():
@@ -266,9 +269,9 @@ async def dialog_messages(container, dialog_id) -> list[Message]:
             select(Message).where(Message.dialog_id == dialog_id).order_by(Message.id)))
 
 
-def speech_events(audio):
+def speech_events(audio, text="Да, привет! Слушаю."):
     return [LiveVoiceEvent(TRANSCRIPT, role="user", text="Алло, это Марина?"),
-            LiveVoiceEvent(TRANSCRIPT, role="assistant", text="Да, привет! Слушаю."),
+            LiveVoiceEvent(TRANSCRIPT, role="assistant", text=text),
             LiveVoiceEvent(AUDIO, pcm=audio), LiveVoiceEvent(TURN_COMPLETE)]
 
 
@@ -297,6 +300,7 @@ async def test_answers_a_known_client_and_writes_the_transcript(container, world
         (Author.AI, Direction.OUT, "Да, привет! Слушаю.")
     assert outcome.message_ids == [header.id, said.id, answer.id]
     assert answer.guard_verdict == "ok"
+    assert answer.model == header.model == "gemini/gemini-3.8-live"
     async with container.factory() as s:
         dialog = await s.get(Dialog, dialog_id)
         assert dialog.last_message_text == "Да, привет! Слушаю."

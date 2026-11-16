@@ -27,6 +27,12 @@ export function formatDateTime(iso: string | null | undefined): string {
   return iso ? fullFmt.format(parse(iso)) : '';
 }
 
+/** Planned instants always include date and zone; never mix persona and browser clocks. */
+export function formatZonedDateTime(iso: string, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone): string {
+  return new Intl.DateTimeFormat('ru-RU', { timeZone, day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'shortOffset' }).format(parse(iso));
+}
+
 /** Ключ дня для группировки сообщений (локальная дата). */
 export function dayKey(iso: string): string {
   const d = parse(iso);

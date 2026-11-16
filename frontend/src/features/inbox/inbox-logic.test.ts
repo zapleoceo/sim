@@ -71,9 +71,9 @@ describe('conversation', () => {
 
   it('explains a cancelled message blocked by the guard', () => {
     expect(deliveryMeta('cancelled', { verdict: 'blocked', violations: [], model: null, original_text: null }).label).toBe(
-      'Не отправлено: заблокировано контролером',
+      'Не отправлено: не прошло проверку',
     );
-    expect(deliveryMeta('cancelled').label).toBe('Отменено: диалог перешёл к человеку');
+    expect(deliveryMeta('cancelled').label).toBe('Ответ отменён');
     expect(deliveryMeta('failed').icon).toBe('alert');
   });
 
@@ -155,7 +155,8 @@ describe('reply delayed by the persona routine', () => {
   const plan = { at: '2026-11-13T09:40:00Z', reason: 'на работе: консультации до 13:00', cls: 'work', urgent: null };
 
   it('says when she answers and why, in the viewer\'s local time', () => {
-    expect(replyPlanText(plan)).toMatch(/^Ответит в \d{2}:\d{2} — на работе: консультации до 13:00$/);
+    expect(replyPlanText(plan)).toContain('Ответ запланирован:');
+    expect(replyPlanText(plan)).toContain('(ваше время) — на работе: консультации до 13:00');
   });
 
   it('shows the plan only while the AI is on and a reply waits', () => {

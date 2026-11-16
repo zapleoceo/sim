@@ -136,10 +136,10 @@ export function CompactConversationHeader({
 }
 
 /** Phone banner «нужен оператор»: one or two short lines, hidden with «×» (the «⋮» dot and menu badge stay). */
-export function CompactOperatorBanner({ onDismiss }: { onDismiss: () => void }) {
+export function CompactOperatorBanner({ onDismiss, text }: { onDismiss: () => void; text?: string }) {
   return (
     <div role="alert" className="flex flex-none items-center gap-2 border-b bg-warning/15 py-1 pr-1 pl-3 text-xs leading-snug font-medium">
-      <span className="min-w-0 flex-1">Требуется ответ менеджера. ИИ остановлен.</span>
+      <span className="min-w-0 flex-1">{text ?? 'Требуется ответ менеджера. ИИ остановлен.'}</span>
       <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Скрыть уведомление" onClick={onDismiss}>
         <X />
       </Button>

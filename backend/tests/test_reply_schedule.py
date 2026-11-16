@@ -284,9 +284,13 @@ async def test_dialog_card_shows_the_plan_and_reply_now_releases_it(api, contain
     assert dialog["urgent"] is False
     assert dialog["reply_plan"] == {
         "at": dialog["reply_plan"]["at"], "cls": WORK, "urgent": None,
-        "reason": "на работе: консультации с клиентами до 13:00",
+        "reason": "на работе: консультации с клиентами до 13:00 (распорядок: UTC)",
     }
     assert dialog["reply_plan"]["at"].startswith("2026-11-13T09:40")
+    events = (await api.get(f"/api/dialogs/{dialog_id}")).json()["events"]
+    delayed = next(e for e in events if e["kind"] == "reply_delay")
+    assert delayed["to"] == "reply_at:2026-11-13T09:40:00Z"
+    assert "распорядок: UTC" in delayed["reason"]
 
     at_clock(container, fri(9, 15))
     now = await api.post(f"/api/dialogs/{dialog_id}/reply-now", headers=h)

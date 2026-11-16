@@ -38,7 +38,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.session import transaction
 from sim.adapters.pcm import FRAME_MS, PcmBuffer, frame_bytes, resample
 from sim.clock import Clock, utcnow
-from sim.domain.enums import Author, ClientStatus, Delivery, Direction, VoiceAmbience
+from sim.domain.enums import Author, Delivery, Direction, VoiceAmbience
 from sim.domain.voice import GEMINI_VOICES
 from sim.ports.live_voice import (
     AUDIO,
@@ -50,7 +50,7 @@ from sim.ports.live_voice import (
     LiveVoiceSummary,
 )
 from sim.ports.llm import LLMResult
-from sim.services.call_playback import CallPlayback, PlaybackTurn
+from sim.services.call_playback import CallContextChanged, CallPlayback, PlaybackTurn
 from sim.services.call_prompt import greeting
 from sim.services.call_trace import CallTrace
 from sim.services.conversation import ConversationService, history_turns, with_persona_facts
@@ -214,12 +214,15 @@ class CallService:
             ctx = with_persona_facts(persona, ctx)
             verdict = await conv.review(await conv.strategy_for(persona.id),
                 [*history_turns(recent), *spoken], Decision(draft), LLMResult(text=draft, model=model),
-                ctx, dialog_id)
+                ctx, dialog_id, guard_workflow="call_guard", medium="voice")
             dialog = await conv.reload(dialog_id)
             await s.refresh(persona)
-            if (not eligible(dialog) or not persona.accept_calls or dialog.activity_revision != revision
-                    or signature(dialog, persona) != sig):
-                return GuardOutcome(BLOCKED, draft, ["Контекст изменился во время проверки голоса"])
+            if not eligible(dialog) or not persona.is_active or not persona.accept_calls:
+                return GuardOutcome(BLOCKED, draft, ["Ответ отменён: ИИ или звонки выключены."], verdict.model)
+            if dialog.activity_revision != revision or signature(dialog, persona) != sig:
+                log.info("voice candidate cancelled dialog=%s revision_before=%s revision_after=%s signature_changed=%s",
+                         dialog_id, revision, dialog.activity_revision, signature(dialog, persona) != sig)
+                raise CallContextChanged()
             return verdict
 
     async def prepare(self, channel_id: int, thread_id: str) -> CallPlan | str:
@@ -238,7 +241,7 @@ class CallService:
             dialog = await DialogRepo(s).by_thread(channel_id, thread_id)
             if dialog is None:
                 return "unknown_caller"
-            if dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED:
+            if not eligible(dialog):
                 return "operator_dialog"
             system = await self.conversation(s).call_prompt(dialog, persona)
             # Fixed/random note presets do not change previously clean calls.
@@ -378,6 +381,7 @@ class CallService:
                 text=f"Входящий звонок · {clock_text(summary.duration_s)}", media_kind=CALL_KIND,
                 delivery=Delivery.SENT, created_at=started,
                 model=summary.model, cost_usd=summary.cost_usd,
+                provider=summary.provider,
                 tokens_in=summary.tokens_in, tokens_out=summary.tokens_out,
             )
             rows = [header]
@@ -389,9 +393,11 @@ class CallService:
                 rows.append(Message(
                     dialog_id=dialog.id, direction=Direction.IN if from_client else Direction.OUT,
                     author=Author.CLIENT if from_client else Author.AI, text=turn.text.strip(),
+                    model=summary.model if not from_client else None,
+                    provider=summary.provider if not from_client else None,
                     delivery=Delivery.SENT if turn.delivered else Delivery.CANCELLED,
-                    error=(f"Voice playback incomplete: {turn.played_bytes}/{turn.queued_bytes} PCM bytes accepted"
-                           if turn.released and not turn.delivered else None),
+                    error=(turn.cancel_reason or (f"Voice playback incomplete: {turn.played_bytes}/{turn.queued_bytes} PCM bytes accepted"
+                           if turn.released and not turn.delivered else None)),
                     guard_verdict=guard.verdict if guard else None,
                     guard_violations=guard.violations if guard else None,
                     guard_model=guard.model if guard else None,
