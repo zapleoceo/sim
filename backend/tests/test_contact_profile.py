@@ -91,6 +91,15 @@ async def test_missing_username_and_photo_are_not_invented():
     port.read_contact_photo.assert_not_awaited()
 
 
+async def test_photo_failure_keeps_successfully_read_profile_fields():
+    service, dialog, port, _ = setup_read()
+    port.read_contact_photo.side_effect = ValueError("private photo")
+    result = await service.read(dialog, port, "profile", channel_id=10, model="selected-model")
+    assert '"status": "available"' in result.text and '"photo_status": "unavailable"' in result.text
+    assert '"username": "known_user"' in result.text and "Biography" in result.text
+    assert not result.photo and "private photo" not in result.text
+
+
 async def test_no_hidden_model_fallback():
     service, dialog, port, llm = setup_read()
     llm.llm.list_models.return_value = []

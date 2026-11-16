@@ -77,8 +77,11 @@ class CurrentContactProfile:
                             fields["photo_status"] = "selected_model_has_no_confirmed_vision"
             except Exception:
                 # No exception text: Telegram errors can contain private identifiers.
-                status = "unavailable"
-                fields, photo = {}, ""
+                # A photo/catalog failure must not erase a successfully read text profile.
+                photo = ""
+                status = "available" if fields else "unavailable"
+                if fields:
+                    fields["photo_status"] = "unavailable"
         tracer = self.llm.tracer
         if tracer is not None:
             await tracer.record("watch", "Профиль текущего собеседника", dialog_id=dialog.id,
