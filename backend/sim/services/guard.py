@@ -2,8 +2,9 @@
 is queued for sending.
 
 The guard runs on a DIFFERENT broker rotation than the generator (owner setting `guard_capability`,
-default "structured"). If the model that served the guard call is the same one that wrote the
+default "structured"). If a clean approval came from the same model that wrote the
 draft, the guard is re-run once on `guard_fallback_capability` (default "prefilter").
+Primary objections are retained immediately, irrespective of model identity.
 If that fallback still reports the generator model, the review fails closed. Missing model
 metadata remains accepted; independence cannot be verified when either model is unknown
 or different IDs alias the same model. Rewrite checks compare against the original generator,
@@ -155,7 +156,7 @@ def guard_user_message(
 
 
 def parse_verdict(result: LLMResult) -> GuardVerdict | None:
-    if result.finish_reason == "length":
+    if result.truncated:
         return None
     obj = extract_json_object(result.text or "")
     if obj is None:
@@ -238,6 +239,13 @@ class Guard:
         workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
         result = await self.call(messages, self.capability, dialog_id, workflow, self.model)
+        verdict = parse_verdict(result)
+        if verdict is None:
+            raise GuardError(f"guard returned an unusable verdict (model={result.model})")
+        # Independence is required to approve a draft, never to retain an objection.
+        # A second rotation must not erase block/rewrite or contradictory ok feedback.
+        if verdict.verdict != "ok" or verdict.violations or verdict.fixed_reply:
+            return verdict, result.model
         if same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",

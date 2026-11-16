@@ -1,5 +1,21 @@
 # Sim
 
+### Guard independence preserves objections
+
+A primary guard objection (block, legacy rewrite or contradictory ok) returns to
+the generator even when that guard used the generator's model. Only a clean ok
+requires a second independent rotation. Its approval cannot erase an earlier
+objection. A repaired complete decision is checked anew before any send or handoff.
+Regression coverage uses synthetic media-refusal decisions and both verdict orders;
+no live models or channel messages are used.
+
+Guard and passport use the shared `LLMResult.truncated` property for provider endings
+`length` and `max_tokens` (case/whitespace normalized without changing audit metadata).
+Passport updates reject those endings or output exceeding 12,000 characters
+instead of silently saving a prefix. The previous complete passport and update time
+remain intact; the existing job retry policy handles the failure. This does not restore
+historical text already lost, or remove the documented context size bounds.
+
 ### Current-contact profile and requested media
 
 Owner settings `media_priority_telegram_ids` (empty by default) prefer permissible
