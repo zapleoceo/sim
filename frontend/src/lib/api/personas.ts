@@ -1,5 +1,5 @@
 import type {
-  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPrompt, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, VideoNoteQueued,
+  BrokerModel, ListResponse, MediaKind, Persona, PersonaIn, PersonaMedia, PersonaPrompt, PersonaPromptVersion, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, VideoNoteQueued,
 } from '../models';
 import { http } from './http';
 
@@ -26,6 +26,13 @@ export const personasApi = {
   prompt: (id: number) => http.get<PersonaPrompt>(`/api/personas/${id}/prompt`),
   savePrompt: (id: number, text: string) => http.put<{ mode: 'unified'; agent_prompt: string }>(
     `/api/personas/${id}/prompt`, { text }),
+  /** Every saved text of the prompt, newest (in use) first. Silent: the editor works without it. */
+  promptVersions: (id: number) =>
+    http.get<ListResponse<PersonaPromptVersion>>(`/api/personas/${id}/prompt/versions`, { silent: true }).then((r) => r.items),
+  /** Put an older text back in use (saved again as the newest version). */
+  restorePrompt: (id: number, versionId: number) =>
+    http.post<{ mode: 'unified'; agent_prompt: string; items: PersonaPromptVersion[] }>(
+      `/api/personas/${id}/prompt/versions/${versionId}/restore`, {}),
   /** Silent: an unavailable Broker must not toast on every page load. */
   models: () => http.get<ListResponse<BrokerModel>>('/api/models', { silent: true }).then((r) => r.items),
 

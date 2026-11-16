@@ -30,6 +30,8 @@ export const qk = {
   personaMedia: (id: number) => ['persona-media', id] as const,
   personaPrompts: ['persona-prompt'] as const,
   personaPrompt: (id: number) => ['persona-prompt', id] as const,
+  /** Under `personaPrompt`: saving or restoring the prompt refreshes its versions too. */
+  personaPromptVersions: (id: number) => ['persona-prompt', id, 'versions'] as const,
   dialogs: (filter: unknown) => ['dialogs', filter] as const,
   dialog: (id: number) => ['dialog', id] as const,
   /** Under the dialog key: a live event of the dialog refreshes its summary too. */

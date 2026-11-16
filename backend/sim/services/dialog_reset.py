@@ -2,8 +2,9 @@
 
 Three operations, each a part of the next:
 
-- `clear_chat(dialog)`: every message of the dialog, its pending reply / follow-up / passport
-  jobs and the dialog counters, so the persona's next reply starts without the past history.
+- `clear_chat(dialog)`: every message of the dialog, its communication journal (`dialog_event`),
+  its pending reply / follow-up / passport jobs and the dialog counters, so the persona's next
+  reply starts without the past history and the feed and the context show no old service lines.
   Used by the owner's «Очистить чат» in the admin (`DELETE /api/dialogs/{id}/messages`).
 - `clear_passport(client)`: what was collected about the person: the lead passport, needs,
   notes, next step, and the pending passport updates of all the client's dialogs. Used by the
@@ -12,8 +13,8 @@ Three operations, each a part of the next:
   `/reset` from a chat (owner's request: testing personas from scratch).
 
 Always kept: the client row, its ref code and channel identities (the link to the person stays),
-the funnel and partner events (analytics), the request journal and the communication journal
-(`dialog_event`: the wipe itself is one of its lines, written by the caller who knows who did it).
+the funnel and partner events (analytics) and the request journal. The wipe itself becomes the
+first line of the emptied communication journal, written by the caller who knows who did it.
 The summary of older messages goes together with the messages. Nothing is sent
 to the chat and nothing is deleted in the messenger itself."""
 from __future__ import annotations
@@ -21,7 +22,7 @@ from __future__ import annotations
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import Client, Dialog, Message
+from sim.adapters.db.models import Client, Dialog, DialogEvent, Message
 from sim.adapters.db.repositories.conversations import DialogRepo, DialogSummaryRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.domain.enums import ClientStatus, Stage
@@ -48,6 +49,7 @@ class DialogReset:
                           (jobkinds.PASSPORT, jobkinds.passport_key(dialog.id))):
             await self.jobs.cancel_pending(kind, key)
         res = await self.session.execute(delete(Message).where(Message.dialog_id == dialog.id))
+        await self.session.execute(delete(DialogEvent).where(DialogEvent.dialog_id == dialog.id))
         await DialogSummaryRepo(self.session).clear(dialog.id)   # the summary was made of them
         dialog.unread = 0
         dialog.followup_step = 0

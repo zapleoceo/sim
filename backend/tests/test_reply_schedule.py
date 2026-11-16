@@ -14,19 +14,24 @@ from sim.domain.enums import ChannelKind
 from sim.services import jobkinds
 from sim.services.app_settings import SPECS, AppSettingsService
 from sim.services.reply_schedule import (
+    AFTER_PAUSE,
     BUSY,
+    DEBOUNCE,
+    DUE,
     FREE,
     ROAD,
     SLEEP,
     URGENT_WAIT,
     URGENT_WORDS,
     WORK,
+    WRITING,
     Incoming,
     Plan,
     ScheduleRules,
     answers_at_once,
     classify,
     delay_note,
+    plan_reason,
     plan_reply,
     reason_text,
     rules_from,
@@ -278,6 +283,33 @@ async def test_an_owner_account_is_answered_at_once_whatever_her_routine(contain
     assert job.run_at == fri(9, 10) + timedelta(seconds=container.settings.reply_debounce_s)
 
 
+def test_the_card_names_why_any_planned_reply_waits():
+    def job(**kw) -> Job:
+        return Job(**{"status": "pending", "run_at": fri(9, 20), "attempts": 0, "max_attempts": 5,
+                      "last_error": None, **kw})
+
+    work = {"cls": WORK, "what": "консультации", "until": fri(13).isoformat(), "urgent": None}
+    now = fri(9, 10)
+    assert plan_reason(job(), {}, "UTC", now) == DEBOUNCE
+    assert plan_reason(job(), {"pause": True}, "UTC", now) == AFTER_PAUSE
+    assert plan_reason(job(), work, "UTC", now) == "на работе: консультации до 13:00 (распорядок: UTC)"
+    assert plan_reason(job(run_at=now), work, "UTC", now) == DUE
+    assert plan_reason(job(status="running"), work, "UTC", now) == WRITING
+    retry = job(attempts=2, last_error="LLMError: chat:sales job 1 still pending after budget")
+    assert plan_reason(retry, {"pause": True}, "UTC", now) == (
+        "повтор после ошибки, попытка 3 из 5: LLMError: chat:sales job 1 still pending after budget; "
+        + AFTER_PAUSE)
+    assert plan_reason(retry, {}, "UTC", now).startswith("повтор после ошибки") and DEBOUNCE not in plan_reason(retry, {}, "UTC", now)
+
+
+async def test_the_card_shows_a_reply_planned_without_a_routine_delay(api, container, world):
+    at_clock(container, fri(15))
+    await ingest(container, world.channel.id, inbound("Привет", at=fri(15)))
+    await login(api, *OWNER)
+    plan = (await api.get(f"/api/dialogs/{await dialog_id_of(container)}")).json()["dialog"]["reply_plan"]
+    assert plan["reason"] == DEBOUNCE and plan["cls"] == "" and plan["writing"] is False
+
+
 def test_owner_accounts_are_private_telegram_chats_with_a_listed_id():
     def dialog(kind: ChannelKind, thread: str, urgent: bool = False) -> SimpleNamespace:
         return SimpleNamespace(channel=SimpleNamespace(kind=kind), external_thread_id=thread, urgent=urgent)
@@ -311,7 +343,7 @@ async def test_dialog_card_shows_the_plan_and_reply_now_releases_it(api, contain
     dialog = (await api.get(f"/api/dialogs/{dialog_id}")).json()["dialog"]
     assert dialog["urgent"] is False
     assert dialog["reply_plan"] == {
-        "at": dialog["reply_plan"]["at"], "cls": WORK, "urgent": None,
+        "at": dialog["reply_plan"]["at"], "cls": WORK, "urgent": None, "writing": False,
         "reason": "на работе: консультации с клиентами до 13:00 (распорядок: UTC)",
     }
     assert dialog["reply_plan"]["at"].startswith("2026-11-13T09:40")
@@ -325,7 +357,8 @@ async def test_dialog_card_shows_the_plan_and_reply_now_releases_it(api, contain
     assert now.status_code == 200 and now.json()["queued"] is True and now.json()["reply_plan"] is None
     job = await reply_job(container)
     assert job.run_at == fri(9, 15) and job.payload["delay"]["cls"] == WORK   # the reason is kept
-    assert (await api.get(f"/api/dialogs/{dialog_id}")).json()["dialog"]["reply_plan"] is None
+    plan = (await api.get(f"/api/dialogs/{dialog_id}")).json()["dialog"]["reply_plan"]
+    assert plan["reason"] == DUE and plan["at"].startswith("2026-11-13T09:15")  # due, not "at work"
     assert (await api.post("/api/dialogs/9999/reply-now", headers=h)).status_code == 404
 
 
@@ -356,7 +389,7 @@ async def test_an_urgent_dialog_is_answered_without_the_routine_delay(api, conta
     at_clock(container, fri(23, 35))
     marked = await api.post(f"/api/dialogs/{dialog_id}/urgent", json={"urgent": True}, headers=h)
     assert marked.status_code == 200
-    assert marked.json()["urgent"] is True and marked.json()["reply_plan"] is None
+    assert marked.json()["urgent"] is True and marked.json()["reply_plan"]["reason"] == DUE
     assert (await reply_job(container)).run_at == fri(23, 35)                  # she is woken up
 
     async with transaction(container.factory) as s:                            # that reply ran

@@ -189,6 +189,7 @@ export function detailChanged(prev: DialogDetail | null | undefined, next: Dialo
     prev.dialog.needs_operator === next.dialog.needs_operator &&
     (prev.dialog.unanswered?.count ?? 0) === (next.dialog.unanswered?.count ?? 0) &&
     (prev.dialog.reply_plan?.at ?? null) === (next.dialog.reply_plan?.at ?? null) &&
+    (prev.dialog.reply_plan?.reason ?? null) === (next.dialog.reply_plan?.reason ?? null) &&
     JSON.stringify(prev.dialog.reengagement_plan) === JSON.stringify(next.dialog.reengagement_plan) &&
     !!prev.dialog.urgent === !!next.dialog.urgent
   );
@@ -199,7 +200,14 @@ export function replyPlanText(plan: ReplyPlan): string {
   return `Ответ запланирован: ${formatZonedDateTime(plan.at)} (ваше время) — ${plan.reason}`;
 }
 
-/** The delayed reply the dialog shows; nothing while the AI is paused (the pause is the news). */
+/** The chat state title for a planned reply: being written, delayed by her routine, or simply
+ * queued (debounce, after a pause, a retry after an error). */
+export function replyPlanTitle(plan: ReplyPlan): string {
+  if (plan.writing) return 'Пишет ответ';
+  return plan.cls ? 'Ответ отложен' : 'Ответ запланирован';
+}
+
+/** The planned reply the dialog shows; nothing while the AI is paused (the pause is the news). */
 export function replyPlanNotice(dialog: Pick<Dialog, 'ai_paused' | 'reply_plan'>): string | null {
   return dialog.ai_paused || !dialog.reply_plan ? null : replyPlanText(dialog.reply_plan);
 }

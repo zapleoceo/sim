@@ -228,7 +228,9 @@ export interface Dialog {
   /** Ответ, отложенный по распорядку персонажа: когда уйдёт и почему (null: ответ не отложен). */
   reply_plan?: ReplyPlan | null;
 }
-export interface ReplyPlan { at: string; reason: string; cls: string; urgent: string | null }
+/** The next reply of the dialog: `cls` is the routine class when her routine delays it ('' when
+ * nothing does); `writing` = the model is writing it right now. */
+export interface ReplyPlan { at: string; reason: string; cls: string; urgent: string | null; writing?: boolean }
 /** POST /api/dialogs/{id}/reply-now и /urgent: диалог с актуальным планом ответа. */
 export interface ReplyPlanResult extends Dialog { queued?: boolean }
 export interface UnansweredInfo { count: number; since: string | null; message_ids: number[] }
@@ -419,6 +421,8 @@ export interface FixedPrompts { persona: string; guard: string }
 export interface PromptPart { key: string; title: string; text: string; source: 'persona' | 'strategy' | 'setting' | 'code'; field: string }
 /** A rule fixed in the code: shown read-only. */
 export interface FixedRule { key: string; title: string; text: string }
+/** One saved text of a persona prompt; `author` and `note` may be empty. */
+export interface PersonaPromptVersion { id: number; text: string; author: string; note: string; created_at: string }
 /**
  * The persona's prompt map: `system` is the stable system message as the model gets it, `parts` the same
  * text piece by piece, `context` an example of the per-reply message code builds, `rules` what is fixed in

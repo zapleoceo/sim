@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { formatZonedDateTime } from '@/lib/format';
 import type { DialogDetail } from '@/lib/models';
-import { pauseNotice, replyPlanNotice } from './inbox-logic';
+import { pauseNotice, replyPlanNotice, replyPlanTitle } from './inbox-logic';
 
 const PLAN_LABELS: Record<string, string> = { analyzing: 'Анализируется', scheduled: 'Запланировано',
   outdated: 'План устарел', no_send: 'Писать не нужно', blocked: 'Не прошло проверку',
@@ -17,7 +17,8 @@ export function ConversationState({ detail, onToggleAi, onReplyNow, onResolve }:
   const delayed = replyPlanNotice(d);
   const plan = d.reengagement_plan;
   const title = d.ai_paused ? 'ИИ выключен' : d.needs_operator ? 'Нужен ответ оператора · ИИ включён'
-    : delayed ? 'Ответ отложен' : plan ? `Следующее сообщение: ${PLAN_LABELS[plan.status] ?? plan.status}` : 'ИИ включён';
+    : delayed && d.reply_plan ? replyPlanTitle(d.reply_plan)
+    : plan ? `Следующее сообщение: ${PLAN_LABELS[plan.status] ?? plan.status}` : 'ИИ включён';
   const handoff = detail.events?.filter(e => e.kind === 'handoff').at(-1);
   return <section aria-label="Состояние чата" className="flex-none border-b bg-background px-3 py-2 sm:px-4">
     <details className="group">
@@ -31,7 +32,7 @@ export function ConversationState({ detail, onToggleAi, onReplyNow, onResolve }:
           <Button variant="outline" size="sm" onClick={onResolve}>Обработано</Button></div>}
         {d.reply_plan && <div aria-label="Отложенный ответ"><p>{d.ai_paused ? 'Отправка приостановлена. ' : ''}
           {formatZonedDateTime(d.reply_plan.at)} (ваше время)</p><p className="text-xs text-muted-foreground">{d.reply_plan.reason}</p>
-          {!d.ai_paused && onReplyNow && <Button size="sm" variant="outline" onClick={onReplyNow}>Ответить сейчас</Button>}</div>}
+          {!d.ai_paused && !d.reply_plan.writing && onReplyNow && <Button size="sm" variant="outline" onClick={onReplyNow}>Ответить сейчас</Button>}</div>}
         {plan && <div aria-label="План продолжения разговора" className="rounded-lg border bg-muted/30 p-3">
           <strong>{PLAN_LABELS[plan.status] ?? plan.status}</strong>
           {d.ai_paused && <p>ИИ выключен: этот план не означает, что сообщение будет отправлено.</p>}
