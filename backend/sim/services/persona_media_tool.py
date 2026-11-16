@@ -18,7 +18,7 @@ How it works:
   cache, encoder and allowlist as the owner's own notes).
 
 Rules that do not change:
-- a video note goes only to the account from the setting «Кружочки ИИ»;
+- a video note goes only to the account from the setting «Telegram id для кружочков ИИ»;
 - her text never promises the media: it is a separate message that may not come. When the
   generation fails, the reason is a failed, never-sent message in the dialog and the result of
   the job in the system log.

@@ -188,7 +188,7 @@ export interface MediaDecisionInfo {
   /** silent: её просили, а решения в ответе нет (поле media не заполнено). */
   decision: 'send' | 'decline' | 'later' | 'silent';
   reason: string;
-  /** Просил владелец (диалог с аккаунтом из настройки «Кружочки ИИ»). */
+  /** Просил владелец (диалог с аккаунтом из настройки «Telegram id для кружочков ИИ»). */
   owner_request: boolean;
   outcome: string;
   /** Итог одной фразой, например «запрос владельца, отказ модели». */

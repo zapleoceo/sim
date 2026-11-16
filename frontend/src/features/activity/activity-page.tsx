@@ -24,7 +24,7 @@ export function ActivityPage() {
   const setTrace = (trace: string | null): void => void navigate({ search: (s) => ({ ...s, trace: trace ?? undefined }) });
 
   return (
-    <Page>
+    <Page width="wide">
       <PageHeader
         title="Активность"
         subtitle={isOwner ? 'Журнал всех запросов системы, сообщения по каналам и вызовы моделей' : 'Сообщения по всем каналам'}

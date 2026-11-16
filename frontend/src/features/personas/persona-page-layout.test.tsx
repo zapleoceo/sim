@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SECTIONS } from './persona-sections';
 import { EMPTY_PERSONA } from './persona-schema';
-import type { AppSettingItem, Persona } from '@/lib/models';
+import type { Persona } from '@/lib/models';
 import { fakeApi, type FakeReply } from '@/test/fake-api';
 import { blockButton, openLongText, toggleBlock } from '@/test/persona-blocks';
 import { renderApp } from '@/test/render-app';
@@ -58,7 +58,7 @@ describe('persona page layout', () => {
       expect(document.getElementById(`${section.id}-panel`)).not.toBeVisible();
     }
     const order = [...document.querySelectorAll('[data-section]')].map((el) => el.getAttribute('data-section'));
-    expect(order).toEqual(['profile', 'routine', 'voice', 'strategy', 'prompt', 'media', 'shared', 'assembled']);
+    expect(order).toEqual(['profile', 'routine', 'voice', 'strategy', 'prompt', 'media', 'assembled']);
 
     await toggleBlock('Голос и звонки');
     expect(screen.getByRole('button', { name: 'Голос и звонки' })).toHaveAttribute('aria-expanded', 'true');
@@ -106,36 +106,6 @@ describe('persona page layout', () => {
     await renderApp('/personas/1');
     await toggleBlock('Распорядок');
     expect(await openLongText('Распорядок недели')).toHaveValue('пн-пт 09:00-13:00 консультации');
-  });
-
-  it.each(['save', 'reset'] as const)('locks shared text while %s is pending, then shows the returned value', async (operation) => {
-    const setting: AppSettingItem = {
-      key: 'output_contract', group: 'Ответ', label: 'Формат ответа', help: '', kind: 'text',
-      min: null, max: null, value: 'свой формат', default: 'исходный формат', is_default: false,
-      updated_at: null, updated_by_id: null,
-    };
-    let finish!: (item: AppSettingItem) => void;
-    const pending = new Promise<AppSettingItem>((resolve) => { finish = resolve; });
-    backend({
-      'GET /api/settings': { items: [setting], fixed: { persona: '', guard: '' } },
-      'PUT /api/settings/output_contract': () => pending,
-      'DELETE /api/settings/output_contract': () => pending,
-    });
-    await renderApp('/personas/1');
-    await toggleBlock('Общие инструкции');
-    const region = within(document.getElementById('setting-output_contract') as HTMLElement);
-    const input = region.getByRole('textbox', { name: 'Формат ответа' });
-    await userEvent.clear(input);
-    await userEvent.type(input, 'новый формат');
-    await userEvent.click(region.getByRole('button', { name: operation === 'save' ? 'Сохранить' : 'Вернуть по умолчанию' }));
-    await waitFor(() => expect(input).toBeDisabled());
-    expect(region.getByRole('button', { name: 'Редактировать: Формат ответа' })).toBeDisabled();
-    await userEvent.type(input, ' потерянная правка');
-    expect(input).toHaveValue('новый формат');
-    const returned = operation === 'save' ? 'новый формат' : 'исходный формат';
-    finish({ ...setting, value: returned, is_default: operation === 'reset', updated_at: '2026-11-14T21:00:00Z' });
-    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Формат ответа' })).toBeEnabled());
-    expect(screen.getByRole('textbox', { name: 'Формат ответа' })).toHaveValue(returned);
   });
 
   it('preserves hidden description and prohibitions when saving the persona form', async () => {

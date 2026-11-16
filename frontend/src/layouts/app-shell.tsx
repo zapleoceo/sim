@@ -11,9 +11,10 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Tip } from '@/components/ui/tooltip';
 import { useViewportVars } from '@/hooks/use-viewport-vars';
 import { authStore, useAuth } from '@/lib/auth';
-import { BOTTOM_COUNT, ROLE_LABELS, visibleNav, type NavItem } from '@/lib/nav';
+import { NAV_GROUPS, ROLE_LABELS, bottomSlots, inAgents, isActivePath, visibleNav, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeMode } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { AgentTabs } from './agent-tabs';
 
 const COLLAPSE_KEY = 'sim-nav-collapsed';
 /** One slot of the phone bottom bar: a 20 px icon over a one-line caption; `min-w-0` lets the caption truncate. */
@@ -25,10 +26,6 @@ function readCollapsed(): boolean {
   } catch {
     return false;
   }
-}
-
-export function isActivePath(pathname: string, path: string): boolean {
-  return pathname === path || pathname.startsWith(`${path}/`);
 }
 
 function Brand({ compact }: { compact: boolean }) {
@@ -46,18 +43,15 @@ function NavLinks({ items, compact, pathname, onNavigate }: {
   pathname: string;
   onNavigate?: () => void;
 }) {
-  const groups: { key: NavItem['group']; label: string }[] = [
-    { key: 'work', label: 'Работа' },
-    { key: 'setup', label: 'Настройка' },
-  ];
   return (
     <nav aria-label="Разделы" className="flex flex-col gap-4 px-2">
-      {groups.map((g) => {
+      {NAV_GROUPS.map((g) => {
         const list = items.filter((i) => i.group === g.key);
         if (!list.length) return null;
         return (
-          <div key={g.key} className="flex flex-col gap-0.5">
-            {!compact && <span className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{g.label}</span>}
+          <div key={g.key} role="group" aria-label={g.label} className="flex flex-col gap-0.5">
+            {!compact && <span aria-hidden="true" className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{g.label}</span>}
+            {compact && g.key !== NAV_GROUPS[0].key && <span aria-hidden="true" className="mx-3 mb-1 border-t" />}
             {list.map((item) => {
               const active = isActivePath(pathname, item.path);
               const Icon = item.icon;
@@ -144,7 +138,9 @@ function UserMenu({ compact }: { compact: boolean }) {
 }
 
 /**
- * Responsive shell: sidebar on desktop (collapsible to a rail), bottom tab bar + «Ещё» sheet on phones.
+ * Responsive shell: sidebar on desktop (collapsible to a rail) grouped into «Работа», «Агенты» and
+ * «Настройка»; on phones a bottom tab bar (the agents' sections behind one «Агенты» slot, switched
+ * by the strip on top of their pages) and the «Ещё» sheet with everything.
  */
 export function AppShell() {
   const { user } = useAuth();
@@ -153,7 +149,7 @@ export function AppShell() {
   const [moreOpen, setMoreOpen] = useState(false);
   useViewportVars();
   const items = visibleNav(user?.role);
-  const bottom = items.slice(0, BOTTOM_COUNT);
+  const bottom = bottomSlots(items);
 
   const toggle = (): void => {
     setCollapsed((v) => {
@@ -193,6 +189,7 @@ export function AppShell() {
       </aside>
 
       <main id="main" className="flex min-w-0 flex-1 flex-col pb-(--bottom-nav) max-md:overflow-x-clip">
+        {inAgents(items, pathname) && <AgentTabs items={items} pathname={pathname} />}
         <Outlet />
       </main>
 
@@ -201,7 +198,7 @@ export function AppShell() {
         className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden kb:hidden"
       >
         {bottom.map((item) => {
-          const active = isActivePath(pathname, item.path);
+          const active = item.match.some((path) => isActivePath(pathname, path));
           const Icon = item.icon;
           return (
             <Link

@@ -121,7 +121,7 @@ describe('SettingsPage', () => {
     });
     await renderApp('/agents');
     expect(await screen.findByLabelText('Промпт охранника')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Помощники' })).toBeInTheDocument();
     expect(screen.getByLabelText('Инструкция паспортистки')).toHaveValue('веди паспорт');
     expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
     // the decision consistency contract sits in the guard card, not in the passport keeper card
@@ -142,7 +142,7 @@ describe('SettingsPage', () => {
   it('the old guard address leads to the agents page', async () => {
     fakeApi({ 'GET /api/settings': { items: [GUARD] } });
     await renderApp('/guard');
-    expect(await screen.findByRole('heading', { name: 'Агенты' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Помощники' })).toBeInTheDocument();
   });
 
   it('the shared rules page hides the agents', async () => {
@@ -152,6 +152,26 @@ describe('SettingsPage', () => {
     expect(await screen.findByLabelText('Манера письма')).toBeInTheDocument();
     expect(screen.queryByLabelText('Инструкция паспортистки')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();
+  });
+
+  it('a long page has a group index, and every field has its anchor', async () => {
+    const groups = ['Ответы', 'Время ответа по распорядку', 'Стиль сообщений', 'Аккаунты владельца'].map((group, i) =>
+      item({ key: `k${i}`, group, label: `Поле ${i}` }));
+    fakeApi({ 'GET /api/settings': { items: groups } });
+    await renderApp('/settings');
+    const index = await screen.findByRole('navigation', { name: 'Группы настроек' });
+    expect(within(index).getAllByRole('link').map((a) => a.textContent)).toEqual(
+      ['Ответы', 'Время ответа по распорядку', 'Стиль сообщений', 'Аккаунты владельца']);
+    const target = within(index).getByRole('link', { name: 'Аккаунты владельца' }).getAttribute('href')!.slice(1);
+    expect(document.getElementById(target)).toBe(screen.getByRole('region', { name: 'Аккаунты владельца' }));
+    expect(document.getElementById('setting-k3')).toContainElement(screen.getByLabelText('Поле 3'));
+  });
+
+  it('a short page has no index', async () => {
+    fakeApi({ 'GET /api/settings': { items: [STYLE, DELAY] } });
+    await renderApp('/settings');
+    expect(await screen.findByLabelText('Манера письма')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Группы настроек' })).not.toBeInTheDocument();
   });
 
   it('rejects a non-integer before calling the API', async () => {

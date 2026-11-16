@@ -161,7 +161,7 @@ class OwnerVideoNotes:
         owner_id = await owner_telegram_id(self.session)
         if owner_id <= 0:
             raise VideoNoteRefused(
-                "Получатель не задан: укажите Telegram id в настройке «Кружочки ИИ». "
+                "Получатель не задан: укажите Telegram id в настройке «Общие правила → Аккаунты владельца → Telegram id для кружочков ИИ». "
                 "Пока он не задан, кружочки не создаются и не отправляются.")
         if await self.session.get(Persona, request.persona_id) is None:
             raise VideoNoteRefused("Персона не найдена")

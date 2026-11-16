@@ -148,7 +148,7 @@ export function AdminsPage() {
   ];
 
   return (
-    <Page>
+    <Page width="wide">
       <PageHeader title="Администраторы" subtitle="Вход в админку только через Telegram: добавьте Telegram ID или @username" />
 
       <Card>
