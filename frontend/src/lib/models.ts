@@ -158,6 +158,8 @@ export type Direction = 'in' | 'out';
 export type Author = 'client' | 'ai' | 'operator';
 export type Delivery = 'queued' | 'sent' | 'failed' | 'cancelled';
 export interface Message {
+  handoff_reason?: string | null;
+  handoff_at?: string | null;
   id: number;
   direction: Direction;
   author: Author;
@@ -210,6 +212,7 @@ export interface DialogRow {
   is_test?: boolean;
 }
 export interface Dialog {
+  reengagement_plan?: { status: string; text?: string; at?: string | null; reason?: string } | null;
   id: number;
   channel_kind?: ChannelKind;
   persona_id?: number;

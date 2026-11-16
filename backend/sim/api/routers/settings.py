@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from sim.api.deps import App, Authed, Db, Owner
 from sim.api.schemas import Body, dt
 from sim.services.app_settings import AppSettingsService, SettingError, SettingItem, env_defaults
-from sim.services.guard import GUARD_CONTROL
+from sim.services.guard import FACT_CONTROL, GUARD_CONTROL
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -40,7 +40,7 @@ async def list_settings(c: App, s: Db, _: Authed):
     """`fixed`: the fixed decision-control contract (persona is empty), shown read-only so the owner sees every prompt."""
     return {
         "items": [setting_out(i) for i in await service(c, s).items()],
-        "fixed": {"persona": "", "guard": GUARD_CONTROL},
+        "fixed": {"persona": "", "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}"},
     }
 
 

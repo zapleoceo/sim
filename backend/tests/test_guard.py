@@ -271,7 +271,7 @@ async def test_blocked_followup_stops_the_ladder_and_needs_operator(container, w
     _, dialog, _, jobs = await state(container)
     assert dialog.needs_operator and dialog.followup_step == 0
     # no further rung was scheduled: only the job queued after the first reply exists
-    assert len([j for j in jobs if j.kind == jobkinds.FOLLOWUP]) == 1
+    assert not [j for j in jobs if j.kind == jobkinds.FOLLOWUP]
 
 
 async def test_operator_messages_are_not_guarded(container, world, fake_llm, connector):
@@ -304,9 +304,9 @@ def test_guard_checks_only_the_critical_rules():
 
 
 def test_guard_prompt_is_the_owner_text_plus_decision_control():
-    from sim.services.guard import GUARD_CONTROL
+    from sim.services.guard import FACT_CONTROL, GUARD_CONTROL
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}"
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}"
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():

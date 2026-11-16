@@ -26,7 +26,7 @@ from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
 from sim.services.chat_activity import mark_read, showing
-from sim.services.dialog_state import turns
+from sim.services.dialog_state import invalidate_plan, turns
 from sim.services.followup import FollowupService
 from sim.services.funnel import MODEL_DECISION, FunnelService
 from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
@@ -34,7 +34,7 @@ from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import MediaDecision
-from sim.services.outbound import OutboundService
+from sim.services.outbound import OutboundService, cancel_queued_ai
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
 from sim.services.persona_media_tool import PersonaMediaTool
@@ -156,6 +156,7 @@ def decision_fields(decision: Decision) -> dict[str, Any]:
         "needs": decision.needs,
         "next_step": decision.next_step,
         "handoff_to_operator": decision.handoff_to_operator,
+        "handoff_reason": decision.handoff_reason,
         "refused": decision.refused,
         "stop_contact": decision.stop_contact,
     }
@@ -352,6 +353,9 @@ class ConversationService:
             allowed_links=allowed,
             dialog_id=dialog_id,
             workflow=guard_workflow,
+            trusted_facts={"now_utc": ctx.now.isoformat() + "Z", "persona_facts": ctx.persona_facts},
+            context={"passport": ctx.passport, "summary": ctx.summary, "journal": ctx.journal,
+                     "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step},
         )
 
     async def ask(
@@ -442,6 +446,7 @@ class ConversationService:
             dialog_id, await self.dialog_context(dialog, persona, instruction=instruction))
         cutoff = max((m.id for m in recent if m.direction is Direction.IN), default=0)
         history = history_turns(recent)
+        activity_revision = dialog.activity_revision
         waiting = turns(await self.messages.unanswered(dialog_id))
         if delay and waiting:
             ctx = replace(ctx, delay_note=delay_note(
@@ -471,6 +476,8 @@ class ConversationService:
             return ReplyOutcome("skipped")  # the client refused meanwhile
         if dialog.ai_paused:                # a human took over meanwhile
             return ReplyOutcome("skipped") if followup else await self.paused(dialog_id)
+        if dialog.activity_revision != activity_revision:
+            return ReplyOutcome("superseded")
         newer = await self.messages.last(dialog_id, Direction.IN)
         if newer is not None and newer.id > cutoff:
             # The client wrote again while we were thinking: this answer is already stale. The
@@ -494,6 +501,7 @@ class ConversationService:
     async def handoff_failed(self, dialog: Dialog, draft: Draft) -> ReplyOutcome:
         """Two rejected decisions: one neutral reply, then a visible manager handoff."""
         reason = draft.rejection or "the generator could not produce an approved answer"
+        await self.mark_handoff(dialog, reason)
         dialog.needs_operator = True
         dialog.ai_paused = True
         await self.journal.record(dialog.id, HANDOFF, new="operator", who=SYSTEM,
@@ -508,6 +516,16 @@ class ConversationService:
         )
         return ReplyOutcome("needs_operator", draft.decision, message)
 
+    async def mark_handoff(self, dialog: Dialog, reason: str) -> None:
+        """The concrete triggering inbound keeps its historical reason after resuming AI."""
+        trigger = await self.messages.last(dialog.id, Direction.IN)
+        if trigger is not None:
+            if not trigger.handoff_reason:
+                trigger.handoff_reason = reason
+                trigger.handoff_at = self.clock()
+            elif reason not in trigger.handoff_reason.split("\n"):
+                trigger.handoff_reason += "\n" + reason
+
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
         await self.jobs.upsert_pending(
@@ -520,6 +538,31 @@ class ConversationService:
         transactions committed while the model was answering)."""
         stmt = select(Dialog).where(Dialog.id == dialog_id).execution_options(populate_existing=True)
         return (await self.session.scalars(stmt)).unique().one()
+
+    async def apply_control(self, dialog: Dialog, decision: Decision, guard: GuardOutcome | None) -> bool:
+        """Apply checked stop/handoff independently of sending text. Caller holds NS_DIALOG."""
+        control = decision.refused or decision.stop_contact or decision.handoff_to_operator
+        if not control:
+            return False
+        if guard is None or not guard.allowed:
+            raise ValueError("control decision requires guard approval")
+        if decision.handoff_to_operator and not decision.handoff_reason.strip():
+            raise ValueError("handoff reason required")
+        if decision.refused or decision.stop_contact:
+            reason = "client asked to stop" if decision.stop_contact else "client refused"
+            await self.funnel.set_status(dialog.client, ClientStatus.REFUSED, Actor.AI, reason)
+            dialog.client.no_followups = dialog.client.no_followups or decision.stop_contact
+        if decision.handoff_to_operator:
+            await self.mark_handoff(dialog, decision.handoff_reason)
+            dialog.needs_operator = True
+            dialog.ai_paused = True
+            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL,
+                                      reason=decision.handoff_reason)
+        await self.followups.cancel(dialog.id)
+        await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
+        await cancel_queued_ai(self.session, dialog.id, "cancelled: approved control decision")
+        invalidate_plan(dialog)
+        return True
 
     async def apply(
         self,
@@ -547,22 +590,11 @@ class ConversationService:
                 await self.funnel.advance(client, decision.stage, Actor.AI, MODEL_DECISION)
             except FunnelRuleError:
                 log.info("ignored forbidden AI stage %s for client %s", decision.stage, client.id)
-        stop = decision.refused or decision.stop_contact
-        if stop:
-            reason = "client asked to stop" if decision.stop_contact else "client refused"
-            await self.funnel.set_status(client, ClientStatus.REFUSED, Actor.AI, reason)
-            client.no_followups = client.no_followups or decision.stop_contact
-            await self.followups.cancel(dialog.id)
-        if decision.handoff_to_operator:
-            dialog.needs_operator = True
-            dialog.ai_paused = True
-            await self.journal.record(dialog.id, HANDOFF, new="operator", who=THE_MODEL)
-            await self.followups.cancel(dialog.id)
+        final = await self.apply_control(dialog, decision, guard)
 
         decision = replace(decision, reply=guard.text)
         # A voice note is one message; text goes as 1-3 messages with a typing pause between them.
         parts = [guard.text] if voice else bubbles(guard.text)
-        final = stop or decision.handoff_to_operator   # nothing follows this reply
         # The first part goes out at once. The SEND job of each next part starts when the part
         # before it is due, shows «печатает…» for the pause and only then sends.
         delay = 0.0
@@ -583,7 +615,7 @@ class ConversationService:
                 delay_s=delay, final=final)
         if not followup and not final:
             dialog.followup_step = 0
-            await self.followups.schedule(dialog, strategy, 0, message)
+            # The silence sweep updates one contextual plan after five minutes.
         # The passportist updates the lead passport (one job per dialog, coalesced).
         await self.jobs.upsert_pending(
             jobkinds.PASSPORT, {"dialog_id": dialog.id},
@@ -606,14 +638,16 @@ class ConversationService:
     ) -> Draft:
         """The same builder, model call and pre-send guard as production, without any dialog
         bookkeeping. `history` ends with the client's latest message."""
+        ctx = with_persona_facts(persona, ctx)
         prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
         rejection = ""
         for attempt in range(2):
             decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
             guard: GuardOutcome | None = None
             if decision is not None and decision.reply:
+                review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 guard = await self.review(
-                    strategy, history, decision, result, ctx, dialog_id, guard_workflow
+                    strategy, history, decision, result, review_ctx, dialog_id, guard_workflow
                 )
                 if guard.allowed:
                     return Draft(decision, result, await self.touched(guard))
@@ -622,6 +656,8 @@ class ConversationService:
                 rejection = "решение не содержит корректного ответа"
             if attempt == 0:
                 feedback = one_line(rejection, 500)
+                ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
+                prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
                 prompt = [
                     *prompt,
                     {"role": "assistant", "content": result.text[:4000]},

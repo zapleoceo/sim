@@ -34,7 +34,6 @@ from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.humanize import TYPING_MAX_S
-from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.media_decisions import MediaDecisionLog
 from sim.services.persona_ambience import voice_ambience
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
@@ -203,6 +202,8 @@ class OutboundService:
 
         The caller holds the dialog lock before invoking this method.
         """
+        await self.session.flush()
+        await self.session.refresh(dialog)
         if request_id:
             existing = await self.session.scalar(
                 select(Message).where(Message.dialog_id == dialog.id,
@@ -230,10 +231,8 @@ class OutboundService:
         )
         await self.messages.add(message)
         apply_message(dialog, message)
-        await CommunicationJournal(self.session, clock=self.clock).ai_switched(
-            dialog, True, admin_who(operator), "оператор написал в диалог")
-        dialog.ai_paused = True
-        dialog.needs_operator = False
+        # Human text, voice and attachments update context without changing an explicit pause
+        # or resolving an outstanding handoff. Resuming AI is an explicit action.
         dialog.operator_id = operator_id
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
         await self.jobs.cancel_pending(jobkinds.FOLLOWUP, jobkinds.followup_key(dialog.id))

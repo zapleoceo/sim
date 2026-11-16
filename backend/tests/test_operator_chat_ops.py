@@ -39,7 +39,7 @@ async def test_manual_text_retries_return_one_message_and_one_send_job(api, cont
         sends = (await session.scalars(select(Job).where(Job.kind == jobkinds.SEND))).all()
         dialog = await session.get(Dialog, did)
     assert len(messages) == len(sends) == 1
-    assert dialog.ai_paused and not dialog.needs_operator
+    assert not dialog.ai_paused and not dialog.needs_operator
 
 
 async def test_operator_voice_queues_existing_channel_voice_path(api, container, world, connector):
@@ -59,6 +59,7 @@ async def test_operator_voice_queues_existing_channel_voice_path(api, container,
     assert response.status_code == 201
     message_id = response.json()["id"]
     assert response.json()["media_kind"] == "voice"
+    assert not (await api.get(f"/api/dialogs/{did}")).json()["dialog"]["ai_paused"]
     async with transaction(container.factory) as session:
         await container.outbound(session).deliver(message_id)
     assert connector.port.voices == [("chat-1", b"OggS-voice", None)]
@@ -91,6 +92,7 @@ async def test_attachment_support_is_explicit_and_uses_same_send_fence(api, cont
     assert len(sent) == 1 and sent[0][0] == "chat-1"
     assert sent[0][1].startswith(b"\x89PNG") and sent[0][3] == "image/png"
     assert sent[0][4] == "Смотрите"
+    assert not (await api.get(f"/api/dialogs/{did}")).json()["dialog"]["ai_paused"]
 
 
 async def test_inbox_filters_an_exact_channel_account(api, container, world):

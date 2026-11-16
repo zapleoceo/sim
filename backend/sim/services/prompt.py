@@ -62,7 +62,7 @@ SAFETY_RULES = (
 
 OUTPUT_CONTRACT = f"""ФОРМАТ ОТВЕТА: верни ОДИН JSON-объект и больше ничего (без markdown и без блоков кода):
 {{"reply": string, "stage": string, "needs": [string], "next_step": string,
-  "handoff_to_operator": boolean, "refused": boolean, "stop_contact": boolean}}
+  "handoff_to_operator": boolean, "handoff_reason": string, "refused": boolean, "stop_contact": boolean}}
 - reply: сообщение клиенту на его языке; пустая строка, если ничего не отправлять. Как живой
   человек, можешь иногда (не всегда) отправить мысль двумя-тремя короткими сообщениями подряд:
   раздели их в reply пустой строкой.
@@ -73,6 +73,7 @@ OUTPUT_CONTRACT = f"""ФОРМАТ ОТВЕТА: верни ОДИН JSON-объ
 - next_step: одно короткое предложение, твой план на следующий контакт.
 - handoff_to_operator: true, если нужен живой оператор (жалоба, юридическая или медицинская тема, злость, ты не можешь помочь).
 - refused: true, если клиент отказался от предложения.
+ - handoff_reason: конкретная причина передачи человеку; обязательна при handoff_to_operator=true.
 - stop_contact: true, если клиент попросил больше не писать."""
 
 
@@ -166,6 +167,7 @@ class Decision:
     needs: list[str] = field(default_factory=list)
     next_step: str = ""
     handoff_to_operator: bool = False
+    handoff_reason: str = ""
     refused: bool = False
     stop_contact: bool = False
     media: MediaAsk | None = None   # her decision about a photo or video note, when she made one
@@ -454,6 +456,8 @@ def parse_decision(raw: str) -> Decision | None:
     obj = extract_json_object(raw or "")
     if obj is None or not isinstance(obj.get("reply"), str):
         return None
+    if as_bool(obj.get("handoff_to_operator")) and not one_line(obj.get("handoff_reason")):
+        return None
     stage: Stage | None
     try:
         stage = Stage(str(obj.get("stage", "")).strip())
@@ -472,6 +476,7 @@ def parse_decision(raw: str) -> Decision | None:
         needs=needs,
         next_step=one_line(next_step, 500) if isinstance(next_step, str) else "",
         handoff_to_operator=as_bool(obj.get("handoff_to_operator")),
+        handoff_reason=one_line(obj.get("handoff_reason"), 1000),
         refused=as_bool(obj.get("refused")),
         stop_contact=as_bool(obj.get("stop_contact")),
         media=parse_media(obj.get("media")),

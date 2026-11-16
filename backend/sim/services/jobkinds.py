@@ -4,6 +4,7 @@ from __future__ import annotations
 REPLY = "reply"
 SEND = "send"
 FOLLOWUP = "followup"
+REENGAGEMENT = "reengagement"
 CONTENT_PUBLISH = "content_publish"
 SIM_REPLY = "sim_reply"   # a persona answer inside an admin simulation branch
 MEDIA = "media"           # download a channel attachment (+ transcribe a voice message)

@@ -246,6 +246,8 @@ class Dialog(Base):
     )
     unread: Mapped[int] = mapped_column(Integer, default=0)
     followup_step: Mapped[int] = mapped_column(Integer, default=0)
+    activity_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    reengagement_plan: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     last_message_text: Mapped[str] = mapped_column(Text, default="")
     last_message_direction: Mapped[Direction | None] = mapped_column(
         enum_col(Direction), nullable=True
@@ -292,6 +294,8 @@ class Message(Base):
     guard_violations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     guard_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # generator draft if rewritten
+    handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    handoff_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 

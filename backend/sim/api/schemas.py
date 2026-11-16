@@ -331,6 +331,7 @@ def message_out(m: Message) -> dict[str, Any]:
         "media_kind": m.media_kind, "media_url": m.media_url, "created_at": dt(m.created_at),
         "delivery": m.delivery.value, "model": m.model, "error": m.error,
         "operator_id": m.operator_id, "operator_name": m.operator_name,
+        "handoff_reason": m.handoff_reason, "handoff_at": dt(m.handoff_at),
         "provider": m.provider, "tokens_in": m.tokens_in, "tokens_out": m.tokens_out,
         "cost_usd": m.cost_usd,
         "guard": guard_out(m.guard_verdict, m.guard_violations, m.guard_model, m.original_text),
@@ -346,6 +347,7 @@ def dialog_out(d: Dialog) -> dict[str, Any]:
         "external_thread_id": d.external_thread_id, "ai_paused": d.ai_paused,
         "needs_operator": d.needs_operator, "operator_id": d.operator_id, "unread": d.unread,
         "urgent": d.urgent, "created_at": dt(d.created_at),
+        "reengagement_plan": d.reengagement_plan,
     }
 
 
