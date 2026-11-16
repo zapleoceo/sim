@@ -45,6 +45,7 @@ from sim.services.prompt import (
     StrategyProfile,
     Turn,
     build_messages,
+    editable_agent_prompt,
     handoff_link,
     one_line,
     parse_decision,
@@ -114,6 +115,7 @@ def persona_profile(p: Persona) -> PersonaProfile:
         description=p.description,
         prohibitions=p.prohibitions,
         language=p.language,
+        agent_prompt=p.agent_prompt,
         routine=p.routine,
     )
 
@@ -276,6 +278,8 @@ class ConversationService:
             context=example_context(now, facts, profile),
             rules=fixed_rules(persona.name),
             strategy_id=strategy.id,
+            mode="unified" if persona.agent_prompt is not None else "legacy",
+            agent_prompt=editable_agent_prompt(persona_profile(persona), profile),
         )
 
     async def strategy_for(self, persona_id: int) -> Strategy:

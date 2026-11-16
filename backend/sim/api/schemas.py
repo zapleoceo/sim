@@ -131,6 +131,19 @@ class PersonaIn(Body):
         return self
 
 
+class AgentPromptIn(BaseModel):
+    """The single prompt as the owner typed it: not stripped, the model gets exactly this text."""
+
+    text: str = Field(min_length=1, max_length=100000)
+
+    @field_validator("text")
+    @classmethod
+    def nonblank_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Prompt must not be blank")
+        return value
+
+
 class SimStartIn(Body):
     persona_id: int = Field(gt=0)
 
@@ -274,6 +287,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
 def prompt_map_out(m: PromptMap) -> dict[str, Any]:
     return {
         "system": m.system, "fixed": "", "strategy_id": m.strategy_id, "context": m.context,
+        "mode": m.mode, "agent_prompt": m.agent_prompt,
         "parts": [asdict(part) for part in m.parts],
         "rules": [asdict(rule) for rule in m.rules],
     }

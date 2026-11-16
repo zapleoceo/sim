@@ -36,6 +36,8 @@ class PromptMap:
     context: str
     rules: list[FixedRule]
     strategy_id: int
+    mode: str = "legacy"
+    agent_prompt: str = ""
 
     @property
     def system(self) -> str:

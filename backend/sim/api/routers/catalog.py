@@ -11,6 +11,7 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
 from sim.api.schemas import (
+    AgentPromptIn,
     PersonaIn,
     PreviewIn,
     StrategyIn,
@@ -128,6 +129,17 @@ async def persona_context(persona_id: int, c: App, s: Db, response: Response, di
         return await inspect_context(c.conversation(s), persona, dialog_id)
     except ValueError as exc:
         raise HTTPException(404, "Dialog not found for this persona") from exc
+
+
+@personas.put("/{persona_id}/prompt")
+async def save_agent_prompt(persona_id: int, body: AgentPromptIn, c: App, s: Db, p: Owner):
+    persona = await persona_or_404(s, persona_id)
+    before = {"agent_prompt": persona.agent_prompt}
+    persona.agent_prompt = body.text
+    await s.flush()
+    await CommunicationJournal(s, clock=c.clock).persona_edited(
+        persona.id, before, {"agent_prompt": body.text}, admin_who(p.user), {})
+    return {"mode": "unified", "agent_prompt": persona.agent_prompt}
 
 
 @personas.post("/{persona_id}/preview/attachment")
