@@ -48,6 +48,7 @@ per-utterance guard. Natural-language checking remains model-based; the time sou
 Migration 0027 adds the revision, JSON plan and message handoff columns. Rollout remains the
 existing CI deploy with backup, old worker stop, migration, new code and readiness gates.
 Validation is CI-only with synthetic conversations, fake transports/models and disposable
-PostgreSQL. No private conversation is included in fixtures. Actual dialog 7 and its saved
-guard prompt/verdict were inaccessible during this change; this is a code-level correction,
-not proof about that conversation's particular incorrect answers.
+PostgreSQL. No private conversation is included in fixtures. A separately authorized server
+audit confirmed that live voice transcripts have no per-utterance guard verdict. Existing
+LLM traces retain metadata, not the full historical generation/guard input. The text guard
+correction does not add an audio playback guard or prove what an old voice session received.
