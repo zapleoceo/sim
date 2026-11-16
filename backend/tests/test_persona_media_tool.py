@@ -269,7 +269,8 @@ async def test_priority_contact_rewrites_arbitrary_refusal_without_bypassing_gua
         "Произвольный отказ вместо доступного допустимого медиа"], "fixed_reply": ""})]
     await run_reply(container)
     assert len(fake_llm.gen_calls) == 2 and len(await media_jobs(container)) == 1
-    assert "ПРЕДПОЧТЕНИЕ КОНТАКТА" in context_of(fake_llm)
+    assert any("ПРЕДПОЧТЕНИЕ КОНТАКТА" in str(m["content"])
+               for m in fake_llm.gen_calls[-1][0])
     checked = json.loads(fake_llm.guard_calls[-1][0][-1]["content"])
     assert checked["context"]["media_priority"] is True
     assert "Не отказывай по настроению" in checked["context"]["media_offer"]
