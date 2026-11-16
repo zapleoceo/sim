@@ -16,9 +16,17 @@ plain-text documents (64 KiB). Documents remain inert prompt data. Unsupported
 binary documents, PDF, audio and raw video fail explicitly before inference.
 Results are bounded to 12,000 characters with an explicit truncation marker.
 
-This first increment is not connected to the queue and does not claim incoming
+Video preparation now samples exactly five ordered frames from MP4/WebM, at most
+5 MiB, 60 seconds, 1920x1080 input pixels. Frames are scaled to at most 640x640,
+1 MiB each and 2 MiB together. Decoder commands use fixed argv, private temporary
+paths, file-only input protocols, one decoding thread, allocation and time limits.
+No script/macros or embedded instructions are executed. The result explicitly
+states that only selected frames were interpreted and audio was not transcribed.
+CI includes an offline synthetic color video, without a model or channel call.
+
+This increment is not connected to the queue and does not claim incoming
 media is enabled in production. Remaining implementation: bounded video frame
-extraction, durable recognition status/context and queue integration, captions,
+acceptance, durable recognition status/context and queue integration, captions,
 download limits, race handling and API presentation. Subscription raw audio is
 not supported by the current Broker contract; do not silently use the existing
 paid transcription endpoint to claim subscription speech support. PDF/Office

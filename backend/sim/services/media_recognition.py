@@ -12,6 +12,7 @@ from typing import Any
 import filetype
 
 from sim.ports.llm import LLMError, LLMPort
+from sim.services.video_frames import VideoUnsupported, sample_video
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_TEXT_BYTES = 64 * 1024
@@ -78,7 +79,20 @@ class SubscriptionMediaRecognizer:
         self.model = model
 
     async def recognize(self, data: bytes, kind: str) -> str:
-        prepared = prepare(data, kind)
+        if kind in ("video", "video_note"):
+            try:
+                frames = await sample_video(data)
+            except VideoUnsupported as exc:
+                raise UnsupportedMedia(str(exc)) from exc
+            content = [{"type": "text", "text": (
+                "Five ordered sampled video frames. Describe only these visible samples; "
+                "audio was NOT transcribed and events between frames are unknown."
+            )}]
+            for frame in frames:
+                content.extend(prepare(frame, "image").content)
+            prepared = PreparedMedia("image/jpeg", content)
+        else:
+            prepared = prepare(data, kind)
         catalog = await self.llm.list_models()
         model = next((m for m in catalog if m.get("id") == self.model), {})
         if not supports(model, image=prepared.mime in IMAGE_MIMES):
@@ -97,4 +111,6 @@ class SubscriptionMediaRecognizer:
         text = result.text.strip()
         if len(text) > MAX_RESULT_CHARS:
             text = text[:MAX_RESULT_CHARS] + "\n[Описание усечено]"
+        if kind in ("video", "video_note"):
+            text = "[Описание выбранных видеокадров; звук не распознан]\n" + text
         return text
