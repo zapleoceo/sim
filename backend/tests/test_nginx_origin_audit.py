@@ -48,7 +48,8 @@ def wait_for(predicate):
 @contextlib.contextmanager
 def process(args, log):
     with log.open("wb") as output:
-        child = subprocess.Popen(args, stdout=output, stderr=output)
+        # Only fixture-owned argv below, no shell or external request data.
+        child = subprocess.Popen(args, stdout=output, stderr=output)  # noqa: S603
         try:
             yield child
         except BaseException:
@@ -90,7 +91,8 @@ def test_sim_tls_routes_and_audit_never_persist_oauth_payload():
         os.chown(root, -1, grp.getgrnam("www-data").gr_gid)
         root.chmod(0o750)
         cert, key = root / "cert.pem", root / "key.pem"
-        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+        # Fixed image binary and synthetic certificate, never a production key.
+        subprocess.run(["/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",  # noqa: S603
                         "-subj", "/CN=sim.example.test", "-addext",
                         "subjectAltName=DNS:sim.example.test,DNS:lbot.example.test",
                         "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
@@ -99,7 +101,7 @@ def test_sim_tls_routes_and_audit_never_persist_oauth_payload():
             "/var/log/sim-nginx/error-audit.log", str(root / "errors.log"))
         audit_path = root / "rsyslog.conf"
         audit_path.write_text(audit)
-        subprocess.run([rsyslog, "-N1", "-f", str(audit_path)], check=True)
+        subprocess.run([rsyslog, "-N1", "-f", str(audit_path)], check=True)  # noqa: S603 -- fixture config
         backend = ThreadingHTTPServer(("127.0.0.1", 0), FakeBackend)
         threading.Thread(target=backend.serve_forever, daemon=True).start()
         port, unavailable = free_port(), free_port()
@@ -151,7 +153,7 @@ http {{
             with process([rsyslog, "-n", "-i", str(root / "audit.pid"), "-f", str(audit_path)],
                          root / "audit-process.log"):
                 wait_for(lambda: (root / "audit.sock").exists())
-                subprocess.run([nginx, "-t", "-p", str(root), "-c", str(config)], check=True)
+                subprocess.run([nginx, "-t", "-p", str(root), "-c", str(config)], check=True)  # noqa: S603 -- fixture config
                 with process([nginx, "-p", str(root), "-c", str(config), "-g", "daemon off;"],
                              root / "nginx-process.log"):
                     # nginx -t can create the pid file before the server starts.
