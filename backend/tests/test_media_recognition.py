@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from sim.ports.llm import LLMResult
+from sim.services.safe_payload import safe_payload
 from sim.services.media_recognition import (
     DEFAULT_MODEL,
     MAX_FILE_BYTES,
@@ -60,3 +61,12 @@ def test_plain_text_is_data_not_executed():
     assert prepare(b"import os; os.remove('x')", "document").mime == "text/plain"
     with pytest.raises(ValueError, match="subscription"):
         SubscriptionMediaRecognizer(client(), "gemini/gemini-3.5-flash")
+
+
+def test_binary_data_urls_never_reach_diagnostics():
+    payload = {"messages": [{"content": [{"type": "image_url", "image_url": {
+        "url": "data:image/png;base64,cHJpdmF0ZQ==",
+    }}]}]}
+    result = safe_payload(payload)
+    assert "cHJpdmF0ZQ" not in str(result)
+    assert "[REDACTED MEDIA]" in str(result)
