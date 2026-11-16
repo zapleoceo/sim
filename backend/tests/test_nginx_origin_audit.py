@@ -5,6 +5,7 @@ import contextlib
 import grp
 import http.client
 import json
+import os
 import shutil
 import socket
 import ssl
@@ -74,7 +75,7 @@ def test_sim_tls_routes_and_audit_never_persist_oauth_payload():
     # Short path: AF_UNIX socket names have a strict length limit.
     with tempfile.TemporaryDirectory(prefix="sim-audit-") as directory:
         root = Path(directory)
-        root.chown(-1, grp.getgrnam("www-data").gr_gid)
+        os.chown(root, -1, grp.getgrnam("www-data").gr_gid)
         root.chmod(0o750)
         cert, key = root / "cert.pem", root / "key.pem"
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
