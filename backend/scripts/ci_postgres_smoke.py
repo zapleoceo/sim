@@ -162,6 +162,7 @@ def main():
     command.upgrade(cfg, "head")
     asyncio.run(schema_and_concurrency(url))
     asyncio.run(reengagement_concurrency(url))
+    asyncio.run(content_mcp_concurrency(url))
     # Disposable DB only: 0008 schema downgrade loses operator data. Production must not do this.
     command.downgrade(cfg, "0007")
     asyncio.run(check_state(url, "0007"))
@@ -274,6 +275,57 @@ async def reengagement_concurrency(url):
             assert not attempt.done()
         assert await asyncio.wait_for(attempt, timeout=10) is False
         print("PostgreSQL contextual-plan sweep and inbound/send fencing PASS")
+    finally:
+        await engine.dispose()
+
+
+async def content_mcp_concurrency(url):
+    """Two delegated writers cannot both replace the same content revision."""
+    from sqlalchemy import select
+
+    from sim.adapters.db.models import ContentPost, McpAudit, McpGrant, Persona
+    from sim.services.content_mcp import ContentMcp, McpError, post_data
+
+    engine = create_async_engine(url)
+    factory = make_session_factory(engine)
+    try:
+        async with transaction(factory) as s:
+            persona = Persona(name="Synthetic MCP concurrency")
+            s.add(persona)
+            await s.flush()
+            post = ContentPost(persona_id=persona.id, caption="Initial")
+            s.add(post)
+            await s.flush()
+            pid, expected = post.id, post_data(post)["revision"]
+
+        def delegation():
+            return McpGrant(id=900001, scopes=["content:edit"], post_ids=[pid], dialog_ids=[])
+
+        async def edit(caption):
+            async with transaction(factory) as s:
+                return await ContentMcp(s, delegation(), 900001, utcnow).call("edit_draft_caption", {
+                    "post_id": pid, "caption": caption, "expected_revision": expected,
+                    "reason": "Synthetic requested edit"})
+
+        results = await asyncio.gather(edit("A"), edit("B"), return_exceptions=True)
+        assert sum(isinstance(r, dict) for r in results) == 1
+        assert sum(isinstance(r, McpError) for r in results) == 1
+        async with factory() as s:
+            saved = post_data(await s.get(ContentPost, pid))
+            audit_ids = list(await s.scalars(select(McpAudit.id)))
+        try:
+            async with transaction(factory) as s:
+                await ContentMcp(s, delegation(), 900001, utcnow).call("edit_draft_caption", {
+                    "post_id": pid, "caption": "Rolled back", "expected_revision": saved["revision"],
+                    "reason": "Synthetic rollback"})
+                await s.flush()
+                raise RuntimeError("synthetic rollback")
+        except RuntimeError:
+            pass
+        async with factory() as s:
+            assert post_data(await s.get(ContentPost, pid)) == saved
+            assert list(await s.scalars(select(McpAudit.id))) == audit_ids
+        print("PostgreSQL MCP revision contention and atomic audit rollback PASS")
     finally:
         await engine.dispose()
 

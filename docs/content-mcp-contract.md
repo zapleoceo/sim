@@ -58,3 +58,5 @@ owner/CSRF issuance, expiry/revoke/logout/demotion, protocol/media/Origin/size r
 redaction. The temporary PostgreSQL gate applies migrations. Deployment retains fresh backup,
 old worker stop, migrations before new code and readiness smoke. Code readiness does not mean
 an external connector is activated.
+
+The disposable PostgreSQL gate also races two caption editors against one revision: exactly one wins. A forced transaction rollback verifies that both content and audit roll back together.
