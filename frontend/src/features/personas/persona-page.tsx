@@ -107,6 +107,13 @@ export function PersonaPage() {
                 />
                 {persona && (
                   <div className={BLOCKS}>
+                    <Section id="prompt" hint="Единый текст, который модель получает как есть. Формат ответа, контекст и проверка добавляются кодом.">
+                      {isOwner && <PersonaAgentPrompt key={persona.id} personaId={persona.id} />}
+                    </Section>
+                  </div>
+                )}
+                {persona && (
+                  <div className={BLOCKS}>
                     <Section id="media" hint="Её галерея и кружочек ИИ по запросу.">
                       <PersonaGallery personaId={persona.id} />
                       <AiVideoNote personaId={persona.id} />
@@ -121,7 +128,6 @@ export function PersonaPage() {
                       <PersonaShared />
                     </Section>
                     <Section id="assembled" hint="Что получает модель: какой кусок откуда и где его поменять.">
-                      {isOwner && <PersonaAgentPrompt key={persona.id} personaId={persona.id} />}
                       <PersonaPromptMap personaId={persona.id} />
                     </Section>
                   </div>

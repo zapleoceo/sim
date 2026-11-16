@@ -11,7 +11,7 @@ describe('persona form validation', () => {
   it('is invalid when empty', () => {
     const errors = personaErrors(personaToForm(EMPTY_PERSONA));
     expect(errors.name).toBe('Укажите имя');
-    expect(errors.description).toBe('Опишите персонажа');
+    expect(errors.description).toBeUndefined();
   });
 
   it('has no «are you a bot» field: the API dropped disclosure_text', () => {

@@ -17,7 +17,7 @@ it('saves the prompt directly without a mode confirmation dialog', async () => {
   render(<QueryClientProvider client={client}>
     <PersonaAgentPrompt personaId={1} />
   </QueryClientProvider>);
-  const input = await screen.findByRole('textbox', { name: 'Промпт агента' });
+  const input = await screen.findByRole('textbox', { name: 'Промпт' });
   expect(log.every(r => r.method === 'GET')).toBe(true);
   await userEvent.clear(input);
   await userEvent.type(input, 'New synthetic instructions');

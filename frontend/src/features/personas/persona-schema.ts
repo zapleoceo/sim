@@ -58,7 +58,7 @@ export const personaSchema = z.object({
     .string()
     .max(500, 'Не длиннее 500 символов')
     .refine((v) => v === '' || AVATAR_URL_PATTERN.test(v), 'Нужна ссылка вида https://…'),
-  description: z.string().refine(notBlank, 'Опишите персонажа').refine((v) => v.length <= 20000, 'Слишком длинно'),
+  description: z.string().max(20000, 'Слишком длинно'),
   prohibitions: z.string().max(10000, 'Слишком длинно'),
   language: z.string().max(200, 'Не длиннее 200 символов'),
   model: z.string().max(200),

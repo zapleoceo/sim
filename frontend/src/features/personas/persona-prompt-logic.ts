@@ -20,7 +20,7 @@ export function editTarget(part: Pick<PromptPart, 'source' | 'field'>, strategyI
 
 const SOURCE_LABELS: Record<PromptPart['source'], string> = {
   code: 'Правило кода',
-  persona: 'Поле персонажа',
+  persona: 'Промпт персонажа',
   strategy: 'Стратегия',
   setting: 'Общая настройка',
 };

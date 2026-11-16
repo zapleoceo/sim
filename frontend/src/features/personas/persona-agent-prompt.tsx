@@ -11,9 +11,8 @@ import { qk } from '@/lib/query';
 import { personaFieldAnchor } from './persona-prompt-logic';
 
 /**
- * The persona's single authoritative prompt. It has its own «Сохранить»: the text is saved apart from the
- * persona form. What the model gets around it (link rule, answer format, context, fixed rules) is in
- * «Итоговый промпт».
+ * The persona's single authoritative prompt — the main editable text the model gets as-is.
+ * Has its own «Сохранить»: the text is saved apart from the persona form.
  */
 export function PersonaAgentPrompt({ personaId }: { personaId: number }) {
   const queryClient = useQueryClient();
@@ -37,26 +36,21 @@ export function PersonaAgentPrompt({ personaId }: { personaId: number }) {
 
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <p role="status" className="text-xs text-muted-foreground">
-        Модель получает этот текст как есть. Ссылки, формат ответа, проверка и контекст добавляются кодом
-        и показаны в «Итоговом промпте».
-      </p>
       <Field
         anchorId={personaFieldAnchor('agent_prompt')}
-        label="Промпт агента"
-        hint="Несохранённый текст модели не отправляется. Кнопка сохраняет только его; остальные поля персонажа сохраняются своей кнопкой."
+        label="Промпт"
+        hint="Кто она, легенда, характер, стиль, язык, запреты — всё в одном тексте. Несохранённый текст модели не отправляется."
       >
         <Textarea
           value={text}
           onChange={(e) => setDraft(e.target.value)}
           disabled={save.isPending}
-          className="min-h-96 max-h-[75vh] font-mono text-[13px] md:text-[13px]"
+          className="min-h-[28rem] max-h-[75vh] font-mono text-[13px] md:text-[13px]"
         />
       </Field>
       <div className="flex flex-wrap items-center gap-3">
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          Правила честности и безопасности сохраняются. Распорядок даёт «где ты сейчас» в контексте; ссылки, формат ответа, проверка, напоминания и
-          правка опечаток работают как раньше, они показаны в «Итоговом промпте».
+          Распорядок, ссылки, формат ответа, проверка и контекст добавляются кодом — показаны в «Контексте модели».
         </p>
         <Button size="sm" variant="outline" disabled={save.isPending || unchanged || !text.trim()} onClick={() => void submit()}>
           Сохранить промпт
