@@ -7,6 +7,7 @@ from sim.ports.llm import LLMResult
 from sim.services.media_recognition import (
     DEFAULT_MODEL,
     MAX_FILE_BYTES,
+    MAX_IMAGE_BYTES,
     SubscriptionMediaRecognizer,
     UnsupportedMedia,
     prepare,
@@ -70,3 +71,8 @@ def test_binary_data_urls_never_reach_diagnostics():
     result = safe_payload(payload)
     assert "cHJpdmF0ZQ" not in str(result)
     assert "[REDACTED MEDIA]" in str(result)
+
+
+def test_image_budget_includes_base64_expansion():
+    with pytest.raises(UnsupportedMedia, match="image_too_large"):
+        prepare(b"\xff\xd8\xff\xdb" + b"x" * MAX_IMAGE_BYTES, "image")

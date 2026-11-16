@@ -15,6 +15,7 @@ from sim.ports.llm import LLMError, LLMPort
 from sim.services.video_frames import VideoUnsupported, sample_video
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_BYTES = 2 * 1024 * 1024  # base64 plus prompt must fit Broker's 3 MB request contract
 MAX_TEXT_BYTES = 64 * 1024
 MAX_RESULT_CHARS = 12000
 IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
@@ -42,6 +43,8 @@ def prepare(data: bytes, kind: str) -> PreparedMedia:
     detected = filetype.guess(data)
     mime = detected.mime if detected else None
     if kind == "image" and mime in IMAGE_MIMES:
+        if len(data) > MAX_IMAGE_BYTES:
+            raise UnsupportedMedia("image_too_large")
         encoded = base64.b64encode(data).decode("ascii")
         return PreparedMedia(mime, [{"type": "image_url", "image_url": {
             "url": f"data:{mime};base64,{encoded}",

@@ -10,7 +10,8 @@ model, JSON output and client tools; per-token subscription price is zero,
 excluding the existing subscription fee. Catalog availability is not a live
 inference test (`tested=false`). No live inference was performed for this work.
 
-Current boundary accepts JPEG/PNG/WebP/GIF signatures (maximum 5 MiB; Broker
+Current boundary accepts JPEG/PNG/WebP/GIF signatures (maximum 2 MiB so base64
+fits Broker's 3 MB prompt contract; Broker
 fully decodes images and enforces its own pixel/single-frame limits) and UTF-8
 plain-text documents (64 KiB). Documents remain inert prompt data. Unsupported
 binary documents, PDF, audio and raw video fail explicitly before inference.
