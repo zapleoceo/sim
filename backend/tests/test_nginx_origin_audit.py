@@ -28,6 +28,14 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def listening(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
 def wait_for(predicate):
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
@@ -43,6 +51,10 @@ def process(args, log):
         child = subprocess.Popen(args, stdout=output, stderr=output)
         try:
             yield child
+        except BaseException:
+            output.flush()
+            print(log.read_text())
+            raise
         finally:
             child.terminate()
             try:
@@ -142,7 +154,8 @@ http {{
                 subprocess.run([nginx, "-t", "-p", str(root), "-c", str(config)], check=True)
                 with process([nginx, "-p", str(root), "-c", str(config), "-g", "daemon off;"],
                              root / "nginx-process.log"):
-                    wait_for(lambda: (root / "nginx.pid").exists())
+                    # nginx -t can create the pid file before the server starts.
+                    wait_for(lambda: listening(port))
                     assert request("lbot.example.test", "GET", "/")[1] == b"neighbor"
                     assert request("sim.example.test", "GET", "/api/ready?code=" + SECRET)[0] == 200
                     assert request("sim.example.test", "POST", "/oauth/token?state=" + SECRET,
