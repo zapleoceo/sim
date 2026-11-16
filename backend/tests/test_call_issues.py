@@ -5,7 +5,7 @@ import pytest
 
 from sim.adapters.db.models import Dialog
 from sim.adapters.db.session import transaction
-from sim.ports.live_voice import LiveVoiceError
+from sim.ports.live_voice import LiveVoiceError, LiveVoiceSummary
 from sim.services.journal import CALL_ISSUE, CommunicationJournal
 from tests.test_calls import FakeCall, FakeLive, FakeSession, chatting_world, service
 
@@ -68,6 +68,17 @@ async def test_provider_finish_failure_still_records_issue_without_pause(contain
     call = FakeCall(frames=1)
     outcome = await service(container, FakeLive(BrokenFinish())).handle(world.channel.id, call)
     assert call.hung_up and outcome.message_ids
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert not d.ai_paused and not d.needs_operator
+        assert (await CommunicationJournal(s).feed(did))[-1].kind == CALL_ISSUE
+
+
+@pytest.mark.parametrize("reason", ["no_summary", "provider_error", "transport_error", "summary_timeout"])
+async def test_failed_live_summary_is_journaled_without_handoff(container, world, reason):
+    did = await chatting_world(container, world)
+    await service(container, FakeLive(FakeSession(summary=LiveVoiceSummary(end_reason=reason)))).handle(
+        world.channel.id, FakeCall(frames=1))
     async with container.factory() as s:
         d = await s.get(Dialog, did)
         assert not d.ai_paused and not d.needs_operator
