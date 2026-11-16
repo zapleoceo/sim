@@ -401,7 +401,7 @@ async def test_a_dead_pacer_ends_the_call_loudly_instead_of_a_silent_line(
         service(container, FakeLive(session)).handle(world.channel.id, call), 5)
     assert outcome.status == "answered" and call.hung_up and session.finished == 1
     assert "pacer stopped: RuntimeError: not in a call" in caplog.text
-    assert "the caller never heard her (model audio 4800 bytes" in caplog.text
+    assert "no speech frames accepted by transport (model audio 4800 bytes" in caplog.text
     assert (await dialog_messages(container, dialog_id))[-3].media_kind == CALL_KIND
     unheard = (await dialog_messages(container, dialog_id))[-1]
     assert unheard.delivery is Delivery.CANCELLED and "0/" in unheard.error
