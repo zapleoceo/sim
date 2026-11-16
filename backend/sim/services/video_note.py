@@ -18,7 +18,6 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, Protocol
 
 from sqlalchemy import select

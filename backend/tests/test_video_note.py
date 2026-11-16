@@ -33,7 +33,6 @@ from sim.ports.video import VideoError, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import is_ai_video
 from sim.services.app_settings import BY_KEY, AppSettingsService
-from sim.services.outbound import SendFailed
 from sim.services.video_note import (
     AI_VIDEO_PREFIX,
     OWNER_SETTING,
