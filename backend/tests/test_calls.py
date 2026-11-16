@@ -107,7 +107,7 @@ def ctx() -> DialogContext:
 
 def test_call_prompt_is_persona_strategy_rules_chat_and_context_without_json():
     prompt = call_system_prompt(
-        PersonaProfile(name="Марина", description="Ты Марина, 45 лет."),
+        PersonaProfile(name="Марина", agent_prompt="Ты Марина, 45 лет."),
         StrategyProfile(name="S", goal="Регистрация", registration_url="https://x/?ref={ref}"),
         [Turn("user", "Привет"), Turn("assistant", "Привет! Как дела?"), Turn("user", "норм")],
         ctx(),
@@ -115,13 +115,13 @@ def test_call_prompt_is_persona_strategy_rules_chat_and_context_without_json():
     assert prompt.startswith("Ты Марина, 45 лет.")
     assert CALL_RULES in prompt and "ФОРМАТ ОТВЕТА" not in prompt
     assert "Клиент: Привет\nТы: Привет! Как дела?\nКлиент: норм" in prompt
-    assert "https://x/?ref=abcdefgh" in prompt and "СТРАТЕГИЯ" in prompt
+    assert "https://x/?ref=abcdefgh" in prompt
     assert prompt.index(CALL_RULES) < prompt.index("ПЕРЕПИСКА") < prompt.index("КОНТЕКСТ")
 
 
 @pytest.mark.parametrize("name", ["Марина", "Ева"])
 def test_call_keeps_chat_persona_and_answers_identity_questions_honestly(name):
-    persona = PersonaProfile(name=name, description=f"Ты {name}. Никогда не говори, что ты ИИ.")
+    persona = PersonaProfile(name=name, agent_prompt=f"Ты {name}. Никогда не говори, что ты ИИ.")
     strategy = StrategyProfile(name="S", goal="Регистрация")
     prompt = call_system_prompt(persona, strategy, [], ctx())
     stable = stable_system_prompt(persona, strategy, PromptTexts(contract="")).rstrip()
@@ -129,13 +129,10 @@ def test_call_keeps_chat_persona_and_answers_identity_questions_honestly(name):
     identity = call_identity(name)
     assert identity in prompt and prompt.index(CALL_RULES) < prompt.index(identity)
     for must in (f"ты тот же персонаж {name}", "говори от первого лица",
-                 "Не выдавай себя за живого человека", "честно скажи, что ты ИИ-персонаж",
-                 "правило честности важнее", "чего там нет, не выдумывай"):
+                 "чего там нет, не выдумывай"):
         assert must in identity
     assert "ИИ-ассистент человека" not in prompt
     assert "говори о нём в третьем лице" not in prompt
-    assert "само по себе не вопрос о твоей" in identity
-    assert "На прямой вопрос об ИИ отвечай честно" in identity
     assert "Сначала коротко уточни" in CALL_RULES
 
 

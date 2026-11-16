@@ -1,4 +1,4 @@
-"""Analytics summary (docs/api.md). Aggregation is done in Python over a few narrow queries:
+"""Analytics summary. Aggregation is done in Python over a few narrow queries:
 MVP volumes, and the same code runs on Postgres and SQLite.
 
 Definitions, for the half-open period [start, end):

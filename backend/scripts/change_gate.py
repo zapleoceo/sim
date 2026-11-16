@@ -6,7 +6,7 @@ Usage (CI): python scripts/change_gate.py <base_sha> <head_sha>   (run from back
 Rules, for the files changed between base and head:
 - product code changed (backend/sim/**, frontend/src/** except tests) -> a test file must change
   (backend/tests/**, frontend/src/**/*.test.ts(x), frontend/src/test/**);
-- product code changed -> docs must change (docs/** or README.md).
+- product code changed -> docs must change (README.md or AGENTS.md).
 Opt-out for a purely cosmetic change: "tests-not-needed" / "docs-not-needed" in a commit message
 of the range; the reviewer sees it in the PR."""
 from __future__ import annotations
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 CODE = re.compile(r"^(backend/sim/|frontend/src/)")
 TEST = re.compile(r"^(backend/tests/|frontend/src/test/)|\.test\.(ts|tsx)$")
-DOCS = re.compile(r"^(docs/|README\.md$)")
+DOCS = re.compile(r"^(README|AGENTS)\.md$")
 TESTS_OPT_OUT = "tests-not-needed"
 DOCS_OPT_OUT = "docs-not-needed"
 
@@ -62,7 +62,7 @@ def main(base: str, head: str) -> int:
         print(f"Add or update tests, or put '{TESTS_OPT_OUT}' in a commit message for a cosmetic change.")
     if result.missing_docs:
         print(f"::error::Product code changed without docs: {', '.join(result.code[:10])}")
-        print(f"Update docs/ or README.md, or put '{DOCS_OPT_OUT}' in a commit message.")
+        print(f"Update README.md or AGENTS.md, or put '{DOCS_OPT_OUT}' in a commit message.")
     if result.ok:
         print(f"change gate passed ({len(result.code)} code files)")
     return 0 if result.ok else 1

@@ -3,16 +3,6 @@
 ИИ-персонажи (виртуальные представители): Instagram — привлечение, WhatsApp и Telegram — личное
 общение, воронка до регистрации и первой оплаты у партнёра. Документированный URL: https://sim.zapleo.com.
 
-- Архитектура и решения: [docs/architecture.md](docs/architecture.md)
-- HTTP API: [docs/api.md](docs/api.md)
-- Переписка, активность и подключение каналов: [docs/admin-activity.md](docs/admin-activity.md)
-- Персонажи и стратегия: [docs/personas.md](docs/personas.md)
-- Фото и кружочки по решению персонажа: [docs/persona-media.md](docs/persona-media.md)
-- Запуск и эксплуатация: [docs/operations.md](docs/operations.md)
-- CI, тесты и деплой: [docs/ci.md](docs/ci.md)
-- Админка (стек, структура, тесты, сборка): [docs/admin-frontend.md](docs/admin-frontend.md)
-- Старые отчёты, ревью и задачи (история, не описание текущего кода): [docs/history/](docs/history/)
-
 ## Состояние реализации
 
 В коде есть персонажи, каналы, единый inbox, воронка, аналитика и симуляции. Для Instagram
@@ -20,10 +10,7 @@
 требующий явного списка разрешённых post ID. Долговечный intent предотвращает повторный вызов
 upload для того же поста, receipt позволяет восстановить локальный статус при совпадении
 payload/account. Это не полная готовность публикаций из UI.
-См. [ограничения пилота](docs/instagram-content-publishing.md) и
-[intent, receipt и восстановление](docs/publication-intents.md).
-Входящие голосовые обрабатываются отдельным путём транскрипции; голосовые ответы описаны в
-[docs/voice.md](docs/voice.md).
+Входящие голосовые обрабатываются отдельным путём транскрипции.
 
 ## Локально
 
@@ -45,9 +32,8 @@ cd ../frontend && npm ci && npm run dev         # http://localhost:4200 (Vite), 
 
 Используйте изолированную локальную БД и тестовые настройки каналов. API и worker с действующими
 учётными данными могут обращаться к внешним сервисам. Админка — React + Vite + TypeScript,
-shadcn/ui, TanStack Query/Router/Table: [docs/admin-frontend.md](docs/admin-frontend.md). Тесты
-(pytest, Vitest), сборка, линт и типы запускаются только в CI (см. [AGENTS.md](AGENTS.md) и
-[docs/ci.md](docs/ci.md)).
+shadcn/ui, TanStack Query/Router/Table. Тесты (pytest, Vitest), сборка, линт и типы запускаются
+только в CI (см. [AGENTS.md](AGENTS.md)).
 
 ## Деплой
 
@@ -67,6 +53,4 @@ Frontend build и health smoke не заменяют frontend tests, UX-пров
 ## Ограничения доставки
 
 Generation/CAS fencing очереди и долговечный intent/receipt исходящих сообщений не обещают
-exactly-once внешних действий; смешанный rollout со старыми worker небезопасен. См.
-[контракт доставки](docs/outbound-delivery.md) и
-[fencing состояния очереди](docs/api.md#fencing-состояния-очереди).
+exactly-once внешних действий; смешанный rollout со старыми worker небезопасен.

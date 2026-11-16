@@ -10,4 +10,3 @@ __pycache__/
 node_modules/
 frontend/dist/
 frontend/coverage/
-docs/tasks/*.agent-metrics.tsv

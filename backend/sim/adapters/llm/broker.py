@@ -55,7 +55,7 @@ def err_text(exc: BaseException) -> str:
 
 
 def image_request(prompt: str) -> str:
-    """The wording the Broker documents for its image tool (docs/subscription-models.md)."""
+    """The wording the Broker documents for its image tool."""
     return (f"$imagegen Generate exactly one real PNG image.\n\n{prompt}\n\n"
             "Use the built-in GPT image generation tool; do not draw it with code or SVG.")
 

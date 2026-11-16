@@ -56,12 +56,11 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
         await svc.set("output_contract", 'FORMAT FROM DB: {"reply": "", "stage": ""}', None)
         await svc.set("guard_prompt", "GUARD PROMPT FROM DB", None)
         await svc.set("guard_capability", "chat:smart", None)
-        (await s.get(Persona, world.persona.id)).description = "PERSONA PROMPT FROM DB"
+        (await s.get(Persona, world.persona.id)).agent_prompt = "PERSONA PROMPT FROM DB"
     async with transaction(container.factory) as s:
         await container.conversation(s).preview(await s.get(Persona, world.persona.id), "Привет!")
     system = fake_llm.gen_calls[0][0][0]["content"]
-    assert system.startswith(
-        "PERSONA PROMPT FROM DB\n\nЧего нельзя никогда:\n- не обещать доход\n- не просить пароли\n\nСТРАТЕГИЯ")
+    assert system.startswith("PERSONA PROMPT FROM DB\n\n")
     assert system.endswith('FORMAT FROM DB: {"reply": "", "stage": ""}') and OUTPUT_CONTRACT not in system
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
     assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"

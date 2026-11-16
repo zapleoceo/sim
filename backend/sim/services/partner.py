@@ -44,7 +44,7 @@ class PartnerDataError(ValueError):
 
 
 def sign(secret: str, timestamp: str, body: bytes) -> str:
-    """hex(hmac_sha256(secret, ts + "." + body)) - the scheme in docs/api.md."""
+    """hex(hmac_sha256(secret, ts + "." + body))."""
     return hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
 
 

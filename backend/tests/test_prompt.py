@@ -6,25 +6,17 @@ from datetime import datetime
 import pytest
 
 from sim.domain.enums import Stage
-from sim.persona_prompts import (
-    EVA,
-    MARINA,
-    MARINA_RCIP_CONTEXT,
-    MARINA_STYLE,
-    PERSONA_TEXTS,
-    STRATEGY_PROMPT,
-)
+from sim.persona_prompts import EVA_PROMPT, MARINA, MARINA_PROMPT, STRATEGY_PROMPT
 from sim.services.call_prompt import call_system_prompt
 from sim.services.prompt import (
-    STYLE_RULE,
-    VOICE_RULE,
+    LINK_CONTRACT,
+    UNIFIED_BOUNDARIES,
     DialogContext,
     PersonaProfile,
     PromptTexts,
     StrategyProfile,
     Turn,
     build_messages,
-    compose_persona_prompt,
     dynamic_context,
     handoff_link,
     parse_decision,
@@ -35,10 +27,7 @@ from sim.services.prompt import (
 
 PERSONA = PersonaProfile(
     name="Марина", age=45, language="ru",
-    description=compose_persona_prompt(
-        "Марина", "Характер: тёплая. Биография: 20 лет в проектах.",
-        prohibitions="- не обещать доход\n2. не просить пароли\n\nбез мата",
-    ),
+    agent_prompt="Ты Марина.\n\nХарактер: тёплая. Биография: 20 лет в проектах.",
 )
 STRATEGY = StrategyProfile(
     name="S", goal="регистрация", offer="курс", partner_name="RCIPM",
@@ -70,77 +59,29 @@ def test_layout_system_history_system():
     assert [m["role"] for m in msgs] == ["system", "user", "assistant", "system"]
 
 
-def test_voice_rules_present_without_fixed_identity_rule():
+def test_unified_prompt_contains_agent_prompt_link_contract_boundaries_and_format():
     system = stable_system_prompt(PERSONA, STRATEGY)
-    # keeps the role without an unsolicited introduction or identity denial
-    assert "Без вопроса не начинай рассказ" in system
-    assert "честно скажи, что ты ИИ-персонаж" in system
-    assert "никогда не утверждай" not in system
+    assert system.startswith(PERSONA.agent_prompt)
+    assert LINK_CONTRACT in system
+    assert UNIFIED_BOUNDARIES in system
+    assert "ФОРМАТ ОТВЕТА" in system
 
 
-def test_voice_and_style_aim_at_a_human_messenger_voice():
-    system = stable_system_prompt(PERSONA, STRATEGY)
-    assert "на такие вопросы отвечай из биографии" in system
-    assert "милениал" in system and "не используй длинные тире" in system
-    assert "мелкую естественную опечатку" in system and "никогда в именах, ссылках, цифрах и ценах" in system
-    assert "ЕДИНСТВЕННОЕ исключение из РОЛИ" not in system
-    # the rules practise what they preach: no long dashes or guillemets to imitate
-    for rule in (VOICE_RULE, STYLE_RULE):
-        assert not set(rule) & {"—", "–", "«", "»"}
+def test_system_prompt_parts_unified_structure():
+    parts = system_prompt_parts(PERSONA, STRATEGY, PromptTexts(contract="ФОРМАТ"))
+    assert "\n\n".join(p.text for p in parts) == stable_system_prompt(PERSONA, STRATEGY, PromptTexts(contract="ФОРМАТ"))
+    assert [(p.key, p.source, p.field) for p in parts] == [
+        ("agent_prompt", "persona", "agent_prompt"),
+        ("link_contract", "code", ""),
+        ("unified_boundaries", "code", ""),
+        ("output_contract", "setting", "output_contract"),
+    ]
+    assert all(p.title and p.text for p in parts)
 
 
 def test_parsed_reply_uses_plain_messenger_punctuation():
     d = parse_decision('{"reply": "Слушай — это «важно»; правда…", "stage": "engaged"}')
     assert d is not None and d.reply == 'Слушай - это "важно", правда...'
-
-
-def test_description_and_prohibitions_sections():
-    system = stable_system_prompt(PERSONA, STRATEGY)
-    assert "Характер: тёплая. Биография: 20 лет в проектах." in system
-    block = system.split("Чего нельзя никогда:\n", 1)[1].split("\n\n", 1)[0]
-    assert block.splitlines() == ["- не обещать доход", "- не просить пароли", "- без мата"]
-    # prohibitions come before the strategy rules
-    assert system.index("Чего нельзя никогда") < system.index("СТРАТЕГИЯ") < system.index("ПРАВИЛА:")
-
-
-def test_the_persona_prompt_is_the_owner_text_her_prohibitions_then_strategy_and_format():
-    own = PersonaProfile(name="Х", description="Мой промпт целиком.", prohibitions="не трогать\n- не спорить")
-    system = stable_system_prompt(own, STRATEGY, PromptTexts(contract="ФОРМАТ: мой"))
-    assert system.startswith(
-        "Мой промпт целиком.\n\nЧего нельзя никогда:\n- не трогать\n- не спорить\n\nСТРАТЕГИЯ\n- Название: S")
-    assert system.endswith("ФОРМАТ: мой")
-    assert VOICE_RULE not in system and STYLE_RULE not in system   # no hidden shared rules
-
-
-def test_system_prompt_parts_are_the_prompt_and_name_where_each_piece_is_edited():
-    own = PersonaProfile(name="Х", description="Кто она.", prohibitions="не спорить",
-                         routine="пн-пт 09:00-13:00 работа")
-    strategy = StrategyProfile(name="S", offer="курс", prompt="Сначала человек.",
-                               stage_playbook={"engaged": "узнай"}, rules=["не дави"])
-    parts = system_prompt_parts(own, strategy, PromptTexts(contract="ФОРМАТ"))
-    assert "\n\n".join(p.text for p in parts) == stable_system_prompt(own, strategy, PromptTexts(contract="ФОРМАТ"))
-    assert [(p.key, p.source, p.field) for p in parts] == [
-        ("description", "persona", "description"), ("prohibitions", "persona", "prohibitions"),
-        ("routine", "persona", "routine"), ("strategy", "strategy", "offer"),
-        ("strategy_prompt", "strategy", "prompt"), ("stage_playbook", "strategy", "stage_playbook"),
-        ("rules", "strategy", "rules"), ("output_contract", "setting", "output_contract"),
-    ]
-    assert all(p.title and p.text for p in parts)
-    # empty pieces are left out; the answer format always closes the prompt
-    bare = system_prompt_parts(PersonaProfile(name="Х"), StrategyProfile(), PromptTexts(contract=""))
-    assert [p.key for p in bare] == ["description", "strategy", "output_contract"]
-    assert bare[0].text == "Ты Х."
-
-
-def test_compose_persona_prompt_puts_who_she_is_first():
-    text = compose_persona_prompt("Ева", "Я Ева.")
-    assert text.startswith("Ты Ева.\n\nЯ Ева.") and VOICE_RULE in text and STYLE_RULE in text
-    assert compose_persona_prompt("Ева", "Ты Ева, 39 лет.").startswith("Ты Ева, 39 лет.")
-
-
-def test_no_prohibitions_section_when_empty():
-    bare = PersonaProfile(name="Х", description="d")
-    assert "Чего нельзя никогда" not in stable_system_prompt(bare, STRATEGY)
 
 
 def test_handoff_links_and_context():
@@ -151,7 +92,6 @@ def test_handoff_links_and_context():
     assert handoff_link("instagram", "@x", "abc12345") == ""
     text = dynamic_context(ctx("Анна", "abc12345", handoff_links=[("whatsapp", wa)]), STRATEGY)
     assert wa in text
-    # the stable prompt only says how to use them, it never contains a client link
     assert "abc12345" not in stable_system_prompt(PERSONA, STRATEGY)
 
 
@@ -247,7 +187,7 @@ def test_client_name_quotes_cannot_break_out_of_the_data_value():
     text = dynamic_context(ctx(name, "r"), STRATEGY)
     line = next(x for x in text.splitlines() if x.startswith("- Имя клиента в профиле"))
     value = line.split("(недоверенное): ", 1)[1]
-    assert json.loads(value) == name          # one well-formed JSON string, quotes escaped
+    assert json.loads(value) == name
     assert value.startswith('"Eve\\"')
 
 
@@ -257,47 +197,47 @@ def test_no_fixed_identity_rule_is_appended():
     assert "никогда не утверждай" not in system
 
 
-def test_voice_rule_answers_identity_questions_honestly_without_unsolicited_introduction():
-    assert "Без вопроса не начинай рассказ" in VOICE_RULE
-    assert "не представляйся помощником другого человека" in VOICE_RULE
-    assert "честно скажи, что ты ИИ-персонаж" in VOICE_RULE
-    assert "Не утверждай, что ты живой человек" in VOICE_RULE
-    assert "ни при каком вопросе" not in VOICE_RULE
+# ---- persona prompt content tests ----------------------------------------------------------
+
+def test_marina_prompt_has_biography_style_safety_and_strategy():
+    for section in ("Марина Светлова", "Характер: тёплая", "КОНТЕКСТ RCIP",
+                    "БЕЗОПАСНОСТЬ:", "ОРИЕНТИРЫ СТРАТЕГИИ", "Валюта", "не указаны"):
+        assert section in MARINA_PROMPT
 
 
-def test_marina_natural_style_is_in_shared_chat_and_call_prompt_without_hidden_override():
-    persona = PersonaProfile(name=MARINA, description=PERSONA_TEXTS[MARINA]["description"])
+def test_eva_prompt_has_biography_style_safety_and_strategy():
+    for section in ("Ева Коган", "Характер: умная", "БЕЗОПАСНОСТЬ:", "ОРИЕНТИРЫ СТРАТЕГИИ",
+                    "СТИЛЬ ЕВЫ:", "Одесс", "ЯЗЫК ОБЩЕНИЯ ЕВЫ"):
+        assert section in EVA_PROMPT
+
+
+def test_marina_chat_and_call_share_base_prompt():
+    persona = PersonaProfile(name=MARINA, agent_prompt=MARINA_PROMPT)
     strategy = StrategyProfile(name="S", prompt=STRATEGY_PROMPT)
     history = [Turn("user", "Алло, привет."),
                Turn("assistant", "Привет. Слушаю вас, что-то срочное?"), Turn("user", "TikTok")]
     chat = build_messages(persona, strategy, history, ctx("Анна", "r"))
     call = call_system_prompt(persona, strategy, history, ctx("Анна", "r"))
-    assert MARINA_STYLE in chat[0]["content"] and MARINA_STYLE in call
+    assert MARINA_PROMPT in chat[0]["content"]
+    assert call.startswith(MARINA_PROMPT)
     assert chat[-2]["content"] == "TikTok" and "Клиент: TikTok" in call
-    assert VOICE_RULE in chat[0]["content"]
-    assert "БЕЗОПАСНОСТЬ:" in chat[0]["content"] and "ФОРМАТ ОТВЕТА" in chat[0]["content"]
+    assert "ФОРМАТ ОТВЕТА" in chat[0]["content"]
     assert "ФОРМАТ ОТВЕТА" not in call
-    assert "эти указания стиля важнее" in chat[0]["content"]
-    assert MARINA_RCIP_CONTEXT in chat[0]["content"] and MARINA_RCIP_CONTEXT in call
-    # This is prompt assembly coverage, not a claim about a real model's generated reply.
-    assert MARINA_STYLE not in PERSONA_TEXTS[EVA]["description"]
 
 
-def test_marina_style_guides_meaning_not_a_fixed_tiktok_answer():
-    for guidance in ("предыдущим вопросом", "Не додумывай намерение",
-                     "делись уместной личной деталью", "не возвращай любой разговор",
-                     "задай один короткий уточняющий вопрос", "Можно ответить без встречного вопроса",
-                     "Не приписывай срочность", "на прямой вопрос об ИИ отвечай честно",
-                     "обязательные правила безопасности"):
-        assert guidance in MARINA_STYLE
-    assert "TikTok" not in MARINA_STYLE
-    assert "мелкую естественную опечатку" not in PERSONA_TEXTS[MARINA]["description"]
-
-
-def test_rcip_context_keeps_unverified_claims_and_missing_terms_explicit():
+def test_marina_rcip_keeps_unverified_claims_explicit():
     for boundary in ("Валюта", "не указаны", "не предоставлены и не проверены",
                      "Не обещай безусловный возврат", "97,38%", "не подтверждены",
                      "включая потерю вложенных средств", "доход не гарантирован",
                      "Не подбирай человеку инвестицию", "Не запрашивай данные карт"):
-        assert boundary in MARINA_RCIP_CONTEXT
-    assert MARINA_RCIP_CONTEXT not in PERSONA_TEXTS[EVA]["description"]
+        assert boundary in MARINA_PROMPT
+    assert "97,38%" not in EVA_PROMPT
+
+
+def test_marina_style_guides_conversation():
+    for guidance in ("предыдущим вопросом", "Не додумывай намерение",
+                     "делись уместной личной деталью", "не возвращай любой разговор",
+                     "задай один короткий уточняющий вопрос", "Можно ответить без встречного вопроса",
+                     "Не приписывай срочность",
+                     "обязательные правила безопасности"):
+        assert guidance in MARINA_PROMPT

@@ -278,8 +278,8 @@ class ConversationService:
             context=example_context(now, facts, profile),
             rules=fixed_rules(persona.name),
             strategy_id=strategy.id,
-            mode="unified" if persona.agent_prompt is not None else "legacy",
-            agent_prompt=editable_agent_prompt(persona_profile(persona), profile),
+            mode="unified",
+            agent_prompt=editable_agent_prompt(persona_profile(persona)),
         )
 
     async def strategy_for(self, persona_id: int) -> Strategy:

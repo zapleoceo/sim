@@ -1,4 +1,4 @@
-"""Unified mode is an explicit owner edit, never a migration or generic persona save."""
+"""Unified prompt save, CSRF and validation."""
 from sqlalchemy import select
 
 from sim.adapters.db.models import Dialog, DialogEvent, Persona
@@ -15,8 +15,7 @@ async def test_prompt_save_preserves_fields_invalidates_plan_and_reaches_preview
     url = f"/api/personas/{world.persona.id}"
     original = (await api.get(url)).json()
     before = (await api.get(url + "/prompt")).json()
-    assert before["mode"] == "legacy"
-    assert before["agent_prompt"] == "\n\n".join(p["text"] for p in before["parts"][:-1])
+    assert before["mode"] == "unified"
     async with transaction(container.factory) as s:
         dialog = await s.get(Dialog, did)
         persona = await s.get(Persona, world.persona.id)
@@ -54,4 +53,4 @@ async def test_prompt_write_is_owner_csrf_protected_and_rejects_blank(api, world
     headers = await owner(api)
     for value in ("", " \n ", "x" * 100001):
         assert (await api.put(url, json={"text": value}, headers=headers)).status_code == 422
-    assert (await api.get(url)).json()["mode"] == "legacy"
+    assert (await api.get(url)).json()["mode"] == "unified"

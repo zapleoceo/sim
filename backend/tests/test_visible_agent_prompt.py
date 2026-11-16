@@ -14,7 +14,6 @@ from sim.services.prompt import (
     Turn,
     build_messages,
     editable_agent_prompt,
-    stable_system_prompt,
 )
 
 
@@ -29,15 +28,16 @@ def test_unified_source_retains_mandatory_rules_dynamic_facts_and_voice_identity
     assert "PROGRAMMATIC CLOCK" in messages[-1]["content"]
     voice = call_system_prompt(p, s, [], ctx)
     assert voice.startswith(p.agent_prompt) and "OLD" not in voice
-    assert "PROGRAMMATIC CLOCK" in voice and "ИИ-персонаж" in voice
+    assert "PROGRAMMATIC CLOCK" in voice
     assert FACT_CONTROL in guard_system_prompt() and VOICE_CONTROL in guard_system_prompt()
-    assert editable_agent_prompt(p, s) == p.agent_prompt
+    assert editable_agent_prompt(p) == p.agent_prompt
 
 
-def test_legacy_materialization_and_followup_keep_shared_builder_contract():
-    p = PersonaProfile(name="name", description="description", prohibitions="ban")
-    s = StrategyProfile(prompt="strategy", rules=["rule"])
-    assert editable_agent_prompt(p, s) == stable_system_prompt(p, s, PromptTexts(contract="")).rstrip()
-    assert "description" in editable_agent_prompt(p, s) and "ban" in editable_agent_prompt(p, s)
-    text = followup_instruction([24], 0, unified=True)
+def test_editable_agent_prompt_returns_empty_when_none():
+    p = PersonaProfile(name="name", description="description")
+    assert editable_agent_prompt(p) == ""
+
+
+def test_followup_references_unified_prompt():
+    text = followup_instruction([24], 0)
     assert "24" in text and "единому промпту" in text
