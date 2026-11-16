@@ -403,7 +403,7 @@ describe('InboxPage on a phone (380 px)', () => {
     expect(within(header).getAllByRole('button')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Обработано' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Очистить чат' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Лента клиента/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Лента клиента/ })).toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
@@ -586,7 +586,7 @@ describe('InboxPage: журнал коммуникации в ленте', () =>
     const stage = await within(feed).findByRole('note', { name: 'Служебное событие: Этап' });
     expect(stage).toHaveTextContent('Первый контакт → Вовлечён');
     expect(stage).toHaveTextContent('оператор Оля');
-    expect(stage).toHaveTextContent('причина: созвон');
+    expect(stage).toHaveTextContent('Причина: созвон');
     const pause = within(feed).getByRole('note', { name: 'Служебное событие: ИИ' });
     expect(pause).toHaveTextContent('включён → на паузе');
     expect(pause).toHaveTextContent('владелец Дима');
@@ -608,7 +608,7 @@ describe('InboxPage: журнал коммуникации в ленте', () =>
     await userEvent.click(await screen.findByText('Подробности', { selector: 'summary span' }));
     const line = await screen.findByRole('note', { name: 'Служебное событие: Чат очищен' });
     expect(line).toHaveTextContent('удалено сообщений: 4');
-    expect(line).toHaveTextContent('причина: тест с нуля');
+    expect(line).toHaveTextContent('Причина: тест с нуля');
     expect(screen.queryByText('Сообщений пока нет')).not.toBeInTheDocument();
   });
 });

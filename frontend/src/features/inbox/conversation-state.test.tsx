@@ -18,7 +18,8 @@ it('prioritizes pause, starts compact and retains exact plan behind keyboard acc
   summary.focus();
   expect(summary).toHaveFocus();
   await userEvent.click(summary);
-  expect(screen.getByText(detail.dialog.reengagement_plan!.text!)).toBeVisible();
+  expect(container.querySelector('blockquote')).toBeVisible();
+  expect(container.querySelector('blockquote')?.textContent).toBe(detail.dialog.reengagement_plan!.text);
   expect(screen.queryByRole('button', { name: 'Ответить сейчас' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Включить ИИ' }));
   expect(toggle).toHaveBeenCalledWith(false);
