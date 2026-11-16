@@ -28,7 +28,7 @@ it('does not switch legacy mode on read or cancelled confirmation; saves only ex
   await userEvent.click(screen.getByRole('button', { name: 'Отмена' }));
   expect(log.filter(r => r.method === 'PUT')).toHaveLength(0);
   await userEvent.click(screen.getByRole('button', { name: 'Сохранить единый промпт' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Включить', exact: true }));
+  await userEvent.click(screen.getByRole('button', { name: 'Включить' }));
   await waitFor(() => expect(log.filter(r => r.method === 'PUT')).toHaveLength(1));
   expect(saved).toBe('New synthetic instructions');
   expect(await screen.findByText(/Сейчас работает единый промпт:/)).toBeInTheDocument();
