@@ -257,6 +257,41 @@ async def test_no_media_is_queued_when_the_reply_ends_the_conversation(container
     assert await media_jobs(container) == []
 
 
+async def test_priority_contact_rewrites_arbitrary_refusal_without_bypassing_guard(
+        container, world, fake_llm, studio):
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Dialog))).unique().one().external_thread_id = "12345"
+    await set_setting(container, "media_priority_telegram_ids", "12345")
+    fake_llm.replies = [decision_json(reply="Не по настроению", media={
+        "kind": "photo", "decision": "decline", "reason": "не по настроению"}),
+        decision_json(reply="Вечерний балкон", media=ASK)]
+    fake_llm.guard_replies = [json.dumps({"verdict": "block", "violations": [
+        "Произвольный отказ вместо доступного допустимого медиа"], "fixed_reply": ""})]
+    await run_reply(container)
+    assert len(fake_llm.gen_calls) == 2 and len(await media_jobs(container)) == 1
+    assert "ПРЕДПОЧТЕНИЕ КОНТАКТА" in context_of(fake_llm)
+    checked = json.loads(fake_llm.guard_calls[-1][0][-1]["content"])
+    assert checked["context"]["media_priority"] is True
+    assert "Не отказывай по настроению" in checked["context"]["media_offer"]
+
+
+async def test_priority_does_not_enable_missing_generator(container, world, fake_llm, studio):
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Dialog))).unique().one().external_thread_id = "12345"
+    await set_setting(container, "media_priority_telegram_ids", "12345")
+    await set_setting(container, "persona_photo_model", "")
+    fake_llm.replies = [decision_json(reply="Генерация сейчас недоступна", media={
+        "kind": "photo", "decision": "decline", "reason": "генератор недоступен"})]
+    await run_reply(container)
+    assert NO_MEDIA in context_of(fake_llm) and await media_jobs(container) == []
+
+
+async def test_other_contact_does_not_receive_priority_policy(container, world, fake_llm, studio):
+    await set_setting(container, "media_priority_telegram_ids", "12345")
+    await run_reply(container)
+    assert "ПРЕДПОЧТЕНИЕ КОНТАКТА" not in context_of(fake_llm)
+
+
 # ---- the job: generate, cache, send ----------------------------------------------------------
 
 async def ask_for_a_photo(container, fake_llm) -> None:

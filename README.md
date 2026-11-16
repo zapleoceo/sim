@@ -1,5 +1,29 @@
 # Sim
 
+### Current-contact profile and requested media
+
+Owner settings `media_priority_telegram_ids` (empty by default) prefer permissible
+requested media without arbitrary mood refusals. Generator and guard receive the
+same policy; availability, cooldown, opt-out, pauses and failures still apply.
+A preference is not a delivery guarantee.
+
+`contact_profile_channel_id` defaults to 0 (disabled). One explicitly selected
+Telegram-user channel may read the **current dialog's** name, username, bio and
+one small available profile photo when the latest inbound mentions a profile or
+avatar. The persisted channel/client/peer identity must match. No arbitrary RPC,
+other-contact lookup, account management, bulk history or security operation is
+exposed. Reads have a six-second budget and 512 KiB photo limit, respect Telegram
+privacy, and never fetch remote URLs. Photos reach only the already selected model
+if its current Broker catalog confirms image input; no alternate-model fallback.
+Diagnostics record operation/status, not profile payload or image bytes. Known
+stored usernames reach text/voice context and guard even with live reads disabled.
+
+These are bounded service tools invoked by code on profile requests, **not** an
+unrestricted LLM tool/RPC interface. Existing dialog history is the only chat history
+supplied. CI uses synthetic profiles, photos, transports and model responses.
+Production activation requires choosing the intended existing channel; no new
+credentials are created. Private/unavailable fields are never reconstructed.
+
 ИИ-персонажи (виртуальные представители): Instagram — привлечение, WhatsApp и Telegram — личное
 общение, воронка до регистрации и первой оплаты у партнёра. Документированный URL: https://sim.zapleo.com.
 

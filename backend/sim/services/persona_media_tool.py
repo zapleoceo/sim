@@ -115,6 +115,15 @@ MEDIA_BRIEF = (
     "после текста и может не прийти: в reply не обещай его и не пиши, что отправила, текст должен "
     "быть уместен сам по себе. Без повода поле media не добавляй."
 )
+MEDIA_PRIORITY = (
+    "ПРЕДПОЧТЕНИЕ КОНТАКТА: если собеседник просит допустимое доступное фото или кружочек, "
+    "выполни запрос через media со сценой. Не отказывай по настроению, из-за настойчивости, "
+    "занятости или темноты: допустимая синтетическая сцена может быть вечерней. "
+    "Это не отменяет безопасность, отказ от общения, ограничения канала, паузу между медиа "
+    "или недоступность генератора. При настоящем ограничении укажи его честно. "
+    "Не выдумывай реальную съёмку или уже выполненную отправку, не обещай результат; "
+    "маркировка синтетических медиа и правдивое раскрытие ИИ сохраняются."
+)
 MEDIA_REPORT = (
     "РЕШЕНИЕ ПО МЕДИА: если собеседник просит фото или кружочек, а ты решила не присылать или "
     "прислать позже, тоже добавь в JSON поле \"media\": {\"kind\": \"photo\" или \"video_note\", "
@@ -275,7 +284,9 @@ class PersonaMediaTool:
         """The media part of the reply's dynamic context: what she may attach, how she reports a
         decision not to send, and her latest decisions in this dialog."""
         earlier = await self.decisions.brief(dialog.id, persona.timezone)
-        return "\n\n".join(filter(None, [offer.brief(), MEDIA_REPORT, earlier]))
+        cfg = await self.settings.load()
+        preferred = MEDIA_PRIORITY if is_owner_account(dialog, cfg.media_priority_telegram_ids) else ""
+        return "\n\n".join(filter(None, [offer.brief(), MEDIA_REPORT, preferred, earlier]))
 
     # ---- her decision (the reply) --------------------------------------------------------
     async def decide(  # noqa: PLR0913

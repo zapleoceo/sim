@@ -187,6 +187,13 @@ SPECS: tuple[SettingSpec, ...] = (
                 "Не чаще одного сгенерированного фото или кружочка на диалог за столько минут. "
                 "0: без паузы.",
                 "int", 30, 0, 1440),
+    SettingSpec("media_priority_telegram_ids", MEDIA_GROUP, "Telegram id: медиа по запросу",
+                "Контакты через запятую: выполнять допустимый запрос фото или кружочка, без отказов "
+                "по настроению. Доступность, паузы, безопасность и маркировка ИИ сохраняются.", "ids", ""),
+    SettingSpec("contact_profile_channel_id", OWNER_GROUP, "Аккаунт Telegram: профиль собеседника",
+                "ID одного канала Telegram user: читать доступный профиль и одно фото текущего "
+                "собеседника по его просьбе. Без других чатов и управления аккаунтом. 0: выключено.",
+                "int", 0, 0, 2_147_483_647),
     SettingSpec("instant_reply_telegram_ids", OWNER_GROUP, "Telegram id: отвечать сразу",
                 "Числовые Telegram id через запятую. С этими аккаунтами персонаж отвечает сразу, "
                 "как в диалоге с пометкой «Срочный»: без распорядка и занятости, и присылает фото "
@@ -246,6 +253,8 @@ class AppSettings:
     lowercase_percent: int
     reply_debounce_s: int
     pause_recovery_window_min: int
+    media_priority_telegram_ids: str
+    contact_profile_channel_id: int
     instant_reply_telegram_ids: str
     reply_schedule_enabled: int
     reply_check_sleep_min: int

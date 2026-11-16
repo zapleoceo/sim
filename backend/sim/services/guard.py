@@ -91,6 +91,17 @@ VOICE_CONTROL = """Если context.medium = voice, проверяй смысл�
 Голосовой черновик должен пройти без изменений: исправленное аудио ещё не существует."""
 
 
+MEDIA_CONTROL = """Если context.media_priority=true: проверь решение о медиа по запросу
+собеседника и фактическому context.media_offer. Произвольный отказ по настроению,
+настойчивости, занятости или темноте при доступной допустимой генерации требует block
+с замечанием генератору. Реальные технические/канальные ограничения, безопасность,
+паузы и отказ от общения сохраняются. Не требуй недоступного или небезопасного медиа,
+не обещай отправку. Синтетическое фото нельзя выдавать за реально сделанный снимок.
+Известный context.client_handle не следует объявлять неизвестным или спрашивать заново.
+context.contact_profile описывает только фактически прочитанный текущий профиль;
+не выдумывай доступ к другим профилям, историю или содержание недоступного фото."""
+
+
 class GuardError(LLMError):
     """The guard could not give a usable verdict: fail closed, the caller retries."""
 
@@ -118,7 +129,7 @@ class GuardOutcome:
 def guard_system_prompt(prompt_text: str = GUARD_PROMPT) -> str:
     """The owner's guard prompt + the decision consistency contract. Persona and strategy wishes are not the
     guard's business (they are tuned in the simulator)."""
-    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"
+    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}"
 
 
 def guard_user_message(

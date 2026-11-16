@@ -41,6 +41,16 @@ FIRST_SYNC_LIMIT = 20                 # messages read per dialog the first time 
 FIRST_SYNC_WINDOW = timedelta(hours=24)
 FOLLOW_LIMIT = 100                    # per dialog per poll once a cursor exists
 SENT_LIMIT = 500
+PROFILE_PHOTO_LIMIT = 512 * 1024
+
+
+class ProfilePhotoBuffer(io.BytesIO):
+    """Reject oversized downloads while writing, not after allocating the whole file."""
+
+    def write(self, data: bytes) -> int:
+        if self.tell() + len(data) > PROFILE_PHOTO_LIMIT:
+            raise ValueError("profile photo exceeds limit")
+        return super().write(data)
 
 # Errors that mean "this session is dead", as opposed to a network blip.
 DEAD_SESSION = (
@@ -246,6 +256,25 @@ class TelethonTransport:
             raise ValueError(f"media exceeds {max_bytes} bytes")
         return bytes(data)
 
+    async def profile(self, peer_id: int) -> dict[str, Any]:
+        client = await self.ready()
+        entity = await self.entity(client, peer_id)
+        result = await client(tl_functions.users.GetFullUserRequest(entity))
+        user = next((u for u in result.users if u.id == peer_id), None)
+        if (user is None or not isinstance(user, tl_types.User) or user.bot
+                or user.deleted or user.is_self or peer_id == SERVICE_USER_ID):
+            raise ValueError("unavailable contact")
+        return {"name": " ".join(x for x in (user.first_name, user.last_name) if x),
+                "username": user.username or "", "bio": result.full_user.about or "",
+                "has_photo": isinstance(user.photo, tl_types.UserProfilePhoto)}
+
+    async def profile_photo(self, peer_id: int) -> bytes:
+        client = await self.ready()
+        entity = await self.entity(client, peer_id)
+        with ProfilePhotoBuffer() as target:
+            await client.download_profile_photo(entity, file=target, download_big=False)
+            return target.getvalue()
+
     async def close(self, *, logout: bool = False) -> None:
         try:
             if logout:
@@ -265,6 +294,7 @@ class TelegramUserAdapter:
         Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
         Capability.SEND_PHOTO, Capability.SEND_VIDEO_NOTE, Capability.CHAT_ACTION,
         Capability.MARK_READ, Capability.ACCEPT_CALL,
+        Capability.READ_CONTACT_PROFILE,
     })
 
     def __init__(
@@ -283,6 +313,28 @@ class TelegramUserAdapter:
         self.sleep = sleep
         self.mono = monotonic
         self.now = now
+
+    async def read_contact_profile(self, external_thread_id: str) -> dict[str, Any]:
+        if not external_thread_id.isdecimal() or int(external_thread_id) <= 0:
+            raise ValueError("private contact required")
+        if self.mono() < self.s.blocked_until:
+            raise ValueError("telegram backoff")
+        try:
+            return await self.t.profile(int(external_thread_id))
+        except tg_errors.FloodWaitError as exc:
+            self.block(exc)
+            raise
+
+    async def read_contact_photo(self, external_thread_id: str) -> bytes:
+        if not external_thread_id.isdecimal() or int(external_thread_id) <= 0:
+            raise ValueError("private contact required")
+        if self.mono() < self.s.blocked_until:
+            raise ValueError("telegram backoff")
+        try:
+            return await self.t.profile_photo(int(external_thread_id))
+        except tg_errors.FloodWaitError as exc:
+            self.block(exc)
+            raise
 
     # --- inbound ---------------------------------------------------------------------------
 
