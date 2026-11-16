@@ -10,7 +10,8 @@ export const STRATEGY_PROMPT_ANCHOR = 'strategy-prompt';
 /** Where a piece of the prompt is edited: a place on this page, or the strategy's own page. */
 export type EditTarget = { kind: 'anchor'; anchor: string } | { kind: 'strategy'; strategyId: number };
 
-export function editTarget(part: Pick<PromptPart, 'source' | 'field'>, strategyId: number): EditTarget {
+export function editTarget(part: Pick<PromptPart, 'source' | 'field'>, strategyId: number): EditTarget | null {
+  if (part.source === 'code') return null;
   if (part.source === 'persona') return { kind: 'anchor', anchor: personaFieldAnchor(part.field) };
   if (part.source === 'setting') return { kind: 'anchor', anchor: settingAnchor(part.field) };
   if (part.field === 'prompt') return { kind: 'anchor', anchor: STRATEGY_PROMPT_ANCHOR };
@@ -18,6 +19,7 @@ export function editTarget(part: Pick<PromptPart, 'source' | 'field'>, strategyI
 }
 
 const SOURCE_LABELS: Record<PromptPart['source'], string> = {
+  code: 'Правило кода',
   persona: 'Поле персонажа',
   strategy: 'Стратегия',
   setting: 'Общая настройка',

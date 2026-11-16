@@ -7,11 +7,13 @@ import { EmptyState, ErrorState } from '@/components/empty-state';
 import { BackLink, Page, PageHeader } from '@/components/page';
 import { Skeleton } from '@/components/ui/skeleton';
 import { personasApi } from '@/lib/api/personas';
+import { useAuth } from '@/lib/auth';
 import { strategiesApi } from '@/lib/api/strategies';
 import type { Persona, PersonaIn } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { positiveInt, upsertById } from '@/lib/utils';
 import { AiVideoNote } from './ai-video-note';
+import { PersonaAgentPrompt } from './persona-agent-prompt';
 import { PersonaEditor } from './persona-editor';
 import { PersonaGallery } from './persona-gallery';
 import { PersonaPreview } from './persona-preview';
@@ -27,6 +29,7 @@ import { PersonaShared } from './persona-shared';
  * Broker models, settings and the prompt map fill in after.
  */
 export function PersonaPage() {
+  const { isOwner } = useAuth();
   const params: { id?: string } = useParams({ strict: false });
   const isNew = params.id === undefined;
   const id = positiveInt(params.id);
@@ -118,6 +121,7 @@ export function PersonaPage() {
                       <PersonaShared />
                     </Section>
                     <Section id="assembled" hint="Что получает модель: какой кусок откуда и где его поменять.">
+                      {isOwner && <PersonaAgentPrompt key={persona.id} personaId={persona.id} />}
                       <PersonaPromptMap personaId={persona.id} />
                     </Section>
                   </div>
