@@ -56,3 +56,19 @@ async def test_provider_refusal_journals_without_pausing(container, world):
         d = await s.get(Dialog, did)
         assert not d.ai_paused and not d.needs_operator
         assert (await CommunicationJournal(s).feed(did))[-1].kind == CALL_ISSUE
+
+
+async def test_provider_finish_failure_still_records_issue_without_pause(container, world):
+    did = await chatting_world(container, world)
+
+    class BrokenFinish(FakeSession):
+        async def finish(self):
+            raise LiveVoiceError("synthetic finish error")
+
+    call = FakeCall(frames=1)
+    outcome = await service(container, FakeLive(BrokenFinish())).handle(world.channel.id, call)
+    assert call.hung_up and outcome.message_ids
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert not d.ai_paused and not d.needs_operator
+        assert (await CommunicationJournal(s).feed(did))[-1].kind == CALL_ISSUE

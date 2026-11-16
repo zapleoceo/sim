@@ -185,13 +185,23 @@ class CallService:
         try:
             await self.converse(call, session, trace, ambience, playback=playback)
         finally:
-            summary = await session.finish()
-            await call.hangup()
+            try:
+                summary = await session.finish()
+            except Exception:
+                log.exception("call summary failed dialog=%s", plan.dialog_id)
+                playback.failure = playback.failure or "provider_finish_failed"
+                summary = LiveVoiceSummary(duration_s=(self.clock() - started).total_seconds(),
+                                           end_reason="provider_finish_failed")
+            try:
+                await call.hangup()
+            except Exception:
+                log.exception("call hangup failed dialog=%s", plan.dialog_id)
+                playback.failure = playback.failure or "transport_hangup_failed"
         trace.event("ended", end_reason=summary.end_reason, duration_s=summary.duration_s,
                     turns=len(summary.transcript))
         trace.summary()
         if not trace.counters["frames_out"]:
-            log.warning("call on channel %s: the caller never heard her (model audio %s bytes, "
+            log.warning("call on channel %s: no speech frames accepted by transport (model audio %s bytes, "
                         "caller frames %s)", channel_id, trace.counters["model_audio_bytes"],
                         trace.counters["frames_in"])
         ids = await self.record(plan.dialog_id, summary, started, turns=playback.turns,
@@ -271,6 +281,8 @@ class CallService:
             done, _ = await asyncio.wait(tasks.values(), timeout=self.max_seconds + 30,
                                          return_when=asyncio.FIRST_COMPLETED)
             stopped = [name for name, task in tasks.items() if task in done]
+            if not stopped and playback is not None:
+                playback.failure = playback.failure or "call_timeout"
             trace.event("conversation_over", by=",".join(stopped) or "time_limit")
             if stopped == ["downlink"] and tasks["downlink"].exception() is None:
                 await self.drain(out)          # her last words before hanging up
