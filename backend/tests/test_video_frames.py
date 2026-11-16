@@ -12,9 +12,9 @@ JPEG = b"\xff\xd8\xff\xdb" + b"synthetic"
 async def test_sampling_is_bounded_and_never_enables_network():
     calls = []
 
-    async def runner(args, data, timeout):
+    async def runner(args, data, limit_s):
         calls.append(args)
-        assert data == b"" and timeout == 8
+        assert data == b"" and limit_s == 8
         assert args[args.index("-protocol_whitelist") + 1] == "file"
         if args[0] == "ffprobe":
             return 0, json.dumps({"streams": [{"width": 640, "height": 480}],
@@ -28,7 +28,7 @@ async def test_sampling_is_bounded_and_never_enables_network():
 
 @pytest.mark.parametrize("duration", ["61", "nan", "inf", "0", "-1"])
 async def test_invalid_duration_never_decodes_frames(duration):
-    async def runner(args, data, timeout):
+    async def runner(args, data, limit_s):
         assert args[0] == "ffprobe"
         return 0, json.dumps({"streams": [{"width": 640, "height": 480}],
                               "format": {"duration": duration}}).encode(), b""
