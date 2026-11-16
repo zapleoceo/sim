@@ -87,11 +87,12 @@ describe('persona page layout', () => {
     await renderApp('/personas/1');
     const header = await blockButton('Контекст модели');
     expect(header).toHaveAttribute('aria-expanded', 'false');
-    expect(await screen.findByText(AGENT_PROMPT)).not.toBeVisible();
+    const promptPre = await screen.findByText(AGENT_PROMPT, { selector: 'pre' });
+    expect(promptPre).not.toBeVisible();
 
     await userEvent.click(header);
     const assembled = within(screen.getByRole('region', { name: 'Контекст модели' }));
-    expect(assembled.getByText(AGENT_PROMPT)).toBeVisible();
+    expect(assembled.getByText(AGENT_PROMPT, { selector: 'pre' })).toBeVisible();
     expect(assembled.getByText('ты ИИ-ассистент')).not.toBeVisible();
     await userEvent.click(assembled.getByText('Технические правила и обработка'));
     const fixed = within(assembled.getByRole('group', { name: 'Фиксированные правила' }));
