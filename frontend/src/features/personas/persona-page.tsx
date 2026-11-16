@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { Smile } from 'lucide-react';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm';
@@ -17,15 +17,15 @@ import { PersonaAgentPrompt } from './persona-agent-prompt';
 import { PersonaEditor } from './persona-editor';
 import { PersonaGallery } from './persona-gallery';
 import { PersonaPreview } from './persona-preview';
+import { settingAnchor } from './persona-prompt-logic';
 import { PersonaPromptMap } from './persona-prompt-map';
 import { BLOCKS, PersonaSections, Section } from './persona-sections';
-import { PersonaShared } from './persona-shared';
 
 /**
- * Persona page: `/personas/new` and `/personas/$id`. Everything of a persona in one place, in blocks that
- * fold (only «Профиль» is open at first): her own data (one form), then, once she is saved, her photos and
- * video notes, the shared instructions mixed into her replies and the assembled prompt with the source of
- * every piece; the preview chat next to them. The page shows as soon as the personas are loaded: strategies,
+ * Persona page: `/personas/new` and `/personas/$id`. Only what belongs to this persona, in blocks that
+ * fold (only «Профиль» is open at first): her own data (one form), then, once she is saved, her prompt
+ * with its versions, her photos and video notes and the assembled prompt with the source of every piece
+ * (shared pieces link to «Общие правила» / «Помощники», where they are edited); the preview chat next to them. The page shows as soon as the personas are loaded: strategies,
  * Broker models, settings and the prompt map fill in after.
  */
 export function PersonaPage() {
@@ -117,15 +117,13 @@ export function PersonaPage() {
                     <Section id="media" hint="Её галерея и кружочек ИИ по запросу.">
                       <PersonaGallery personaId={persona.id} />
                       <AiVideoNote personaId={persona.id} />
-                      <a
-                        href="#shared"
+                      <Link
+                        to="/settings"
+                        hash={settingAnchor('persona_photo_model')}
                         className="inline-flex w-fit items-center text-xs font-medium text-primary underline-offset-4 hover:underline max-md:min-h-[40px]"
                       >
-                        Модель фото, пауза между медиа и получатель кружочков: в общих инструкциях
-                      </a>
-                    </Section>
-                    <Section id="shared" hint="Общие для всех персонажей: правка здесь меняет их везде. Те же поля есть на страницах «Общие правила» и «Агенты».">
-                      <PersonaShared />
+                        Модель фото, пауза между медиа и получатель кружочков — в «Общих правилах»
+                      </Link>
                     </Section>
                     <Section id="assembled" hint="Что получает модель: какой кусок откуда и где его поменять.">
                       <PersonaPromptMap personaId={persona.id} />

@@ -12,7 +12,6 @@ export const SECTIONS = [
   { id: 'voice', label: 'Голос и звонки' },
   { id: 'strategy', label: 'Модель и стратегия' },
   { id: 'media', label: 'Фото и кружочки' },
-  { id: 'shared', label: 'Общие инструкции' },
   { id: 'assembled', label: 'Контекст модели' },
 ] as const;
 

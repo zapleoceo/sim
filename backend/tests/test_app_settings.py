@@ -35,6 +35,16 @@ async def test_set_validates_and_reset_returns_the_default(container):
         assert item.value == RETRY_NUDGE and item.is_default
 
 
+def test_shared_rules_come_in_the_order_they_act_and_owner_accounts_are_one_group():
+    helpers = {"Охранник", "Паспортистка", "Саммари диалога"}
+    groups = list(dict.fromkeys(spec.group for spec in SPECS if spec.group not in helpers))
+    assert groups == ["Ответы", "Время ответа по распорядку", "Стиль сообщений",
+                      "Фото и кружочки персонажа", "Аккаунты владельца", "Служебные промпты",
+                      "Контент", "Журнал"]
+    owner = [spec.key for spec in SPECS if spec.group == "Аккаунты владельца"]
+    assert owner == ["instant_reply_telegram_ids", "video_note_owner_telegram_id"]
+
+
 async def test_owner_accounts_are_a_list_of_numeric_telegram_ids(container):
     spec = BY_KEY["instant_reply_telegram_ids"]
     assert (spec.kind, spec.default, spec.group) == ("ids", "", "Аккаунты владельца")

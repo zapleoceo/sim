@@ -21,11 +21,15 @@ const TEXT = 'max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 text-[12px] whit
 function EditLink({ part, strategyId }: { part: PromptPart; strategyId: number }) {
   const target = editTarget(part, strategyId);
   if (target === null) return null;
-  return target.kind === 'anchor' ? (
-    <a href={`#${target.anchor}`} className={ACTION}>Изменить</a>
-  ) : (
-    <Link to="/strategies/$id" params={{ id: String(target.strategyId) }} className={ACTION}>Изменить в стратегии</Link>
-  );
+  if (target.kind === 'anchor') return <a href={`#${target.anchor}`} className={ACTION}>Изменить</a>;
+  if (target.kind === 'setting') {
+    return (
+      <Link to={target.page} hash={target.anchor} className={ACTION}>
+        {target.page === '/agents' ? 'Изменить в «Помощниках»' : 'Изменить в «Общих правилах»'}
+      </Link>
+    );
+  }
+  return <Link to="/strategies/$id" params={{ id: String(target.strategyId) }} className={ACTION}>Изменить в стратегии</Link>;
 }
 
 function Piece({ title, badge, action, text }: { title: string; badge: string; action: ReactNode; text: string }) {
@@ -103,8 +107,8 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
         <summary className="cursor-pointer text-sm font-medium">Технические правила и обработка</summary>
         <p className="my-3 text-xs text-muted-foreground">
           Эти правила задаёт код, здесь только для просмотра. Черновик проверяет{' '}
-          <a href={`#${settingAnchor('guard_prompt')}`} className={LINK}>охранник</a>, стиль меняют{' '}
-          <a href={`#${settingAnchor('typo_percent')}`} className={LINK}>настройки сообщений</a>.
+          <Link to="/agents" hash={settingAnchor('guard_prompt')} className={LINK}>охранник</Link>, стиль меняют{' '}
+          <Link to="/settings" hash={settingAnchor('typo_percent')} className={LINK}>настройки сообщений</Link>.
         </p>
         <div className="flex flex-col gap-3" role="group" aria-label="Фиксированные правила">
         {map.rules.map((rule) => (

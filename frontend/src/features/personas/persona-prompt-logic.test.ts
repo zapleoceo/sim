@@ -3,7 +3,11 @@ import { editTarget, rulePlace, sourceLabel } from './persona-prompt-logic';
 describe('persona prompt map logic', () => {
   it('sends every piece to the place where it is edited', () => {
     expect(editTarget({ source: 'persona', field: 'prohibitions' }, 3)).toEqual({ kind: 'anchor', anchor: 'persona-prohibitions' });
-    expect(editTarget({ source: 'setting', field: 'output_contract' }, 3)).toEqual({ kind: 'anchor', anchor: 'setting-output_contract' });
+    // a shared setting is edited on its own page: «Общие правила», or «Помощники» for the helpers
+    expect(editTarget({ source: 'setting', field: 'output_contract' }, 3)).toEqual(
+      { kind: 'setting', page: '/settings', anchor: 'setting-output_contract' });
+    expect(editTarget({ source: 'setting', field: 'guard_prompt' }, 3)).toEqual(
+      { kind: 'setting', page: '/agents', anchor: 'setting-guard_prompt' });
     // the scenario is edited on the persona page, the rest of the strategy on its own page
     expect(editTarget({ source: 'strategy', field: 'prompt' }, 3)).toEqual({ kind: 'anchor', anchor: 'strategy-prompt' });
     expect(editTarget({ source: 'strategy', field: 'offer' }, 3)).toEqual({ kind: 'strategy', strategyId: 3 });

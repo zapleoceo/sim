@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { ErrorState } from '@/components/empty-state';
 import { FixedPrompt } from '@/components/fixed-prompt';
 import { Page, PageHeader } from '@/components/page';
@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { settingsApi } from '@/lib/api/settings';
 import { qk } from '@/lib/query';
 import { SettingField } from './setting-field';
-import { groupSettings, pickSettings, settingFieldKey } from './settings-logic';
+import { AGENT_KEYS, groupAnchor, groupSettings, pickSettings, settingAnchor, settingFieldKey } from './settings-logic';
 
 /** Settings of one or more groups on one page; every field is open, no hidden sections. */
 function SettingsView({ title, subtitle, only, except, keys, footer, groupFooters }: {
@@ -29,10 +29,29 @@ function SettingsView({ title, subtitle, only, except, keys, footer, groupFooter
   const groups = groupSettings(pickSettings(query.data ?? [], keys)).filter(
     (g) => (!only || only.includes(g.name)) && !(except ?? []).includes(g.name),
   );
+  // A link from the persona page (`/settings#setting-…`) lands on its field once the list is there.
+  const loaded = query.isSuccess;
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (loaded && id) document.getElementById(id)?.scrollIntoView?.({ block: 'start' });
+  }, [loaded]);
 
   return (
     <Page width="narrow">
       <PageHeader title={title} subtitle={subtitle} />
+      {groups.length > 3 && (
+        <nav aria-label="Группы настроек" className="flex flex-wrap gap-1.5">
+          {groups.map((g) => (
+            <a
+              key={g.name}
+              href={`#${groupAnchor(g.name)}`}
+              className="inline-flex h-8 items-center rounded-full border px-3 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {g.name}
+            </a>
+          ))}
+        </nav>
+      )}
       {query.isPending && (
         <div className="flex flex-col gap-4" aria-busy="true">
           <Skeleton className="h-40 w-full" />
@@ -41,12 +60,14 @@ function SettingsView({ title, subtitle, only, except, keys, footer, groupFooter
       )}
       {query.isError && <ErrorState onRetry={() => void query.refetch()} />}
       {groups.map((g) => (
-        <section key={g.name} aria-label={g.name}>
+        <section key={g.name} id={groupAnchor(g.name)} aria-label={g.name} className="scroll-mt-4">
           <Card>
           <CardTitle>{g.name}</CardTitle>
           <div className="flex flex-col gap-6">
             {g.items.map((item) => (
-              <SettingField key={settingFieldKey(item)} item={item} />
+              <div key={settingFieldKey(item)} id={settingAnchor(item.key)} className="scroll-mt-4">
+                <SettingField item={item} />
+              </div>
             ))}
             {groupFooters?.[g.name]}
           </div>
@@ -75,11 +96,6 @@ export function SettingsPage() {
   );
 }
 
-/** What the agents page shows: each agent's model and its one instruction; Broker routes stay a backend fallback. */
-export const AGENT_KEYS = [
-  'guard_model', 'guard_prompt', 'passport_model', 'passport_prompt', 'summary_model', 'summary_prompt',
-] as const;
-
 export function GuardControl() {
   const fixed = useQuery({ queryKey: qk.settingsFixed, queryFn: settingsApi.fixed });
   return fixed.data?.guard ? <FixedPrompt text={fixed.data.guard} where="после промпта охранника" /> : null;
@@ -92,7 +108,7 @@ export function GuardControl() {
 export function AgentsPage() {
   return (
     <SettingsView
-      title="Агенты"
+      title="Помощники"
       subtitle="Помощники персонажа, у каждого своя модель и своя инструкция. Охранник проверяет каждый ответ перед отправкой. Паспортистка после каждого ответа обновляет паспорт собеседника: что персонаж о нём знает. Саммари диалога хранит краткую память о сообщениях, которые старше окна контекста."
       only={AGENT_GROUPS}
       keys={AGENT_KEYS}

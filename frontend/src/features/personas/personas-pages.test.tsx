@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
-import type { AppSettingItem, Persona, Strategy } from '@/lib/models';
+import type { Persona, Strategy } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
 import { blockButton, openLongText, toggleBlock, typeLongText } from '@/test/persona-blocks';
 import { CSRF, renderApp, testUser } from '@/test/render-app';
@@ -146,7 +146,7 @@ describe('personas pages', () => {
     expect((await piece('Кусок strategy_prompt')).getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#strategy-prompt');
     const contract = await piece('Кусок output_contract');
     expect(contract.getByText('Общая настройка')).toBeInTheDocument();
-    expect(contract.getByRole('link', { name: 'Изменить' })).toHaveAttribute('href', '#setting-output_contract');
+    expect(contract.getByRole('link', { name: 'Изменить в «Общих правилах»' })).toHaveAttribute('href', '/settings#setting-output_contract');
     const context = await piece('Контекст разговора');
     expect(context.getByText('- Тебе 45')).toBeInTheDocument();
     expect(context.getByRole('link', { name: 'Дата рождения' })).toHaveAttribute('href', '#persona-birth_date');
@@ -173,48 +173,15 @@ describe('personas pages', () => {
     await waitFor(() => expect(scroll.mock.contexts).toContain(document.getElementById('persona-routine')));
   });
 
-  it('edits the shared instructions in place and refreshes the assembled prompt', async () => {
-    const CONTRACT: AppSettingItem = {
-      key: 'output_contract', group: 'Служебные промпты', label: 'Формат ответа персонажа', help: '', kind: 'text',
-      min: null, max: null, value: 'JSON', default: 'JSON', is_default: true, updated_at: null, updated_by_id: null,
-    };
-    const log = backend({
-      'GET /api/settings': { items: [CONTRACT], fixed: { persona: '', guard: 'контракт охранника' } },
-      'PUT /api/settings/output_contract': (r: { body: unknown }) => ({ ...CONTRACT, ...(r.body as object), is_default: false }),
-      'GET /api/personas/1/prompt': { system: '', fixed: '', strategy_id: 3, context: '', parts: [], rules: [] },
-    });
+  it('keeps only her own settings: the shared ones are linked to the page where they are edited', async () => {
+    backend();
     await renderApp('/personas/1');
-    await toggleBlock('Общие инструкции');
-    const shared = within(await screen.findByRole('region', { name: 'Общие инструкции' }));
-    const edit = await shared.findByRole('button', { name: 'Редактировать: Формат ответа персонажа' });
-    expect(edit.closest('#setting-output_contract')).not.toBeNull();
-    expect(await shared.findByText('контракт охранника')).toBeInTheDocument();
-    const loaded = (): number => log.filter((r) => r.path === '/api/personas/1/prompt').length;
-    await waitFor(() => expect(loaded()).toBe(1));
-
-    await typeLongText('Формат ответа персонажа', ' строго');
-    await userEvent.click(within(shared.getByRole('group', { name: 'Ответ персонажа' })).getByRole('button', { name: 'Сохранить' }));
-    await waitFor(() => expect(log.find((r) => r.method === 'PUT')?.body).toEqual({ value: 'JSON строго' }));
-    await waitFor(() => expect(loaded()).toBe(2));
-  });
-
-  it('keeps the settings of her photos and video notes with the shared instructions', async () => {
-    const setting = (key: string, label: string, value: number): AppSettingItem => ({
-      key, group: 'Фото и кружочки персонажа', label, help: '', kind: 'int', min: 0, max: 9999999999999, value,
-      default: value, is_default: true, updated_at: null, updated_by_id: null,
-    });
-    backend({
-      'GET /api/settings': {
-        items: [setting('video_note_owner_telegram_id', 'Telegram id получателя', 0), setting('persona_media_gap_min', 'Пауза между медиа, мин', 30)],
-        fixed: { persona: '', guard: '' },
-      },
-    });
-    await renderApp('/personas/1');
-    await toggleBlock('Общие инструкции');
-    const shared = within(await screen.findByRole('region', { name: 'Общие инструкции' }));
-    const media = within(await shared.findByRole('group', { name: 'Фото и кружочки' }));
-    expect(await media.findByLabelText('Пауза между медиа, мин')).toHaveValue('30');
-    expect(media.getByLabelText('Telegram id получателя')).toHaveValue('0');
+    await blockButton('Профиль');
+    expect(screen.queryByRole('button', { name: 'Общие инструкции' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /Формат ответа/ })).not.toBeInTheDocument();
+    await toggleBlock('Фото и кружочки');
+    const media = within(screen.getByRole('region', { name: 'Фото и кружочки' }));
+    expect(media.getByRole('link', { name: /в «Общих правилах»/ })).toHaveAttribute('href', '/settings#setting-persona_photo_model');
     expect(screen.getByText(/Идёт в описание кадра для её фото и кружочков/)).toBeInTheDocument();
   });
 

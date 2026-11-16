@@ -9,7 +9,7 @@ import { errorDetail, errorMessage } from '@/lib/errors';
 
 /**
  * Owner only: ask for an AI video note of the persona. The backend sends it to the single
- * account from the setting «Кружочки ИИ» and nowhere else. A refusal (no recipient set, no
+ * account from the setting «Telegram id для кружочков ИИ» and nowhere else. A refusal (no recipient set, no
  * dialog, bad reference) is shown with the server's own reason, not the generic 409 text.
  */
 export function AiVideoNote({ personaId }: { personaId: number }) {
@@ -30,7 +30,7 @@ export function AiVideoNote({ personaId }: { personaId: number }) {
     <section aria-labelledby="ai-video-note-h" className="flex min-w-0 flex-col gap-3">
       <h3 id="ai-video-note-h" className="text-sm font-medium">Кружочек ИИ</h3>
       <p className="text-xs text-muted-foreground">
-        Видео генерирует ИИ. Оно уходит только на аккаунт из настройки «Кружочки ИИ».
+        Видео генерирует ИИ. Оно уходит только на аккаунт из настройки «Аккаунты владельца → Telegram id для кружочков ИИ».
         Одинаковый запрос берётся из кеша.
       </p>
       <Textarea

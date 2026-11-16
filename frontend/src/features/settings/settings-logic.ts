@@ -1,5 +1,23 @@
 import type { AppSettingItem } from '@/lib/models';
 
+/** What the «Помощники» page shows: each helper's model and its one instruction; Broker routes stay a backend fallback. */
+export const AGENT_KEYS = [
+  'guard_model', 'guard_prompt', 'passport_model', 'passport_prompt', 'summary_model', 'summary_prompt',
+] as const;
+
+export type SettingPage = '/settings' | '/agents';
+
+/** The page a shared setting is edited on. */
+export function settingPage(key: string): SettingPage {
+  return (AGENT_KEYS as readonly string[]).includes(key) ? '/agents' : '/settings';
+}
+
+/** Anchor of a setting's field on its page (links from the persona page land on it). */
+export const settingAnchor = (key: string): string => `setting-${key}`;
+
+/** Anchor of a group card for the group index on top of the page. */
+export const groupAnchor = (name: string): string => `group-${name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-')}`;
+
 export interface SettingGroup { name: string; items: AppSettingItem[] }
 
 /** Groups in the order the API returns them (the backend owns the order). */

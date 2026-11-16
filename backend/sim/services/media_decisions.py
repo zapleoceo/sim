@@ -15,7 +15,7 @@ What a record holds:
 - what she decided and the reason she named (`prompt.MediaAsk`). When she was asked and returned
   no `media` field, nothing was sent and no decision was named (`SILENT`): the record keeps the
   start of her reply, so whatever she told the client (a made-up excuse, a promise) is visible;
-- whether the dialog is with the owner (the allowlisted account of «Кружочки ИИ»);
+- whether the dialog is with the owner (the allowlisted account of «Telegram id для кружочков ИИ»);
 - the outcome: declined, postponed, not sent, not queued, generation queued, generated, sent,
   Broker refusal, error;
 - a warning when the reason cannot be confirmed by her routine at that moment (`reason_warning`:
