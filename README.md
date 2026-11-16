@@ -9,6 +9,14 @@ expiry. Durable send receipts still prevent blind retries of uncertain sends.
 Persisting/reconciling remote Broker job IDs across a crash remains separate work.
 SQLite is for development/tests; the multi-worker guarantee is checked against
 disposable PostgreSQL in CI, without real connectors or provider calls.
+Before Broker requests and outgoing chat transport effects, the worker checks
+its original transaction/connection and generation. Loss of that connection stops
+later effects; it cannot undo an already in-flight request. Durable send intents
+survive rollback and prevent a second send when its acknowledgement is unknown.
+The PostgreSQL gate runs the full Worker handler through virtual lease expiry and
+real termination of its isolated test connection, using persisted receipts and
+fake transport effects. An expired lease is described neutrally in the inbox:
+it can mean either a long-running model or a pending recovery, not proof of a crash.
 
 ИИ-персонажи (виртуальные представители): Instagram — привлечение, WhatsApp и Telegram — личное
 общение, воронка до регистрации и первой оплаты у партнёра. Документированный URL: https://sim.zapleo.com.

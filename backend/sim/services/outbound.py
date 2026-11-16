@@ -34,6 +34,7 @@ from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
 from sim.services.humanize import TYPING_MAX_S
+from sim.services.job_execution import require_live_execution
 from sim.services.media_decisions import MediaDecisionLog
 from sim.services.persona_ambience import voice_ambience
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
@@ -281,9 +282,11 @@ class OutboundService:
         note = await self.voice_note(message, dialog, port)
         attachment = self.attachment(message, port)
         gallery_media = self.gallery_media(message, port)
+        await require_live_execution()
         await self.receipts.claim(message.id, fingerprint)
         async with self.send_step(channel, message, voice=note is not None) as step:
             try:
+                await require_live_execution()
                 if note is not None:
                     result = await port.send_voice(  # type: ignore[attr-defined]
                         dialog.external_thread_id, note.audio, note.duration_s,

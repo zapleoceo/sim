@@ -19,6 +19,7 @@ from sim.ports.channel import PollingChannelPort
 from sim.services import tracing
 from sim.services.app_settings import trace_retention_days
 from sim.services.conversation import ConversationError
+from sim.services.job_execution import execution_scope, require_live_execution
 from sim.services.reengagement import ReengagementService
 from sim.services.send_receipts import SendUncertain
 from sim.services.tracing import TraceContext, trace_scope
@@ -168,12 +169,13 @@ class Worker:
                     repo = JobRepo(s)
                     if await repo.lock_attempt(job_id, claim_attempt) is None:
                         return tracing.SKIPPED, None, {"fenced": True}
-                    detail.update(await handler.run(self.c, s, payload) or {})
-                    # One commit: no window between handler effects and settlement
-                    # for another worker to reclaim an expired lease.
-                    done = await repo.complete(job_id, self.c.clock(), claim_attempt=claim_attempt)
-                    if not done:
-                        raise ConversationError("job ownership changed during execution")
+                    with execution_scope(s, job_id, claim_attempt):
+                        detail.update(await handler.run(self.c, s, payload) or {})
+                        await require_live_execution()
+                        # Effects and settlement commit atomically under the row lock.
+                        done = await repo.complete(job_id, self.c.clock(), claim_attempt=claim_attempt)
+                        if not done:
+                            raise ConversationError("job ownership changed during execution")
                 return tracing.OK, None, detail
             except (ConversationError, SendUncertain) as exc:
                 error, retry = str(exc), False

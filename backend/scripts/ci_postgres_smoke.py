@@ -24,6 +24,7 @@ from sim.adapters.db.session import make_session_factory, transaction  # noqa: E
 from sim.clock import utcnow  # noqa: E402
 from sim.services.send_receipts import SendReceipts, SendUncertain  # noqa: E402
 from sim.services.tracing import Tracer  # noqa: E402
+from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
 
 
 def require_disposable():
@@ -122,6 +123,7 @@ async def schema_and_concurrency(url):
             assert await repo.lock_attempt(recovery_id, 2) is not None
             assert await repo.complete(recovery_id, now, claim_attempt=2)
         print("PostgreSQL schema, send-intent contention, execution lock and restart fence PASS")
+        await worker_recovery_checks(factory)
     finally:
         await engine.dispose()
 
