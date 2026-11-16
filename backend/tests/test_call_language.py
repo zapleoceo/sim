@@ -1,7 +1,7 @@
 """Russian call opening is explicit even for foreign metadata; no live provider calls."""
 from __future__ import annotations
 
-from sim.persona_prompts import EVA, EVA_PROMPT, MARINA, MARINA_PROMPT
+from sim.persona_prompts import EVA_PROMPT, MARINA, MARINA_PROMPT
 from sim.services.call_prompt import CALL_RULES, call_system_prompt, greeting
 from sim.services.calls import language_code
 from sim.services.prompt import PersonaProfile, StrategyProfile, Turn

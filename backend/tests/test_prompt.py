@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from sim.domain.enums import Stage
-from sim.persona_prompts import EVA, EVA_PROMPT, MARINA, MARINA_PROMPT, STRATEGY_PROMPT
+from sim.persona_prompts import EVA_PROMPT, MARINA, MARINA_PROMPT, STRATEGY_PROMPT
 from sim.services.call_prompt import call_system_prompt
 from sim.services.prompt import (
     LINK_CONTRACT,

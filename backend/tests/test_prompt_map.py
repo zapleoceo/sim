@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sim.adapters.db.models import Persona
-from sim.adapters.db.session import transaction
 from sim.services.call_prompt import CALL_RULES, call_identity, greeting
 from sim.services.prompt import OUTPUT_CONTRACT, StrategyProfile
 from sim.services.prompt_map import EXAMPLE_REF, example_context, fixed_rules

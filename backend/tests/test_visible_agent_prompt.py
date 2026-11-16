@@ -14,7 +14,6 @@ from sim.services.prompt import (
     Turn,
     build_messages,
     editable_agent_prompt,
-    stable_system_prompt,
 )
 
 
