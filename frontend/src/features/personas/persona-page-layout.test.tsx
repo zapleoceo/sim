@@ -8,7 +8,7 @@ import { blockButton, openLongText, toggleBlock } from '@/test/persona-blocks';
 import { renderApp } from '@/test/render-app';
 import { PHONE_WIDTH, stubViewportWidth } from '@/test/viewport';
 
-const AGENT_PROMPT = 'Ты Марина Светлова.\n\nМне 45, я Марина.';
+const AGENT_PROMPT = 'Ты Марина Светлова, мне 45. Пиши коротко и по делу.';
 
 const MARINA: Persona = {
   ...EMPTY_PERSONA,
@@ -170,6 +170,7 @@ describe('persona page layout', () => {
   it('shows language in the voice section, not in the profile', async () => {
     backend();
     await renderApp('/personas/1');
+    await blockButton('Профиль');
     expect(within(screen.getByRole('region', { name: 'Профиль' })).queryByLabelText('Язык')).not.toBeInTheDocument();
     await toggleBlock('Голос и звонки');
     expect(within(screen.getByRole('region', { name: 'Голос и звонки' })).getByLabelText('Язык')).toBeVisible();
