@@ -45,7 +45,8 @@ def trace_step_out(event: TraceEvent, client_id: int | None, client_name: str | 
         "id": event.id, "trace_id": event.trace_id, "kind": event.kind, "name": event.name,
         "status": event.status, "started_at": dt(event.started_at), "duration_ms": event.duration_ms,
         "attempt": event.attempt, "http_status": event.http_status, "actor": event.actor,
-        "error": mask(event.error), "detail": safe_payload({k: v for k, v in (event.detail or {}).items()
+        "error": mask(str(safe_payload(event.error)["content"])) if event.error else None,
+        "detail": safe_payload({k: v for k, v in (event.detail or {}).items()
                                                              if k != "broker_exchange"})["content"],
         "client": {"id": client_id, "display_name": client_name or ""} if client_id else None,
         "admin_id": event.admin_id, "dialog_id": event.dialog_id, "channel_id": event.channel_id,

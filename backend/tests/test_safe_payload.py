@@ -59,6 +59,7 @@ async def test_owner_trace_redacts_legacy_payload_and_does_not_bulk_list_it(api,
 
     trace_id = "a" * 32
     await Tracer(container.factory).record("llm", "synthetic", trace_id=trace_id,
+        error="Cookie: first=private-value; second=private-value",
         detail={"broker_exchange": {"request": {"content": {"token": "private-value", "messages": MSGS}, "truncated": False}}})
     await login(api, *OWNER)
     result = await api.get(f"/api/activity/traces/{trace_id}")
