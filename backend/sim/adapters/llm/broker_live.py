@@ -115,6 +115,7 @@ class BrokerLiveSession:
                                            provider=parsed.provider or self.provider)
                     break
                 if message.get("type") == "error":   # after `ready`: the call goes quiet
+                    self.summary = replace(self.summary, end_reason="provider_error")
                     log.warning("live session failed at the broker: %s: %s",
                                 message.get("code"), str(message.get("detail"))[:200])
                     continue
@@ -122,6 +123,7 @@ class BrokerLiveSession:
                 if event is not None:
                     self.queue.put_nowait(event)
         except Exception as exc:   # a dropped socket ends the conversation, it is not a crash
+            self.summary = replace(self.summary, end_reason="transport_error")
             log.warning("live session read ended: %s", type(exc).__name__)
         finally:
             self.queue.put_nowait(_END)
@@ -146,6 +148,7 @@ class BrokerLiveSession:
             try:
                 await asyncio.wait_for(asyncio.shield(self.reader), DONE_TIMEOUT_S)
             except TimeoutError:
+                self.summary = replace(self.summary, end_reason="summary_timeout")
                 self.reader.cancel()
             with contextlib.suppress(Exception):
                 await self.ws.close()

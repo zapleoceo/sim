@@ -197,6 +197,8 @@ class CallService:
             except Exception:
                 log.exception("call hangup failed dialog=%s", plan.dialog_id)
                 playback.failure = playback.failure or "transport_hangup_failed"
+        if summary.end_reason in {"no_summary", "provider_error", "transport_error", "summary_timeout"}:
+            playback.failure = playback.failure or summary.end_reason
         trace.event("ended", end_reason=summary.end_reason, duration_s=summary.duration_s,
                     turns=len(summary.transcript))
         trace.summary()
