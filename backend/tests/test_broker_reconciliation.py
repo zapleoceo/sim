@@ -221,3 +221,39 @@ async def test_confirmed_admission_rejection_can_retry_after_recovery(container,
     assert (await new.chat(MESSAGES)).job_id == "44"
     assert len(posts) == 2 and posts[0] != posts[1]
     await new.aclose()
+
+
+@pytest.mark.parametrize("case", ["partial", "cursor", "wrong_key", "wrong_label", "duplicate", "malformed"])
+async def test_untrusted_lookup_never_authorizes_submission(container, monkeypatch, case):
+    posts = []
+
+    def transport(request):
+        if request.method == "POST":
+            posts.append(request.headers["Idempotency-Key"])
+            raise httpx.ReadTimeout("synthetic unknown", request=request)
+        key = posts[0]
+        row = {"job_id": 52, "idempotency_key": key, "labels": {"sim_request": key}}
+        listing = {"pagination_complete": True, "next_cursor": None, "jobs": [row]}
+        if case == "partial":
+            listing["pagination_complete"] = False
+        elif case == "cursor":
+            listing["next_cursor"] = "next-page"
+        elif case == "wrong_key":
+            row["idempotency_key"] = "another-key"
+        elif case == "wrong_label":
+            row["labels"] = {"sim_request": "another-key"}
+        elif case == "duplicate":
+            listing["jobs"] = [row, row]
+        else:
+            listing["jobs"] = [None]
+        return httpx.Response(200, json=listing)
+
+    old, _, _ = adapter(container, monkeypatch, 1, transport)
+    with pytest.raises(LLMError):
+        await old.chat(MESSAGES)
+    await old.aclose()
+    new, _, _ = adapter(container, monkeypatch, 2, transport)
+    with pytest.raises(LLMError, match="resubmission blocked"):
+        await new.chat(MESSAGES)
+    assert len(posts) == 1
+    await new.aclose()

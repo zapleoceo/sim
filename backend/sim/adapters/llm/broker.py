@@ -284,10 +284,13 @@ class BrokerLLM:
             params={"label.sim_request": entry.key, "limit": 2})
         response.raise_for_status()
         listing = response.json()
-        rows = listing.get("jobs", [])
-        if (listing.get("pagination_complete") is not True or listing.get("next_cursor")
+        rows = listing.get("jobs", []) if isinstance(listing, dict) else []
+        if (not isinstance(listing, dict)
+                or listing.get("pagination_complete") is not True or listing.get("next_cursor")
                 or not isinstance(rows, list) or len(rows) != 1
+                or not isinstance(rows[0], dict)
                 or rows[0].get("idempotency_key") != entry.key
+                or not isinstance(rows[0].get("labels"), dict)
                 or (rows[0].get("labels") or {}).get("sim_request") != entry.key):
             raise LLMError("Broker submission outcome unknown; no matching retained receipt, resubmission blocked")
         return str(rows[0]["job_id"])
