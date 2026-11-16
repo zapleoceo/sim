@@ -75,7 +75,9 @@ async def delegated(request: Request, s: Db, c: App) -> ContentMcp:
             or not session.user.role.has_owner_rights):
         # Independent audit survives the rejected request's rollback; no secret or raw input.
         async with transaction(c.factory) as audit:
-            audit.add(McpAudit(action="authenticate", outcome="denied", created_at=c.clock()))
+            audit.add(McpAudit(grant_id=grant.id if grant else None,
+                user_id=session.user_id if session else None,
+                action="authenticate", outcome="denied", created_at=c.clock()))
         raise HTTPException(401, "Invalid MCP grant")
     service = ContentMcp(s, grant, session.user_id, c.clock)
     origin = request.headers.get("Origin")

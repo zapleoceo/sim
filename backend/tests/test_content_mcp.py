@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 
-from sim.adapters.db.models import AdminUser, ContentPost, Job, McpAudit, McpGrant
+from sim.adapters.db.models import AdminUser, ContentPost, Dialog, Job, McpAudit, McpGrant
 from sim.adapters.db.session import transaction
 from sim.domain.enums import ContentStatus, Role
 from tests.conftest import OPERATOR, OWNER, login
@@ -45,6 +45,9 @@ def value(result):
 async def test_protocol_scoped_read_without_side_effects(api, container, world):
     did = await chatting_world(container, world)
     data, headers = await grant(api, ["dialog:read", "trace:read"], did)
+    async with container.factory() as s:
+        unread = (await s.get(Dialog, did)).unread
+        jobs = list(await s.scalars(select(Job.id)))
     initialized = (await rpc(api, headers, "initialize")).json()["result"]
     assert initialized["protocolVersion"] == "2025-06-18"
     response = await api.post("/api/mcp", headers=headers,
@@ -63,6 +66,8 @@ async def test_protocol_scoped_read_without_side_effects(api, container, world):
     assert (await api.get("/api/dialogs", headers=headers)).status_code == 401
     async with container.factory() as s:
         row = await s.get(McpGrant, data["id"])
+        assert (await s.get(Dialog, did)).unread == unread
+        assert list(await s.scalars(select(Job.id))) == jobs
         assert data["token"] not in row.token_hash
         audits = list(await s.scalars(select(McpAudit)))
         assert any(a.outcome == "denied" for a in audits)
