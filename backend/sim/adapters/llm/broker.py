@@ -196,6 +196,7 @@ class BrokerLLM:
             params["workflow"] = workflow
             body["workflow"] = workflow
         start = time.perf_counter()
+        recovered = False
         exchange = {"request": safe_payload({"path": "/v1/jobs", "params": params, "body": body}, secrets=(self.key,))}
         try:
             client = self.client
@@ -212,9 +213,10 @@ class BrokerLLM:
                         continue  # terminal error committed; never swallow unknown outcomes
                 entry = await self.requests.prepare(owner, index, self.request_scope,
                     {"params": params, "body": body})
+                recovered = entry.status == "done"
                 exchange["request"] = safe_payload({"path": "/v1/jobs", **entry.request}, secrets=(self.key,))
                 entry, data = await self.durable_chat(entry, submit=True)
-                job = {"job_id": entry.remote_id}
+                job = {"job_id": entry.remote_id, "recovered_result": recovered}
             else:
                 resp = await client.post(
                     f"{self.url}/v1/jobs", params=params, headers=self.headers, json=body
@@ -236,7 +238,12 @@ class BrokerLLM:
             error.exchange = exchange
             raise error from exc
         exchange["response"] = safe_payload(data, secrets=(self.key,))
-        return replace(to_result(data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id", ""))), exchange=exchange)
+        result = to_result(data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id", "")))
+        if recovered:
+            # AuditedLLM persists each attempt independently. Do not book the same
+            # inference twice; its original usage remains in the stored response.
+            result = replace(result, cost_usd=None, tokens_in=None, tokens_out=None, cached_tokens=None)
+        return replace(result, exchange=exchange)
 
     async def durable_chat(
         self, entry: RequestEntry, *, submit: bool = False,

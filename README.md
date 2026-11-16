@@ -13,6 +13,9 @@ any new request, changed context or future fallback can be submitted. A confirme
 terminal failure is distinct from an unknown result; only the former permits a new
 attempt in a later worker generation. Completed identical calls reuse their saved
 result, while changed context is generated afresh only after prior calls settle.
+Recovered results do not book the original cost/tokens again in the per-attempt audit;
+the original usage stays in the saved Broker response. Broker usage remains the
+billing authority, including when a process died before its first audit was saved.
 
 The journal has no FK to the locked worker Job, uses independent short commits,
 checks the live execution transaction before effects, and fences checkpoints by

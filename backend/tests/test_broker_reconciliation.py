@@ -274,3 +274,25 @@ async def test_concurrent_terminal_checkpoint_is_authoritative(container, monkey
     with pytest.raises(BrokerTerminalError, match="first terminal"):
         await broker.chat(MESSAGES)
     await broker.aclose()
+
+
+async def test_recovery_does_not_book_previous_usage_again(container, monkeypatch):
+    posts = []
+    usage = {**DONE, "cost_usd": 0.12, "tokens_in": 15, "tokens_out": 4}
+
+    def transport(request):
+        if request.method == "POST":
+            posts.append(request.content)
+            return httpx.Response(200, json={"job_id": 62})
+        return httpx.Response(200, json=usage)
+
+    old, _, _ = adapter(container, monkeypatch, 1, transport)
+    assert (await old.chat(MESSAGES)).cost_usd == 0.12
+    await old.aclose()
+    new, _, _ = adapter(container, monkeypatch, 2, transport)
+    result = await new.chat(MESSAGES)
+    assert len(posts) == 1 and result.text == DONE["text"]
+    assert result.cost_usd is None and result.tokens_in is None and result.tokens_out is None
+    assert result.exchange["accepted"]["content"]["recovered_result"] is True
+    assert result.exchange["response"]["content"]["cost_usd"] == 0.12
+    await new.aclose()
