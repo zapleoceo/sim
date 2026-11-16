@@ -14,12 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.channels.capabilities import Capability
 from sim.adapters.crypto import SecretBox
+from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.media import MediaStore
 from sim.connectors.spec import Connector
 from sim.domain.enums import ChannelKind
 from sim.domain.voice import VOICE_KINDS
 from sim.ports.llm import LLMError, LLMPort
+from sim.services.dialog_state import invalidate_plan
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +57,7 @@ class MediaService:
         llm: LLMPort,
         store: MediaStore,
     ) -> None:
+        self.session = session
         self.registry = registry
         self.box = box
         self.llm = llm
@@ -84,9 +87,11 @@ class MediaService:
             return
         data = await self.download(message.dialog_id, ref)
         name = await self.store.save(data, guess_suffix(kind))
+        transcript = await self.transcribe(data) if transcribe else message.text
+        await lock(self.session, NS_DIALOG, message.dialog_id)
         message.media_url = f"/api/media/{name}"
         if transcribe:
-            message.text = await self.transcribe(data)
+            message.text = transcript
         await self.refresh_preview(message.dialog_id, message_id, message.text)
 
     async def transcribe(self, audio: bytes) -> str:
@@ -102,11 +107,15 @@ class MediaService:
         if message is None:
             return
         if transcribe:
+            await lock(self.session, NS_DIALOG, message.dialog_id)
             message.text = VOICE_FAILED
             await self.refresh_preview(message.dialog_id, message_id, message.text)
 
     async def refresh_preview(self, dialog_id: int, message_id: int, text: str) -> None:
         dialog = await self.dialogs.get(dialog_id)
+        if dialog is not None:
+            await self.session.refresh(dialog)
+            invalidate_plan(dialog)
         last = await self.messages.last(dialog_id)
         if dialog is not None and last is not None and last.id == message_id:
             dialog.last_message_text = text[:300]

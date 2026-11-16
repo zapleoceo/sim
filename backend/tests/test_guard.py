@@ -304,9 +304,9 @@ def test_guard_checks_only_the_critical_rules():
 
 
 def test_guard_prompt_is_the_owner_text_plus_decision_control():
-    from sim.services.guard import GUARD_CONTROL
+    from sim.services.guard import FACT_CONTROL, GUARD_CONTROL
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}"
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}"
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():

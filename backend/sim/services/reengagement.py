@@ -49,8 +49,10 @@ def signature(dialog: Dialog, persona: Persona) -> str:
     c = dialog.client
     values = [c.persona_id, c.status.value, c.no_followups, c.passport, c.needs, c.notes,
               c.next_step, c.stage.value, persona.description, persona.routine, persona.timezone,
-              persona.model, persona.is_active, dialog.ai_paused, dialog.needs_operator,
-              dialog.channel.status.value]
+              persona.model, persona.is_active, persona.prohibitions, persona.language,
+              str(persona.birth_date), persona.strategy_id, c.display_name, str(c.next_step_at),
+              dialog.ai_paused, dialog.needs_operator, dialog.channel.status.value,
+              dialog.channel.session_enc]
     return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
@@ -102,6 +104,8 @@ class ReengagementService:
             # An ordinary reply/media generation or unsent human message gets priority.
             if await self.jobs.has_open(jobkinds.REPLY, jobkinds.reply_key(dialog_id)):
                 continue
+            if await self.jobs.has_open(jobkinds.MEDIA, jobkinds.media_prefix(dialog_id)):
+                continue
             queued = await self.session.scalar(select(Message.id).where(
                 Message.dialog_id == dialog_id, Message.delivery == Delivery.QUEUED,
                 Message.id != plan.get("message_id", 0)).limit(1))
@@ -140,6 +144,8 @@ class ReengagementService:
         dialog = await DialogRepo(self.session).get(dialog_id)
         if dialog is None or not eligible(dialog) or dialog.activity_revision != revision:
             return "superseded"
+        if (dialog.reengagement_plan or {}).get("status") != "analyzing":
+            return "already_planned"
         persona = await self.session.get(Persona, dialog.client.persona_id)
         if persona is None or not persona.is_active:
             return "inactive"
@@ -211,7 +217,7 @@ class ReengagementService:
             dialog.reengagement_plan = {**(dialog.reengagement_plan or {}), "status": "failed",
                 "reason": "Не удалось подготовить проверенный план; автоматической отправки нет"}
 
-    async def send_valid(self, dialog: Dialog, message: Message, revision: int) -> bool:
+    async def send_valid(self, dialog: Dialog, message: Message, revision: int, *, cancel: bool = True) -> bool:
         plan = dialog.reengagement_plan or {}
         persona = await self.session.get(Persona, dialog.client.persona_id)
         valid = (eligible(dialog) and persona is not None and persona.is_active
@@ -222,7 +228,7 @@ class ReengagementService:
         if valid:
             at = to_naive_utc(datetime.fromisoformat(plan["at"].replace("Z", "+00:00")))
             valid = at <= self.clock() <= at + SEND_GRACE
-        if not valid:
+        if not valid and cancel and message.delivery is Delivery.QUEUED:
             message.delivery = Delivery.CANCELLED
             message.error = "reengagement plan superseded or no longer eligible"
             if plan.get("message_id") == message.id:

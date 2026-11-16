@@ -131,6 +131,43 @@ async def test_threshold_and_no_send_decision(container, world, fake_llm):
         assert (await s.get(Dialog, did)).reengagement_plan["status"] == "no_send"
 
 
+async def test_message_during_final_review_blocks_transport(container, world, fake_llm, connector):
+    did, payload = await plan(container, world, fake_llm)
+    original = fake_llm.chat
+    container.clock = lambda: NOW + timedelta(hours=1)
+
+    async def interleave(messages, **kw):
+        if kw.get("workflow") == "guard":
+            await ingest(container, world.channel.id, inbound("Новый вопрос", ext="during-send", at=container.clock()))
+        return await original(messages, **kw)
+
+    fake_llm.chat = interleave
+    async with transaction(container.factory) as s:
+        await run_send(container, s, payload)
+    assert connector.port.sent == []
+    async with container.factory() as s:
+        assert (await s.get(Dialog, did)).reengagement_plan["status"] == "outdated"
+
+
+async def test_uncertain_send_does_not_retry_transport(container, world, fake_llm, connector):
+    from sim.services.send_receipts import SendUncertain
+
+    _, payload = await plan(container, world, fake_llm)
+    container.clock = lambda: NOW + timedelta(hours=1)
+    calls = []
+
+    async def uncertain(thread, text):
+        calls.append((thread, text))
+        raise RuntimeError("response lost")
+
+    connector.port.send_text = uncertain
+    for _ in range(2):
+        with pytest.raises(SendUncertain):
+            async with transaction(container.factory) as s:
+                await run_send(container, s, payload)
+    assert len(calls) == 1
+
+
 async def test_late_send_is_replanned_not_sent(container, world, fake_llm, connector):
     did, payload = await plan(container, world, fake_llm)
     container.clock = lambda: NOW + timedelta(hours=2)
@@ -209,3 +246,26 @@ async def test_guard_receives_code_time_and_context_on_rewrite(container, world,
         assert "1 января 2027" in data["trusted_facts"]["persona_facts"]
         assert "Europe/Berlin" in data["trusted_facts"]["persona_facts"]
         assert "пятница" in data["trusted_facts"]["persona_facts"]
+
+
+async def test_guard_refreshes_date_after_generation_crosses_midnight(container, world, fake_llm):
+    original = fake_llm.chat
+    clock = [datetime(2026, 12, 31, 22, 59)]
+    container.clock = lambda: clock[0]
+
+    async def slow_generation(messages, **kw):
+        if kw.get("workflow") == "preview":
+            clock[0] = datetime(2026, 12, 31, 23, 1)
+        return await original(messages, **kw)
+
+    fake_llm.chat = slow_generation
+    async with transaction(container.factory) as s:
+        p = await s.get(type(world.persona), world.persona.id)
+        p.timezone = "Europe/Berlin"
+    async with transaction(container.factory) as s:
+        p = await s.get(type(world.persona), world.persona.id)
+        await container.conversation(s).preview(p, "Сегодня какой день?")
+    generator = "\n".join(m["content"] for m in fake_llm.gen_calls[0][0])
+    guard = json.loads(fake_llm.guard_calls[0][0][1]["content"])
+    assert "31 декабря 2026" in generator
+    assert "1 января 2027" in guard["trusted_facts"]["persona_facts"]

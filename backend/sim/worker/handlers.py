@@ -154,7 +154,13 @@ async def send_reengagement(c: Container, s: AsyncSession, payload: dict[str, An
     dialog = await conv.dialogs.get(message.dialog_id)
     service = ReengagementService(s, clock=c.clock)
     revision = int(payload["reengagement_revision"])
-    if dialog is None or not await service.send_valid(dialog, message, revision):
+    if dialog is None:
+        return
+    if not await service.send_valid(dialog, message, revision, cancel=False):
+        await lock(s, NS_DIALOG, dialog.id)
+        dialog = await conv.reload(dialog.id)
+        await s.refresh(message)
+        await service.send_valid(dialog, message, revision)
         return
     persona = await conv.personas.get(dialog.client.persona_id)
     recent, ctx = await conv.memory(dialog.id, await conv.dialog_context(dialog, persona),
@@ -166,6 +172,8 @@ async def send_reengagement(c: Container, s: AsyncSession, payload: dict[str, An
     dialog = await conv.reload(dialog.id)
     await s.refresh(message)
     await s.refresh(persona)
+    if message.delivery is not Delivery.QUEUED:
+        return
     if not await service.send_valid(dialog, message, revision):
         return
     if not guard.allowed or guard.text != message.text:

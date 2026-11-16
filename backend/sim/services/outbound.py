@@ -202,6 +202,8 @@ class OutboundService:
 
         The caller holds the dialog lock before invoking this method.
         """
+        await self.session.flush()
+        await self.session.refresh(dialog)
         if request_id:
             existing = await self.session.scalar(
                 select(Message).where(Message.dialog_id == dialog.id,

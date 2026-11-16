@@ -132,6 +132,8 @@ class IngestService:
             )
             dialog.channel, dialog.client = channel, client
         await lock(self.session, NS_DIALOG, dialog.id)  # see sim.adapters.db.locks
+        await self.session.refresh(dialog)
+        client = dialog.client
         text = (msg.text or "").strip() or (placeholder_for(msg.media_kind) if msg.media_kind else "")
         created_at = to_naive_utc(msg.occurred_at)
         message = Message(
@@ -285,6 +287,7 @@ class IngestService:
         if dialog is None or not text:
             return IngestResult(duplicate=True)
         await lock(self.session, NS_DIALOG, dialog.id)
+        await self.session.refresh(dialog)
         message = Message(
             dialog_id=dialog.id,
             direction=Direction.IN,
@@ -309,6 +312,7 @@ class IngestService:
             return IngestResult(duplicate=True)
         await lock(self.session, NS_DIALOG, dialog.id)
         now = self.clock()
+        await self.session.refresh(dialog)
         text = (msg.text or "").strip() or placeholder_for(msg.media_kind)
         for recent in await self.messages.recent(dialog.id, 6):
             if (

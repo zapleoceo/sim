@@ -520,8 +520,11 @@ class ConversationService:
         """The concrete triggering inbound keeps its historical reason after resuming AI."""
         trigger = await self.messages.last(dialog.id, Direction.IN)
         if trigger is not None:
-            trigger.handoff_reason = reason
-            trigger.handoff_at = self.clock()
+            if not trigger.handoff_reason:
+                trigger.handoff_reason = reason
+                trigger.handoff_at = self.clock()
+            elif reason not in trigger.handoff_reason.split("\n"):
+                trigger.handoff_reason += "\n" + reason
 
     async def defer_reply(self, dialog_id: int, seconds: float) -> None:
         """Make sure ONE reply job is pending, not earlier than `seconds` from now."""
@@ -630,8 +633,9 @@ class ConversationService:
             decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
             guard: GuardOutcome | None = None
             if decision is not None and decision.reply:
+                review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 guard = await self.review(
-                    strategy, history, decision, result, ctx, dialog_id, guard_workflow
+                    strategy, history, decision, result, review_ctx, dialog_id, guard_workflow
                 )
                 if guard.allowed:
                     return Draft(decision, result, await self.touched(guard))
@@ -640,6 +644,8 @@ class ConversationService:
                 rejection = "решение не содержит корректного ответа"
             if attempt == 0:
                 feedback = one_line(rejection, 500)
+                ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
+                prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
                 prompt = [
                     *prompt,
                     {"role": "assistant", "content": result.text[:4000]},
