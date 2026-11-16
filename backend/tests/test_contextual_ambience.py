@@ -94,7 +94,7 @@ async def test_background_continues_in_pauses_without_claiming_model_speech(cont
     assert "first_frame_sent" not in trace.seen
 
 
-async def test_hangup_during_background_preparation_does_not_open_paid_session(
+async def test_hangup_during_background_preparation_closes_the_session_unanswered(
         container, world, monkeypatch):
     await chatting_world(container, world)
     live, call = FakeLive(), FakeCall()
@@ -105,7 +105,10 @@ async def test_hangup_during_background_preparation_does_not_open_paid_session(
 
     monkeypatch.setattr("sim.services.calls.prepare_call_ambience", prepare)
     result = await service(container, live).handle(world.channel.id, call)
-    assert result.status == "skipped:hung_up" and not live.opened and not call.answered
+    # The session opens during the ring pause (it hides its latency); a caller who is gone
+    # by then is never picked up and the session is closed at once.
+    assert result.status == "skipped:hung_up" and not call.answered
+    assert len(live.opened) == 1 and live.session.finished == 1
 
 
 async def test_notes_resolve_at_send_time_not_queue_time(container, world, connector):
