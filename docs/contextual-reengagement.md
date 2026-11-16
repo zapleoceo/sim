@@ -42,13 +42,15 @@ Date, weekday, time, offset and timezone are calculated by `persona_clock` from 
 server UTC clock. Generator and guard receive the same facts; retries/rewrites retain them,
 and delivery review refreshes them. The guard's mandatory fact contract also applies when an
 older owner-edited guard prompt is stored. Persona style remains outside fact checking.
-Calls already receive the same computed context; streaming calls do not have a separate
-per-utterance guard. Natural-language checking remains model-based; the time source is not.
+Calls receive the same computed context. Their audio now waits for a per-turn guard with
+fresh facts before playback (see `calls.md`). Natural-language checking remains model-based;
+the time source is not.
 
 Migration 0027 adds the revision, JSON plan and message handoff columns. Rollout remains the
 existing CI deploy with backup, old worker stop, migration, new code and readiness gates.
 Validation is CI-only with synthetic conversations, fake transports/models and disposable
 PostgreSQL. No private conversation is included in fixtures. A separately authorized server
-audit confirmed that live voice transcripts have no per-utterance guard verdict. Existing
+audit confirmed that the previous live voice path had no per-utterance guard verdict. Existing
 LLM traces retain metadata, not the full historical generation/guard input. The text guard
-correction does not add an audio playback guard or prove what an old voice session received.
+correction cannot prove what an old voice session received. New playback checks do not
+retroactively mark previously unreviewed voice messages as reviewed.

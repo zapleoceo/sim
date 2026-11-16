@@ -91,6 +91,7 @@ class BrokerLiveSession:
         self.ws = ws
         self.input_rate_hz = int(ready.get("input_rate_hz") or 16000)
         self.output_rate_hz = int(ready.get("output_rate_hz") or 24000)
+        self.model = str(ready["model"]) if ready.get("model") else None
         self.queue: asyncio.Queue[Any] = asyncio.Queue()
         self.summary = LiveVoiceSummary(end_reason="no_summary")
         self.finished = False
