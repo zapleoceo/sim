@@ -49,7 +49,9 @@ def test_shared_rules_come_in_the_order_they_act_and_owner_accounts_are_one_grou
                       "Фото и кружочки персонажа", "Аккаунты владельца", "Служебные промпты",
                       "Контент", "Журнал"]
     owner = [spec.key for spec in SPECS if spec.group == "Аккаунты владельца"]
-    assert owner == ["instant_reply_telegram_ids", "video_note_owner_telegram_id"]
+    assert owner == ["contact_profile_channel_id", "instant_reply_telegram_ids", "video_note_owner_telegram_id"]
+    assert BY_KEY["contact_profile_channel_id"].default == 0
+    assert BY_KEY["media_priority_telegram_ids"].default == ""
 
 
 async def test_owner_accounts_are_a_list_of_numeric_telegram_ids(container):
