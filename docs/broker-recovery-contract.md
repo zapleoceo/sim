@@ -48,3 +48,17 @@ same structured status/fields (and preserves photo bytes), rather than stripping
 patterns from user-authored text. The actual prompt still uses the observation
 timestamp. Real run_reply regression includes a profile request; unit coverage
 checks that fields/status/photo changes and dates inside bio are not erased.
+
+## Time-driven context boundaries
+
+The reuse guarantee covers unchanged effective context with different computed clock
+facts or profile observation time. It does not freeze the entire conversation snapshot.
+ContextWindow can drop messages at its configured age boundary; journal.context_lines
+removes call_issue context after 24 hours; persona_media_tool.busy can change the media
+offer when gap_min expires. These are intentional effective-context changes and may
+start a new generator job even without new user activity, but only after previously
+accepted requests settle. An uncertain outcome still blocks all new submissions.
+The real run_reply regression crosses a call incident's 24-hour boundary and verifies
+its removal, a new generation, and terminal reconciliation before the second POST.
+Thus this increment does not promise zero additional generation cost for every
+time-only restart. Guard always uses fresh time, including when generation is reused.

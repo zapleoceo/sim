@@ -19,6 +19,11 @@ messages or changed instructions/settings invalidate it. The actual submitted pr
 keeps real time, and guard always checks the recovered draft against freshly computed
 trusted facts. A rejected stale draft is repaired through the normal guarded path.
 No canonical clock is sent to a model. Non-conversation calls retain exact-body identity.
+Reuse assumes unchanged effective context: history-window expiry, a call incident's
+24-hour expiry or media cooldown expiry may intentionally require a fresh generation
+after prior requests settle. This does not guarantee zero additional generation cost
+at these boundaries; uncertain requests still block resubmission. See the contract
+document for this distinction and the real-handler incident-expiry regression.
 Profile snapshots provide a separate identity representation without their observation
 timestamp; actual prompts retain that timestamp. Status, fields, user-authored dates
 and photo bytes are preserved in the identity, so genuine profile changes invalidate it.

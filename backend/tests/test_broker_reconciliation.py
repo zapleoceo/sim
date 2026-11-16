@@ -7,7 +7,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from sim.adapters.db.models import BrokerRequest, Dialog, Message, Persona
+from sim.adapters.db.models import BrokerRequest, Dialog, DialogEvent, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker import BrokerLLM, BrokerTerminalError
 from sim.domain.enums import Stage
@@ -306,7 +306,7 @@ async def test_recovery_does_not_book_previous_usage_again(container, monkeypatc
     await new.aclose()
 
 
-@pytest.mark.parametrize("change", ["clock", "profile_clock", "inbound", "settings"])
+@pytest.mark.parametrize("change", ["clock", "profile_clock", "incident_expiry", "inbound", "settings"])
 @pytest.mark.parametrize("timezone", ["Europe/Berlin", "Asia/Ho_Chi_Minh"])
 async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_time(
     container, world, monkeypatch, change, timezone,
@@ -318,7 +318,13 @@ async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_tim
     async with transaction(container.factory) as s:
         persona = await s.get(Persona, world.persona.id)
         persona.timezone = timezone
+        if change == "incident_expiry":
+            dialog = (await s.scalars(select(Dialog))).unique().one()
+            s.add(DialogEvent(dialog_id=dialog.id, kind="call_issue", actor="system",
+                reason="Synthetic incident nearing expiry",
+                created_at=now[0] - timedelta(hours=24) + timedelta(seconds=30)))
     posts, jobs = [], {}
+    observed = []
     ready = [False]
 
     def transport(request):
@@ -327,11 +333,13 @@ async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_tim
             posts.append(body)
             remote_id = str(100 + len(posts))
             jobs[remote_id] = body["workflow"]
+            observed.append(("post", remote_id))
             return httpx.Response(200, json={"job_id": remote_id})
         remote_id = request.url.path.rsplit("/", 1)[-1]
         workflow = jobs[remote_id]
         if not ready[0]:
             return httpx.Response(200, json={"status": "pending"})
+        observed.append(("done", remote_id))
         return httpx.Response(200, json={"status": "done",
             "model": "synthetic-guard" if workflow == "guard" else "synthetic-generator",
             "text": guard_json() if workflow == "guard" else decision_json(reply="Synthetic answer")})
@@ -364,6 +372,11 @@ async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_tim
     assert outcome.status == "sent"  # queued only; no channel transport runs
     generator_posts = [body for body in posts if body["workflow"] == "reply"]
     assert len(generator_posts) == (1 if change in {"clock", "profile_clock"} else 2)
+    if change == "incident_expiry":
+        assert "Synthetic incident nearing expiry" in json.dumps(generator_posts[0])
+        assert "Synthetic incident nearing expiry" not in json.dumps(generator_posts[1])
+        # Expired context intentionally gets a fresh generation, only after old acceptance settles.
+        assert observed.index(("done", "101")) < observed.index(("post", "102"))
     guard_posts = [body for body in posts if body["workflow"] == "guard"]
     assert guard_posts and now[0].isoformat() + "Z" in json.dumps(guard_posts[-1])
     if change == "profile_clock":
