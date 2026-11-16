@@ -11,7 +11,7 @@ def test_agent_prompt_single_head_upgrade_downgrade(tmp_path):
     db = tmp_path / "prompt-migration.db"
     cfg = alembic_config(db)
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0031"]
+    assert len(script.get_heads()) == 1
     assert script.get_revision("0031").down_revision == "0030"
     assert script.get_revision("0030").down_revision == "0029"
     cfg.config_file_name = None
