@@ -236,7 +236,9 @@ async def test_same_model_objection_survives_independent_ok_and_repairs_decision
     assert (await run_reply(container)).status == "sent"
     _, dialog, messages, jobs = await state(container)
     assert not dialog.ai_paused and not dialog.needs_operator
-    assert [m.text for m in ai_messages(messages)] == ["A synthetic clip is possible"]
+    queued = [m for m in ai_messages(messages) if m.delivery is Delivery.QUEUED]
+    assert [m.text for m in queued] == ["A synthetic clip is possible"]
+    assert all(m.text != rejected for m in messages)
     assert sum(j.kind == jobkinds.SEND for j in jobs) == 1
     assert connector.port.sent == []
     assert [kw["capability"] for _, kw in fake_llm.guard_calls] == [
