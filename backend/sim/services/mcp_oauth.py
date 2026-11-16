@@ -10,7 +10,14 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from sim.adapters.db.models import AuthSession, ContentPost, Dialog, McpAudit, McpAuthorization, McpGrant
+from sim.adapters.db.models import (
+    AuthSession,
+    ContentPost,
+    Dialog,
+    McpAudit,
+    McpAuthorization,
+    McpGrant,
+)
 from sim.services.auth import hash_token
 from sim.services.content_mcp import SCOPES
 from sim.services.mcp_cimd import OAuthError, configuration

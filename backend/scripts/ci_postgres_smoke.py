@@ -356,7 +356,7 @@ async def mcp_oauth_concurrency(url):
             s.add(user)
             await s.flush()
             session = AuthSession(user_id=user.id, token_hash=hash_token("synthetic-session"),
-                csrf_token="synthetic-csrf", expires_at=now + timedelta(hours=1))
+                csrf_token="synthetic-csrf", expires_at=now + timedelta(hours=1))  # noqa: S106 - disposable fixture
             s.add(session)
             await s.flush()
             row = McpAuthorization(nonce_hash=hash_token("synthetic-nonce"), code_hash=hash_token(data["code"]),
