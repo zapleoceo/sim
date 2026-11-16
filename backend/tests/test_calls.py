@@ -425,11 +425,25 @@ async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, 
                             LiveVoiceEvent(AUDIO, pcm=b"\x02\x00" * 240),
                             LiveVoiceEvent(TURN_COMPLETE)])
 
-    await service(container, FakeLive(session())).handle(world.channel.id, FakeCall())
+    class CompleteCall(FakeCall):
+        def __init__(self):
+            super().__init__()
+            self.accepted = asyncio.Event()
+
+        async def play(self, data):
+            await super().play(data)
+            self.accepted.set()
+
+        async def frames(self):
+            async for frame in super().frames():
+                yield frame
+            await asyncio.wait_for(self.accepted.wait(), 5)
+
+    await service(container, FakeLive(session())).handle(world.channel.id, CompleteCall())
     assert "sim.calls.trace" not in {r.name for r in caplog.records}      # off by default
 
     container.settings.call_diagnostics = True
-    await service(container, FakeLive(session())).handle(world.channel.id, FakeCall())
+    await service(container, FakeLive(session())).handle(world.channel.id, CompleteCall())
     lines = [r.getMessage() for r in caplog.records if r.name == "sim.calls.trace"]
     moments = [line.split()[3] for line in lines]
     assert moments[:6] == ["ringing", "plan_ready", "rang", "session_opened", "answer_sent",

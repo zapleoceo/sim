@@ -58,7 +58,7 @@ function ClientSideCard({ detail, personas }: { detail: DialogDetail; personas: 
         </SideField>
       )}
       {c.notes && (
-        <SideField label="Заметки">
+        <SideField label="Внутренние заметки · не отправляются">
           <span className="whitespace-pre-wrap">{c.notes}</span>
         </SideField>
       )}

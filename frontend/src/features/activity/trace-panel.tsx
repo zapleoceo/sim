@@ -1,9 +1,11 @@
 import type * as React from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ErrorState } from '@/components/empty-state';
 import { costLabel, metric } from '@/components/message-parts';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useIsPhone } from '@/hooks/use-media-query';
 import { traceApi } from '@/lib/api/activity';
@@ -32,7 +34,7 @@ export function TracePanel({ traceId, onClose }: { traceId: string | null; onClo
   });
   return (
     <Sheet open={traceId !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side={isPhone ? 'bottom' : 'right'} className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent side="right" className={cn('w-full overflow-y-auto sm:max-w-2xl', isPhone && 'max-w-none')}>
         <SheetHeader>
           <SheetTitle>Путь запроса</SheetTitle>
           <SheetDescription className="font-mono text-xs break-all">{traceId}</SheetDescription>
@@ -127,6 +129,7 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
           <span>{costLabel(step.llm.cost_usd)}</span>
         </p>
       )}
+      {(step.kind === 'llm' || step.kind === 'guard') && <BrokerExchange key={step.id} exchange={step.broker_exchange} />}
       {pairs.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
           {pairs.map(([k, v]) => (
@@ -153,4 +156,28 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
       )}
     </li>
   );
+}
+
+export function BrokerExchange({ exchange }: { exchange: TraceTimelineStep['broker_exchange'] }) {
+  const [copyStatus, setCopyStatus] = useState('');
+  return <section aria-label="Запрос и ответ брокера" className="space-y-3">
+    <p className="text-xs text-muted-foreground">Сохранённые данные вызова. Секреты скрыты на сервере; промежуточные опросы не сохраняются.</p>
+    {(['request', 'response'] as const).map(key => {
+      const payload = exchange?.[key];
+      const label = key === 'request' ? 'Запрос' : 'Ответ';
+      const value = payload ? JSON.stringify(payload.content, null, 2) : '';
+      return <details key={key} className="rounded border p-2">
+        <summary className="cursor-pointer font-medium">{label} брокера</summary>
+        {!payload ? <p>Полный {label.toLowerCase()} не сохранён</p> : <>
+          {payload.truncated && <p role="note">Данные усечены по лимиту хранения.</p>}
+          <Button size="sm" variant="outline" onClick={() => {
+            if (!navigator.clipboard) { setCopyStatus('Копирование недоступно в этом браузере'); return; }
+            void navigator.clipboard.writeText(value).then(() => setCopyStatus(`${label} скопирован`), () => setCopyStatus('Не удалось скопировать'));
+          }}>Копировать {label.toLowerCase()}</Button>
+          <pre className="max-h-[50dvh] overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs [overflow-wrap:anywhere]">{value}</pre>
+        </>}
+      </details>;
+    })}
+    {copyStatus && <p role="status">{copyStatus}</p>}
+  </section>;
 }

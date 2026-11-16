@@ -1,7 +1,7 @@
 """Authenticated message history, owner-only LLM attempt audit and the system trace log."""
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel, Field
 
 from sim.adapters.db.models import Client
@@ -149,7 +149,8 @@ async def system_log(s: Db, c: App, query: Annotated[LogQuery, Query()]):
 
 
 @router.get("/api/activity/traces/{trace_id}", dependencies=[Depends(owner_only)])
-async def trace(trace_id: Annotated[str, Path(pattern="^[0-9a-f]{32}$")], s: Db):
+async def trace(trace_id: Annotated[str, Path(pattern="^[0-9a-f]{32}$")], s: Db, response: Response):
+    response.headers["Cache-Control"] = "no-store"
     repo = TraceRepo(s)
     rows = await repo.trace(trace_id)
     if not rows:

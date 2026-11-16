@@ -10,6 +10,8 @@ import { personasApi } from '@/lib/api/personas';
 import type { PromptPart } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { editTarget, personaFieldAnchor, rulePlace, settingAnchor, sourceLabel } from './persona-prompt-logic';
+import { PersonaContext } from './persona-context';
+import { useAuth } from '@/lib/auth';
 
 const LINK = 'text-xs font-medium text-primary underline-offset-4 hover:underline';
 /** A link that stands on its own line of actions: a touch target of 40 px on a phone. */
@@ -45,6 +47,7 @@ function Piece({ title, badge, action, text }: { title: string; badge: string; a
  * rules fixed in the code. Loads next to the page, never blocks it.
  */
 export function PersonaPromptMap({ personaId }: { personaId: number }) {
+  const { isOwner } = useAuth();
   const [whole, setWhole] = useState(false);
   const query = useQuery({ queryKey: qk.personaPrompt(personaId), queryFn: () => personasApi.prompt(personaId) });
 
@@ -57,6 +60,7 @@ export function PersonaPromptMap({ personaId }: { personaId: number }) {
       <p className="text-xs text-muted-foreground">
         Просмотр сохранённого промпта. Чтобы изменить текст, перейдите к его полю по ссылке «Изменить».
       </p>
+      {isOwner && <PersonaContext key={personaId} personaId={personaId} />}
       <ol className="flex flex-col gap-4" aria-label="Части промпта">
         {map.parts.map((part) => (
           <Piece
