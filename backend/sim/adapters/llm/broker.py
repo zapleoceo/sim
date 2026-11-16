@@ -181,6 +181,7 @@ class BrokerLLM:
         max_tokens: int | None = None,
         temperature: float | None = None,
         workflow: str | None = None,
+        recovery_key: str | None = None,
     ) -> LLMResult:
         body: dict[str, Any] = {"messages": messages}
         if json_mode:
@@ -212,9 +213,10 @@ class BrokerLLM:
                         log.info("Reconciled terminal Broker job %s", pending.remote_id)
                         continue  # terminal error committed; never swallow unknown outcomes
                 entry = await self.requests.prepare(owner, index, self.request_scope,
-                    {"params": params, "body": body})
+                    {"params": params, "body": body, "recovery_key": recovery_key})
                 recovered = entry.status == "done"
-                exchange["request"] = safe_payload({"path": "/v1/jobs", **entry.request}, secrets=(self.key,))
+                exchange["request"] = safe_payload({"path": "/v1/jobs",
+                    "params": entry.request["params"], "body": entry.request["body"]}, secrets=(self.key,))
                 entry, data = await self.durable_chat(entry, submit=True)
                 job = {"job_id": entry.remote_id, "recovered_result": recovered}
             else:
@@ -264,12 +266,8 @@ class BrokerLLM:
             if submit:
                 response = await self.client.post(f"{self.url}/v1/jobs", params=params,
                     headers={**self.headers, "Idempotency-Key": entry.key}, json=body)
-                if response.status_code in {400, 401, 402, 403, 422}:
-                    # Broker admission/validation rejection: no job was accepted.
-                    # 409/5xx/timeouts remain unknown and never authorize resubmission.
-                    await self.requests.checkpoint(entry, status="error", response={
-                        "status": "error", "error": f"HTTP {response.status_code}: request rejected before acceptance",
-                    })
+                # Even a 4xx is not proof that this key has never been accepted:
+                # Broker re-authorizes known jobs. Keep the intent unresolved.
                 response.raise_for_status()
                 remote_id = str(response.json()["job_id"])
             else:

@@ -12,7 +12,13 @@ All unresolved calls of the worker job are reconciled before
 any new request, changed context or future fallback can be submitted. A confirmed
 terminal failure is distinct from an unknown result; only the former permits a new
 attempt in a later worker generation. Completed identical calls reuse their saved
-result, while changed context is generated afresh only after prior calls settle.
+result. Conversation generation identifies the logical operation with a canonical
+clock used only for hashing, plus dialog activity revision and current persona/config
+context. A 90-second restart alone reuses the accepted generator result; new inbound
+messages or changed instructions/settings invalidate it. The actual submitted prompt
+keeps real time, and guard always checks the recovered draft against freshly computed
+trusted facts. A rejected stale draft is repaired through the normal guarded path.
+No canonical clock is sent to a model. Non-conversation calls retain exact-body identity.
 Recovered results do not book the original cost/tokens again in the per-attempt audit;
 the original usage stays in the saved Broker response. Broker usage remains the
 billing authority, including when a process died before its first audit was saved.
@@ -33,6 +39,9 @@ switches keys/models automatically. CI uses synthetic HTTP and temporary Postgre
 including real connection termination during POST/poll and late-owner fencing. No
 live provider probes or client sends are used. Existing channel send receipts remain
 the separate authority for delivery; a completed model call does not prove delivery.
+HTTP 400/401/402/403/422 alone is NOT evidence of non-acceptance (replay can be denied
+after an earlier acceptance). Such an intent remains unresolved until read-only
+reconciliation succeeds. See `docs/broker-recovery-contract.md` for source evidence.
 
 ### Recorded agents and selected activity calls
 

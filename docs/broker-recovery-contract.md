@@ -1,0 +1,43 @@
+# Broker recovery contract evidence
+
+Read-only inspection of the server checkout `/var/www/aibroker` on 2026-11-16:
+commit `df4460a5bbe3a3e7311861e024e1ca1b1c893156`. No tracked changes were reported.
+This is source evidence, not a live model/API probe or proof of the running image.
+
+* `src/aibroker/routes/jobs_control.py:100-180`: `GET /v1/jobs` requires exactly
+  one `label.<key>=<value>` pair and scopes the lookup to the authenticated project.
+  JobListItem exposes labels and idempotency_key. JobListResponse exposes jobs,
+  pagination_complete and next_cursor. Thus `label.sim_request=<key>&limit=2`
+  matches the implemented route; incomplete/ambiguous/missing results fail closed.
+* `src/aibroker/services/job_list.py:96-114,155-190`: filters project and exact
+  label, serializes both identity fields, computes next_cursor and `not more`.
+  Unauthorized agent jobs are excluded, so an empty list cannot prove absence.
+* `src/aibroker/routes/proxy.py:894-1041`: `_replay` loads an existing accepted
+  job and calls `_require_agent_read_access`, which can reject access. The submit
+  route also checks auth/capability/image access before looking up a known key.
+  Therefore a 4xx is not a universal guarantee that this key never created a job.
+  SIM must not rotate keys simply on HTTP 400/401/402/403/422.
+* `src/aibroker/agent/runs.py:94-161`: job idempotency lookup precedes insertion;
+  key races resolve to the winning job. Labels/key are persisted on DeepJobRow.
+* `src/aibroker/services/job_queue.py:462-484`: retention deletes terminal job
+  rows, including their keys. Reposting a pruned key is unsafe. SIM performs a
+  read-only identity lookup instead and blocks when the retained receipt is absent.
+
+## Real conversation replay
+
+SIM `ConversationService.dialog_context` reads the current clock on each attempt.
+`prompt.dynamic_context` includes minute-resolution UTC; persona_clock additionally
+computes local date, minute, age and routine. Exact serialized-request hashing thus
+changes on a normal 90-second recovery with no new message. Guard additionally uses
+full ISO time and must not reuse an old approval without current trusted facts.
+
+Generation now provides a separate logical identity built by the same prompt builder
+with a canonical clock used ONLY for hashing. History, context, instructions,
+persona/routine/timezone/birth date and dialog activity revision remain in the
+identity; model/capability/JSON/options remain in the adapter hash. Relative delay
+wording is excluded from identity. Original accepted messages are preserved for
+recovery, while the guard is rebuilt with the real current time. New messages or
+settings cause a fresh generation only after prior remote jobs settle. Repairs carry
+the rejected draft and guard feedback in their own identity. Synthetic tests run the
+real conversation handler across 91 seconds and a UTC date boundary in Berlin and
+Vietnam, and distinguish clock-only recovery from new input/settings.

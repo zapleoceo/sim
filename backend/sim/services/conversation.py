@@ -1,10 +1,12 @@
 """Conversation engine: dialog -> prompt -> broker -> JSON decision -> funnel + outbound."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -351,6 +353,7 @@ class ConversationService:
         *,
         workflow: str,
         dialog_id: int | None,
+        recovery_key: str | None = None,
     ) -> tuple[Decision | None, LLMResult]:
         """One model call, plus ONE retry when the JSON is unusable."""
         result = await self.llm.chat(
@@ -360,6 +363,7 @@ class ConversationService:
             json_mode=True,
             workflow=workflow,
             dialog_id=dialog_id,
+            recovery_key=recovery_key,
         )
         decision = self.usable_decision(result, workflow, dialog_id)
         if decision is None:
@@ -373,6 +377,8 @@ class ConversationService:
                 json_mode=True,
                 workflow=workflow,
                 dialog_id=dialog_id,
+                recovery_key=(hashlib.sha256(f"{recovery_key}\0{nudge}".encode()).hexdigest()
+                              if recovery_key else None),
             )
             decision = self.usable_decision(result, workflow, dialog_id)
         return decision, result
@@ -638,9 +644,20 @@ class ConversationService:
         bookkeeping. `history` ends with the client's latest message."""
         ctx = with_persona_facts(persona, ctx)
         prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
+        # This canonical prompt is ONLY an operation identity, never sent to an LLM.
+        # Clock changes alone must not re-purchase an accepted generator response.
+        stable_prompt = await self.prompt(persona, strategy, history,
+            replace(ctx, now=datetime(2000, 1, 1), delay_note=""), whole_history=whole_history)
+        dialog = await self.dialogs.get(dialog_id) if dialog_id is not None else None
+        identity = {"persona_id": persona.id, "timezone": persona.timezone,
+                    "birth_date": str(persona.birth_date), "routine": persona.routine,
+                    "dialog_revision": dialog.activity_revision if dialog is not None else None}
         rejection = ""
         for attempt in range(2):
-            decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
+            key = hashlib.sha256(json.dumps({**identity, "messages": stable_prompt},
+                sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id,
+                                              recovery_key=key)
             guard: GuardOutcome | None = None
             if decision is not None and decision.reply:
                 review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
@@ -656,13 +673,16 @@ class ConversationService:
                 feedback = one_line(rejection, 500)
                 ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
-                prompt = [
-                    *prompt,
+                stable_prompt = await self.prompt(persona, strategy, history,
+                    replace(ctx, now=datetime(2000, 1, 1), delay_note=""), whole_history=whole_history)
+                repair = [
                     {"role": "assistant", "content": result.text[:4000]},
                     {"role": "system", "content":
                      "Контролёр отклонил черновик: " + feedback +
                      ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
                 ]
+                prompt = [*prompt, *repair]
+                stable_prompt = [*stable_prompt, *repair]
         return Draft(decision, result, guard, rejection)
 
     async def preview(

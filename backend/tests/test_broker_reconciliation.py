@@ -1,15 +1,19 @@
 """Offline Broker restarts, unknown POST outcomes and encrypted generation fences."""
 import json
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
 from sqlalchemy import select
 
-from sim.adapters.db.models import BrokerRequest
+from sim.adapters.db.models import BrokerRequest, Dialog, Message, Persona
+from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker import BrokerLLM, BrokerTerminalError
 from sim.ports.llm import LLMError
 from sim.services.broker_requests import BrokerRequests
 from sim.services.job_execution import Execution, ExecutionLost
+from tests.conftest import decision_json, guard_json, inbound
+from tests.test_ingest import ingest
 
 MESSAGES = [{"role": "user", "content": "synthetic private request"}]
 DONE = {"status": "done", "text": "synthetic answer", "model": "test-model"}
@@ -202,24 +206,24 @@ async def test_terminal_checkpoint_cannot_be_regressed_by_concurrent_observer(co
     assert observed.status == "done" and observed.response == DONE
 
 
-async def test_confirmed_admission_rejection_can_retry_after_recovery(container, monkeypatch):
-    admitted = [False]
+@pytest.mark.parametrize("code", [400, 401, 402, 403, 422])
+async def test_http_status_alone_does_not_authorize_resubmission(container, monkeypatch, code):
     posts = []
 
     def transport(request):
         if request.method == "POST":
             posts.append(request.headers["Idempotency-Key"])
-            return httpx.Response(200, json={"job_id": 44}) if admitted[0] else httpx.Response(402)
-        return httpx.Response(200, json=DONE)
+            return httpx.Response(code)
+        return httpx.Response(200, json={"pagination_complete": True, "next_cursor": None, "jobs": []})
 
     old, _, _ = adapter(container, monkeypatch, 1, transport)
-    with pytest.raises(LLMError, match="HTTP 402"):
+    with pytest.raises(LLMError, match=f"HTTP {code}"):
         await old.chat(MESSAGES)
     await old.aclose()
-    admitted[0] = True  # synthetic Broker state only, no real budget modification
     new, _, _ = adapter(container, monkeypatch, 2, transport)
-    assert (await new.chat(MESSAGES)).job_id == "44"
-    assert len(posts) == 2 and posts[0] != posts[1]
+    with pytest.raises(LLMError, match="resubmission blocked"):
+        await new.chat(MESSAGES)
+    assert len(posts) == 1
     await new.aclose()
 
 
@@ -296,3 +300,68 @@ async def test_recovery_does_not_book_previous_usage_again(container, monkeypatc
     assert result.exchange["accepted"]["content"]["recovered_result"] is True
     assert result.exchange["response"]["content"]["cost_usd"] == 0.12
     await new.aclose()
+
+
+@pytest.mark.parametrize("change", ["clock", "inbound", "settings"])
+@pytest.mark.parametrize("timezone", ["Europe/Berlin", "Asia/Ho_Chi_Minh"])
+async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_time(
+    container, world, monkeypatch, change, timezone,
+):
+    now = [datetime(2026, 11, 16, 23, 59, 30)]
+    container.clock = lambda: now[0]
+    await ingest(container, world.channel.id, inbound("Synthetic question", ext="recovery-in-1", at=now[0]))
+    async with transaction(container.factory) as s:
+        persona = await s.get(Persona, world.persona.id)
+        persona.timezone = timezone
+    posts, jobs = [], {}
+    ready = [False]
+
+    def transport(request):
+        if request.method == "POST":
+            body = json.loads(request.content)
+            posts.append(body)
+            remote_id = str(100 + len(posts))
+            jobs[remote_id] = body["workflow"]
+            return httpx.Response(200, json={"job_id": remote_id})
+        remote_id = request.url.path.rsplit("/", 1)[-1]
+        workflow = jobs[remote_id]
+        if not ready[0]:
+            return httpx.Response(200, json={"status": "pending"})
+        return httpx.Response(200, json={"status": "done",
+            "model": "synthetic-guard" if workflow == "guard" else "synthetic-generator",
+            "text": guard_json() if workflow == "guard" else decision_json(reply="Synthetic answer")})
+
+    async def attempt(generation):
+        broker, _, owner = adapter(container, monkeypatch, generation, transport)
+        def next_call():
+            index = owner.broker_call_index
+            owner.broker_call_index += 1
+            return owner, index
+        monkeypatch.setattr("sim.adapters.llm.broker.next_broker_call", next_call)
+        container.llm = broker
+        try:
+            async with transaction(container.factory) as s:
+                dialog = (await s.scalars(select(Dialog))).unique().one()
+                return await container.conversation(s).run_reply(dialog.id)
+        finally:
+            await broker.aclose()
+
+    with pytest.raises(LLMError, match="still pending"):
+        await attempt(1)
+    now[0] += timedelta(seconds=91)  # normal expired lease, UTC date boundary
+    ready[0] = True
+    if change == "inbound":
+        await ingest(container, world.channel.id, inbound("New synthetic context", ext="recovery-in-2", at=now[0]))
+    elif change == "settings":
+        async with transaction(container.factory) as s:
+            (await s.get(Persona, world.persona.id)).agent_prompt += "\nNew owner instruction."
+    outcome = await attempt(2)
+    assert outcome.status == "sent"  # queued only; no channel transport runs
+    generator_posts = [body for body in posts if body["workflow"] == "reply"]
+    assert len(generator_posts) == (1 if change == "clock" else 2)
+    guard_posts = [body for body in posts if body["workflow"] == "guard"]
+    assert guard_posts and now[0].isoformat() + "Z" in json.dumps(guard_posts[-1])
+    assert "2000-01-01" not in json.dumps(posts)  # canonical identity is never sent
+    async with container.factory() as s:
+        messages = list(await s.scalars(select(Message).where(Message.delivery == "queued")))
+        assert len(messages) == 1

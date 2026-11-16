@@ -74,8 +74,13 @@ class BrokerRequests:
         self, owner: Execution, index: int, scope: str, request: dict[str, Any],
     ) -> RequestEntry:
         await require_live_execution()
-        plaintext = encoded(request, MAX_REQUEST_BYTES)
-        fingerprint = hashlib.sha256(plaintext.encode()).hexdigest()
+        encoded(request, MAX_REQUEST_BYTES)
+        identity = request
+        if request.get("recovery_key"):
+            # Only the conversation builder can identify time-only changes. Keep
+            # model/capability/JSON/temperature settings in the identity as well.
+            identity = {**request, "body": {k: v for k, v in request["body"].items() if k != "messages"}}
+        fingerprint = hashlib.sha256(encoded(identity, MAX_REQUEST_BYTES).encode()).hexdigest()
         async with self.factory() as s, s.begin():
             row = await s.get(BrokerRequest, (owner.job_id, index), with_for_update=True)
             if row is not None:
