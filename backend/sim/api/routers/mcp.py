@@ -17,6 +17,7 @@ from sim.adapters.db.session import transaction
 from sim.api.deps import App, Db, Owner
 from sim.services.auth import hash_token
 from sim.services.content_mcp import SCOPES, TOOLS, ContentMcp, Input, McpError
+from sim.services.mcp_cimd import OAuthError, configuration
 
 router = APIRouter(prefix="/api/mcp", tags=["content MCP"])
 VERSION = "2025-06-18"
@@ -70,15 +71,25 @@ async def delegated(request: Request, s: Db, c: App) -> ContentMcp:
         grant = await s.scalar(select(McpGrant).where(
             McpGrant.token_hash == hash_token(bearer[7:])).with_for_update())
     session = await s.get(AuthSession, grant.session_id) if grant else None
+    oauth_valid = True
+    challenge_headers = {}
+    try:
+        issuer, resource = configuration(c.settings)
+        challenge_headers = {"WWW-Authenticate": f'Bearer resource_metadata="{issuer}/.well-known/oauth-protected-resource/api/mcp"'}
+        if grant and grant.oauth_client_id:
+            oauth_valid = (grant.issuer == issuer and grant.resource == resource
+                           and grant.oauth_client_id == c.settings.mcp_oauth_client_id)
+    except OAuthError:
+        oauth_valid = not (grant and grant.oauth_client_id)
     if (grant is None or grant.revoked or grant.expires_at <= c.clock() or session is None
             or session.expires_at <= c.clock() or not session.user.is_active
-            or not session.user.role.has_owner_rights):
+            or not session.user.role.has_owner_rights or not oauth_valid):
         # Independent audit survives the rejected request's rollback; no secret or raw input.
         async with transaction(c.factory) as audit:
             audit.add(McpAudit(grant_id=grant.id if grant else None,
                 user_id=session.user_id if session else None,
                 action="authenticate", outcome="denied", created_at=c.clock()))
-        raise HTTPException(401, "Invalid MCP grant")
+        raise HTTPException(401, "Invalid MCP grant", headers=challenge_headers)
     service = ContentMcp(s, grant, session.user_id, c.clock)
     origin = request.headers.get("Origin")
     public = urlsplit(c.settings.public_url)

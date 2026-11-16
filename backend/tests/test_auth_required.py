@@ -18,6 +18,8 @@ from sim.wiring import Container
 PUBLIC = frozenset({
     "/api/live", "/api/ready", "/api/health",
     "/api/auth/config", "/api/auth/telegram", "/api/auth/link",
+    "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp",
+    "/.well-known/oauth-authorization-server", "/api/oauth/authorize", "/api/oauth/token", "/api/oauth/revoke",
 })
 PUBLIC_PREFIXES = ("/hooks/",)   # webhooks authenticate by their own secret, not by a session
 # Logout without a session only clears the cookie and answers 204 (see routers/auth.py):

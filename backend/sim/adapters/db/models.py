@@ -87,6 +87,32 @@ class McpGrant(Base):
     post_ids: Mapped[list[int]] = mapped_column(JSON)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    oauth_client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issuer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resource: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class McpAuthorization(Base):
+    """One browser consent and single-use PKCE code. Raw nonce/code are never stored."""
+    __tablename__ = "mcp_authorization"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nonce_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    code_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("auth_session.id", ondelete="CASCADE"))
+    client_id: Mapped[str] = mapped_column(Text)
+    redirect_uri: Mapped[str] = mapped_column(Text)
+    issuer: Mapped[str] = mapped_column(Text)
+    resource: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text)
+    challenge: Mapped[str] = mapped_column(String(43))
+    scopes: Mapped[list[str]] = mapped_column(JSON)
+    dialog_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    post_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    consented: Mapped[bool] = mapped_column(Boolean, default=False)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+    grant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class McpAudit(Base):
