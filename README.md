@@ -129,3 +129,9 @@ API» с методом POST/PUT/PATCH/DELETE есть раскрываемый 
 
 Generation/CAS fencing очереди и долговечный intent/receipt исходящих сообщений не обещают
 exactly-once внешних действий; смешанный rollout со старыми worker небезопасен.
+
+### Incoming subscription media (draft implementation)
+
+The bounded recognition component and its current format/capability limits are documented in
+[Incoming media](docs/incoming-media.md). Queue integration is not enabled yet; raw audio/video
+must not be silently routed to a paid provider. Synthetic checks run only in CI.
