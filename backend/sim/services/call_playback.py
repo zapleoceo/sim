@@ -24,6 +24,12 @@ class PlaybackTurn:
     text: str
     guard: GuardOutcome | None = None
     released: bool = False
+    queued_bytes: int = 0
+    played_bytes: int = 0
+
+    @property
+    def delivered(self) -> bool:
+        return self.released and self.played_bytes >= self.queued_bytes
 
 
 class CallPlayback:
@@ -33,6 +39,19 @@ class CallPlayback:
         self.turns: list[PlaybackTurn] = []
         self.failure = ""
         self.epoch = 0
+        self.playing: PlaybackTurn | None = None
+        self.drained = asyncio.Event()
+        self.drained.set()
+
+    def cancel_playback(self) -> None:
+        self.playing = None
+        self.drained.set()
+
+    def acknowledge(self, turn: PlaybackTurn, size: int) -> None:
+        """Only called after the transport accepts a speech frame, never on enqueue."""
+        turn.played_bytes += size
+        if turn.delivered and self.playing is turn:
+            self.cancel_playback()
 
     async def run(self, session: LiveVoiceSession, out: PcmBuffer, rate_hz: int,
                   trace: CallTrace) -> None:
@@ -45,6 +64,7 @@ class CallPlayback:
         def reject(reason: str) -> None:
             self.failure = reason
             out.clear()
+            self.cancel_playback()
             failed.set()
 
         async def check(audio: bytes, turn: PlaybackTurn, epoch: int, before: int) -> None:
@@ -54,9 +74,7 @@ class CallPlayback:
                 # Review immediately before this turn can start, not behind old queued speech.
                 try:
                     async with asyncio.timeout(MAX_TURN_SECONDS + 1):
-                        # PcmBuffer is synchronous; its external pacer has no drain event.
-                        while len(out) and epoch == self.epoch and not failed.is_set():  # noqa: ASYNC110
-                            await asyncio.sleep(0.01)
+                        await self.drained.wait()
                 except TimeoutError:
                     reject("Воспроизведение предыдущей реплики не завершилось")
                     return
@@ -64,19 +82,23 @@ class CallPlayback:
                     return
                 started = self.clock()
                 history = [Turn(t.role, t.text) for t in self.turns[:before]
-                           if t.role == "user" or t.released]
+                           if t.role == "user" or t.delivered]
                 try:
                     async with asyncio.timeout(self.timeout):
-                        verdict = await self.review(history, turn.text)
+                        for attempt in range(2):
+                            reviewed_at = self.clock().replace(second=0, microsecond=0)
+                            verdict = await self.review(history, turn.text)
+                            if not verdict.allowed or verdict.text != turn.text:
+                                break
+                            if self.clock().replace(second=0, microsecond=0) == reviewed_at:
+                                break
+                            if attempt == 1:
+                                verdict = GuardOutcome(BLOCKED, turn.text, ["Clock changed during both reviews"])
                 except Exception:
                     verdict = GuardOutcome(BLOCKED, turn.text, ["Проверка голоса не завершена вовремя"])
                 turn.guard = verdict
                 if epoch != self.epoch or failed.is_set():
                     return
-                # A minute/date/DST boundary makes a clock assertion stale. Do not play it.
-                if self.clock().replace(second=0, microsecond=0) != started.replace(second=0, microsecond=0):
-                    verdict = GuardOutcome(BLOCKED, turn.text, ["Время изменилось во время проверки голоса"])
-                    turn.guard = verdict
                 trace.event("voice_review", elapsed_ms=int((self.clock() - started).total_seconds() * 1000),
                             allowed=verdict.allowed, unchanged=verdict.text == turn.text)
                 if not verdict.allowed or verdict.text != turn.text:
@@ -88,6 +110,9 @@ class CallPlayback:
                 if tail:
                     out.push(tail)
                 turn.released = True
+                turn.queued_bytes = len(out)
+                self.playing = turn
+                self.drained.clear()
 
         async def receive() -> None:
             async for event in session.events():
@@ -115,6 +140,7 @@ class CallPlayback:
                     pending.clear()
                     text.clear()
                     out.clear()
+                    self.cancel_playback()
                     for task in checks:
                         task.cancel()
                 elif event.kind == TURN_COMPLETE:

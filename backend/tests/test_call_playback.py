@@ -64,7 +64,7 @@ async def test_rejected_or_stale_audio_never_released(mode):
         if mode == "error":
             raise RuntimeError("offline fake error")
         if mode == "clock_boundary":
-            clock[0] += timedelta(seconds=10)
+            clock[0] += timedelta(minutes=1)
             return GuardOutcome("ok", draft)
         return GuardOutcome("rewritten" if mode == "rewrite" else BLOCKED,
                             "Исправлено" if mode == "rewrite" else draft, ["Причина"])
@@ -134,10 +134,66 @@ async def test_next_turn_review_waits_for_playback_and_includes_approved_history
     assert len(seen) == 1 and len(out) == len(PCM)
     clock[0] += timedelta(seconds=10)
     assert out.pop_frame() == PCM
+    playback.acknowledge(playback.playing, len(PCM))
     await asyncio.wait_for(task, timeout=1)
     assert len(seen) == 2 and seen[1][0] == clock[0]
     assert any(t.role == "assistant" for t in seen[1][1])
     assert out.pop_frame() == PCM and not playback.failure
+
+
+@pytest.mark.parametrize("stale", [False, True])
+async def test_minute_boundary_rechecks_neutral_or_stale_reply(stale):
+    clock = [NOW]
+    seen = []
+
+    async def review(history, draft):
+        seen.append(clock[0])
+        if len(seen) == 1:
+            clock[0] += timedelta(seconds=10)
+        elif stale:
+            return GuardOutcome(BLOCKED, draft, ["Stale clock assertion"])
+        return GuardOutcome("ok", draft)
+
+    playback = CallPlayback(review, clock=lambda: clock[0])
+    out, trace = output()
+    await playback.run(FakeSession(speech_events(PCM), end_after_events=True), out, 24000, trace)
+    assert seen == [NOW, NOW + timedelta(seconds=10)]
+    assert bool(len(out)) is not stale
+    assert bool(playback.failure) is stale
+
+
+@pytest.mark.parametrize("played_frames", [0, 1])
+async def test_interruption_after_release_never_marks_incomplete_turn_sent(container, world, played_frames):
+    did = await chatting_world(container, world)
+    approved = asyncio.Event()
+
+    async def review(history, draft):
+        approved.set()
+        return GuardOutcome("ok", draft)
+
+    out, trace = output()
+    playback = CallPlayback(review, clock=lambda: NOW)
+
+    class Session(FakeSession):
+        async def events(self):
+            for event in speech_events(PCM * 2):
+                yield event
+            await approved.wait()
+            assert playback.turns[-1].released
+            for _ in range(played_frames):
+                frame = out.pop_frame()
+                playback.acknowledge(playback.playing, len(frame))
+            yield LiveVoiceEvent(INTERRUPTED)
+
+    session = Session()
+    await playback.run(session, out, 24000, trace)
+    turn = playback.turns[-1]
+    assert not turn.delivered and turn.played_bytes == played_frames * len(PCM)
+    assert len(out) == 0 and playback.drained.is_set()
+    await service(container, FakeLive()).record(did, await session.finish(), NOW, turns=playback.turns)
+    row = (await dialog_messages(container, did))[-1]
+    assert row.delivery is Delivery.CANCELLED
+    assert f"{played_frames * len(PCM)}/{2 * len(PCM)}" in row.error
 
 
 async def test_real_call_path_blocks_audio_and_marks_handoff(container, world, fake_llm):

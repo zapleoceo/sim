@@ -261,7 +261,7 @@ class CallService:
             "downlink": asyncio.ensure_future(
                 playback.run(session, out, call.rate_hz, trace) if playback is not None
                 else self.downlink(session, out, call.rate_hz, trace)),
-            "pacer": asyncio.ensure_future(self.pace(call, out, trace, ambience)),
+            "pacer": asyncio.ensure_future(self.pace(call, out, trace, ambience, playback=playback)),
         }
         try:
             done, _ = await asyncio.wait(tasks.values(), timeout=self.max_seconds + 30,
@@ -270,6 +270,12 @@ class CallService:
             trace.event("conversation_over", by=",".join(stopped) or "time_limit")
             if stopped == ["downlink"] and tasks["downlink"].exception() is None:
                 await self.drain(out)          # her last words before hanging up
+                if playback is not None:
+                    try:
+                        async with asyncio.timeout(DRAIN_LIMIT_S):
+                            await playback.drained.wait()
+                    except TimeoutError:
+                        trace.event("playback_drain_timeout")
         finally:
             for task in tasks.values():
                 task.cancel()
@@ -315,6 +321,7 @@ class CallService:
     async def pace(
         self, call: IncomingCall, out: PcmBuffer, trace: CallTrace,
         ambience: CallAmbience | None = None,
+        *, playback: CallPlayback | None = None,
     ) -> None:
         """One frame every 10 ms; a selected bed continues in pauses (not in speech buffer).
         Without a bed we stay idle while she is silent. The schedule is
@@ -325,6 +332,7 @@ class CallService:
         due = self.mono()
         while True:
             frame = out.pop_frame()
+            turn = playback.playing if playback is not None and frame is not None else None
             now = self.mono()
             speech = frame is not None
             if ambience is not None:
@@ -337,6 +345,8 @@ class CallService:
                 trace.count("pacer_restarts")
                 due = now
             await call.play(frame)
+            if turn is not None:
+                playback.acknowledge(turn, len(frame))
             if speech:
                 trace.first("first_frame_sent", bytes=len(frame))
                 trace.count("frames_out")
@@ -379,7 +389,9 @@ class CallService:
                 rows.append(Message(
                     dialog_id=dialog.id, direction=Direction.IN if from_client else Direction.OUT,
                     author=Author.CLIENT if from_client else Author.AI, text=turn.text.strip(),
-                    delivery=Delivery.SENT if turn.released else Delivery.CANCELLED,
+                    delivery=Delivery.SENT if turn.delivered else Delivery.CANCELLED,
+                    error=(f"Voice playback incomplete: {turn.played_bytes}/{turn.queued_bytes} PCM bytes accepted"
+                           if turn.released and not turn.delivered else None),
                     guard_verdict=guard.verdict if guard else None,
                     guard_violations=guard.violations if guard else None,
                     guard_model=guard.model if guard else None,

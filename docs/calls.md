@@ -275,7 +275,9 @@ Telegram-трубке. Живые звонки/платная генерация
 не выполнялись. В диагностике есть `voice_review` с длительностью проверки.
 Следующая проверка начинается после опустошения буфера предыдущей одобренной реплики,
 чтобы временные факты не устаревали в очереди воспроизведения. Ожидание ограничено 31 секундой.
-Смена минуты (включая дату/DST), отсутствие транскрипта, незавершённая реплика, ошибка,
+Смена минуты (включая дату/DST) запускает одну повторную проверку со свежими фактами в том же
+20-секундном бюджете: нейтральная речь может пройти, устаревшее утверждение должно быть отклонено.
+Повторная смена минуты, отсутствие транскрипта, незавершённая реплика, ошибка,
 таймаут или смена контекста/паузы во время guard приводят к отмене аудио и передаче человеку
 с причиной на сообщении-триггере. Повторной генерации платного аудио автоматически нет.
 
@@ -286,3 +288,5 @@ Telegram-трубке. Живые звонки/платная генерация
 реплика имеет cancelled delivery и свой guard verdict, не помечается отправленной по общему
 итоговому транскрипту Broker. Старые звонки не получают выдуманных verdict задним числом.
 
+
+Delivery accounting: queued audio is not SENT. The pacer acknowledges bytes only after call.play succeeds; only a fully acknowledged turn enters delivered history. Interrupted or failed partial turns remain CANCELLED with accepted/queued PCM byte counts in message.error. Transport acceptance is not proof that a human heard the audio. Waiting for the preceding turn uses an acknowledgement event, including the last frame in flight.
