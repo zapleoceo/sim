@@ -10,6 +10,7 @@ export const EVENT_TAGS: Record<string, string> = {
   reply_delay: 'Время ответа',
   urgent: 'Срочность',
   handoff: 'Передача оператору',
+  call_issue: 'Проблема со звонком',
   resolved: 'Обработано',
   chat_cleared: 'Чат очищен',
   passport_cleared: 'Паспорт очищен',

@@ -57,8 +57,7 @@ from sim.services.conversation import ConversationService, history_turns, with_p
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.guard import BLOCKED, GuardOutcome
-from sim.services.journal import HANDOFF, SYSTEM, CommunicationJournal
-from sim.services.outbound import cancel_queued_ai
+from sim.services.journal import CALL_ISSUE, SYSTEM, CommunicationJournal
 from sim.services.persona_ambience import contextual_ambience
 from sim.services.prompt import Decision, Turn
 from sim.services.reengagement import eligible, signature
@@ -164,6 +163,7 @@ class CallService:
             )
         except LiveVoiceError as exc:
             log.warning("call on channel %s: broker refused: %s", channel_id, exc)
+            await self.record_issue(plan.dialog_id, "provider_open_failed")
             return CallOutcome("refused")
         trace.event("session_opened", input_hz=session.input_rate_hz,
                     output_hz=session.output_rate_hz)
@@ -175,6 +175,7 @@ class CallService:
             log.warning("call on channel %s: answer failed: %s: %s", channel_id,
                         type(exc).__name__, str(exc)[:200])
             await session.finish()
+            await self.record_issue(plan.dialog_id, "answer_failed")
             return CallOutcome("failed")
         trace.event("answered")
         async def review(history: list[Turn], draft: str) -> GuardOutcome:
@@ -279,12 +280,15 @@ class CallService:
                             await playback.drained.wait()
                     except TimeoutError:
                         trace.event("playback_drain_timeout")
+                        playback.failure = playback.failure or "playback_drain_timeout"
         finally:
             for task in tasks.values():
                 task.cancel()
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
             for name, result in zip(tasks, results, strict=True):
                 if isinstance(result, Exception):
+                    if playback is not None:
+                        playback.failure = playback.failure or f"{name}_failed"
                     log.warning("call on channel %s: %s stopped: %s: %s", trace.channel_id,
                                 name, type(result).__name__, str(result)[:200])
 
@@ -413,12 +417,17 @@ class CallService:
             client.last_contact_at = max(started, client.last_contact_at or started)
             dialog.channel.last_activity_at = self.clock()
             await FollowupService(s, clock=self.clock).cancel(dialog.id)
-            if failure:
-                conv = self.conversation(s)
-                reason = "Голос не воспроизведён: " + failure
-                await conv.mark_handoff(dialog, reason)
-                dialog.ai_paused, dialog.needs_operator = True, True
-                await cancel_queued_ai(s, dialog.id, reason)
+            if failure or any(t.cancel_reason for t in recorded):
+                header.error = failure or "context_changed"
                 await CommunicationJournal(s, clock=self.clock).record(
-                    dialog.id, HANDOFF, new="operator", who=SYSTEM, reason=reason)
+                    dialog.id, CALL_ISSUE, new="Звонок завершён с технической проблемой",
+                    who=SYSTEM, reason="Часть ответа могла не прозвучать. Можно продолжить в чате.")
             return [m.id for m in rows]
+
+    async def record_issue(self, dialog_id: int, code: str) -> None:
+        """A failed connection is context, never permission to change the owner's AI policy."""
+        log.info("call issue dialog=%s code=%s", dialog_id, code)
+        async with transaction(self.factory) as s:
+            await CommunicationJournal(s, clock=self.clock).record(
+                dialog_id, CALL_ISSUE, new="Не удалось начать голосовой разговор",
+                reason="Ответ не прозвучал. Можно продолжить в чате.")

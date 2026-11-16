@@ -14,6 +14,15 @@ AI/calls, errors and review timeouts still fail closed. Call eligibility is now 
 before opening a provider session and at each review; a pending operator takeover cannot
 cause a paid call to open and then immediately fail. No existing production pauses are reset.
 
+Technical failures (including provider refusal, playback/transport failure and guard failure)
+never set AI pause or operator takeover. Rejected audio still cannot play. A `call_issue`
+journal event explains the observed outcome and offers continuing in chat; technical codes
+stay in diagnostics/header error. Existing manual or semantic restrictions remain intact.
+These events are available only in their dialog's normal context window, for at most 24 hours,
+with UTC timestamps and instructions not to invent a client-side cause or repeat an already
+discussed explanation. The permanent history is preserved. This is optional context, not a
+mandatory apology or a claim that audio reached the caller.
+
 Each new assistant transcript row keeps the model/provider reported by the live session;
 ready metadata fills missing done metadata. Unknown providers remain unknown rather than
 being inferred from a model prefix. Voice reviews have workflow `call_guard` and receive

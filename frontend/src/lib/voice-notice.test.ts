@@ -1,6 +1,6 @@
 import { formatZonedDateTime } from './format';
 import { voiceNotice } from './voice-notice';
-import { eventValue } from '@/features/inbox/journal-logic';
+import { EVENT_TAGS, eventValue } from '@/features/inbox/journal-logic';
 
 it('summarizes technical voice reasons without inventing a handoff or live status', () => {
   expect(voiceNotice('Голос не воспроизведён: Контекст изменился во время проверки голоса'))
@@ -8,6 +8,7 @@ it('summarizes technical voice reasons without inventing a handoff or live statu
   expect(voiceNotice('Voice playback incomplete: 480/960 PCM bytes accepted'))
     .toContain('мог прозвучать не полностью');
   expect(voiceNotice('Оператор выключил ИИ')).toBeNull();
+  expect(EVENT_TAGS.call_issue).toBe('Проблема со звонком');
 });
 
 it('renders the same instant with an explicit user date and offset across day boundaries', () => {

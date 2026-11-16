@@ -196,7 +196,7 @@ async def test_interruption_after_release_never_marks_incomplete_turn_sent(conta
     assert f"{played_frames * len(PCM)}/{2 * len(PCM)}" in row.error
 
 
-async def test_real_call_path_blocks_audio_and_marks_handoff(container, world, fake_llm):
+async def test_real_call_path_blocks_audio_without_handoff(container, world, fake_llm):
     did = await chatting_world(container, world)
     fake_llm.guard_replies = [guard_json("block", ["Неверный день"])]
     session = FakeSession(speech_events(PCM), end_after_events=True)
@@ -205,10 +205,12 @@ async def test_real_call_path_blocks_audio_and_marks_handoff(container, world, f
     assert call.played == [] and call.hung_up
     rows = await dialog_messages(container, did)
     assert rows[-1].delivery is Delivery.CANCELLED and rows[-1].guard_verdict == BLOCKED
-    assert rows[-2].handoff_reason and "Неверный день" in rows[-2].handoff_reason
+    assert not any(row.handoff_reason for row in rows)
+    assert "Неверный день" in rows[-2].error
     async with container.factory() as s:
         d = await s.get(Dialog, did)
-        assert d.ai_paused and d.needs_operator
+        assert not d.ai_paused and not d.needs_operator
+    assert (await service(container, FakeLive()).review_turn(did, [], "Hello", "voice-model")).allowed
 
 
 async def test_review_uses_current_code_clock_and_live_context(container, world, fake_llm):
