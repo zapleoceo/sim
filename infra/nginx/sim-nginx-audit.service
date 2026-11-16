@@ -1,0 +1,23 @@
+[Unit]
+Description=SIM nginx error audit without request content
+After=local-fs.target
+Before=nginx.service
+
+[Service]
+Type=simple
+Group=www-data
+UMask=0007
+RuntimeDirectory=sim-nginx-audit
+RuntimeDirectoryMode=0750
+ExecStart=/usr/sbin/rsyslogd -n -i /run/sim-nginx-audit/pid -f /etc/rsyslog-sim-nginx.conf
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/log/sim-nginx /run/sim-nginx-audit
+
+[Install]
+WantedBy=multi-user.target
