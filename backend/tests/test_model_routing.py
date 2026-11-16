@@ -88,6 +88,7 @@ async def test_reserve_pending_recovery_does_not_repurchase_primary_or_reserve(c
         return httpx.Response(200, json={"status": "done" if ready[0] else "pending", "text": "safe result"})
     async def attempt(generation):
         broker, _, execution = adapter(container, monkeypatch, generation, transport)
+        broker.subscription_budget_s = -1  # synthetic pending result, no real-time subscription wait
         def next_call():
             index = execution.broker_call_index
             execution.broker_call_index += 1
