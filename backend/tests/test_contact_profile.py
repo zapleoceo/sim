@@ -126,6 +126,55 @@ async def test_adapter_rejects_group_and_arbitrary_username():
     transport.profile_photo.assert_not_awaited()
 
 
+@pytest.mark.parametrize("flags", [{}, {"bot": True}, {"deleted": True}, {"is_self": True}])
+async def test_telethon_profile_projects_only_current_human_and_never_marks_read(flags):
+    from telethon import functions, types
+
+    from sim.adapters.channels.telegram_user import TelethonTransport
+
+    calls = []
+
+    class Client:
+        def is_connected(self):
+            return True
+
+        async def get_input_entity(self, peer):
+            assert peer == 12345
+            return types.InputUser(peer, 123)
+
+        async def __call__(self, request):
+            assert isinstance(request, functions.users.GetFullUserRequest)
+            calls.append(request)
+            user = types.User(12345, first_name="Test", username="known_user", phone="excluded", **flags)
+            return SimpleNamespace(users=[user], full_user=SimpleNamespace(about="test bio"))
+
+    transport = TelethonTransport(Client)
+    if flags:
+        with pytest.raises(ValueError, match="unavailable"):
+            await transport.profile(12345)
+    else:
+        assert await transport.profile(12345) == {
+            "name": "Test", "username": "known_user", "bio": "test bio", "has_photo": False}
+    assert len(calls) == 1
+
+
+async def test_profile_photo_transport_requests_only_small_current_avatar():
+    from sim.adapters.channels.telegram_user import TelethonTransport
+
+    class Client:
+        def is_connected(self):
+            return True
+
+        async def get_input_entity(self, peer):
+            return peer
+
+        async def download_profile_photo(self, peer, *, file, download_big):
+            assert peer == 12345 and download_big is False
+            file.write(b"\xff\xd8\xffsynthetic")
+
+    assert await TelethonTransport(Client).profile_photo(12345) == b"\xff\xd8\xffsynthetic"
+
+
 async def test_real_encoder_keeps_disclosure_pixels_in_round_visible_area(tmp_path):
     # CI only, local synthetic color input; no provider, Telegram or production data.
     from sim.adapters.audio import run_process
