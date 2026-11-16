@@ -22,7 +22,7 @@ from sim.domain.enums import Author, Delivery, Direction, MediaKind
 from sim.ports.channel import SendResult
 from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.services import jobkinds
-from sim.services.ai_media import AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
+from sim.services.ai_media import AI_LABEL, AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
 from sim.services.app_settings import BY_KEY, AppSettingsService
 from sim.services.conversation import decision_fields, history_turns
 from sim.services.outbound import media_caption
@@ -368,7 +368,7 @@ async def test_the_job_does_nothing_once_a_human_took_over(container, world, fak
 
 # ---- the conversation history ----------------------------------------------------------------
 
-def test_generated_media_reads_as_a_marker_and_the_label_is_not_her_words():
+def test_generated_media_reads_as_a_marker_and_an_old_label_is_not_her_words():
     def out(text="", **fields):
         return Message(direction=Direction.OUT, author=Author.AI, text=text, delivery=Delivery.SENT, **fields)
 
