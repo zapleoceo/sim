@@ -7,6 +7,11 @@ requested media without arbitrary mood refusals. Generator and guard receive the
 same policy; availability, cooldown, opt-out, pauses and failures still apply.
 A preference is not a delivery guarantee.
 
+Generated photos carry the visible «Сгенерировано ИИ» caption. Newly encoded video
+notes carry an in-frame `AI generated` mark inside Telegram's circular crop; encoder
+cache version 2 prevents reusing old unmarked cached clips for new requests.
+Already delivered or queued old clips are not rewritten by this release.
+
 `contact_profile_channel_id` defaults to 0 (disabled). One explicitly selected
 Telegram-user channel may read the **current dialog's** name, username, bio and
 one small available profile photo when the latest inbound mentions a profile or

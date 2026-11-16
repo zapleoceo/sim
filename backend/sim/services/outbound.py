@@ -29,7 +29,7 @@ from sim.ports.channel import SendResult
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing
-from sim.services.ai_media import is_ai_photo, is_ai_video
+from sim.services.ai_media import AI_LABEL, is_ai_photo, is_ai_video
 from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
@@ -74,9 +74,9 @@ async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -
 
 
 def media_caption(message: Message) -> str:
-    """The caption a photo or note goes out with. A generated photo goes out without a caption."""
+    """Generated photos are visibly disclosed; ordinary attachments keep their caption."""
     if is_ai_photo(message.media_url):
-        return ""
+        return AI_LABEL
     return message.text
 
 

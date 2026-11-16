@@ -124,3 +124,25 @@ async def test_adapter_rejects_group_and_arbitrary_username():
         await adapter.read_contact_photo("@another_user")
     transport.profile.assert_not_awaited()
     transport.profile_photo.assert_not_awaited()
+
+
+async def test_real_encoder_keeps_disclosure_pixels_in_round_visible_area(tmp_path):
+    # CI only, local synthetic color input; no provider, Telegram or production data.
+    from sim.adapters.audio import run_process
+    from sim.adapters.video import VideoNoteEncoder
+
+    source = tmp_path / "synthetic.mp4"
+    code, _, _ = await run_process(("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                                   "-f", "lavfi", "-i", "color=c=red:s=64x64:d=0.2",
+                                   "-c:v", "libx264", str(source)), b"", 15)
+    assert code == 0
+    encoded = await VideoNoteEncoder().to_video_note(source.read_bytes())
+    output = tmp_path / "labelled.mp4"
+    output.write_bytes(encoded)
+    code, pixels, _ = await run_process(("ffmpeg", "-hide_banner", "-loglevel", "error",
+                                        "-i", str(output), "-frames:v", "1", "-vf",
+                                        "crop=180:40:102:270", "-f", "rawvideo",
+                                        "-pix_fmt", "rgb24", "pipe:1"), b"", 15)
+    assert code == 0 and len(pixels) == 180 * 40 * 3
+    assert sum(1 for i in range(0, len(pixels), 3)
+               if min(pixels[i:i + 3]) > 180) > 30  # white glyphs on red source

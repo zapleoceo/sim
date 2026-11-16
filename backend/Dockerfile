@@ -14,7 +14,7 @@ WORKDIR /app
 
 # ffmpeg: Gemini TTS answers in WAV; persona voice notes are sent as OGG/Opus (sim.adapters.audio).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencies first (cached until pyproject/uv.lock change).

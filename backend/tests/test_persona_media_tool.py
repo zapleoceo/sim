@@ -299,7 +299,7 @@ async def ask_for_a_photo(container, fake_llm) -> None:
     await run_reply(container)
 
 
-async def test_the_photo_is_generated_from_her_gallery_and_sent_without_a_caption(
+async def test_the_photo_is_generated_from_her_gallery_and_sent_with_disclosure(
         container, world, fake_llm, studio):
     port, images = studio
     await ask_for_a_photo(container, fake_llm)
@@ -317,7 +317,7 @@ async def test_the_photo_is_generated_from_her_gallery_and_sent_without_a_captio
 
     async with transaction(container.factory) as s:
         await container.outbound(s).deliver(photo.id)
-    assert port.photos == [("chat-1", PNG, "")]
+    assert port.photos == [("chat-1", PNG, AI_LABEL)]
     assert (await rows(container, Message))[-1].delivery is Delivery.SENT
 
 
@@ -335,7 +335,7 @@ async def test_the_same_request_takes_the_picture_from_the_cache(container, worl
     assert first_photo.media_url == second_photo.media_url
 
 
-async def test_a_generated_photo_goes_out_without_a_caption(container, world, studio):
+async def test_a_generated_photo_keeps_disclosure_even_for_operator_caption(container, world, studio):
     port, _ = studio
     name = await container.media.save_as(f"{AI_PHOTO_PREFIX}{'a' * 40}.png", PNG)
     async with transaction(container.factory) as s:
@@ -346,10 +346,10 @@ async def test_a_generated_photo_goes_out_without_a_caption(container, world, st
         s.add(message)
         await s.flush()
         message_id = message.id
-        assert media_caption(message) == ""
+        assert media_caption(message) == AI_LABEL
     async with transaction(container.factory) as s:
         await container.outbound(s).deliver(message_id)
-    assert port.photos == [("chat-1", PNG, "")]
+    assert port.photos == [("chat-1", PNG, AI_LABEL)]
     plain = Message(text="подпись оператора", media_kind="photo", media_url=MEDIA_URL + "abcdefgh1234.jpg")
     assert media_caption(plain) == "подпись оператора"
 
