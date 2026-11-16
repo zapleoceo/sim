@@ -17,15 +17,26 @@ class ExecutionLost(RuntimeError):
     """The handler must stop; a reclaimed generation may already own this job."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class Execution:
     session: AsyncSession
     job_id: int
     generation: int
     transaction: Any
+    broker_call_index: int = 0
 
 
 _execution: ContextVar[Execution | None] = ContextVar("job_execution", default=None)
+
+
+def next_broker_call() -> tuple[Execution, int] | None:
+    """Stable call position within a replayed handler; never an external job identity."""
+    owner = _execution.get()
+    if owner is None:
+        return None
+    index = owner.broker_call_index
+    owner.broker_call_index += 1
+    return owner, index
 
 
 @contextmanager

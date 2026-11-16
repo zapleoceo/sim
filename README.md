@@ -1,5 +1,33 @@
 # Sim
 
+### Durable Broker chat recovery
+
+Worker chat calls commit an encrypted request and random project-scoped idempotency
+key before POST `/v1/jobs`, then checkpoint the remote job ID and terminal result.
+After a lost POST response, the original payload/key is replayed; after acceptance,
+only that job is polled. All unresolved calls of the worker job are reconciled before
+any new request, changed context or future fallback can be submitted. A confirmed
+terminal failure is distinct from an unknown result; only the former permits a new
+attempt in a later worker generation. Completed identical calls reuse their saved
+result, while changed context is generated afresh only after prior calls settle.
+
+The journal has no FK to the locked worker Job, uses independent short commits,
+checks the live execution transaction before effects, and fences checkpoints by
+generation plus request key. Private request/results use the existing SecretBox;
+they are not exposed in API/logs. Per-record plaintext limits are 2 MB request and
+1 MB response; excess fails closed. Broker URL/project-key changes require explicit
+reconciliation rather than replay under different authorization. A nonempty journal
+blocks downgrade so a rollback cannot erase duplicate-prevention history.
+
+This increment covers asynchronous worker **chat** requests only. Interactive calls,
+speech/image/video endpoints, orphaned requests from pre-journal releases and automatic
+fallback selection are not covered. It requires the Broker's existing project-scoped
+Idempotency-Key contract; a conflict, missing remote job or unknown response never
+switches keys/models automatically. CI uses synthetic HTTP and temporary PostgreSQL,
+including real connection termination during POST/poll and late-owner fencing. No
+live provider probes or client sends are used. Existing channel send receipts remain
+the separate authority for delivery; a completed model call does not prove delivery.
+
 ### Guard independence preserves objections
 
 A primary guard objection (block, legacy rewrite or contradictory ok) returns to

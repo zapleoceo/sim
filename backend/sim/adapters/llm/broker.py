@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -27,7 +28,8 @@ from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.ports.llm import LLMError, LLMResult
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoError, VideoResult
-from sim.services.job_execution import require_live_execution
+from sim.services.broker_requests import BrokerRequests, RequestEntry
+from sim.services.job_execution import next_broker_call, require_live_execution
 from sim.services.safe_payload import safe_payload
 
 log = logging.getLogger(__name__)
@@ -41,8 +43,17 @@ DEFAULT_MAX_TOKENS = 2048
 POLL_MAX_ERRORS = 5  # consecutive transient poll failures tolerated per job
 DEFAULT_POLL_AFTER_S = 2.0
 MAX_POLL_SLEEP_S = 15.0
+TERMINAL_ERRORS = {"error", "failed", "cancelled", "canceled"}
 # Any chat capability carries a subscription model; the Broker documents this one for images.
 IMAGE_CAPABILITY = "chat:fast"
+
+
+class BrokerTerminalError(LLMError):
+    """A confirmed remote terminal result, distinct from a timeout/unknown outcome."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        super().__init__(f"Broker job {data.get('status')}: {data.get('error')}")
+        self.data = data
 
 
 async def check_execution(request: httpx.Request) -> None:
@@ -126,6 +137,7 @@ class BrokerLLM:
         subscription_budget_s: float = 600.0,
         video_budget_s: float = 900.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        requests: BrokerRequests | None = None,
     ) -> None:
         self.url = base_url.rstrip("/")
         self.key = project_key
@@ -133,6 +145,8 @@ class BrokerLLM:
         self.subscription_budget_s = subscription_budget_s
         self.video_budget_s = video_budget_s
         self.sleep = sleep
+        self.requests = requests
+        self.request_scope = hashlib.sha256(f"{self.url}\0{self.key}".encode()).hexdigest()
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -185,13 +199,30 @@ class BrokerLLM:
         exchange = {"request": safe_payload({"path": "/v1/jobs", "params": params, "body": body}, secrets=(self.key,))}
         try:
             client = self.client
-            resp = await client.post(
-                f"{self.url}/v1/jobs", params=params, headers=self.headers, json=body
-            )
-            resp.raise_for_status()
-            job = resp.json()
+            execution = next_broker_call() if self.requests is not None else None
+            if execution is not None:
+                owner, index = execution
+                # Before ANY new call (including a different model/guard), settle all
+                # previously accepted or uncertain calls of this handler generation.
+                for pending in await self.requests.pending(owner, self.request_scope):
+                    try:
+                        await self.durable_chat(pending)
+                    except BrokerTerminalError:
+                        log.info("Reconciled terminal Broker job %s", pending.remote_id)
+                        continue  # terminal error committed; never swallow unknown outcomes
+                entry = await self.requests.prepare(owner, index, self.request_scope,
+                    {"params": params, "body": body})
+                entry, data = await self.durable_chat(entry)
+                job = {"job_id": entry.remote_id}
+            else:
+                resp = await client.post(
+                    f"{self.url}/v1/jobs", params=params, headers=self.headers, json=body
+                )
+                resp.raise_for_status()
+                job = resp.json()
+                exchange["accepted"] = safe_payload(job, secrets=(self.key,))
+                data = await self.poll(client, job, capability, start + self.budget_for(model))
             exchange["accepted"] = safe_payload(job, secrets=(self.key,))
-            data = await self.poll(client, job, capability, start + self.budget_for(model))
         except LLMError as exc:
             exchange.update(exc.exchange or {})
             exc.exchange = exchange
@@ -205,6 +236,33 @@ class BrokerLLM:
             raise error from exc
         exchange["response"] = safe_payload(data, secrets=(self.key,))
         return replace(to_result(data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id", ""))), exchange=exchange)
+
+    async def durable_chat(self, entry: RequestEntry) -> tuple[RequestEntry, dict[str, Any]]:
+        """Resume the original payload/key; a missing receipt is never a new request."""
+        assert self.requests is not None
+        await require_live_execution()
+        if entry.status == "done":
+            return entry, entry.response
+        if entry.status == "error":
+            raise BrokerTerminalError(entry.response)
+        body, params = entry.request["body"], entry.request["params"]
+        if entry.remote_id is None:
+            # Replay even after a lost POST response. Broker binds this key to the
+            # original project/payload. A conflict/error must NOT choose a new key.
+            response = await self.client.post(f"{self.url}/v1/jobs", params=params,
+                headers={**self.headers, "Idempotency-Key": entry.key}, json=body)
+            response.raise_for_status()
+            accepted = response.json()
+            entry = await self.requests.checkpoint(entry, remote_id=str(accepted["job_id"]))
+        try:
+            # Construct our own same-origin path; never persist/follow a supplied URL.
+            data = await self.poll(self.client, {"job_id": entry.remote_id},
+                str(params["capability"]), time.perf_counter() + self.budget_for(body.get("model")))
+        except BrokerTerminalError as exc:
+            await self.requests.checkpoint(entry, status="error", response=exc.data)
+            raise
+        entry = await self.requests.checkpoint(entry, status="done", response=data)
+        return entry, data
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         start = time.perf_counter()
@@ -387,8 +445,8 @@ class BrokerLLM:
                 status = data.get("status")
                 if status == "done":
                     return data
-                if status in ("error", "cancelled"):
-                    error = LLMError(f"{what} job {job_id} {status}: {data.get('error')}")
+                if status in TERMINAL_ERRORS:
+                    error = BrokerTerminalError(data)
                     error.exchange = {"response": safe_payload(data, secrets=(self.key,))}
                     raise error
                 wait = float(data.get("poll_after_s") or wait)

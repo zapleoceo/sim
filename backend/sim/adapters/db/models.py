@@ -614,6 +614,25 @@ class AppSetting(Base):
     )
 
 
+class BrokerRequest(Base):
+    """Committed independently of the handler. Deliberately NO FK to its locked job."""
+
+    __tablename__ = "broker_request"
+
+    job_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    call_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    scope: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
+    request_cipher: Mapped[str] = mapped_column(Text)
+    response_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remote_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class SimAdminPref(Base):
     """Per-admin simulation settings (the footer toggle `/debug`)."""
 
