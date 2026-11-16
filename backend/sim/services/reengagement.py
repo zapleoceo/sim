@@ -174,30 +174,42 @@ class ReengagementService:
                           + "\nПосле прошлого контакта человек не ответил. Оцени контекст заново, "
                           "но не отправляй ещё сообщение: reply пустой, send_at null. "
                           "Передача оператору и отказ от контакта по-прежнему допустимы.")
-        prompt = await conversation.prompt(persona, strategy, history, ctx, whole_history=True)
-        decision, result = await conversation.ask(prompt, persona, workflow="reengagement", dialog_id=dialog_id)
-        obj = extract_json_object(result.text) or {}
-        if decision is None:
-            raise GuardError("unusable reengagement decision")
-        reason = one_line(obj.get("plan_reason"), 1000)
-        if not reason:
-            raise GuardError("reengagement reason required")
-        control = decision.handoff_to_operator or decision.stop_contact or decision.refused
-        at, guard = None, None
-        if decision.reply:
-            at = planned_time(obj.get("send_at"), ctx.now)
-            # Existing routine rules can postpone the proposal. They never force an early send.
-            cfg = await conversation.config()
-            at = plan_reply(at, persona.routine, persona.timezone,
-                            [Incoming("", at)], rules_from(cfg), marked_urgent=dialog.urgent).at
-            ctx = replace(ctx, now=at, persona_facts=persona_facts(
-                persona.birth_date, persona.timezone, at, persona.routine))
-            guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
-        elif control:
+        base_ctx, feedback = ctx, ""
+        for attempt in range(2):
             now = self.clock()
-            ctx = replace(ctx, now=now, persona_facts=persona_facts(
+            ctx = replace(base_ctx, now=now, persona_facts=persona_facts(
                 persona.birth_date, persona.timezone, now, persona.routine))
-            guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
+            prompt = await conversation.prompt(persona, strategy, history, ctx, whole_history=True)
+            if feedback:
+                prompt = [*prompt, {"role": "assistant", "content": result.text[:4000]},
+                          {"role": "system", "content": "Контролёр отклонил черновик: " + feedback
+                           + ". Пересоздай полный JSON, включая send_at, plan_reason и управляющие поля."}]
+            decision, result = await conversation.ask(prompt, persona, workflow="reengagement", dialog_id=dialog_id)
+            obj = extract_json_object(result.text) or {}
+            if decision is None:
+                raise GuardError("unusable reengagement decision")
+            reason = one_line(obj.get("plan_reason"), 1000)
+            if not reason:
+                raise GuardError("reengagement reason required")
+            control = decision.handoff_to_operator or decision.stop_contact or decision.refused
+            at, guard = None, None
+            if decision.reply:
+                at = planned_time(obj.get("send_at"), ctx.now)
+                # Existing routine rules can postpone the proposal. They never force an early send.
+                cfg = await conversation.config()
+                at = plan_reply(at, persona.routine, persona.timezone,
+                                [Incoming("", at)], rules_from(cfg), marked_urgent=dialog.urgent).at
+                ctx = replace(ctx, now=at, persona_facts=persona_facts(
+                    persona.birth_date, persona.timezone, at, persona.routine))
+                guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
+            elif control:
+                now = self.clock()
+                ctx = replace(ctx, now=now, persona_facts=persona_facts(
+                    persona.birth_date, persona.timezone, now, persona.routine))
+                guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
+            if guard is None or guard.allowed:
+                break
+            feedback = one_line("; ".join(guard.violations) or "Решение отклонено", 500)
         await lock(self.session, NS_DIALOG, dialog_id)
         dialog = await conversation.reload(dialog_id)
         await self.session.refresh(persona)

@@ -43,6 +43,33 @@ async def sweep(c):
         return await ReengagementService(s, clock=c.clock).sweep()
 
 
+@pytest.mark.parametrize("corrected", ["Как растут цветы?", ""])
+async def test_guard_feedback_regenerates_full_plan(container, world, fake_llm, connector, corrected):
+    from tests.conftest import guard_json
+
+    did = await setup_dialog(container, world)
+    fake_llm.replies = [
+        decision_json(reply="Гарантированный доход", plan_reason="Ошибка", send_at="2026-11-16T13:00:00Z",
+                      handoff_to_operator=True, handoff_reason="Неверная передача"),
+        decision_json(reply=corrected, plan_reason="Исправленный план",
+                      send_at="2026-11-16T14:00:00Z" if corrected else None),
+    ]
+    fake_llm.guard_replies = [guard_json("rewrite", ["Неверное обещание и передача"], "Не отправлять"),
+                              guard_json("ok")]
+    assert await sweep(container) == 1
+    await Worker(container).tick()
+    assert len(fake_llm.gen_calls) == 2
+    assert "Неверное обещание и передача" in fake_llm.gen_calls[1][0][-1]["content"]
+    async with container.factory() as s:
+        d = await s.get(Dialog, did)
+        assert not d.ai_paused and not d.needs_operator
+        assert d.reengagement_plan["text"] == corrected
+        assert d.reengagement_plan["reason"] == "Исправленный план"
+        assert d.reengagement_plan["at"] == ("2026-11-16T14:00:00Z" if corrected else None)
+        assert d.reengagement_plan["status"] == ("scheduled" if corrected else "no_send")
+    assert connector.port.sent == []
+
+
 async def plan(c, world, llm):
     did = await setup_dialog(c, world)
     llm.replies = [decision_json(reply="Как растут цветы?", plan_reason="Релевантная тема паспорта",
@@ -104,7 +131,8 @@ async def test_empty_control_decision_guarded_without_send(container, world, fak
     fake_llm.replies = [decision_json(reply="", plan_reason="Контекст требует действия",
         send_at=None, handoff_reason="Требуется специалист", **{flag: True})]
     if verdict in ("block", "rewrite"):
-        fake_llm.guard_replies = [guard_json(verdict, ["Проверка решения"], "Неожиданный текст")]
+        fake_llm.replies *= 2
+        fake_llm.guard_replies = [guard_json(verdict, ["Проверка решения"], "Неожиданный текст")] * 2
     elif verdict == "superseded":
         original = fake_llm.chat
 

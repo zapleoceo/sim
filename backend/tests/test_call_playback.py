@@ -196,9 +196,10 @@ async def test_interruption_after_release_never_marks_incomplete_turn_sent(conta
     assert f"{played_frames * len(PCM)}/{2 * len(PCM)}" in row.error
 
 
-async def test_real_call_path_blocks_audio_without_handoff(container, world, fake_llm):
+@pytest.mark.parametrize("verdict", ["block", "rewrite", "ok"])
+async def test_real_call_path_blocks_audio_without_handoff(container, world, fake_llm, verdict):
     did = await chatting_world(container, world)
-    fake_llm.guard_replies = [guard_json("block", ["Неверный день"])]
+    fake_llm.guard_replies = [guard_json(verdict, ["Неверный день"], "Guard replacement")]
     session = FakeSession(speech_events(PCM), end_after_events=True)
     call = FakeCall(frames=1000, gap=0.05)
     await service(container, FakeLive(session)).handle(world.channel.id, call)
