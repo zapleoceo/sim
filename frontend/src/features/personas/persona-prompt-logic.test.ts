@@ -14,8 +14,6 @@ describe('persona prompt map logic', () => {
     expect(sourceLabel('strategy')).toBe('Стратегия');
     expect(sourceLabel('setting')).toBe('Общая настройка');
     expect(rulePlace('call')).toBe('к промпту на звонке');
-    expect(rulePlace('video_note')).toBe('к каждому кружочку');
-    expect(rulePlace('ai_photo')).toBe('к каждому фото ИИ');
     expect(rulePlace('media_tool')).toBe('к контексту каждого ответа');
     expect(rulePlace('new_rule')).toBe('кодом');
   });

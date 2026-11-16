@@ -29,7 +29,7 @@ from sim.ports.channel import SendResult
 from sim.ports.llm import LLMResult
 from sim.ports.speech import SpeechError
 from sim.services import jobkinds, tracing
-from sim.services.ai_media import AI_LABEL, is_ai_photo, is_ai_video
+from sim.services.ai_media import is_ai_photo, is_ai_video
 from sim.services.chat_activity import showing
 from sim.services.dialog_state import apply_message
 from sim.services.guard import GuardOutcome
@@ -38,7 +38,7 @@ from sim.services.media_decisions import MediaDecisionLog
 from sim.services.persona_ambience import voice_ambience
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
-from sim.services.video_note import label_delivered, owner_allowed, owner_telegram_id
+from sim.services.video_note import owner_allowed, owner_telegram_id
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -74,9 +74,10 @@ async def cancel_queued_ai(session: AsyncSession, dialog_id: int, reason: str) -
 
 
 def media_caption(message: Message) -> str:
-    """The caption a photo or note goes out with. A generated photo always carries the AI label,
-    whoever queued it and whatever its text says (sim.services.ai_media)."""
-    return AI_LABEL if is_ai_photo(message.media_url) else message.text
+    """The caption a photo or note goes out with. A generated photo goes out without a caption."""
+    if is_ai_photo(message.media_url):
+        return ""
+    return message.text
 
 
 def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
@@ -350,8 +351,7 @@ class OutboundService:
 
     async def ai_video_gate(self, message: Message, dialog: Dialog) -> bool:
         """Hard allowlist for generated video notes (sim.services.video_note), whoever queued
-        the message: False = cancelled, it is not for this dialog. Raises SendFailed (retried)
-        while the "Сгенерировано ИИ" label before it has not been delivered."""
+        the message: False = cancelled, it is not for this dialog."""
         if not is_ai_video(message.media_url):
             return True
         if not owner_allowed(dialog, await owner_telegram_id(self.session)):
@@ -359,8 +359,6 @@ class OutboundService:
             message.error = "cancelled: AI video notes go only to the allowlisted owner account"
             log.warning("message %s: AI video note refused for dialog %s", message.id, dialog.id)
             return False
-        if not await label_delivered(self.session, message):
-            raise SendFailed("the AI label before the video note is not delivered yet")
         return True
 
     def try_port(self, channel: Channel) -> object | None:

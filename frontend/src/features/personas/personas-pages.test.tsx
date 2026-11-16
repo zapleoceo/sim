@@ -136,7 +136,6 @@ describe('personas pages', () => {
         ],
         rules: [
           { key: 'call', title: 'Правило звонков', text: 'ты ИИ-ассистент' },
-          { key: 'video_note', title: 'Правило кружочков', text: 'Сгенерировано ИИ' },
         ],
       },
     });

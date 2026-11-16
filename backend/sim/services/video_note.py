@@ -1,15 +1,13 @@
 """AI video notes ("кружочки") of a persona, sent to ONE allowlisted account only.
 
 The owner asks for a clip of a persona; the worker job takes it from the cache or has the
-Broker generate it, turns it into a Telegram video note and queues two messages in the
-allowlisted dialog: the plain text label "Сгенерировано ИИ" and then the note (a video note has
-no caption, so the label is its own message).
+Broker generate it, turns it into a Telegram video note and queues the message in the
+allowlisted dialog.
 
 Rules kept here and re-checked by the SEND job (`OutboundService.ai_video_gate`):
 - allowlist: the owner setting `video_note_owner_telegram_id`; 0 (the default) = nobody, and
   nothing is generated or sent. Only the private dialog of a Telegram userbot channel with
   exactly that account qualifies;
-- the label goes first: the note is sent only after the label was delivered;
 - no "recording a video note" chat status is shown: the clip is generated, not recorded;
 - cache: one file per (persona, prompt, duration, resolution, aspect ratio, reference image,
   encoder version). The same request reuses the file; only a new request is generated (and
@@ -30,11 +28,10 @@ from sim.adapters.db.models import Channel, Dialog, Message, Persona, PersonaMed
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
-from sim.domain.enums import ChannelKind, Delivery, Direction, MediaKind
+from sim.domain.enums import ChannelKind, MediaKind
 from sim.ports.video import VideoError, VideoPort, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import (
-    AI_LABEL,
     AI_VIDEO_PREFIX,
     MEDIA_URL,
     ai_message,
@@ -47,18 +44,10 @@ from sim.services.dialog_state import apply_message
 log = logging.getLogger(__name__)
 
 OWNER_SETTING = "video_note_owner_telegram_id"
-# The rule as the admin shows it on the persona page (read-only; the code below enforces it).
-AI_VIDEO_RULE = (
-    f"Перед кружочком отдельным сообщением уходит текст «{AI_LABEL}»; кружочек отправляется "
-    "только после того, как этот текст доставлен. Получатель один: личный чат Telegram с "
-    "аккаунтом из настройки «Кружочки ИИ» → «Telegram id получателя». Пока там 0, кружочки "
-    "не создаются и не отправляются никому."
-)
 VIDEO_NOTE_WORKFLOW = "video-note"
 NOTE_FAILED = "[кружочек ИИ не создан]"
 ASPECT_RATIO = "9:16"                # portrait: the face stays inside the centre crop
 ENCODER_VERSION = 1                  # bump when sim.adapters.video changes the output
-NOTE_DELAY_S = 3.0                   # the note follows the label; the gate re-checks the order
 RESOLUTIONS = ("360p", "720p")
 MIN_DURATION_S, MAX_DURATION_S = 3, 15
 MAX_PROMPT_CHARS = 4000
@@ -143,18 +132,6 @@ def owner_allowed(dialog: Dialog, owner_id: int) -> bool:
 async def owner_telegram_id(session: AsyncSession) -> int:
     """The allowlisted account from the owner settings; 0 = not set, send to nobody."""
     return int((await AppSettingsService(session).item(OWNER_SETTING)).value)
-
-
-async def label_delivered(session: AsyncSession, note: Message) -> bool:
-    """True when the message right before the note in its dialog is the delivered AI label."""
-    previous = await session.scalar(
-        select(Message)
-        .where(Message.dialog_id == note.dialog_id, Message.id < note.id,
-               Message.direction == Direction.OUT)
-        .order_by(Message.id.desc()).limit(1)
-    )
-    return (previous is not None and previous.text == AI_LABEL
-            and previous.delivery is Delivery.SENT)
 
 
 class OwnerVideoNotes:
@@ -262,21 +239,18 @@ class OwnerVideoNotes:
         )
 
     async def queue(self, plan: Plan, *, cost: float | None, model: str | None) -> Message:
-        """Two AI messages in the owner dialog: the label now, the note right after it."""
+        """One AI message in the owner dialog: the video note."""
         now = self.clock()
-        label = self.message(plan.dialog, AI_LABEL)
         note = self.message(plan.dialog, "", media_kind=MediaKind.VIDEO_NOTE.value,
                             media_url=MEDIA_URL + plan.name, cost_usd=cost,
                             model=model[:120] if model else None)
-        for message, delay in ((label, 0.0), (note, NOTE_DELAY_S)):
-            self.session.add(message)
-            await self.session.flush()
-            apply_message(plan.dialog, message)
-            # final: these are not conversation replies, a paused AI must not cancel them.
-            await self.jobs.enqueue(
-                jobkinds.SEND, {"message_id": message.id, "final": True},
-                now + timedelta(seconds=delay), dedup_key=jobkinds.send_key(message.id),
-            )
+        self.session.add(note)
+        await self.session.flush()
+        apply_message(plan.dialog, note)
+        await self.jobs.enqueue(
+            jobkinds.SEND, {"message_id": note.id, "final": True},
+            now, dedup_key=jobkinds.send_key(note.id),
+        )
         return note
 
     def message(self, dialog: Dialog, text: str, **fields: Any) -> Message:

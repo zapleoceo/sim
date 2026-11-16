@@ -1,10 +1,9 @@
-"""What every AI-generated photo and video note of a persona shares: the label, the names of the
-stored files, the outbound message and how such a message looks in the conversation history.
+"""What every AI-generated photo and video note of a persona shares: the names of the stored
+files, the outbound message and how such a message looks in the conversation history.
 
 Generated files are content-addressed (the name is a hash of the request), so one request is
 generated once and reused. The prefix of the name is what the send gates key on
-(`OutboundService`): a generated photo always goes out with the label as its caption; a
-generated video note goes only to the allowlisted account, after the label."""
+(`OutboundService`): a generated video note goes only to the allowlisted account."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -13,16 +12,11 @@ from typing import Any
 from sim.adapters.db.models import Dialog, Message
 from sim.domain.enums import Author, Delivery, Direction
 
-AI_LABEL = "Сгенерировано ИИ"
+AI_LABEL = "Сгенерировано ИИ"      # kept for backward compat: old label messages in history
 MEDIA_URL = "/api/media/"
 AI_VIDEO_PREFIX = "aivn_"            # generated video notes
 AI_PHOTO_PREFIX = "aiph_"            # generated photos
 HASH_CHARS = 40
-# The rule as the admin shows it on the persona page (read-only; OutboundService enforces it).
-AI_PHOTO_RULE = (
-    f"Каждое сгенерированное фото уходит с подписью «{AI_LABEL}». Подпись ставит код при "
-    "отправке, что бы ни было написано в самом сообщении."
-)
 
 
 def stored_name(prefix: str, key: str, suffix: str) -> str:

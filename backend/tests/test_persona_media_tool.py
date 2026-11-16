@@ -1,5 +1,5 @@
 """The persona's own photos and video notes: what she is offered, how she asks, what the prompt
-is built from, the cache, the "Сгенерировано ИИ" caption, failures and the Broker image client.
+is built from, the cache, failures and the Broker image client.
 No real Broker or channel is used."""
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from sim.domain.enums import Author, Delivery, Direction, MediaKind
 from sim.ports.channel import SendResult
 from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.services import jobkinds
-from sim.services.ai_media import AI_LABEL, AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
+from sim.services.ai_media import AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
 from sim.services.app_settings import BY_KEY, AppSettingsService
 from sim.services.conversation import decision_fields, history_turns
 from sim.services.outbound import media_caption
@@ -265,7 +265,7 @@ async def ask_for_a_photo(container, fake_llm) -> None:
     await run_reply(container)
 
 
-async def test_the_photo_is_generated_from_her_gallery_and_sent_with_the_ai_caption(
+async def test_the_photo_is_generated_from_her_gallery_and_sent_without_a_caption(
         container, world, fake_llm, studio):
     port, images = studio
     await ask_for_a_photo(container, fake_llm)
@@ -277,13 +277,13 @@ async def test_the_photo_is_generated_from_her_gallery_and_sent_with_the_ai_capt
 
     photo = (await rows(container, Message))[-1]
     assert result == {"outcome": "queued", "cached": False, "message_id": photo.id}
-    assert (photo.text, photo.media_kind, photo.author) == (AI_LABEL, "photo", Author.AI)
+    assert (photo.text, photo.media_kind, photo.author) == ("", "photo", Author.AI)
     assert is_ai_photo(photo.media_url) and photo.original_text == SCENE and photo.model == MODEL
     assert container.media.path(photo.media_url.removeprefix(MEDIA_URL)).read_bytes() == PNG
 
     async with transaction(container.factory) as s:
         await container.outbound(s).deliver(photo.id)
-    assert port.photos == [("chat-1", PNG, AI_LABEL)]
+    assert port.photos == [("chat-1", PNG, "")]
     assert (await rows(container, Message))[-1].delivery is Delivery.SENT
 
 
@@ -301,7 +301,7 @@ async def test_the_same_request_takes_the_picture_from_the_cache(container, worl
     assert first_photo.media_url == second_photo.media_url
 
 
-async def test_a_generated_photo_never_goes_out_without_the_ai_caption(container, world, studio):
+async def test_a_generated_photo_goes_out_without_a_caption(container, world, studio):
     port, _ = studio
     name = await container.media.save_as(f"{AI_PHOTO_PREFIX}{'a' * 40}.png", PNG)
     async with transaction(container.factory) as s:
@@ -312,10 +312,10 @@ async def test_a_generated_photo_never_goes_out_without_the_ai_caption(container
         s.add(message)
         await s.flush()
         message_id = message.id
-        assert media_caption(message) == AI_LABEL
+        assert media_caption(message) == ""
     async with transaction(container.factory) as s:
         await container.outbound(s).deliver(message_id)
-    assert port.photos == [("chat-1", PNG, AI_LABEL)]
+    assert port.photos == [("chat-1", PNG, "")]
     plain = Message(text="подпись оператора", media_kind="photo", media_url=MEDIA_URL + "abcdefgh1234.jpg")
     assert media_caption(plain) == "подпись оператора"
 
@@ -383,10 +383,9 @@ def test_generated_media_reads_as_a_marker_and_the_label_is_not_her_words():
     assert [t.text for t in turns] == [AI_LABEL, "привет", "", f"[ты отправила своё фото: {SCENE}]"]
 
 
-def test_the_persona_page_shows_the_photo_rule_and_the_media_instruction_read_only():
+def test_the_persona_page_shows_the_media_instruction_read_only():
     by_key = {rule.key: rule.text for rule in fixed_rules("Марина")}
-    assert set(by_key) == {"call", "video_note", "ai_photo", "media_tool"}
-    assert AI_LABEL in by_key["ai_photo"]
+    assert set(by_key) == {"call", "media_tool"}
     assert Offer((MediaKind.PHOTO, MediaKind.VIDEO_NOTE)).brief() in by_key["media_tool"]
     assert NO_MEDIA in by_key["media_tool"]
 

@@ -18,8 +18,7 @@ How it works:
   cache, encoder and allowlist as the owner's own notes).
 
 Rules that do not change:
-- a generated photo is sent with the caption "Сгенерировано ИИ" (`OutboundService` forces it);
-- a video note goes only to the account from the setting «Кружочки ИИ», after that label;
+- a video note goes only to the account from the setting «Кружочки ИИ»;
 - her text never promises the media: it is a separate message that may not come. When the
   generation fails, the reason is a failed, never-sent message in the dialog and the result of
   the job in the system log.
@@ -53,7 +52,6 @@ from sim.domain.enums import ClientStatus, Delivery, Direction, MediaKind
 from sim.ports.image import ImageError, ImagePort, ImageReference
 from sim.services import jobkinds
 from sim.services.ai_media import (
-    AI_LABEL,
     AI_PHOTO_PREFIX,
     AI_VIDEO_PREFIX,
     MEDIA_URL,
@@ -386,7 +384,7 @@ class PersonaMediaTool:
             log.warning("dialog %s: persona photo not made: %s", dialog.id, exc)
             return {"outcome": "failed", "error": str(exc)[:300]}
         message = ai_message(
-            dialog, AI_LABEL, self.clock(), media_kind=MediaKind.PHOTO.value,
+            dialog, "", self.clock(), media_kind=MediaKind.PHOTO.value,
             media_url=MEDIA_URL + name, model=model[:120], original_text=ask.scene,
         )
         self.session.add(message)

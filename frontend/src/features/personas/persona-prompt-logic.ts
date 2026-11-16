@@ -30,8 +30,6 @@ export const sourceLabel = (source: PromptPart['source']): string => SOURCE_LABE
 /** What a fixed rule is attached to, for the «Добавляется … и не редактируется» caption. */
 const RULE_PLACES: Record<string, string> = {
   call: 'к промпту на звонке',
-  video_note: 'к каждому кружочку',
-  ai_photo: 'к каждому фото ИИ',
   media_tool: 'к контексту каждого ответа',
 };
 

@@ -30,8 +30,8 @@ export function AiVideoNote({ personaId }: { personaId: number }) {
     <section aria-labelledby="ai-video-note-h" className="flex min-w-0 flex-col gap-3">
       <h3 id="ai-video-note-h" className="text-sm font-medium">Кружочек ИИ</h3>
       <p className="text-xs text-muted-foreground">
-        Видео генерирует ИИ. Оно уходит только на аккаунт из настройки «Кружочки ИИ», перед ним
-        отправляется сообщение «Сгенерировано ИИ». Одинаковый запрос берётся из кеша.
+        Видео генерирует ИИ. Оно уходит только на аккаунт из настройки «Кружочки ИИ».
+        Одинаковый запрос берётся из кеша.
       </p>
       <Textarea
         aria-label="Описание кружочка"
