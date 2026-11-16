@@ -22,6 +22,7 @@ from sim.api.routers import (
     hooks,
     inbox,
     mcp,
+    mcp_oauth,
     persona_media,
     reports,
     simulations,
@@ -38,7 +39,7 @@ from sim.services.admin_bot import admin_bot_secret, register_webhook
 from sim.wiring import Container, build_container
 
 log = logging.getLogger(__name__)
-NOT_SPA_PREFIXES = ("api/", "hooks/")
+NOT_SPA_PREFIXES = ("api/", "hooks/", ".well-known/")
 # Every router of the app; tests walk their routes (e.g. that only public ones skip the session).
 ROUTERS = (
     system.router, auth.router, admins.router, catalog.personas, catalog.strategies, catalog.models,
@@ -48,6 +49,7 @@ ROUTERS = (
     settings_api.router,
     events.router,
     mcp.router,
+    mcp_oauth.router,
 )
 
 

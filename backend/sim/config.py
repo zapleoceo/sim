@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     secret_key: str = ""
     session_ttl_h: int = 72
     cookie_secure: bool = True
+    # Disabled until a separately approved OAuth rollout; exact values from ChatGPT management.
+    mcp_oauth_enabled: bool = False
+    mcp_oauth_client_id: str = ""
+    mcp_oauth_redirect_uri: str = ""
     # Peers whose X-Real-IP / X-Forwarded-For we believe (nginx + docker gateway); comma list of IPs/CIDRs.
     trusted_proxies: str = "127.0.0.1,::1,172.16.0.0/12"
 

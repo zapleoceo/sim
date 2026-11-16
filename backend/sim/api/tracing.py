@@ -4,6 +4,7 @@ The id is returned in `X-Trace-Id`. Bodies, cookies and headers are never logged
 string is masked. The log's own reads and health probes are not logged (they would drown it)."""
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 
@@ -37,6 +38,9 @@ def step_kind(path: str) -> str:
 
 
 def install_request_tracing(app: FastAPI) -> None:
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, OAuthAccessFilter) for f in access.filters):
+        access.addFilter(OAuthAccessFilter())
     @app.middleware("http")
     async def trace_request(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -50,7 +54,8 @@ def install_request_tracing(app: FastAPI) -> None:
         async with tracer.scope() as ctx:
             started_at, start = container.clock(), time.perf_counter()
             step = {"kind": step_kind(path), "name": f"{request.method} {path}",
-                    "started_at": started_at, "detail": {"query": mask(request.url.query, 300)} if request.url.query else None}
+                    "started_at": started_at, "detail": {"query": mask(request.url.query, 300)}
+                    if request.url.query and not path.startswith("/api/oauth/") else None}
             try:
                 response = await call_next(request)
             except Exception as exc:
@@ -66,3 +71,14 @@ def install_request_tracing(app: FastAPI) -> None:
                 )
         response.headers[TRACE_HEADER] = ctx.trace_id
         return response
+
+
+class OAuthAccessFilter(logging.Filter):
+    """Uvicorn access records otherwise retain the unmasked OAuth query string."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
+            if args[2].startswith("/api/oauth/"):
+                record.args = (*args[:2], args[2].split("?", 1)[0], *args[3:])
+        return True

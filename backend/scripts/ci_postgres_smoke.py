@@ -163,6 +163,7 @@ def main():
     asyncio.run(schema_and_concurrency(url))
     asyncio.run(reengagement_concurrency(url))
     asyncio.run(content_mcp_concurrency(url))
+    asyncio.run(mcp_oauth_concurrency(url))
     # Disposable DB only: 0008 schema downgrade loses operator data. Production must not do this.
     command.downgrade(cfg, "0007")
     asyncio.run(check_state(url, "0007"))
@@ -326,6 +327,58 @@ async def content_mcp_concurrency(url):
             assert post_data(await s.get(ContentPost, pid)) == saved
             assert list(await s.scalars(select(McpAudit.id))) == audit_ids
         print("PostgreSQL MCP revision contention and atomic audit rollback PASS")
+    finally:
+        await engine.dispose()
+
+
+async def mcp_oauth_concurrency(url):
+    """The same authorization code cannot mint two live grants, even across processes."""
+    from sqlalchemy import select
+
+    from sim.adapters.db.models import AdminUser, AuthSession, McpAuthorization, McpGrant
+    from sim.config import Settings
+    from sim.domain.enums import Role
+    from sim.services.auth import hash_token
+    from sim.services.mcp_oauth import challenge, exchange
+
+    engine = create_async_engine(url)
+    factory = make_session_factory(engine)
+    now = datetime(2026, 11, 16, 12)
+    cfg = Settings(public_url="https://sim.example", mcp_oauth_enabled=True,
+        mcp_oauth_client_id="https://chatgpt.com/oauth/client.json",
+        mcp_oauth_redirect_uri="https://chatgpt.com/synthetic_callback")
+    verifier = "v" * 64
+    data = {"grant_type": "authorization_code", "code": "synthetic-code", "client_id": cfg.mcp_oauth_client_id,
+        "redirect_uri": cfg.mcp_oauth_redirect_uri, "resource": cfg.public_url + "/api/mcp", "code_verifier": verifier}
+    try:
+        async with transaction(factory) as s:
+            user = AdminUser(role=Role.OWNER, display_name="Synthetic OAuth owner")
+            s.add(user)
+            await s.flush()
+            session = AuthSession(user_id=user.id, token_hash=hash_token("synthetic-session"),
+                csrf_token="synthetic-csrf", expires_at=now + timedelta(hours=1))  # noqa: S106 - disposable fixture
+            s.add(session)
+            await s.flush()
+            row = McpAuthorization(nonce_hash=hash_token("synthetic-nonce"), code_hash=hash_token(data["code"]),
+                session_id=session.id, client_id=data["client_id"], redirect_uri=data["redirect_uri"],
+                issuer=cfg.public_url, resource=data["resource"], state="synthetic-state", challenge=challenge(verifier),
+                scopes=["dialog:read"], dialog_ids=[1], post_ids=[], consented=True, expires_at=now + timedelta(seconds=60))
+            s.add(row)
+            await s.flush()
+            aid = row.id
+
+        async def redeem():
+            async with transaction(factory) as s:
+                return await exchange(s, cfg, lambda: now, data)
+
+        results = await asyncio.gather(redeem(), redeem())
+        assert sum("access_token" in r for r in results) == 1
+        assert sum(r.get("error") == "invalid_grant" for r in results) == 1
+        async with factory() as s:
+            row = await s.get(McpAuthorization, aid)
+            grants = list(await s.scalars(select(McpGrant).where(McpGrant.session_id == row.session_id)))
+            assert row.consumed and len(grants) == 1 and grants[0].revoked
+        print("PostgreSQL OAuth single-use code contention and replay revocation PASS")
     finally:
         await engine.dispose()
 

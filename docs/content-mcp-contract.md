@@ -37,7 +37,9 @@ After reviewed CI and standard deployment gates, agree the target client, exact 
 and TTL. Then the owner issues a grant through the authenticated API and enters it into the
 client secret store. Do not extract cookies, copy root/SSH credentials, print secrets or silently
 issue a grant. The client must support a manually configured Authorization Bearer header;
-OAuth-only clients require a separately reviewed integration. No broader rights are needed.
+OAuth-only clients use the separately reviewed, default-disabled adapter described in
+[content-mcp-oauth.md](content-mcp-oauth.md). It requires explicit owner consent and separate
+release/activation approval. No broader SIM rights are needed.
 
 Client headers: Authorization Bearer token, Content-Type application/json,
 Accept application/json, text/event-stream, MCP-Protocol-Version 2025-06-18.
