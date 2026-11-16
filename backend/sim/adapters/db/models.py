@@ -75,6 +75,36 @@ class AuthSession(Base):
     user: Mapped[AdminUser] = relationship(lazy="joined")
 
 
+class McpGrant(Base):
+    """Short-lived, owner-session-bound delegation; never a general API credential."""
+    __tablename__ = "mcp_grant"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("auth_session.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    scopes: Mapped[list[str]] = mapped_column(JSON)
+    dialog_ids: Mapped[list[int]] = mapped_column(JSON)
+    post_ids: Mapped[list[int]] = mapped_column(JSON)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class McpAudit(Base):
+    """Metadata only: no token, request body or copied private text."""
+    __tablename__ = "mcp_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    grant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[str] = mapped_column(String(40))
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(40))
+    reason_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    before_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    after_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class UsedLoginHash(Base):
     """Telegram widget `hash` values already accepted (one-time use). Purged after expiry."""
 
