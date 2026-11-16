@@ -112,9 +112,9 @@ async def test_owner_route_fields_roundtrip_and_catalog_validation(api, world, f
     url = f"/api/personas/{world.persona.id}"
     original = (await api.get(url)).json()
     assert original["identity_model"] == original["fallback_model"] == ""
-    body = {**original, "identity_model": RESERVE, "fallback_model": RESERVE}
+    body = {**original, "gender": "female", "identity_model": RESERVE, "fallback_model": RESERVE}
     response = await api.put(url, json=body, headers=headers)
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["fallback_model"] == RESERVE
     assert response.json()["agent_prompt"] == original["agent_prompt"]
     preview = await api.post(url + "/preview", json={"message": "Ты ИИ?"}, headers=headers)
