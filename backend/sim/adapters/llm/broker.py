@@ -212,7 +212,8 @@ class BrokerLLM:
                         continue  # terminal error committed; never swallow unknown outcomes
                 entry = await self.requests.prepare(owner, index, self.request_scope,
                     {"params": params, "body": body})
-                entry, data = await self.durable_chat(entry)
+                exchange["request"] = safe_payload({"path": "/v1/jobs", **entry.request}, secrets=(self.key,))
+                entry, data = await self.durable_chat(entry, submit=True)
                 job = {"job_id": entry.remote_id}
             else:
                 resp = await client.post(
@@ -237,8 +238,14 @@ class BrokerLLM:
         exchange["response"] = safe_payload(data, secrets=(self.key,))
         return replace(to_result(data, latency_ms=elapsed_ms(start), job_id=str(job.get("job_id", ""))), exchange=exchange)
 
-    async def durable_chat(self, entry: RequestEntry) -> tuple[RequestEntry, dict[str, Any]]:
-        """Resume the original payload/key; a missing receipt is never a new request."""
+    async def durable_chat(
+        self, entry: RequestEntry, *, submit: bool = False,
+    ) -> tuple[RequestEntry, dict[str, Any]]:
+        """A missing POST receipt is recovered by read-only correlation, never a new POST.
+
+        Broker prunes terminal jobs AND their idempotency keys. Replaying an old key
+        after that could create a duplicate, so an absent lookup is not proof of failure.
+        """
         assert self.requests is not None
         await require_live_execution()
         if entry.status == "done":
@@ -247,13 +254,20 @@ class BrokerLLM:
             raise BrokerTerminalError(entry.response)
         body, params = entry.request["body"], entry.request["params"]
         if entry.remote_id is None:
-            # Replay even after a lost POST response. Broker binds this key to the
-            # original project/payload. A conflict/error must NOT choose a new key.
-            response = await self.client.post(f"{self.url}/v1/jobs", params=params,
-                headers={**self.headers, "Idempotency-Key": entry.key}, json=body)
-            response.raise_for_status()
-            accepted = response.json()
-            entry = await self.requests.checkpoint(entry, remote_id=str(accepted["job_id"]))
+            if submit:
+                response = await self.client.post(f"{self.url}/v1/jobs", params=params,
+                    headers={**self.headers, "Idempotency-Key": entry.key}, json=body)
+                if response.status_code in {400, 401, 402, 403, 422}:
+                    # Broker admission/validation rejection: no job was accepted.
+                    # 409/5xx/timeouts remain unknown and never authorize resubmission.
+                    await self.requests.checkpoint(entry, status="error", response={
+                        "status": "error", "error": f"HTTP {response.status_code}: request rejected before acceptance",
+                    })
+                response.raise_for_status()
+                remote_id = str(response.json()["job_id"])
+            else:
+                remote_id = await self.lookup_request(entry)
+            entry = await self.requests.checkpoint(entry, remote_id=remote_id)
         try:
             # Construct our own same-origin path; never persist/follow a supplied URL.
             data = await self.poll(self.client, {"job_id": entry.remote_id},
@@ -263,6 +277,20 @@ class BrokerLLM:
             raise
         entry = await self.requests.checkpoint(entry, status="done", response=data)
         return entry, data
+
+    async def lookup_request(self, entry: RequestEntry) -> str:
+        await require_live_execution()
+        response = await self.client.get(f"{self.url}/v1/jobs", headers=self.headers,
+            params={"label.sim_request": entry.key, "limit": 2})
+        response.raise_for_status()
+        listing = response.json()
+        rows = listing.get("jobs", [])
+        if (listing.get("pagination_complete") is not True or listing.get("next_cursor")
+                or not isinstance(rows, list) or len(rows) != 1
+                or rows[0].get("idempotency_key") != entry.key
+                or (rows[0].get("labels") or {}).get("sim_request") != entry.key):
+            raise LLMError("Broker submission outcome unknown; no matching retained receipt, resubmission blocked")
+        return str(rows[0]["job_id"])
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult:
         start = time.perf_counter()

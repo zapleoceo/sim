@@ -93,7 +93,9 @@ class BrokerRequests:
             row.generation = owner.generation
             row.request_hash = fingerprint
             row.idempotency_key = "sim-" + uuid4().hex
-            row.request_cipher = self.box.encrypt(plaintext)
+            labelled = {**request, "body": {**request["body"],
+                "labels": {"sim_request": row.idempotency_key}}}
+            row.request_cipher = self.box.encrypt(encoded(labelled, MAX_REQUEST_BYTES))
             row.response_cipher = None
             row.remote_id = None
             row.status = "pending"

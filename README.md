@@ -4,8 +4,11 @@
 
 Worker chat calls commit an encrypted request and random project-scoped idempotency
 key before POST `/v1/jobs`, then checkpoint the remote job ID and terminal result.
-After a lost POST response, the original payload/key is replayed; after acceptance,
-only that job is polled. All unresolved calls of the worker job are reconciled before
+After a lost POST response, a read-only lookup by its unique label and idempotency
+key recovers the accepted job; after acceptance, only that job is polled. No unknown
+POST is replayed: Broker retention deletes terminal jobs and their keys, so a missing
+receipt (including a crash before POST) requires reconciliation, never blind resubmission.
+All unresolved calls of the worker job are reconciled before
 any new request, changed context or future fallback can be submitted. A confirmed
 terminal failure is distinct from an unknown result; only the former permits a new
 attempt in a later worker generation. Completed identical calls reuse their saved
@@ -22,7 +25,7 @@ blocks downgrade so a rollback cannot erase duplicate-prevention history.
 This increment covers asynchronous worker **chat** requests only. Interactive calls,
 speech/image/video endpoints, orphaned requests from pre-journal releases and automatic
 fallback selection are not covered. It requires the Broker's existing project-scoped
-Idempotency-Key contract; a conflict, missing remote job or unknown response never
+Idempotency-Key and project-scoped label-listing contracts; a conflict, missing remote job or unknown response never
 switches keys/models automatically. CI uses synthetic HTTP and temporary PostgreSQL,
 including real connection termination during POST/poll and late-owner fencing. No
 live provider probes or client sends are used. Existing channel send receipts remain

@@ -42,6 +42,11 @@ async def broker_reconciliation_checks(factory):
                         started.set()
                         await release.wait()  # accepted but the process loses its receipt
                     return httpx.Response(200, json={"job_id": logical_jobs[key]})
+                if request.url.path == "/v1/jobs":
+                    key = request.url.params["label.sim_request"]
+                    return httpx.Response(200, json={"pagination_complete": True, "next_cursor": None,
+                        "jobs": [{"job_id": logical_jobs[key], "idempotency_key": key,
+                                  "labels": {"sim_request": key}}]})
                 if old and lose_at == "poll":
                     started.set()
                     await release.wait()
@@ -92,7 +97,7 @@ async def broker_reconciliation_checks(factory):
             release.set()
             await asyncio.wait_for(task, 10)
             assert effects == ["synthetic answer"] and len(logical_jobs) == 1
-            assert len(posts) == (2 if lose_at == "post" else 1)
+            assert len(posts) == 1
             assert all(item == posts[0] for item in posts)
             async with factory() as s:
                 row = await s.get(BrokerRequest, (job_id, 0))

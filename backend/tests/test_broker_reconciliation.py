@@ -24,15 +24,18 @@ def adapter(container, monkeypatch, generation, transport, *, index=0, key="test
     return broker, store, owner
 
 
-async def test_lost_post_response_replays_same_key_and_body_after_restart(container, monkeypatch):
+async def test_lost_post_response_recovers_identity_without_resubmission(container, monkeypatch):
     posts = []
 
     def transport(request):
         if request.method == "POST":
             posts.append((request.headers["Idempotency-Key"], request.content))
-            if len(posts) == 1:
-                raise httpx.ReadTimeout("synthetic response lost after acceptance", request=request)
-            return httpx.Response(200, json={"job_id": 17})
+            raise httpx.ReadTimeout("synthetic response lost after acceptance", request=request)
+        if request.url.path == "/v1/jobs":
+            key = posts[0][0]
+            assert request.url.params["label.sim_request"] == key
+            return httpx.Response(200, json={"pagination_complete": True, "next_cursor": None,
+                "jobs": [{"job_id": 17, "idempotency_key": key, "labels": {"sim_request": key}}]})
         return httpx.Response(200, json=DONE)
 
     first, _, _ = adapter(container, monkeypatch, 1, transport)
@@ -42,7 +45,7 @@ async def test_lost_post_response_replays_same_key_and_body_after_restart(contai
     restarted, _, _ = adapter(container, monkeypatch, 2, transport)
     result = await restarted.chat(MESSAGES)
     assert result.text == DONE["text"] and result.job_id == "17"
-    assert len(posts) == 2 and posts[0] == posts[1]  # one logical Broker job
+    assert len(posts) == 1  # one POST, even when the accepted response was lost
     await restarted.aclose()
     async with container.factory() as s:
         row = await s.get(BrokerRequest, (800001, 0))
@@ -126,6 +129,26 @@ async def test_changed_scope_never_replays_with_another_key(container, monkeypat
     await new.aclose()
 
 
+async def test_missing_or_pruned_remote_receipt_never_replays_post(container, monkeypatch):
+    posts = []
+
+    def transport(request):
+        if request.method == "POST":
+            posts.append(request.content)
+            raise httpx.ReadTimeout("synthetic unknown", request=request)
+        return httpx.Response(200, json={"pagination_complete": True, "next_cursor": None, "jobs": []})
+
+    old, _, _ = adapter(container, monkeypatch, 1, transport)
+    with pytest.raises(LLMError):
+        await old.chat(MESSAGES)
+    await old.aclose()
+    new, _, _ = adapter(container, monkeypatch, 2, transport)
+    with pytest.raises(LLMError, match="resubmission blocked"):
+        await new.chat(MESSAGES)
+    assert len(posts) == 1
+    await new.aclose()
+
+
 async def test_late_checkpoint_cannot_overwrite_new_generation(container):
     store = BrokerRequests(container.factory, container.box)
     old = Execution(None, 800002, 1, None)
@@ -177,3 +200,24 @@ async def test_terminal_checkpoint_cannot_be_regressed_by_concurrent_observer(co
     await store.checkpoint(entry, remote_id="24", status="done", response=DONE)
     observed = await store.checkpoint(entry, remote_id="24")
     assert observed.status == "done" and observed.response == DONE
+
+
+async def test_confirmed_admission_rejection_can_retry_after_recovery(container, monkeypatch):
+    admitted = [False]
+    posts = []
+
+    def transport(request):
+        if request.method == "POST":
+            posts.append(request.headers["Idempotency-Key"])
+            return httpx.Response(200, json={"job_id": 44}) if admitted[0] else httpx.Response(402)
+        return httpx.Response(200, json=DONE)
+
+    old, _, _ = adapter(container, monkeypatch, 1, transport)
+    with pytest.raises(LLMError, match="HTTP 402"):
+        await old.chat(MESSAGES)
+    await old.aclose()
+    admitted[0] = True  # synthetic Broker state only, no real budget modification
+    new, _, _ = adapter(container, monkeypatch, 2, transport)
+    assert (await new.chat(MESSAGES)).job_id == "44"
+    assert len(posts) == 2 and posts[0] != posts[1]
+    await new.aclose()
