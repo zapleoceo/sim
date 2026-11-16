@@ -1,6 +1,6 @@
 import type { DialogEvent, Message } from '@/lib/models';
 import { groupFeedByDay } from './inbox-logic';
-import { NO_REASON, eventValue, mergeFeed, toEventVm } from './journal-logic';
+import { eventValue, mergeFeed, toEventVm } from './journal-logic';
 
 function message(id: number, at: string): Message {
   return { id, direction: 'in', author: 'client', text: `m${id}`, created_at: at, delivery: 'sent' };
@@ -33,18 +33,18 @@ describe('communication journal in the feed', () => {
 
   it('names what changed, who did it and why', () => {
     const vm = toEventVm(event(1, '2026-11-11T09:05:00Z', { reason: ' созвон ' }));
-    expect(vm).toMatchObject({ tag: 'Этап', change: 'Вовлечён → Интерес', who: 'оператор Оля', reason: 'созвон', hasReason: true });
+    expect(vm).toMatchObject({ tag: 'Этап', change: 'Вовлечён → Интерес', who: 'оператор Оля', reason: 'созвон' });
   });
 
-  it('says that no reason was given instead of making one up', () => {
-    const vm = toEventVm(event(1, '2026-11-11T09:05:00Z', { kind: 'ai_pause', from: 'on', to: 'paused', actor: 'system', actor_name: '' }));
-    expect(vm).toMatchObject({ tag: 'ИИ', change: 'включён → на паузе', who: 'система', reason: NO_REASON, hasReason: false });
+  it('leaves the reason empty instead of making one up', () => {
+    const vm = toEventVm(event(1, '2026-11-11T09:05:00Z', { kind: 'ai_pause', from: 'on', to: 'paused', actor: 'system', actor_name: '', reason: '  ' }));
+    expect(vm).toMatchObject({ tag: 'ИИ', change: 'включён → на паузе', who: 'система', reason: '' });
   });
 
   it('shows the course of a call as its steps, one per line', () => {
     const vm = toEventVm(event(1, '2026-11-11T09:05:00Z', { kind: 'call_steps', from: '', to: '', actor: 'system', actor_name: '',
       reason: '+0,0 с · Входящий звонок\n\n  +6,3 с · Пауза перед ответом 6,3 с  \n+7,1 с · Трубка снята' }));
-    expect(vm).toMatchObject({ tag: 'Ход звонка', change: '', who: 'система', hasReason: true });
+    expect(vm).toMatchObject({ tag: 'Ход звонка', change: '', who: 'система' });
     expect(vm.steps).toEqual(['+0,0 с · Входящий звонок', '+6,3 с · Пауза перед ответом 6,3 с', '+7,1 с · Трубка снята']);
     expect(toEventVm(event(2, '2026-11-11T09:05:00Z', { reason: 'a\nb' })).steps).toEqual([]);
   });

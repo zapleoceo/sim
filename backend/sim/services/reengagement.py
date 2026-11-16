@@ -24,7 +24,7 @@ from sim.services import jobkinds
 from sim.services.guard import GuardError
 from sim.services.persona_clock import persona_facts
 from sim.services.prompt import extract_json_object, one_line
-from sim.services.reply_schedule import Incoming, plan_reply, rules_from
+from sim.services.reply_schedule import Incoming, answers_at_once, plan_reply, rules_from
 
 if TYPE_CHECKING:
     from sim.services.conversation import ConversationService
@@ -197,8 +197,8 @@ class ReengagementService:
                 at = planned_time(obj.get("send_at"), ctx.now)
                 # Existing routine rules can postpone the proposal. They never force an early send.
                 cfg = await conversation.config()
-                at = plan_reply(at, persona.routine, persona.timezone,
-                                [Incoming("", at)], rules_from(cfg), marked_urgent=dialog.urgent).at
+                at = plan_reply(at, persona.routine, persona.timezone, [Incoming("", at)],
+                                rules_from(cfg), marked_urgent=answers_at_once(dialog, cfg)).at
                 ctx = replace(ctx, now=at, persona_facts=persona_facts(
                     persona.birth_date, persona.timezone, at, persona.routine))
                 guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)

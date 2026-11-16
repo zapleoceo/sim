@@ -3,12 +3,14 @@ reply job planned, re-planned, shown in the dialog card and released by the oper
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from alembic import command
 from sqlalchemy import select
 
 from sim.adapters.db.models import Dialog, Job, Persona
 from sim.adapters.db.session import transaction
+from sim.domain.enums import ChannelKind
 from sim.services import jobkinds
 from sim.services.app_settings import SPECS, AppSettingsService
 from sim.services.reply_schedule import (
@@ -22,6 +24,7 @@ from sim.services.reply_schedule import (
     Incoming,
     Plan,
     ScheduleRules,
+    answers_at_once,
     classify,
     delay_note,
     plan_reply,
@@ -261,6 +264,31 @@ async def test_free_time_keeps_the_plain_debounced_reply_and_no_prompt_line(cont
     at_clock(container, fri(15, 1))
     await Worker(container).tick()
     assert "Задержка ответа" not in "\n".join(str(m["content"]) for m in fake_llm.gen_calls[0][0])
+
+
+async def test_an_owner_account_is_answered_at_once_whatever_her_routine(container, world):
+    owner = "169510539"
+    await with_routine(container, world)
+    async with transaction(container.factory) as s:
+        await AppSettingsService(s).set("instant_reply_telegram_ids", f"42, {owner}", None)
+    at_clock(container, fri(9, 10))                           # at work: anyone else waits till 9:40
+    await ingest(container, world.channel.id, inbound("пришли фото", thread=owner, at=fri(9, 10)))
+    job = await reply_job(container)
+    assert "delay" not in job.payload
+    assert job.run_at == fri(9, 10) + timedelta(seconds=container.settings.reply_debounce_s)
+
+
+def test_owner_accounts_are_private_telegram_chats_with_a_listed_id():
+    def dialog(kind: ChannelKind, thread: str, urgent: bool = False) -> SimpleNamespace:
+        return SimpleNamespace(channel=SimpleNamespace(kind=kind), external_thread_id=thread, urgent=urgent)
+
+    cfg = SimpleNamespace(instant_reply_telegram_ids="169510539, 42")
+    assert answers_at_once(dialog(ChannelKind.TELEGRAM, "169510539"), cfg)
+    assert answers_at_once(dialog(ChannelKind.TELEGRAM_USER, "42"), cfg)
+    assert not answers_at_once(dialog(ChannelKind.WHATSAPP, "42"), cfg)        # a phone, not a Telegram id
+    assert not answers_at_once(dialog(ChannelKind.TELEGRAM, "4242"), cfg)
+    assert answers_at_once(dialog(ChannelKind.WHATSAPP, "1", urgent=True), cfg)
+    assert not answers_at_once(dialog(ChannelKind.TELEGRAM, "42"), SimpleNamespace(instant_reply_telegram_ids=""))
 
 
 async def test_the_schedule_can_be_switched_off(container, world):

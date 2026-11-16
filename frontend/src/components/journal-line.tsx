@@ -1,5 +1,4 @@
 import type { EventVm } from '@/features/inbox/journal-logic';
-import { cn } from '@/lib/utils';
 import { voiceNotice } from '@/lib/voice-notice';
 import { formatZonedDateTime } from '@/lib/format';
 
@@ -32,9 +31,9 @@ export function JournalLine({ vm }: { vm: EventVm }) {
               {vm.steps.map((step, i) => <li key={i} className="break-words">{step}</li>)}
             </ol>
           </details>
-        ) : (
+        ) : vm.reason && (
           <details><summary className="cursor-pointer">Подробности события</summary>
-            <span className={cn(!vm.hasReason && 'italic')}>{voiceReason ?? (vm.hasReason ? `Причина: ${vm.reason}` : vm.reason)}</span>
+            <span>{voiceReason ?? `Причина: ${vm.reason}`}</span>
             {voiceReason && <p>{vm.reason}</p>}
           </details>
         )}

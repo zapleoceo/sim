@@ -438,7 +438,8 @@ export interface AppSettingItem {
   group: string;
   label: string;
   help: string;
-  kind: 'text' | 'int' | 'capability' | 'model';
+  /** `ids`: numeric Telegram ids separated by commas; an empty list is allowed. */
+  kind: 'text' | 'int' | 'capability' | 'model' | 'ids';
   min: number | null;
   max: number | null;
   value: string | number;
