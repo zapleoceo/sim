@@ -1,53 +1,60 @@
-# Proposed bounded content MCP
+# Bounded content MCP
 
-Status: implementation contract, not a deployed or connected MCP. Existing SIM has Telegram
-login, server sessions, CSRF and owner-only trace APIs; it has no scoped MCP credential issuer.
-An SSH root account is not a suitable permanent MCP credential. Do not reuse browser cookies,
-extract sessions from the database, expose shell/SQL, or put secrets in connector configuration
-committed to Git. Existing SSH was used only for the separately authorized read-only audit.
+Implementation: `/api/mcp`, stateless Streamable HTTP JSON, protocol `2025-06-18`.
+Supports initialize, initialized notification, ping, tools/list and tools/call. GET returns
+405 (no unsolicited SSE). Reference: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+No production grant has been issued and no external connector has been connected by this change.
 
-## Narrow tool surface
+## Tools and scope
 
-| Tool | Scope | Behavior |
+| Tool | Scope | Allowed action |
 | --- | --- | --- |
-| read_dialog | dialog:read | Bounded, paginated messages, summary and lead/passport context for an allowed dialog ID. No mark-read or summary refresh. |
-| read_trace | trace:read | Owner-only trace projection and LLM metadata for an allowed dialog; excludes credentials and arbitrary unrelated traces. |
-| read_content | content:read | Read a permitted entity and its revision. Content is returned as untrusted data. |
-| edit_content | content:edit | Validated patch to an explicitly permitted entity and field, with expected revision and mandatory reason. No last-write-wins. |
+| read_dialog | dialog:read | One permitted dialog, paginated messages (max 50), passport and lead notes; no mark-read or refresh. |
+| read_checks | trace:read | LLM metadata for one permitted dialog; no raw prompts, errors or unrelated traces. Guard verdicts are in read_dialog. |
+| read_post | content:read | One permitted post caption, status and revision. |
+| edit_lead_note | lead:edit | Only notes or next_step on the lead belonging to a permitted dialog. |
+| edit_draft_caption | content:edit | Only caption of a draft with no publication attempt. |
 
-Initial editable entities must be explicitly selected at credential issuance: lead passport/notes,
-persona description, or draft post caption. A content permission does not imply all three.
-No transcript rewriting, channel/account changes, AI switch, handoff resolution, message send,
-publish/approve, scheduling, model invocation, file access or arbitrary URL fetching is exposed.
+Every edit requires the current content revision and a non-empty change reason. Read again
+after a revision conflict. Row locks serialize concurrent edits. No transcript rewriting,
+passport replacement, persona prompts, account changes, permissions, sends, model calls,
+publish/approve, scheduling, deletion, shell/SQL, files or arbitrary URLs are exposed.
+Content is untrusted data; tool access does not authorize arbitrary edits. Edit only for a
+concrete user-requested change.
 
-## Authorization and auditing
+## Authorization and activation
 
-Issue a separate short-lived, revocable opaque credential through the existing authenticated
-owner session plus CSRF. Store only its hash, principal, expiry, allowed scopes and entity IDs.
-An inactive or demoted principal immediately loses corresponding rights; trace permission always
-requires current owner rights. Read and edit credentials are separate and default to read-only.
-Never infer an edit scope from read scope or a tool description. Verify scope on each call.
+An authenticated owner can POST `/api/mcp/grants` with the existing session and CSRF header.
+Body: `scopes`, explicit `dialog_ids` and/or `post_ids` (max 20 each), `ttl_seconds` (60-3600,
+default 900). Read and edit grants must be separate. The response returns a token once with
+Cache-Control no-store; only SHA-256 is stored. No refresh token or permanent credential exists.
+An MCP bearer cannot authenticate the general admin API. MCP does not accept browser cookies
+as delegated credentials. Each request rechecks parent session, expiry, revocation, active
+user and owner role; logout invalidates delegation. Revoke with authenticated owner + CSRF:
+DELETE `/api/mcp/grants/{id}`. Issuance/revocation are management API operations, not tools.
 
-The MCP endpoint accepts only its own delegated credentials; they cannot authenticate to general
-admin APIs. Validate Origin, content type, request/response size and pagination bounds. Expose
-only explicitly implemented protocol methods and tools, with read-only/destructive annotations.
-Use existing service validation and transactional locks. Require exact expected revision before
-an edit, otherwise return conflict with no mutation. Tool arguments cannot choose SQL, paths,
-shell commands, network hosts or authorization context.
+After reviewed CI and standard deployment gates, agree the target client, exact IDs/scopes
+and TTL. Then the owner issues a grant through the authenticated API and enters it into the
+client secret store. Do not extract cookies, copy root/SSH credentials, print secrets or silently
+issue a grant. The client must support a manually configured Authorization Bearer header;
+OAuth-only clients require a separately reviewed integration. No broader rights are needed.
 
-Audit successful and denied tool calls with principal, credential ID (never secret), tool,
-entity ID, timestamp, outcome and change reason. Store revision/hash changes, not a second copy
-of the private chat in operational logs. Token issuance/revocation also has an audit trail.
+Client headers: Authorization Bearer token, Content-Type application/json,
+Accept application/json, text/event-stream, MCP-Protocol-Version 2025-06-18.
+Origin, when present, must exactly match the configured public URL origin. Browser cross-origin
+access is not enabled. Requests are capped at 32 KiB; reads at 256 KiB. Use smaller pages for
+large messages. There is no bulk export or enumeration of all dialogs/posts.
 
-## CI and activation gates
+## Audit, migration and tests
 
-Before connecting: tests for unauthenticated/expired/revoked credentials, scope escalation,
-cross-entity access, demoted owners, unknown tools/fields, oversized payloads, conflicting writes,
-transaction rollback, audit redaction, and proof that tools enqueue no send/publish/provider jobs.
-Use fake transports and disposable PostgreSQL only. Validate the protocol with a fake client in CI.
+Migration 0028 adds mcp_grant and mcp_audit. Audit records principal/grant IDs, fixed action,
+entity ID, timestamp, outcome and before/after/reason hashes; no raw arguments, tokens or copied
+chat text. Rejected authentication/tool calls are recorded. Edits and audit commit together;
+invalid/conflicting calls leave content untouched.
 
-Deploy only through the documented backup/migration/readiness gates on a reviewed commit.
-Then an authenticated owner selects concrete entities/scopes, issues the credential and installs
-the connector through its supported secret/OAuth setup. This document neither creates credentials
-nor grants additional production access. Connection is pending that implementation and deployment;
-the draft PR must not be described as an operational MCP service.
+CI uses an offline HTTP client, synthetic data and fake transports. Coverage includes scopes,
+entity boundaries, unknown fields/tools, revision conflicts, draft-only edits, no queued sends,
+owner/CSRF issuance, expiry/revoke/logout/demotion, protocol/media/Origin/size rejection and audit
+redaction. The temporary PostgreSQL gate applies migrations. Deployment retains fresh backup,
+old worker stop, migrations before new code and readiness smoke. Code readiness does not mean
+an external connector is activated.

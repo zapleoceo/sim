@@ -21,6 +21,7 @@ from sim.api.routers import (
     events,
     hooks,
     inbox,
+    mcp,
     persona_media,
     reports,
     simulations,
@@ -46,6 +47,7 @@ ROUTERS = (
     reports.analytics, reports.partner, simulations.router, hooks.router, activity.router, studio.router,
     settings_api.router,
     events.router,
+    mcp.router,
 )
 
 
