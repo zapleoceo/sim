@@ -88,6 +88,11 @@ describe('conversation', () => {
     expect(detailChanged(base, { ...base, dialog: { ...base.dialog, ai_paused: true } })).toBe(true);
     const waiting = { count: 1, since: '2026-01-01T10:00:00Z', message_ids: [1] };
     expect(detailChanged(base, { ...base, dialog: { ...base.dialog, unanswered: waiting } })).toBe(true);
+    const planned = { ...base, dialog: { ...base.dialog,
+      reengagement_plan: { status: 'scheduled', text: 'Synthetic follow-up', at: '2026-01-01T11:00:00Z' } } };
+    expect(detailChanged(base, planned)).toBe(true);
+    expect(detailChanged(planned, { ...planned, dialog: { ...planned.dialog,
+      reengagement_plan: { ...planned.dialog.reengagement_plan, status: 'outdated' } } })).toBe(true);
   });
 
   it('sends on Enter but not on Shift+Enter or while composing', () => {
