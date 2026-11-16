@@ -28,7 +28,7 @@ from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
 from sim.adapters.pcm import PcmBuffer, frame_bytes, resample, to_stereo
 from sim.config import Settings
 from sim.connectors.telegram_user import TelegramUserConnector
-from sim.domain.enums import Author, ClientStatus, Direction, Stage
+from sim.domain.enums import Author, ClientStatus, Delivery, Direction, Stage
 from sim.ports.live_voice import (
     AUDIO,
     INTERRUPTED,
