@@ -134,9 +134,12 @@ function StepItem({ step, total, selected = false }: { step: TraceTimelineStep; 
       {(step.kind === 'llm' || step.kind === 'guard') && <dl aria-label="Агент и модель"
         className="grid min-w-0 grid-cols-1 gap-2 rounded bg-muted/50 p-3 sm:grid-cols-2 [overflow-wrap:anywhere]">
         <Summary label="Агент / роль">{agentLabel(step.llm?.workflow)}</Summary>
-        <Summary label="Модель">{step.llm?.model || 'Не сохранена'}</Summary>
+        <Summary label="Сохранённая модель">{step.llm?.model || 'Не сохранена'}</Summary>
         <Summary label="Провайдер">{step.llm?.provider || 'Не сохранён'}</Summary>
         <Summary label="Роль в журнале">{step.llm?.workflow || 'Не сохранена'}</Summary>
+        <div className="text-xs text-muted-foreground sm:col-span-2">
+          В старых записях может быть указана запрошенная модель, а не фактически ответившая.
+        </div>
       </dl>}
       {step.llm && (
         <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular">

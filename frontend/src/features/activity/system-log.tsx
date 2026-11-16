@@ -272,7 +272,7 @@ function LogRow({ step, onOpen }: { step: TraceStep; onOpen: () => void }) {
           {step.name}
         </span>
         {(step.kind === 'llm' || step.kind === 'guard') && <p className="text-xs [overflow-wrap:anywhere]">
-          Агент: {agentLabel(step.llm?.workflow)}<br />Модель: {step.llm?.model || 'Не сохранена'}
+          Агент: {agentLabel(step.llm?.workflow)}<br />Сохранённая модель: {step.llm?.model || 'Не сохранена'}
         </p>}
         {step.error && (
           <span className="block truncate text-xs text-destructive" title={step.error}>

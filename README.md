@@ -2,8 +2,10 @@
 
 ### Recorded agents and selected activity calls
 
-The owner-only log and trace drawer show role/workflow, actual model and provider from
-the stored LLM call, not current persona settings or the worker actor. Missing history
+The owner-only log and trace drawer show role/workflow, saved model and provider from
+the stored LLM call, not current persona settings or the worker actor. Historical
+model values may be the requested model (including failed calls), not a confirmed
+responding model; the drawer explains this limitation without inventing provenance. Missing history
 is labelled explicitly. The log row's step or LLM card's call ID travels with its trace
 in the URL, preserving selection through Back/Forward. The selected record appears
 first with the existing redacted request/response blocks expanded; remaining steps,

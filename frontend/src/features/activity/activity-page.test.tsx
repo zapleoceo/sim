@@ -65,6 +65,8 @@ describe('ActivityPage · system log', () => {
     const chosen = await screen.findByRole('listitem', { name: 'Выбранная запись' });
     expect(chosen).toHaveTextContent('Ответ в диалоге');
     expect(chosen).toHaveTextContent('gpt-x');
+    expect(within(chosen).getByText('Сохранённая модель')).toBeVisible();
+    expect(chosen).toHaveTextContent('В старых записях может быть указана запрошенная модель, а не фактически ответившая.');
     expect(router.state.location.search).toMatchObject({ trace: TRACE, step: 2 });
   });
 
