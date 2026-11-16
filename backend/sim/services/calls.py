@@ -1,9 +1,17 @@
 """Persona phone calls: an incoming Telegram call answered by the persona's live voice.
 
   call rings → prepare (who calls, may she answer, her call prompt) → let it ring a few seconds,
-  as a person reaching for the phone would → open the Broker live
-  session (Gemini Live) → answer → caller audio up, model speech down, paced at real time →
-  hang up → the transcript lands in the dialog.
+  as a person reaching for the phone would, WHILE the Broker live session (Gemini Live) opens
+  (a refusal is retried once while the phone still rings) → answer → caller audio up, model
+  speech down, paced at real time → hang up → the transcript lands in the dialog.
+
+Every action of a call that reached a dialog is written to that dialog's journal as one «Ход
+звонка» record (`CALL_STEPS`, see `sim.services.call_trace`): the pause before picking up and
+its configured range, opening the voice session (time, model, retries, refusals), picking up,
+what the caller said, each review of her reply with its time and verdict, interruptions and how
+the call ended. A call that could not start or ended with a technical problem also gets a
+`CALL_ISSUE` record with its specific cause. A caller who hangs up before she picks up is not a
+technical problem: only the «Ход звонка» shows it.
 
 Three tasks carry an answered call: `uplink` (caller → model), `downlink` (model → buffer) and
 `pace` (buffer → the call, one frame per 10 ms). The call ends when any of them stops; a task
@@ -30,7 +38,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.call_ambience import CallAmbience, prepare_call_ambience
-from sim.adapters.channels.capabilities import IncomingCall
+from sim.adapters.channels.capabilities import CallAnswerTimeout, CallGone, IncomingCall
 from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.models import Message
 from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo
@@ -50,17 +58,20 @@ from sim.ports.live_voice import (
     LiveVoiceSummary,
 )
 from sim.ports.llm import LLMResult
+from sim.services import tracing
 from sim.services.call_playback import CallContextChanged, CallPlayback, PlaybackTurn
 from sim.services.call_prompt import greeting
-from sim.services.call_trace import CallTrace
+from sim.services.call_trace import CallTrace, seconds
 from sim.services.conversation import ConversationService, history_turns, with_persona_facts
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.guard import BLOCKED, GuardOutcome
-from sim.services.journal import CALL_ISSUE, SYSTEM, CommunicationJournal
+from sim.services.journal import CALL_ISSUE, CALL_STEPS, SYSTEM, CommunicationJournal
 from sim.services.persona_ambience import contextual_ambience
 from sim.services.prompt import Decision, Turn
 from sim.services.reengagement import eligible, signature
+from sim.services.tracing import Tracer
+from sim.trace_context import current as current_trace
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +80,27 @@ CALL_WORKFLOW = "call"
 UPLINK_MS = 40                # caller audio is sent to the Broker in 40 ms chunks
 DRAIN_LIMIT_S = 10.0          # the model's last words still play after the Broker ended
 MAX_LAG_S = 0.1               # a pacer later than this restarts its schedule instead of bursting
+OPEN_ATTEMPTS = 2             # a refused live session is retried once while the phone rings
+CANNOT_START = "Не удалось начать голосовой разговор"
+# The cause of a call that could not start, as the journal states it (and the persona reads it
+# for a day: no network guesses, nothing about the client's phone beyond the fact).
+ISSUE_REASONS = {
+    "provider_open_failed": "Голосовой сервис не открыл разговор, трубку не сняли.",
+    "answer_timeout": "Трубку сняли, но соединение со звонящим не установилось.",
+    "answer_failed": "Трубку снять не удалось.",
+}
+CONTINUE_IN_CHAT = " Ответ не прозвучал. Можно продолжить в чате."
+END_REASONS = {
+    "caller_hung_up": "клиент положил трубку", "time_limit": "лимит длительности звонка",
+    "no_summary": "голосовой сервис не прислал итог", "provider_error": "ошибка голосового сервиса",
+    "transport_error": "оборвалась связь с голосовым сервисом",
+    "summary_timeout": "голосовой сервис не прислал итог вовремя",
+    "provider_finish_failed": "не удалось закрыть голосовую сессию",
+}
+STOPPED_BY = {"uplink": "звук клиента закончился (клиент положил трубку)",
+              "downlink": "голосовой сервис закончил разговор",
+              "pacer": "остановилась отправка её речи в звонок",
+              "time_limit": "сработал общий лимит звонка"}
 LANGUAGE_CODES = {
     "ru": "ru-RU", "uk": "uk-UA", "ua": "uk-UA", "en": "en-US",
     "русский": "ru-RU", "russian": "ru-RU",
@@ -107,6 +139,16 @@ class CallOutcome:
     status: str                  # answered | skipped:<reason> | refused | failed
     summary: LiveVoiceSummary | None = None
     message_ids: list[int] = field(default_factory=list)
+    failure: str = ""            # an answered call that ended with a technical problem
+
+    @property
+    def trace_status(self) -> str:
+        """How the system log marks the call."""
+        if self.status == "answered":
+            return tracing.WARNING if self.failure else tracing.OK
+        if self.status.startswith("skipped:"):
+            return tracing.SKIPPED
+        return tracing.ERROR
 
 
 class CallService:
@@ -136,37 +178,73 @@ class CallService:
 
     # ---- the call ------------------------------------------------------------------------
     async def handle(self, channel_id: int, call: IncomingCall) -> CallOutcome:
+        """One call as one trace of the system log: a `call` step with all its steps, and the
+        guard and model calls of its replies under the same trace id."""
         trace = CallTrace(self.diagnostics, channel_id, self.mono)
+        tracer = Tracer(self.factory, self.clock)
+        started_at, start = self.clock(), time.perf_counter()
+        async with tracer.scope(actor="звонок", channel_id=channel_id):
+            outcome = CallOutcome("failed")
+            try:
+                outcome = await self.take(channel_id, call, trace)
+            finally:
+                if trace.steps:
+                    await tracer.record(
+                        tracing.CALL, f"call {outcome.status}", status=outcome.trace_status,
+                        started_at=started_at, duration_ms=tracing.elapsed_ms(start),
+                        error=outcome.failure or None,
+                        detail={"outcome": outcome.status, "steps": trace.report()})
+        return outcome
+
+    async def take(self, channel_id: int, call: IncomingCall, trace: CallTrace) -> CallOutcome:
         trace.event("ringing")
         plan = await self.prepare(channel_id, call.external_thread_id)
         if isinstance(plan, str):
             log.info("call on channel %s not answered: %s", channel_id, plan)
             return CallOutcome(f"skipped:{plan}")
-        trace.event("plan_ready", dialog=plan.dialog_id, voice=plan.voice,
-                    prompt_chars=len(plan.system))
-        await self.sleep(random.uniform(*self.ring_s))  # noqa: S311 - a human pause, not a secret
+        ctx = current_trace()
+        if ctx is not None:
+            ctx.link(dialog_id=plan.dialog_id)
+        trace.step("plan_ready", f"Входящий звонок от клиента этого диалога. Голос {plan.voice}, "
+                   f"язык {plan.language or 'определит модель'}, промпт звонка "
+                   f"{len(plan.system)} симв.", dialog=plan.dialog_id, voice=plan.voice,
+                   prompt_chars=len(plan.system))
+        if call.ended:
+            trace.step("caller_gone", "Клиент положил трубку раньше, чем звонок был подготовлен")
+            await self.record_unanswered(plan.dialog_id, trace.report())
+            return CallOutcome("skipped:hung_up")
+        # The paid session opens during the human pause, so the pause hides its latency.
+        opening = asyncio.ensure_future(self.open_session(plan, call, trace))
+        # Local optional bed; failure keeps clean audio.
+        bed = asyncio.ensure_future(prepare_call_ambience(plan.ambience, call.rate_hz))
+        pause = random.uniform(*self.ring_s)  # noqa: S311 - a human pause, not a secret
+        low, high = self.ring_s
+        trace.step("ring_pause", f"Пауза перед ответом {seconds(pause)}, как человек тянется к "
+                   f"телефону (настройка {low:g}–{high:g} с); голосовая сессия открывается "
+                   "в это же время", pause_s=round(pause, 2))
+        await self.sleep(pause)
         trace.event("rang")
-        if call.ended:
-            log.info("call on channel %s not answered: hung up while ringing", channel_id)
-            return CallOutcome("skipped:hung_up")
-        # Local optional bed before paid live session; failure keeps clean audio.
-        ambience = await prepare_call_ambience(plan.ambience, call.rate_hz)
+        ambience = await bed
         if plan.ambience != VoiceAmbience.OFF:
-            trace.event("ambience", requested=plan.ambience, active=ambience is not None)
-        if call.ended:
-            return CallOutcome("skipped:hung_up")
-        assert self.live is not None
+            trace.step("ambience", f"Фон звонка «{plan.ambience}»: " + (
+                "включён" if ambience is not None else "не подготовился, звонок без фона"),
+                requested=plan.ambience, active=ambience is not None)
         try:
-            session = await self.live.open(
-                voice=plan.voice, system=plan.system, language=plan.language,
-                greeting=plan.greeting, workflow=CALL_WORKFLOW, max_seconds=self.max_seconds,
-            )
+            session = await opening
         except LiveVoiceError as exc:
             log.warning("call on channel %s: broker refused: %s", channel_id, exc)
-            await self.record_issue(plan.dialog_id, "provider_open_failed")
+            if call.ended:
+                trace.step("caller_gone", "Клиент положил трубку до ответа")
+                await self.record_unanswered(plan.dialog_id, trace.report())
+                return CallOutcome("skipped:hung_up")
+            await self.record_unanswered(plan.dialog_id, trace.report(), "provider_open_failed")
             return CallOutcome("refused")
-        trace.event("session_opened", input_hz=session.input_rate_hz,
-                    output_hz=session.output_rate_hz)
+        if call.ended:
+            log.info("call on channel %s not answered: hung up while ringing", channel_id)
+            trace.step("caller_gone", "Клиент положил трубку до ответа; голосовая сессия закрыта")
+            await self.close_quietly(session)
+            await self.record_unanswered(plan.dialog_id, trace.report())
+            return CallOutcome("skipped:hung_up")
         started = self.clock()
         trace.event("answer_sent")
         try:
@@ -174,10 +252,17 @@ class CallService:
         except Exception as exc:
             log.warning("call on channel %s: answer failed: %s: %s", channel_id,
                         type(exc).__name__, str(exc)[:200])
-            await session.finish()
-            await self.record_issue(plan.dialog_id, "answer_failed")
+            await self.close_quietly(session)
+            if isinstance(exc, CallGone) or call.ended:
+                trace.step("caller_gone", "Клиент положил трубку, пока она снимала трубку")
+                await self.record_unanswered(plan.dialog_id, trace.report())
+                return CallOutcome("skipped:hung_up")
+            code = "answer_timeout" if isinstance(exc, CallAnswerTimeout) else "answer_failed"
+            trace.step("answer_failed", f"Трубку снять не удалось: {type(exc).__name__}: "
+                       f"{str(exc)[:200]}")
+            await self.record_unanswered(plan.dialog_id, trace.report(), code)
             return CallOutcome("failed")
-        trace.event("answered")
+        trace.step("answered", "Трубка снята, разговор начался")
         async def review(history: list[Turn], draft: str) -> GuardOutcome:
             return await self.review_turn(plan.dialog_id, history, draft, getattr(session, "model", None))
 
@@ -199,16 +284,56 @@ class CallService:
                 playback.failure = playback.failure or "transport_hangup_failed"
         if summary.end_reason in {"no_summary", "provider_error", "transport_error", "summary_timeout"}:
             playback.failure = playback.failure or summary.end_reason
-        trace.event("ended", end_reason=summary.end_reason, duration_s=summary.duration_s,
-                    turns=len(summary.transcript))
+        ending = END_REASONS.get(summary.end_reason, summary.end_reason or "причина не передана")
+        trace.step("ended", f"Звонок окончен, {clock_text(summary.duration_s)}: {ending}"
+                   + (f"; техническая проблема: {playback.failure}" if playback.failure else ""),
+                   end_reason=summary.end_reason, duration_s=summary.duration_s,
+                   turns=len(summary.transcript))
         trace.summary()
         if not trace.counters["frames_out"]:
             log.warning("call on channel %s: no speech frames accepted by transport (model audio %s bytes, "
                         "caller frames %s)", channel_id, trace.counters["model_audio_bytes"],
                         trace.counters["frames_in"])
         ids = await self.record(plan.dialog_id, summary, started, turns=playback.turns,
-                                failure=playback.failure)
-        return CallOutcome("answered", summary, ids)
+                                failure=playback.failure, steps=trace.report())
+        return CallOutcome("answered", summary, ids, failure=playback.failure)
+
+    async def open_session(self, plan: CallPlan, call: IncomingCall,
+                           trace: CallTrace) -> LiveVoiceSession:
+        """The Broker live session; a refusal is retried once while the phone still rings."""
+        assert self.live is not None
+        for attempt in range(1, OPEN_ATTEMPTS + 1):
+            began = self.mono()
+            try:
+                session = await self.live.open(
+                    voice=plan.voice, system=plan.system, language=plan.language,
+                    greeting=plan.greeting, workflow=CALL_WORKFLOW, max_seconds=self.max_seconds,
+                )
+            except LiveVoiceError as exc:
+                retry = attempt < OPEN_ATTEMPTS and not call.ended
+                trace.step("session_refused", f"Голосовой сервис отказал (попытка {attempt}, "
+                           f"{seconds(self.mono() - began)}): {str(exc)[:200]}"
+                           + ("; пробуем ещё раз" if retry else ""), attempt=attempt)
+                if not retry:
+                    raise
+                continue
+            model = getattr(session, "model", None) or "не передана"
+            provider = getattr(session, "provider", None) or "не передан"
+            trace.step("session_opened", f"Голосовая сессия открыта за "
+                       f"{seconds(self.mono() - began)} (попытка {attempt}): модель {model}, "
+                       f"провайдер {provider}, звук {session.input_rate_hz}/"
+                       f"{session.output_rate_hz} Гц", input_hz=session.input_rate_hz,
+                       output_hz=session.output_rate_hz)
+            return session
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    @staticmethod
+    async def close_quietly(session: LiveVoiceSession) -> None:
+        """A session that will never carry a conversation; its summary is of no use."""
+        try:
+            await session.finish()
+        except Exception:
+            log.warning("unused live session did not close cleanly", exc_info=True)
 
     async def review_turn(self, dialog_id: int, spoken: list[Turn], draft: str,
                           model: str | None) -> GuardOutcome:
@@ -285,7 +410,9 @@ class CallService:
             stopped = [name for name, task in tasks.items() if task in done]
             if not stopped and playback is not None:
                 playback.failure = playback.failure or "call_timeout"
-            trace.event("conversation_over", by=",".join(stopped) or "time_limit")
+            by = stopped or ["time_limit"]
+            trace.step("conversation_over", "Разговор остановлен: " + "; ".join(
+                STOPPED_BY.get(name, name) for name in by), by=",".join(by))
             if stopped == ["downlink"] and tasks["downlink"].exception() is None:
                 await self.drain(out)          # her last words before hanging up
                 if playback is not None:
@@ -312,7 +439,7 @@ class CallService:
         chunk = frame_bytes(session.input_rate_hz, UPLINK_MS)
         pending = bytearray()
         async for frame in call.frames():
-            trace.first("first_caller_audio", bytes=len(frame))
+            trace.first("first_caller_audio", "Пошёл звук от клиента", bytes=len(frame))
             trace.count("frames_in")
             pending.extend(resample(frame, call.rate_hz, session.input_rate_hz))
             if len(pending) >= chunk:
@@ -369,7 +496,8 @@ class CallService:
             if turn is not None:
                 playback.acknowledge(turn, len(frame))
             if speech:
-                trace.first("first_frame_sent", bytes=len(frame))
+                trace.first("first_frame_sent", "Её речь начала звучать в звонке",
+                            bytes=len(frame))
                 trace.count("frames_out")
             else:
                 trace.count("ambience_frames_out")
@@ -384,7 +512,7 @@ class CallService:
     # ---- after the call ------------------------------------------------------------------
     async def record(
         self, dialog_id: int, summary: LiveVoiceSummary, started: datetime,
-        *, turns: list[PlaybackTurn] | None = None, failure: str = "",
+        *, turns: list[PlaybackTurn] | None = None, failure: str = "", steps: str = "",
     ) -> list[int]:
         """The call in the dialog: a header line (the client called, how long) and then every
         recognised turn, so the admin reads the call and the next chat reply remembers it."""
@@ -431,17 +559,25 @@ class CallService:
             client.last_contact_at = max(started, client.last_contact_at or started)
             dialog.channel.last_activity_at = self.clock()
             await FollowupService(s, clock=self.clock).cancel(dialog.id)
+            journal = CommunicationJournal(s, clock=self.clock)
+            if steps:
+                await journal.record(dialog.id, CALL_STEPS, who=SYSTEM, reason=steps)
             if failure or any(t.cancel_reason for t in recorded):
                 header.error = failure or "context_changed"
-                await CommunicationJournal(s, clock=self.clock).record(
+                await journal.record(
                     dialog.id, CALL_ISSUE, new="Звонок завершён с технической проблемой",
                     who=SYSTEM, reason="Часть ответа могла не прозвучать. Можно продолжить в чате.")
             return [m.id for m in rows]
 
-    async def record_issue(self, dialog_id: int, code: str) -> None:
-        """A failed connection is context, never permission to change the owner's AI policy."""
-        log.info("call issue dialog=%s code=%s", dialog_id, code)
+    async def record_unanswered(self, dialog_id: int, steps: str, issue: str = "") -> None:
+        """A call she never talked in: its «Ход звонка» and, for a technical cause (`issue`, a
+        key of ISSUE_REASONS), the incident. A failed connection is context, never permission
+        to change the owner's AI policy."""
+        log.info("call not answered dialog=%s issue=%s", dialog_id, issue or "-")
         async with transaction(self.factory) as s:
-            await CommunicationJournal(s, clock=self.clock).record(
-                dialog_id, CALL_ISSUE, new="Не удалось начать голосовой разговор",
-                reason="Ответ не прозвучал. Можно продолжить в чате.")
+            journal = CommunicationJournal(s, clock=self.clock)
+            if steps:
+                await journal.record(dialog_id, CALL_STEPS, who=SYSTEM, reason=steps)
+            if issue:
+                await journal.record(dialog_id, CALL_ISSUE, new=CANNOT_START, who=SYSTEM,
+                                     reason=ISSUE_REASONS.get(issue, "") + CONTINUE_IN_CHAT)

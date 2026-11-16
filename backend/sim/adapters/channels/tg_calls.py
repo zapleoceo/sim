@@ -21,7 +21,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 
+from sim.adapters.channels.capabilities import CallAnswerTimeout, CallGone
 from sim.adapters.pcm import to_stereo
+
+__all__ = ["ANSWER_TIMEOUT_S", "CallAnswerTimeout", "CallGone", "TelegramCall",
+           "TelegramCallBridge", "has_status", "load_pytgcalls"]
 
 log = logging.getLogger(__name__)
 
@@ -32,10 +36,7 @@ ANSWER_TIMEOUT_S = 20           # the caller's confirmation of a picked-up call 
 OUT_CHANNELS = 2
 IN_CHANNELS = 1
 _ENDED = object()
-
-
-class CallGone(Exception):
-    """The caller hung up before the call was picked up."""
+TIMED_OUT_ANSWER = "TimedOutAnswer"    # py-tgcalls' exception when the caller never confirmed
 
 
 def load_pytgcalls() -> SimpleNamespace:  # pragma: no cover - needs the native ntgcalls wheel
@@ -85,8 +86,9 @@ class TelegramCall:
         return self.over.is_set()
 
     async def answer(self) -> None:
-        """Picks up, or raises: CallGone when the caller is no longer there, py-tgcalls'
-        TimedOutAnswer when the caller's side did not confirm in `answer_timeout_s`."""
+        """Picks up, or raises: CallGone when the caller is no longer there, CallAnswerTimeout
+        (py-tgcalls' TimedOutAnswer) when the caller's side did not confirm in
+        `answer_timeout_s`."""
         if self.ended:
             raise CallGone("the caller hung up before the call was picked up")
         self.answered = True
@@ -96,7 +98,14 @@ class TelegramCall:
             await asyncio.wait({accept, gone}, return_when=asyncio.FIRST_COMPLETED)
             picked_up = accept.done()
             if picked_up:
-                await accept
+                try:
+                    await accept
+                except Exception as exc:
+                    if type(exc).__name__ == TIMED_OUT_ANSWER:
+                        raise CallAnswerTimeout(
+                            f"the caller's side did not confirm in {self.bridge.answer_timeout_s} s"
+                        ) from exc
+                    raise
         finally:
             for task in (accept, gone):
                 task.cancel()

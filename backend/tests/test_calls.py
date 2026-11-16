@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 from array import array
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -18,11 +18,12 @@ from sim.adapters.channels.capabilities import CallListener, Capability
 from sim.adapters.channels.telegram_user import TelegramUserAdapter, TelethonTransport, TGUserState
 from sim.adapters.channels.tg_calls import (
     ANSWER_TIMEOUT_S,
+    CallAnswerTimeout,
     CallGone,
     TelegramCallBridge,
     has_status,
 )
-from sim.adapters.db.models import Dialog, Message, Persona
+from sim.adapters.db.models import Dialog, Message, Persona, TraceEvent
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker_live import BrokerLiveVoice, live_url
 from sim.adapters.pcm import PcmBuffer, frame_bytes, resample, to_stereo
@@ -47,6 +48,7 @@ from sim.services.call_prompt import (
 )
 from sim.services.call_trace import CallTrace
 from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
+from sim.services.journal import CALL_ISSUE, CALL_STEPS, CommunicationJournal
 from sim.services.prompt import (
     DialogContext,
     PersonaProfile,
@@ -443,8 +445,10 @@ async def test_diagnostics_log_the_key_moments_only_when_switched_on(container, 
     await service(container, FakeLive(session())).handle(world.channel.id, CompleteCall())
     lines = [r.getMessage() for r in caplog.records if r.name == "sim.calls.trace"]
     moments = [line.split()[3] for line in lines]
-    assert moments[:6] == ["ringing", "plan_ready", "rang", "session_opened", "answer_sent",
-                           "answered"]
+    assert moments[:3] == ["ringing", "plan_ready", "ring_pause"]
+    # The session opens during the pause: both precede picking up, in either order.
+    assert {"rang", "session_opened"} == set(moments[3:5])
+    assert moments[5:7] == ["answer_sent", "answered"]
     assert moments[-3:] == ["conversation_over", "ended", "summary"]
     for moment in ("first_model_audio", "interrupted", "first_frame_sent", "first_caller_audio"):
         assert moments.count(moment) == 1
@@ -477,8 +481,8 @@ async def test_she_lets_it_ring_a_few_seconds_before_picking_up(container, world
     assert len(live.opened) == 1
 
 
-async def test_a_caller_who_hangs_up_while_it_rings_costs_no_broker_session(container, world):
-    await chatting_world(container, world)
+async def test_a_caller_who_hangs_up_while_it_rings_is_not_picked_up_nor_an_issue(container, world):
+    did = await chatting_world(container, world)
     live, call, pauses = FakeLive(), FakeCall(), []
 
     def hang_up() -> None:
@@ -487,7 +491,115 @@ async def test_a_caller_who_hangs_up_while_it_rings_costs_no_broker_session(cont
     outcome = await ringing_service(container, live, pauses, on_pause=hang_up).handle(
         world.channel.id, call)
     assert outcome.status == "skipped:hung_up"
-    assert live.opened == [] and not call.answered and len(pauses) == 1
+    # The session opened during the pause is closed at once, nobody picks up.
+    assert len(live.opened) == 1 and live.session.finished == 1
+    assert not call.answered and len(pauses) == 1
+    kinds, steps = await journal_of(container, did)
+    assert kinds[-1] == CALL_STEPS and CALL_ISSUE not in kinds
+    assert "Пауза перед ответом" in steps and "Клиент положил трубку до ответа" in steps
+
+
+async def test_a_caller_already_gone_before_the_pause_opens_no_session(container, world):
+    did = await chatting_world(container, world)
+    live, call = FakeLive(), FakeCall()
+    call.ended = True
+    outcome = await service(container, live).handle(world.channel.id, call)
+    assert outcome.status == "skipped:hung_up" and live.opened == []
+    kinds, _ = await journal_of(container, did)
+    assert kinds[-1] == CALL_STEPS and CALL_ISSUE not in kinds
+
+
+async def journal_of(container, dialog_id) -> tuple[list[str], str]:
+    """The dialog's journal kinds, oldest first, and the text of its newest «Ход звонка»."""
+    async with container.factory() as s:
+        events = await CommunicationJournal(s).feed(dialog_id)
+    steps = [e.reason for e in events if e.kind == CALL_STEPS]
+    return [e.kind for e in events], steps[-1] if steps else ""
+
+
+async def test_every_step_of_an_answered_call_is_in_the_journal(container, world):
+    did = await chatting_world(container, world)
+    session = FakeSession(speech_events(b"\x02\x00" * 240))
+    pauses: list[float] = []
+    outcome = await ringing_service(container, FakeLive(session), pauses).handle(
+        world.channel.id, FakeCall(frames=20))
+    assert outcome.status == "answered"
+    kinds, steps = await journal_of(container, did)
+    assert kinds[-1] == CALL_STEPS
+    lines = steps.splitlines()
+    assert all(line.startswith("+") for line in lines[:-1]) and lines[-1].startswith("Итого:")
+    for expected in ("Входящий звонок от клиента этого диалога. Голос Kore, язык ru-RU",
+                     "Пауза перед ответом", "(настройка 4–9 с)",
+                     "Голосовая сессия открыта", "(попытка 1)", "Трубка снята",
+                     "Клиент: «Алло, это Марина?»",
+                     "Её реплика «Да, привет! Слушаю.»: проверка", "— разрешена",
+                     "Её речь начала звучать в звонке", "Разговор остановлен",
+                     "Звонок окончен, 2:31: клиент положил трубку"):
+        assert expected in steps, expected
+    async with container.factory() as s:
+        journal = CommunicationJournal(s)
+        lines = await journal.context_lines(did, container.clock() - timedelta(days=1))
+    assert not any("ход звонка" in line for line in lines)    # admin-only, never her context
+
+
+@pytest.mark.parametrize("live, status, outcome", [
+    (lambda: FakeLive(), "ok", "answered"),
+    (lambda: FakeLive(error=LiveVoiceError("synthetic")), "error", "refused"),
+])
+async def test_a_call_is_one_trace_of_the_system_log(container, world, live, status, outcome):
+    did = await chatting_world(container, world)
+    await service(container, live()).handle(world.channel.id, FakeCall(frames=2))
+    async with container.factory() as s:
+        steps = (await s.scalars(select(TraceEvent).where(TraceEvent.kind == "call"))).all()
+    assert len(steps) == 1
+    step = steps[0]
+    assert (step.status, step.dialog_id, step.channel_id, step.actor) == \
+        (status, did, world.channel.id, "звонок")
+    assert step.detail["outcome"] == outcome and "Пауза перед ответом" in step.detail["steps"]
+
+
+async def test_a_refused_session_is_retried_once_while_it_rings(container, world):
+    did = await chatting_world(container, world)
+
+    class FlakyLive(FakeLive):
+        async def open(self, **kw):
+            self.opened.append(kw)
+            if len(self.opened) == 1:
+                raise LiveVoiceError("live: refused (503): busy")
+            return self.session
+
+    live, call = FlakyLive(), FakeCall()
+    outcome = await service(container, live).handle(world.channel.id, call)
+    assert outcome.status == "answered" and call.answered and len(live.opened) == 2
+    kinds, steps = await journal_of(container, did)
+    assert "Голосовой сервис отказал (попытка 1" in steps and "пробуем ещё раз" in steps
+    assert "(попытка 2)" in steps
+
+
+@pytest.mark.parametrize("error, status, issue", [
+    (CallGone("gone"), "skipped:hung_up", None),
+    (CallAnswerTimeout("no confirm"), "failed", "соединение со звонящим не установилось"),
+    (RuntimeError("no call"), "failed", "Трубку снять не удалось."),
+])
+async def test_a_failed_pick_up_names_its_cause(container, world, error, status, issue):
+    did = await chatting_world(container, world)
+
+    class Failing(FakeCall):
+        async def answer(self) -> None:
+            raise error
+
+    session = FakeSession()
+    outcome = await service(container, FakeLive(session)).handle(world.channel.id, Failing())
+    assert outcome.status == status and session.finished == 1
+    async with container.factory() as s:
+        events = await CommunicationJournal(s).feed(did)
+    kinds = [e.kind for e in events]
+    if issue is None:
+        assert kinds[-1] == CALL_STEPS and CALL_ISSUE not in kinds
+    else:
+        assert kinds[-2:] == [CALL_STEPS, CALL_ISSUE]
+        assert issue in events[-1].reason and "Можно продолжить в чате" in events[-1].reason
+        assert events[-1].to_value == "Не удалось начать голосовой разговор"
 
 
 def test_call_trace_times_moments_and_reports_a_first_once(caplog):
@@ -819,6 +931,29 @@ async def test_a_caller_who_hangs_up_while_she_picks_up_cancels_the_answer_at_on
     assert failures == ["the caller hung up while the call was being picked up"]
     assert [entry[0] for entry in bridge.calls.log] == ["play", "leave"]   # no record, cleaned
     assert bridge.active == {}
+
+
+async def test_an_unconfirmed_pick_up_is_reported_as_an_answer_timeout():
+    class TimedOutAnswer(Exception):                      # py-tgcalls' own name
+        pass
+
+    class SilentPeer(FakeTgCalls):
+        async def play(self, chat_id, stream, config) -> None:
+            await super().play(chat_id, stream, config)
+            raise TimedOutAnswer()
+
+    failures: list = []
+
+    async def on_call(call):
+        try:
+            await call.answer()
+        except CallAnswerTimeout as exc:
+            failures.append(str(exc))
+
+    bridge = TelegramCallBridge("client", on_call, lib=SimpleNamespace(**{**vars(LIB), "PyTgCalls": SilentPeer}))
+    await bridge.on_update(None, FakeChatUpdate(42, Status.INCOMING_CALL))
+    await asyncio.wait_for(asyncio.gather(*bridge.tasks), 1)
+    assert failures == [f"the caller's side did not confirm in {ANSWER_TIMEOUT_S} s"]
 
 
 async def test_a_call_that_ended_before_she_picks_up_is_not_answered():

@@ -69,6 +69,14 @@ describe('system log logic', () => {
     ]);
   });
 
+  it('names a phone call and keeps its steps as lines', () => {
+    expect(KIND_LABELS.call).toBe('Звонок');
+    expect(KINDS).toContain('call');
+    expect(detailPairs({ outcome: 'answered', steps: '+0,0 с · Входящий звонок\n+6,3 с · Пауза' })).toEqual([
+      ['Итог', 'answered'], ['Шаги', '+0,0 с · Входящий звонок\n+6,3 с · Пауза'],
+    ]);
+  });
+
   it('labels step details and skips empty values', () => {
     expect(detailPairs({ queue_ms: 1500, gave_up: true, outcome: 'sent', guard: null, nested: { a: 1 } })).toEqual([
       ['Ожидание в очереди', '1,5 с'],

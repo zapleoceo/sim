@@ -26,10 +26,18 @@ export function JournalLine({ vm }: { vm: EventVm }) {
           {vm.who} · <time dateTime={vm.event.created_at} title={`${formatZonedDateTime(vm.event.created_at)} (ваше время)`}>{vm.time}</time>
         </span>
         {vm.event.kind === 'notes' && <span className="font-medium">Внутренняя заметка · клиенту не отправляется</span>}
-        <details><summary className="cursor-pointer">Подробности события</summary>
-          <span className={cn(!vm.hasReason && 'italic')}>{voiceReason ?? (vm.hasReason ? `Причина: ${vm.reason}` : vm.reason)}</span>
-          {voiceReason && <p>{vm.reason}</p>}
-        </details>
+        {vm.steps.length > 0 ? (
+          <details><summary className="cursor-pointer">Все шаги ({vm.steps.length})</summary>
+            <ol aria-label="Шаги звонка" className="mt-1 flex flex-col gap-0.5 font-mono text-[11px]">
+              {vm.steps.map((step, i) => <li key={i} className="break-words">{step}</li>)}
+            </ol>
+          </details>
+        ) : (
+          <details><summary className="cursor-pointer">Подробности события</summary>
+            <span className={cn(!vm.hasReason && 'italic')}>{voiceReason ?? (vm.hasReason ? `Причина: ${vm.reason}` : vm.reason)}</span>
+            {voiceReason && <p>{vm.reason}</p>}
+          </details>
+        )}
       </div>
     </div>
   );

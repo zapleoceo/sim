@@ -1,5 +1,5 @@
 /** System trace log (GET /api/activity/log, GET /api/activity/traces/{id}). */
-export type TraceKind = 'http' | 'webhook' | 'inbound' | 'poll' | 'job' | 'llm' | 'guard' | 'send' | 'partner' | 'watch';
+export type TraceKind = 'http' | 'webhook' | 'inbound' | 'poll' | 'job' | 'llm' | 'guard' | 'send' | 'partner' | 'watch' | 'call';
 export type TraceStatus = 'ok' | 'error' | 'retry' | 'skipped' | 'warning';
 export type TraceSortField =
   | 'started_at'

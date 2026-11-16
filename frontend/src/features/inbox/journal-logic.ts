@@ -11,6 +11,7 @@ export const EVENT_TAGS: Record<string, string> = {
   urgent: 'Срочность',
   handoff: 'Передача оператору',
   call_issue: 'Проблема со звонком',
+  call_steps: 'Ход звонка',
   resolved: 'Обработано',
   chat_cleared: 'Чат очищен',
   passport_cleared: 'Паспорт очищен',
@@ -61,13 +62,19 @@ export interface EventVm {
   /** The given reason, or «причина не указана»: nothing is made up. */
   reason: string;
   hasReason: boolean;
+  /** The record is a step-by-step list (one action per line), not a single reason. */
+  steps: string[];
   time: string;
 }
+
+/** Kinds whose text is a list of steps, one per line («Ход звонка»). */
+const STEP_KINDS = new Set(['call_steps']);
 
 export function toEventVm(event: DialogEvent): EventVm {
   const from = eventValue(event.kind, event.from);
   const to = eventValue(event.kind, event.to);
   const reason = event.reason.trim();
+  const steps = STEP_KINDS.has(event.kind) ? reason.split('\n').map((line) => line.trim()).filter(Boolean) : [];
   return {
     event,
     tag: EVENT_TAGS[event.kind] ?? event.kind,
@@ -75,6 +82,7 @@ export function toEventVm(event: DialogEvent): EventVm {
     who: [ACTOR_LABELS[event.actor] ?? event.actor, event.actor_name].filter(Boolean).join(' '),
     reason: reason || NO_REASON,
     hasReason: reason !== '',
+    steps,
     time: formatTime(event.created_at),
   };
 }

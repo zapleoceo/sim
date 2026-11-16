@@ -87,6 +87,14 @@ class VideoNoteSender(Protocol):
     ) -> SendResult: ...
 
 
+class CallGone(Exception):
+    """The caller hung up before the call was picked up: not a technical problem."""
+
+
+class CallAnswerTimeout(Exception):
+    """The call was picked up, but the caller's side never confirmed the connection."""
+
+
 class IncomingCall(Protocol):
     """A voice call ringing on a channel account. Audio is 16-bit little-endian mono PCM at
     `rate_hz`, in 10 ms frames both ways."""
@@ -99,7 +107,10 @@ class IncomingCall(Protocol):
         """The call is over (the caller hung up), answered or not."""
         ...
 
-    async def answer(self) -> None: ...
+    async def answer(self) -> None:
+        """Picks up. Raises CallGone when the caller is gone, CallAnswerTimeout when the
+        connection was never confirmed; anything else is a transport failure."""
+        ...
 
     def frames(self) -> AsyncIterator[bytes]:
         """The caller's audio until the call ends (either side hangs up)."""

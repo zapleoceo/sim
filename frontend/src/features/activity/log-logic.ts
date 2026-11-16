@@ -13,6 +13,7 @@ export const KIND_LABELS: Record<TraceKind, string> = {
   send: 'Отправка',
   partner: 'Партнёр',
   watch: 'Контроль ответов',
+  call: 'Звонок',
 };
 export const KINDS = Object.keys(KIND_LABELS) as TraceKind[];
 
@@ -216,6 +217,7 @@ const DETAIL_LABELS: Record<string, string> = {
   window_min: 'Окно ответа, мин',
   waiting_s: 'Ждёт ответа, с',
   threshold_s: 'Порог, с',
+  steps: 'Шаги',
 };
 
 /** Small, safe detail values for the trace panel, with Russian labels (objects and empty values are skipped). */

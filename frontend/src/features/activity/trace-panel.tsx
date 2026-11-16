@@ -135,7 +135,7 @@ function StepItem({ step, total }: { step: TraceTimelineStep; total: number }) {
           {pairs.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-muted-foreground">{k}</dt>
-              <dd className="[overflow-wrap:anywhere]">{v}</dd>
+              <dd className="whitespace-pre-line [overflow-wrap:anywhere]">{v}</dd>
             </div>
           ))}
         </dl>
