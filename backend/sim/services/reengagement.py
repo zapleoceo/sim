@@ -174,14 +174,14 @@ class ReengagementService:
                           + "\nПосле прошлого контакта человек не ответил. Оцени контекст заново, "
                           "но не отправляй ещё сообщение: reply пустой, send_at null. "
                           "Передача оператору и отказ от контакта по-прежнему допустимы.")
-        base_ctx, feedback = ctx, ""
-        for attempt in range(2):
+        base_ctx, feedback, previous_draft = ctx, "", ""
+        for _attempt in range(2):
             now = self.clock()
             ctx = replace(base_ctx, now=now, persona_facts=persona_facts(
                 persona.birth_date, persona.timezone, now, persona.routine))
             prompt = await conversation.prompt(persona, strategy, history, ctx, whole_history=True)
             if feedback:
-                prompt = [*prompt, {"role": "assistant", "content": result.text[:4000]},
+                prompt = [*prompt, {"role": "assistant", "content": previous_draft},
                           {"role": "system", "content": "Контролёр отклонил черновик: " + feedback
                            + ". Пересоздай полный JSON, включая send_at, plan_reason и управляющие поля."}]
             decision, result = await conversation.ask(prompt, persona, workflow="reengagement", dialog_id=dialog_id)
@@ -209,6 +209,7 @@ class ReengagementService:
                 guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
             if guard is None or guard.allowed:
                 break
+            previous_draft = result.text[:4000]
             feedback = one_line("; ".join(guard.violations) or "Решение отклонено", 500)
         await lock(self.session, NS_DIALOG, dialog_id)
         dialog = await conversation.reload(dialog_id)
