@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 
 import pytest
@@ -371,10 +372,11 @@ def test_guard_checks_only_the_critical_rules():
     for rule in ("пароли, коды из SMS и данные карт", "Никаких ссылок, кроме", "гарантированного дохода",
                  "просьбу не писать"):
         assert rule in system
-    assert "не должен утверждать, что персонаж человек" not in system
-    # everything else is the persona's freedom
-    for gone in ("медицинских", "политики", "выдуманных фактов", "мата", "без вопроса сам говорит, что он ИИ"):
+    assert "Нельзя выдавать себя за реального человека" in system
+    # Ordinary style remains free; match profanity as a word, not inside "формата".
+    for gone in ("медицинских", "политики", "выдуманных фактов", "без вопроса сам говорит, что он ИИ"):
         assert gone not in system
+    assert re.search(r"\bмата\b", system) is None
     assert "ВСЁ ОСТАЛЬНОЕ НЕ НАРУШЕНИЕ" in system and "широкая свобода" in system
     assert "Не исправляй черновик ради согласованности с прошлыми репликами" in system
 
