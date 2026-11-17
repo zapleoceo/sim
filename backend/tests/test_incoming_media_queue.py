@@ -11,7 +11,11 @@ from sim.ports.llm import LLMError
 from sim.services import jobkinds
 from sim.services.app_settings import AppSettingsService
 from sim.services.incoming_media import IncomingMedia
-from sim.services.media_recognition import DEFAULT_MODEL, MAX_FILE_BYTES, SubscriptionMediaRecognizer
+from sim.services.media_recognition import (
+    DEFAULT_MODEL,
+    MAX_FILE_BYTES,
+    SubscriptionMediaRecognizer,
+)
 from sim.worker.handlers import HANDLERS
 from sim.worker.loop import Worker
 from tests.conftest import inbound
@@ -74,6 +78,46 @@ async def test_disabled_does_not_queue_new_document(container, world):
     res = await ingest(container, world.channel.id, inbound("caption", ext="off", media_kind="document", media_url="tg-file:d"))
     assert res.message.media_status is None
     assert await jobs_of(container, jobkinds.MEDIA) == []
+
+
+@pytest.mark.parametrize("kind", ["image", "video"])
+async def test_image_and_video_queue_use_images_not_raw_audio(container, world, connector, fake_llm, monkeypatch, kind):
+    await enable(container, connector, fake_llm, monkeypatch)
+    jpeg = b"\xff\xd8\xff\xdbsynthetic"
+    connector.port.download_media_bounded.return_value = jpeg
+    monkeypatch.setattr("sim.services.media_recognition.sample_video", AsyncMock(return_value=[jpeg] * 5))
+    res = await ingest(container, world.channel.id, inbound("Подпись", ext="media", media_kind=kind, media_url="tg-file:m"))
+    await run_media(container)
+    async with container.factory() as s:
+        m = await s.get(Message, res.message.id)
+        assert m.media_status == "done"
+        if kind == "video":
+            assert "звук не распознан" in m.text
+    content = fake_llm.calls[0][0][1]["content"]
+    assert sum(part["type"] == "image_url" for part in content) == (5 if kind == "video" else 1)
+
+
+async def test_disable_before_execution_never_falls_back(container, world, connector, fake_llm, monkeypatch):
+    await enable(container, connector, fake_llm, monkeypatch)
+    res = await ingest(container, world.channel.id, inbound("", ext="disabled", media_kind="voice", media_url="tg-file:a"))
+    async with transaction(container.factory) as s:
+        await AppSettingsService(s).set("incoming_media_subscription", 0, None)
+    await run_media(container)
+    async with container.factory() as s:
+        m = await s.get(Message, res.message.id)
+        assert m.media_status == "unsupported" and m.media_reason == "disabled"
+    assert not fake_llm.calls and not connector.port.download_media_bounded.called
+
+
+async def test_deleted_message_is_not_recreated(container, world, connector, fake_llm, monkeypatch):
+    await enable(container, connector, fake_llm, monkeypatch)
+    res = await ingest(container, world.channel.id, inbound("", ext="deleted", media_kind="document", media_url="tg-file:d"))
+    async with transaction(container.factory) as s:
+        await s.delete(await s.get(Message, res.message.id))
+    await run_media(container)
+    async with container.factory() as s:
+        assert await s.get(Message, res.message.id) is None
+    assert not fake_llm.calls
 
 
 async def test_failure_is_explicit_and_not_handoff(container, world, connector, fake_llm, monkeypatch):
