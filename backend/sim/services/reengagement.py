@@ -49,7 +49,8 @@ def signature(dialog: Dialog, persona: Persona) -> str:
     c = dialog.client
     values = [c.persona_id, c.status.value, c.no_followups, c.passport, c.needs, c.notes,
               c.next_step, c.stage.value, persona.routine, persona.timezone,
-              persona.model, persona.is_active, persona.language, persona.agent_prompt,
+              persona.model, persona.identity_model, persona.fallback_model,
+              persona.is_active, persona.language, persona.agent_prompt,
               str(persona.birth_date), persona.strategy_id, c.display_name, str(c.next_step_at),
               dialog.ai_paused, dialog.needs_operator, dialog.channel.status.value,
               dialog.channel.session_enc]

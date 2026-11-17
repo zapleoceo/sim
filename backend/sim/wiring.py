@@ -31,6 +31,7 @@ from sim.services.ai_pause import AiPauseService
 from sim.services.analytics import AnalyticsService
 from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.auth import AuthService, LoginRateLimiter
+from sim.services.broker_requests import BrokerRequests
 from sim.services.calls import CallService
 from sim.services.channels import ChannelService
 from sim.services.content import ContentPublisher, ContentService
@@ -239,20 +240,23 @@ class Container:
 def build_container(settings: Settings, *, registry: Registry | None = None) -> Container:
     track_dialog_changes()      # every process that writes dialogs announces the change (live inbox)
     engine = make_engine(settings.database_url)
+    factory = make_session_factory(engine)
+    box = make_box(settings)
     broker = BrokerLLM(
         settings.broker_url,
         settings.broker_project_key,
         poll_budget_s=settings.broker_poll_budget_s,
         subscription_budget_s=settings.broker_subscription_budget_s,
         video_budget_s=settings.broker_video_budget_s,
+        requests=BrokerRequests(factory, box),
     )
     return Container(
         settings=settings,
         engine=engine,
-        factory=make_session_factory(engine),
+        factory=factory,
         llm=broker,
         registry=registry if registry is not None else default_registry(),
-        box=make_box(settings),
+        box=box,
         media=MediaStore(settings.media_dir),
         speech=broker,   # the same Broker client serves LLMPort, SpeechPort, VideoPort and ImagePort
         video=broker,

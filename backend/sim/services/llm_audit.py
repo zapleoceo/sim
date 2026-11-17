@@ -54,6 +54,8 @@ class AuditedLLM:
         dialog_id: int | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        recovery_key: str | None = None,
+        retry_terminal: bool = True,
     ) -> LLMResult:
         started_at, start = self.clock(), time.perf_counter()
         try:
@@ -65,6 +67,8 @@ class AuditedLLM:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 workflow=workflow or None,
+                **({"recovery_key": recovery_key} if recovery_key is not None else {}),
+                **({"retry_terminal": False} if not retry_terminal else {}),
             )
         except LLMError as exc:
             call = LlmCall(

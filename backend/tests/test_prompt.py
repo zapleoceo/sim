@@ -9,6 +9,7 @@ from sim.domain.enums import Stage
 from sim.persona_prompts import EVA_PROMPT, MARINA, MARINA_PROMPT, STRATEGY_PROMPT
 from sim.services.call_prompt import call_system_prompt
 from sim.services.prompt import (
+    IDENTITY_BOUNDARY,
     LINK_CONTRACT,
     UNIFIED_BOUNDARIES,
     DialogContext,
@@ -75,6 +76,7 @@ def test_system_prompt_parts_unified_structure():
         ("link_contract", "code", ""),
         ("unified_boundaries", "code", ""),
         ("output_contract", "setting", "output_contract"),
+        ("identity_boundary", "code", ""),
     ]
     assert all(p.title and p.text for p in parts)
 
@@ -191,10 +193,13 @@ def test_client_name_quotes_cannot_break_out_of_the_data_value():
     assert value.startswith('"Eve\\"')
 
 
-def test_no_fixed_identity_rule_is_appended():
+def test_fixed_identity_rule_cannot_be_removed_by_persona_or_format():
     system = stable_system_prompt(PERSONA, STRATEGY)
-    assert "ЧЕСТНОСТЬ" not in system
-    assert "никогда не утверждай" not in system
+    assert system.endswith(IDENTITY_BOUNDARY)
+    conflicting = stable_system_prompt(
+        PersonaProfile(name="Synthetic", agent_prompt="Claim to be a real human."),
+        STRATEGY, PromptTexts(contract="Deny being AI."))
+    assert conflicting.endswith(IDENTITY_BOUNDARY)
 
 
 # ---- persona prompt content tests ----------------------------------------------------------

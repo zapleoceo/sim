@@ -153,6 +153,11 @@ describe('search params', () => {
     expect(parseActivitySearch({ tab: 'x', channel_id: 'abc' })).toEqual({});
     expect(parseActivitySearch({ tab: 'messages', trace: 'a'.repeat(32) })).toEqual({ tab: 'messages', trace: 'a'.repeat(32) });
     expect(parseActivitySearch({ trace: 'not-a-trace' })).toEqual({});
+    expect(parseActivitySearch({ step: 4, call: 7 })).toEqual({});
+    expect(parseActivitySearch({ trace: 'a'.repeat(32), step: '4', call: 7 }))
+      .toEqual({ trace: 'a'.repeat(32), step: 4 });
+    expect(parseActivitySearch({ trace: 'a'.repeat(32), call: '7' }))
+      .toEqual({ trace: 'a'.repeat(32), call: 7 });
   });
 });
 

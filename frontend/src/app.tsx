@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { ConfirmProvider } from './components/confirm';
 import { TooltipProvider } from './components/ui/tooltip';
+import { SettingsDraftUnloadGuard } from './features/settings/draft-unload-guard';
 import { titleFor, type createAppRouter } from './router';
 import { useTheme } from './lib/theme';
 
@@ -22,6 +23,7 @@ export function App({ router, queryClient }: { router: ReturnType<typeof createA
   );
   return (
     <QueryClientProvider client={queryClient}>
+      <SettingsDraftUnloadGuard />
       <TooltipProvider delayDuration={300}>
         <ConfirmProvider>
           <RouterProvider router={router} />

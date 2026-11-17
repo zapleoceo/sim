@@ -22,7 +22,10 @@ def video_note_args(src: str, dst: str) -> tuple[str, ...]:
     side = VIDEO_NOTE_SIDE
     return (
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src,
-        "-vf", f"crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side},setsar=1",
+        "-vf", f"crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side},setsar=1,"
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+        "text='AI generated':fontsize=18:fontcolor=white:box=1:boxcolor=black@0.8:"
+        "boxborderw=5:x=(w-tw)/2:y=h*0.72",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "64k", "-ac", "1",
         "-t", str(VIDEO_NOTE_MAX_S), "-movflags", "+faststart", dst,

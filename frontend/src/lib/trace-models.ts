@@ -33,6 +33,7 @@ export interface TraceStep {
   job_id: number | null;
   message_id: number | null;
   llm_call_id: number | null;
+  llm?: TraceLlmUsage;
 }
 
 export interface TraceLogPage {
@@ -44,6 +45,7 @@ export interface TraceLogPage {
 }
 
 export interface TraceLlmUsage {
+  workflow?: string;
   model: string | null;
   provider: string | null;
   tokens_in: number | null;
@@ -68,7 +70,6 @@ export interface TraceTimelineStep extends TraceStep {
   request_body?: TraceRequestBody | null;
   offset_ms: number;
   in_trace: boolean;
-  llm?: TraceLlmUsage;
 }
 
 export interface TraceDetail {

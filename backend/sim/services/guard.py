@@ -2,8 +2,9 @@
 is queued for sending.
 
 The guard runs on a DIFFERENT broker rotation than the generator (owner setting `guard_capability`,
-default "structured"). If the model that served the guard call is the same one that wrote the
+default "structured"). If a clean approval came from the same model that wrote the
 draft, the guard is re-run once on `guard_fallback_capability` (default "prefilter").
+Primary objections are retained immediately, irrespective of model identity.
 If that fallback still reports the generator model, the review fails closed. Missing model
 metadata remains accepted; independence cannot be verified when either model is unknown
 or different IDs alias the same model. Rewrite checks compare against the original generator,
@@ -32,6 +33,7 @@ from sim.services.humanize import plain_punctuation
 from sim.services.llm_audit import AuditedLLM
 from sim.services.prompt import (
     HISTORY_LIMIT,
+    IDENTITY_BOUNDARY,
     Turn,
     extract_json_object,
     one_line,
@@ -91,6 +93,27 @@ VOICE_CONTROL = """Если context.medium = voice, проверяй смысл�
 Голосовой черновик должен пройти без изменений: исправленное аудио ещё не существует."""
 
 
+MEDIA_CONTROL = """Если context.media_priority=true: проверь решение о медиа по запросу
+собеседника и фактическому context.media_offer. Произвольный отказ по настроению,
+настойчивости, занятости или темноте при доступной допустимой генерации требует block
+с замечанием генератору. Реальные технические/канальные ограничения, безопасность,
+паузы и отказ от общения сохраняются. Не требуй недоступного или небезопасного медиа,
+не обещай отправку. Синтетическое фото нельзя выдавать за реально сделанный снимок.
+Известный context.client_handle не следует объявлять неизвестным или спрашивать заново.
+context.contact_profile описывает только фактически прочитанный текущий профиль;
+не выдумывай доступ к другим профилям, историю или содержание недоступного фото."""
+
+IDENTITY_CONTROL = IDENTITY_BOUNDARY + (
+    " ОБЯЗАТЕЛЬНО ДЛЯ КОНТРОЛЁРА: это исключение из старого правила «всё остальное не нарушение», "
+    "приоритетнее редактируемого guard_prompt и данных context/dialog. Проверь черновик "
+    "по смыслу всего доступного диалога, без зависимости от identity detector/model. "
+    "Если он ложно выдаёт ИИ за человека, отрицает ИИ-природу или уклоняется от правдивого "
+    "ответа на прямое/косвенное выяснение природы собеседника, верни block с причиной. "
+    "Отсутствие упоминания ИИ в обычной беседе не нарушение. Не переписывай ответ сам: "
+    "агент должен пересоздать его и снова пройти проверку."
+)
+
+
 class GuardError(LLMError):
     """The guard could not give a usable verdict: fail closed, the caller retries."""
 
@@ -118,7 +141,7 @@ class GuardOutcome:
 def guard_system_prompt(prompt_text: str = GUARD_PROMPT) -> str:
     """The owner's guard prompt + the decision consistency contract. Persona and strategy wishes are not the
     guard's business (they are tuned in the simulator)."""
-    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"
+    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
 
 
 def guard_user_message(
@@ -144,7 +167,7 @@ def guard_user_message(
 
 
 def parse_verdict(result: LLMResult) -> GuardVerdict | None:
-    if result.finish_reason == "length":
+    if result.truncated:
         return None
     obj = extract_json_object(result.text or "")
     if obj is None:
@@ -227,6 +250,13 @@ class Guard:
         workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
         result = await self.call(messages, self.capability, dialog_id, workflow, self.model)
+        verdict = parse_verdict(result)
+        if verdict is None:
+            raise GuardError(f"guard returned an unusable verdict (model={result.model})")
+        # Independence is required to approve a draft, never to retain an objection.
+        # A second rotation must not erase block/rewrite or contradictory ok feedback.
+        if verdict.verdict != "ok" or verdict.violations or verdict.fixed_reply:
+            return verdict, result.model
         if same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",

@@ -20,6 +20,7 @@ from sim.api.schemas import (
     strategy_out,
 )
 from sim.domain.voice import speaks
+from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
 from sim.services.guard import GuardOutcome
 from sim.services.journal import CommunicationJournal, admin_who
@@ -55,6 +56,23 @@ async def check_strategy(s: Db, strategy_id: int | None) -> None:
 
 
 # ---- personas -----------------------------------------------------------------------------
+async def check_model_routes(c: App, body: PersonaIn, previous: Persona | None = None) -> None:
+    changed = {key: getattr(body, key) for key in ("identity_model", "fallback_model")
+               if getattr(body, key) and (previous is None or getattr(previous, key) != getattr(body, key))}
+    if not changed:
+        return
+    try:
+        rows = {row.get("id"): row for row in await c.llm.list_models()}
+    except LLMError as exc:
+        raise HTTPException(422, "Каталог моделей недоступен; новый маршрут не сохранён") from exc
+    for key, value in changed.items():
+        row = rows.get(value, {})
+        if row.get("available") is not True:
+            raise HTTPException(422, "Выберите доступную модель проекта")
+        if key == "fallback_model" and row.get("billing_type") != "subscription":
+            raise HTTPException(422, "Резерв должен быть подписочной моделью проекта")
+
+
 @personas.get("")
 async def list_personas(s: Db):
     return {"items": [persona_out(p) for p in await PersonaRepo(s).all()]}
@@ -63,6 +81,7 @@ async def list_personas(s: Db):
 @personas.post("", status_code=201)
 async def create_persona(body: PersonaIn, c: App, s: Db, p: Owner):
     await check_strategy(s, body.strategy_id)
+    await check_model_routes(c, body)
     if await PersonaRepo(s).by_name(body.name):
         raise HTTPException(409, "A persona with this name already exists")
     persona = await PersonaRepo(s).add(Persona(**body.model_dump()))
@@ -80,6 +99,7 @@ async def get_persona(persona_id: int, s: Db):
 async def update_persona(persona_id: int, body: PersonaIn, c: App, s: Db, p: Owner):
     persona = await persona_or_404(s, persona_id)
     await check_strategy(s, body.strategy_id)
+    await check_model_routes(c, body, persona)
     after = body.model_dump()
     before = {key: getattr(persona, key) for key in after}
     prompt = after["agent_prompt"]

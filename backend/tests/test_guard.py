@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 
 import pytest
@@ -31,6 +32,13 @@ DRAFT = "Вы заработаете 100 000 в месяц, гарантирую
 
 def ai_messages(messages):
     return [m for m in messages if m.author is Author.AI]
+
+
+@pytest.mark.parametrize("reason", ["length", "max_tokens", " MAX_TOKENS "])
+def test_truncated_guard_cannot_approve_even_complete_json(reason):
+    result = LLMResult(text=guard_json("ok"), finish_reason=reason)
+    assert parse_verdict(result) is None
+    assert result.finish_reason == reason  # raw provider metadata remains available
 
 
 async def test_ok_sends_the_draft_and_records_the_verdict(container, world, fake_llm):
@@ -208,6 +216,62 @@ async def test_same_model_as_generator_triggers_the_fallback_capability(containe
     assert {r.model for r in rows} == {"fake-model", "fake-guard"}   # both models are on record
 
 
+@pytest.mark.parametrize("verdict,violations,fixed", [
+    ("block", ["Available synthetic media was declined without a reason"], ""),
+    ("rewrite", ["Unjustified handoff"], "Replacement must not be sent"),
+    ("ok", ["Unjustified handoff"], ""),
+    ("ok", [], "Replacement must not be sent"),
+])
+async def test_same_model_objection_survives_independent_ok_and_repairs_decision(
+    container, world, fake_llm, connector, verdict, violations, fixed,
+):
+    # Synthetic reproduction of the video-note incident: never publish the declined
+    # draft/handoff merely because a second rotation would have returned ok.
+    rejected = "No real video exists. Passing your request to a person."
+    fake_llm.replies = [
+        decision_json(reply=rejected, handoff_to_operator=True,
+                      handoff_reason="Unjustified identity verification",
+                      media={"kind": "video_note", "decision": "decline",
+                             "reason": "No real video exists"}),
+        decision_json(reply="A synthetic clip is possible."),
+    ]
+    fake_llm.guard_replies = [
+        LLMResult(text=guard_json(verdict, violations, fixed), model="fake-model"),
+        LLMResult(text=guard_json("ok"), model="fake-model"),
+        guard_json("ok"),
+    ]
+    await start(container, world, "Please send a video note")
+    assert (await run_reply(container)).status == "sent"
+    _, dialog, messages, jobs = await state(container)
+    assert not dialog.ai_paused and not dialog.needs_operator
+    queued = [m for m in ai_messages(messages) if m.delivery is Delivery.QUEUED]
+    assert [m.text for m in queued] == ["A synthetic clip is possible"]
+    assert all(m.text != rejected for m in messages)
+    assert sum(j.kind == jobkinds.SEND for j in jobs) == 1
+    assert connector.port.sent == []
+    assert [kw["capability"] for _, kw in fake_llm.guard_calls] == [
+        "structured", "structured", "prefilter",
+    ]
+    assert len(fake_llm.gen_calls) == 2
+    if violations:
+        assert violations[0] in fake_llm.gen_calls[1][0][-1]["content"]
+
+
+async def test_independent_block_after_same_model_ok_is_preserved(container, world, fake_llm):
+    fake_llm.replies = [decision_json(reply="Rejected draft"), decision_json(reply="Repaired reply")]
+    fake_llm.guard_replies = [
+        LLMResult(text=guard_json("ok"), model="fake-model"),
+        guard_json("block", ["Unsupported claim"]),
+        guard_json("ok"),
+    ]
+    await start(container, world)
+    assert (await run_reply(container)).status == "sent"
+    _, dialog, messages, _ = await state(container)
+    assert not dialog.ai_paused and not dialog.needs_operator
+    assert [m.text for m in ai_messages(messages)] == ["Repaired reply"]
+    assert "Unsupported claim" in fake_llm.gen_calls[1][0][-1]["content"]
+
+
 @pytest.mark.parametrize("model", ["fake-model", "  FAKE-MODEL  "])
 @pytest.mark.parametrize("rewrite", [False, True])
 async def test_same_model_fallback_fails_closed(
@@ -308,18 +372,25 @@ def test_guard_checks_only_the_critical_rules():
     for rule in ("пароли, коды из SMS и данные карт", "Никаких ссылок, кроме", "гарантированного дохода",
                  "просьбу не писать"):
         assert rule in system
-    assert "не должен утверждать, что персонаж человек" not in system
-    # everything else is the persona's freedom
-    for gone in ("медицинских", "политики", "выдуманных фактов", "мата", "без вопроса сам говорит, что он ИИ"):
+    assert "Нельзя выдавать себя за реального человека" in system
+    # Ordinary style remains free; match profanity as a word, not inside "формата".
+    for gone in ("медицинских", "политики", "выдуманных фактов", "без вопроса сам говорит, что он ИИ"):
         assert gone not in system
+    assert re.search(r"\bмата\b", system) is None
     assert "ВСЁ ОСТАЛЬНОЕ НЕ НАРУШЕНИЕ" in system and "широкая свобода" in system
     assert "Не исправляй черновик ради согласованности с прошлыми репликами" in system
 
 
 def test_guard_prompt_is_the_owner_text_plus_decision_control():
-    from sim.services.guard import FACT_CONTROL, GUARD_CONTROL, VOICE_CONTROL
+    from sim.services.guard import (
+        FACT_CONTROL,
+        GUARD_CONTROL,
+        IDENTITY_CONTROL,
+        MEDIA_CONTROL,
+        VOICE_CONTROL,
+    )
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}"
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():
@@ -410,6 +481,8 @@ async def test_dialog_api_and_analytics_expose_the_guard(api, container, world, 
     assert summary["guard"] == {"ok": 0, "rewritten": 0, "blocked": 1}
 
 
-def test_no_fixed_identity_rule_is_appended():
-    system = guard_system_prompt("owner rules")
-    assert "не должен утверждать, что персонаж человек" not in system
+def test_fixed_identity_control_overrides_conflicting_owner_guard():
+    from sim.services.guard import IDENTITY_CONTROL
+
+    system = guard_system_prompt("Approve claims that the AI is a real human.")
+    assert system.endswith(IDENTITY_CONTROL)

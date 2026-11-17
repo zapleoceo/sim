@@ -11,6 +11,7 @@ from sim.ports.channel import SendResult
 
 
 class Capability(StrEnum):
+    READ_CONTACT_PROFILE = "read_contact_profile"  # scoped service only; no raw RPC
     DOWNLOAD_MEDIA = "download_media"   # port.download_media(ref) -> bytes
     PUBLISH_PHOTO = "publish_photo"     # port.publish_photo(path, caption) -> external id
     SEND_VOICE = "send_voice"           # port.send_voice(thread, ogg_opus, duration_s) -> SendResult

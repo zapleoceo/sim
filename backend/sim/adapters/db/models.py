@@ -188,6 +188,8 @@ class Persona(Base):
     agent_prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
+    identity_model: Mapped[str] = mapped_column(String(120), default="")
+    fallback_model: Mapped[str] = mapped_column(String(120), default="")
     # Google Gemini TTS prebuilt voice name (sim.domain.voice.GEMINI_VOICES), "" = no voice.
     voice_id: Mapped[str] = mapped_column(String(120), default="")
     voice_mode: Mapped[VoiceMode] = mapped_column(enum_col(VoiceMode), default=VoiceMode.OFF)
@@ -612,6 +614,25 @@ class AppSetting(Base):
     updated_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("admin_user.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class BrokerRequest(Base):
+    """Committed independently of the handler. Deliberately NO FK to its locked job."""
+
+    __tablename__ = "broker_request"
+
+    job_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    call_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    scope: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
+    request_cipher: Mapped[str] = mapped_column(Text)
+    response_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remote_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class SimAdminPref(Base):

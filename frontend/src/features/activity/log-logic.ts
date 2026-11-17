@@ -17,6 +17,17 @@ export const KIND_LABELS: Record<TraceKind, string> = {
 };
 export const KINDS = Object.keys(KIND_LABELS) as TraceKind[];
 
+const AGENT_LABELS: Record<string, string> = {
+  reply: 'Ответ в диалоге', followup: 'Продолжение диалога', reengagement: 'Возобновление диалога',
+  guard: 'Контролёр', passport: 'Паспортистка', summary: 'Саммари',
+  voice: 'Голос', voice_guard: 'Контролёр голоса', content: 'Контент',
+};
+
+/** Only a recorded workflow identifies the role; actor is an execution process. */
+export function agentLabel(workflow: string | null | undefined): string {
+  return workflow ? (AGENT_LABELS[workflow] ?? workflow) : 'Роль не сохранена';
+}
+
 export const STATUS_LABELS: Record<TraceStatus, string> = {
   ok: 'Успешно',
   error: 'Ошибка',

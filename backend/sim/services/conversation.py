@@ -1,10 +1,12 @@
 """Conversation engine: dialog -> prompt -> broker -> JSON decision -> funnel + outbound."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -34,7 +36,9 @@ from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import MediaDecision
+from sim.services.model_routing import routed_chat, selected_model
 from sim.services.outbound import OutboundService, cancel_queued_ai
+from sim.services.owner_accounts import is_owner_account
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
 from sim.services.persona_media_tool import PersonaMediaTool
@@ -131,6 +135,13 @@ def with_persona_facts(persona: Persona, ctx: DialogContext) -> DialogContext:
     """Her exact age, local time and where she is now, computed by code for this moment."""
     return replace(ctx, persona_facts=persona_facts(
         persona.birth_date, persona.timezone, ctx.now, persona.routine))
+
+
+def recovery_context(ctx: DialogContext) -> DialogContext:
+    """Hash-only view: remove computed clock provenance, never user/profile data."""
+    return replace(ctx, now=datetime(2000, 1, 1), delay_note="",
+        contact_profile=(ctx.contact_profile_identity if ctx.contact_profile_identity is not None
+                         else ctx.contact_profile))
 
 
 def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
@@ -278,6 +289,7 @@ class ConversationService:
             stage=client.stage,
             status=client.status.value,
             client_name=client.display_name,
+            client_handle=client.handle or "",
             channel_kind=dialog.channel.kind.value,
             ref_code=client.ref_code,
             now=self.clock(),
@@ -337,7 +349,9 @@ class ConversationService:
             workflow=guard_workflow,
             trusted_facts={"now_utc": ctx.now.isoformat() + "Z", "persona_facts": ctx.persona_facts},
             context={"medium": medium, "passport": ctx.passport, "summary": ctx.summary, "journal": ctx.journal,
-                     "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step},
+                     "needs": ctx.needs, "notes": ctx.notes, "next_step": ctx.next_step,
+                     "client_handle": ctx.client_handle, "contact_profile": ctx.contact_profile,
+                     "media_priority": ctx.media_priority, "media_offer": ctx.media},
         )
 
     async def ask(
@@ -347,28 +361,37 @@ class ConversationService:
         *,
         workflow: str,
         dialog_id: int | None,
+        recovery_key: str | None = None,
+        model: str | None = None,
     ) -> tuple[Decision | None, LLMResult]:
         """One model call, plus ONE retry when the JSON is unusable."""
-        result = await self.llm.chat(
+        result = await routed_chat(
+            self.llm,
             messages,
             capability="chat:sales",
-            model=persona.model or None,
+            model=model or persona.model or None,
+            fallback_model=persona.fallback_model or "",
             json_mode=True,
             workflow=workflow,
             dialog_id=dialog_id,
+            recovery_key=recovery_key,
         )
         decision = self.usable_decision(result, workflow, dialog_id)
         if decision is None:
             log.warning("unusable decision (workflow=%s dialog=%s), retrying", workflow, dialog_id)
             nudge = (await self.config()).prompt_texts().retry_nudge
             retry = [*messages, {"role": "system", "content": nudge}]
-            result = await self.llm.chat(
+            result = await routed_chat(
+                self.llm,
                 retry,
                 capability="chat:sales",
-                model=persona.model or None,
+                model=model or persona.model or None,
+                fallback_model=persona.fallback_model or "",
                 json_mode=True,
                 workflow=workflow,
                 dialog_id=dialog_id,
+                recovery_key=(hashlib.sha256(f"{recovery_key}\0{nudge}".encode()).hexdigest()
+                              if recovery_key else None),
             )
             decision = self.usable_decision(result, workflow, dialog_id)
         return decision, result
@@ -438,7 +461,11 @@ class ConversationService:
             # What she may attach to this reply (or that she must not promise any media) and
             # what she already decided about media in this dialog.
             offer = await self.media_tool.offer(dialog, persona, port)
-            ctx = replace(ctx, media=await self.media_tool.context(dialog, persona, offer))
+            cfg = await self.config()
+            ctx = replace(ctx, media=await self.media_tool.context(dialog, persona, offer),
+                          media_priority=is_owner_account(dialog, cfg.media_priority_telegram_ids))
+        if not followup:
+            ctx = await self.contact_context(dialog, persona, ctx, port, last.text)
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
         if not followup:
@@ -471,6 +498,15 @@ class ConversationService:
         voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
+
+    async def contact_context(self, dialog, persona, ctx, port, request):
+        from sim.services.contact_profile import CurrentContactProfile  # noqa: PLC0415
+
+        cfg = await self.config()
+        result = await CurrentContactProfile(self.session, self.llm, clock=self.clock).read(
+            dialog, port, request, channel_id=cfg.contact_profile_channel_id, model=persona.model or "")
+        return replace(ctx, contact_profile=result.text, contact_photo=result.photo,
+                       contact_profile_identity=result.identity_text)
 
     async def paused(self, dialog_id: int) -> ReplyOutcome:
         """The reply job met a paused dialog. Nothing is created (the pause stops the AI); when
@@ -622,9 +658,20 @@ class ConversationService:
         bookkeeping. `history` ends with the client's latest message."""
         ctx = with_persona_facts(persona, ctx)
         prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
+        # This canonical prompt is ONLY an operation identity, never sent to an LLM.
+        # Clock changes alone must not re-purchase an accepted generator response.
+        stable_prompt = await self.prompt(persona, strategy, history,
+            recovery_context(ctx), whole_history=whole_history)
+        dialog = await self.dialogs.get(dialog_id) if dialog_id is not None else None
+        identity = {"persona_id": persona.id, "timezone": persona.timezone,
+                    "birth_date": str(persona.birth_date), "routine": persona.routine,
+                    "dialog_revision": dialog.activity_revision if dialog is not None else None}
         rejection = ""
         for attempt in range(2):
-            decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id)
+            key = hashlib.sha256(json.dumps({**identity, "messages": stable_prompt},
+                sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id,
+                                              recovery_key=key, model=selected_model(persona, history))
             guard: GuardOutcome | None = None
             if decision is not None and decision.reply:
                 review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
@@ -640,13 +687,16 @@ class ConversationService:
                 feedback = one_line(rejection, 500)
                 ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
-                prompt = [
-                    *prompt,
+                stable_prompt = await self.prompt(persona, strategy, history,
+                    recovery_context(ctx), whole_history=whole_history)
+                repair = [
                     {"role": "assistant", "content": result.text[:4000]},
                     {"role": "system", "content":
                      "Контролёр отклонил черновик: " + feedback +
                      ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
                 ]
+                prompt = [*prompt, *repair]
+                stable_prompt = [*stable_prompt, *repair]
         return Draft(decision, result, guard, rejection)
 
     async def preview(

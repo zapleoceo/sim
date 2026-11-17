@@ -19,6 +19,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parent
 sys.path.insert(0, str(BACKEND))
+from broker_reconciliation_smoke import broker_reconciliation_checks  # noqa: E402
+from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
+
 from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
 from sim.adapters.db.session import make_session_factory, transaction  # noqa: E402
 from sim.clock import utcnow  # noqa: E402
@@ -101,7 +104,29 @@ async def schema_and_concurrency(url):
                 raise AssertionError("stale claim completed a job")
             if await repo.complete(job_id, now, claim_attempt=1) is not True:
                 raise AssertionError("current claim could not complete a job")
-        print("PostgreSQL schema, send-intent contention, SKIP LOCKED and claim fence PASS")
+        async with transaction(factory) as session:
+            recovery = await JobRepo(session).enqueue("recovery_smoke", {}, now)
+            recovery_id = recovery.id
+        async with transaction(factory) as session:
+            [first] = await JobRepo(session).claim(now, 90, 1)
+            assert first.id == recovery_id
+        async with factory() as owner:
+            assert await JobRepo(owner).lock_attempt(recovery_id, 1) is not None
+            async with transaction(factory) as competitor:
+                assert await JobRepo(competitor).claim(now + timedelta(seconds=91), 90, 1) == []
+                assert await JobRepo(competitor).lock_attempt(recovery_id, 1) is None
+            await owner.rollback()  # process loss also releases transaction locks
+        async with transaction(factory) as session:
+            [second] = await JobRepo(session).claim(now + timedelta(seconds=91), 90, 1)
+            assert second.id == recovery_id and second.attempts == 2
+        async with transaction(factory) as session:
+            repo = JobRepo(session)
+            assert await repo.lock_attempt(recovery_id, 1) is None
+            assert await repo.lock_attempt(recovery_id, 2) is not None
+            assert await repo.complete(recovery_id, now, claim_attempt=2)
+        print("PostgreSQL schema, send-intent contention, execution lock and restart fence PASS")
+        await worker_recovery_checks(factory)
+        await broker_reconciliation_checks(factory)
     finally:
         await engine.dispose()
 

@@ -21,6 +21,7 @@ from sim.adapters.db.models import Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, Direction
+from sim.ports.llm import LLMError
 from sim.services.ai_media import history_text
 from sim.services.journal import MODEL_ACTOR, PASSPORT, CommunicationJournal, Who, changed_lines
 from sim.services.llm_audit import AuditedLLM
@@ -90,7 +91,11 @@ class PassportService:
         if not text:
             log.warning("passportist returned nothing for dialog %s", dialog_id)
             return False
-        new = text[:PASSPORT_MAX]
+        if result.truncated or len(text) > PASSPORT_MAX:
+            # Never replace a complete passport with an unfinished generated prefix.
+            # The job may retry; the last complete passport and timestamp stay intact.
+            raise LLMError("passport response incomplete or exceeds character limit")
+        new = text
         if new != (client.passport or ""):
             removed, added = changed_lines(client.passport or "", new)
             await CommunicationJournal(self.session, clock=self.clock).record_for_client(

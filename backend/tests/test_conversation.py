@@ -51,6 +51,15 @@ async def test_reply_applies_decision_and_queues_send_and_followup(container, wo
         assert call.cached_tokens == 50 and call.workflow == "reply" and call.dialog_id == dialog.id
 
 
+async def test_known_username_reaches_generation_and_guard(container, world, fake_llm):
+    await start(container, world)
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Client))).one().handle = "known_test_user"
+    await run_reply(container)
+    assert "known_test_user" in fake_llm.gen_calls[-1][0][-1]["content"]
+    assert "known_test_user" in fake_llm.guard_calls[-1][0][-1]["content"]
+
+
 async def test_prompt_sent_to_broker_has_expected_layout(container, world, fake_llm):
     await start(container, world, "Меня зовут Анна")
     await run_reply(container)

@@ -20,11 +20,24 @@ class LLMResult:
     finish_reason: str | None = None     # "stop" | "length" | ... as reported by the provider
     exchange: dict[str, Any] | None = None  # sanitized actual adapter payloads, not reconstructed
 
+    @property
+    def truncated(self) -> bool:
+        """Known provider token-limit endings; preserve the raw reason for audit."""
+        return (self.finish_reason or "").strip().lower() in {"length", "max_tokens"}
+
 
 class LLMError(Exception):
     """The broker answered with an error or the job did not finish in budget."""
 
     exchange: dict[str, Any] | None = None
+
+
+class LLMTerminalError(LLMError):
+    """Confirmed remote failure with structured Broker status/code, never a timeout."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        super().__init__(f"Broker job {data.get('status')}: {data.get('error')}")
+        self.data = data
 
 
 class LLMPort(Protocol):
@@ -38,6 +51,8 @@ class LLMPort(Protocol):
         max_tokens: int | None = None,
         temperature: float | None = None,
         workflow: str | None = None,
+        recovery_key: str | None = None,
+        retry_terminal: bool = True,
     ) -> LLMResult: ...
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult: ...

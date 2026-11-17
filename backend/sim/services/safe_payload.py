@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 LIMIT = 65536
+MEDIA_DATA = re.compile(r"data:[^;\s]+;base64,[A-Za-z0-9+/=_-]+", re.I)
 SECRET_KEY = re.compile(r"(?i)(authorization|headers|cookie|password|passwd|secret|api.?key|project.?key|private.?key|access.?token|refresh.?token|credential|session.?token|^(key|token|session)$)")
 PEM = re.compile(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", re.S)
 ASSIGNMENT = re.compile(r'''(?ix)(["']?\b(?:authorization|cookie|password|passwd|secret|token|key|api[_-]?key|project[_-]?key|access[_-]?token|refresh[_-]?token)["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)''')
@@ -72,6 +73,7 @@ def safe_payload(value: Any, *, secrets: tuple[str, ...] = ()) -> dict[str, Any]
             for secret in secrets:
                 if secret:
                     item = item.replace(secret, "[REDACTED]")
+            item = MEDIA_DATA.sub("[REDACTED MEDIA]", item)
             item = PEM.sub("[REDACTED PRIVATE KEY]", item)
             item = HEADER_LINE.sub("[REDACTED HEADER]", item)
             item = QUERY_SECRET.sub(r"\1[REDACTED]", item)

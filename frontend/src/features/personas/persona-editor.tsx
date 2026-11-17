@@ -33,7 +33,7 @@ const FIELD_SECTION: Record<keyof PersonaFormValues, SectionId> = {
   agent_prompt: 'prompt',
   routine: 'routine', language: 'voice',
   voice_mode: 'voice', voice_id: 'voice', voice_style: 'voice', voice_ambience: 'voice', accept_calls: 'voice',
-  model: 'strategy', strategy_id: 'strategy',
+  model: 'strategy', identity_model: 'strategy', fallback_model: 'strategy', strategy_id: 'strategy',
 };
 
 function sectionsWithErrors(errors: FieldErrors<PersonaFormValues>): SectionId[] {
@@ -132,6 +132,7 @@ export function PersonaEditor({
   const [model, name, avatarUrl, birthDate, strategyId] = useWatch({
     control, name: ['model', 'name', 'avatar_url', 'birth_date', 'strategy_id'],
   });
+  const [identityModel, fallbackModel] = useWatch({ control, name: ['identity_model', 'fallback_model'] });
 
   const strategyOptions: Option<number | null>[] = [
     { value: null, label: 'Не выбрана' },
@@ -265,8 +266,14 @@ export function PersonaEditor({
 
       <Section id="strategy" invalid={invalid.includes('strategy')} hint="Какая модель пишет ответы и по какому сценарию она ведёт разговор.">
         <FormGrid>
-          <Field label="Модель" hint={modelsUnavailable ? 'Список моделей недоступен — используется авто-цепочка' : undefined}>
+          <Field label="Основная модель" hint={modelsUnavailable ? 'Каталог недоступен; сохранённый выбор не изменён' : undefined}>
             <SelectControl control={control} name="model" options={modelOptions(models, model, PERSONA_AUTO)} />
+          </Field>
+          <Field label="Вопросы об ИИ" hint="Для вопросов о природе собеседника. Правдивое раскрытие ИИ и контролёр действуют при любом выборе.">
+            <SelectControl control={control} name="identity_model" options={modelOptions(models, identityModel, 'Основная модель')} />
+          </Field>
+          <Field label="Подписочный резерв" hint="Только после подтверждённой недоступности модели. Не используется при ожидании, неизвестном исходе, лимите бюджета или отказе доступа.">
+            <SelectControl control={control} name="fallback_model" options={modelOptions(models.filter((m) => m.subscription), fallbackModel, 'Выключен')} />
           </Field>
           <Field label="Стратегия" hint="Не выбрана: действует первая стратегия из списка">
             <SelectControl control={control} name="strategy_id" options={strategyOptions} />

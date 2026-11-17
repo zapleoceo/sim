@@ -50,7 +50,7 @@ jobs:
         working-directory: backend
         run: uv sync --frozen
       - name: Install local audio codec for offline tests
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - name: Build isolated nginx audit test tools
         run: docker build -f infra/nginx/Dockerfile.ci -t sim-nginx-audit-ci .
       - name: Isolated nginx TLS and audit regression
