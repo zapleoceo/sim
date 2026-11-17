@@ -57,8 +57,8 @@ export function SettingField({ item }: { item: AppSettingItem }) {
   const expanded = item.kind !== 'text' || open || dirty || hash === settingAnchor(item.key);
   const discard = (): void => { queryClient.setQueryData(draftKey, null); setError(''); };
   const setDraft = (value: string): void => {
-    queryClient.setQueryData<SettingDraft | null>(draftKey, value === String(item.value) ? null
-      : { value, base: stored.data?.base ?? String(item.value) });
+    queryClient.setQueryData<SettingDraft | null>(draftKey, (previous): SettingDraft | null =>
+      value === String(item.value) ? null : { value, base: previous?.base ?? String(item.value) });
     setError('');
   };
   const apply = (updated: AppSettingItem, message: string): void => {
