@@ -35,11 +35,17 @@ export function MediaControls({ state }: { state: StudioState }) {
   const allowed = historyReady && state.capabilities_verified === true &&
     (kind === 'speech' ? state.speech_available === true : state.video_available === true);
 
+  const remember = (next: StudioOperation) => {
+    setResult(next);
+    setHistory((previous) => [next, ...previous.filter((operation) =>
+      operation.operation_id !== next.operation_id)].slice(0, 50));
+  };
+
   const check = async (operationId: string) => {
     setBusy(true);
     try {
       const next = await studioApi.operation(operationId);
-      setResult(next);
+      remember(next);
       setNotice(next.status === 'complete' ? 'Результат сохранён.' :
         'Результат пока не подтверждён. Повторная генерация заблокирована.');
     } catch {
@@ -66,7 +72,7 @@ export function MediaControls({ state }: { state: StudioState }) {
     setBusy(true);
     try {
       const next = await studioApi.reconcile(id);
-      setResult(next);
+      remember(next);
       setNotice(next.status === 'complete' ? 'Результат сохранён.' : 'Результат не подтверждён. Новая генерация запрещена.');
     } catch { setNotice('Сверка недоступна. Исход неизвестен; повторная генерация запрещена.'); }
     finally { setBusy(false); }

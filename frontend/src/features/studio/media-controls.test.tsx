@@ -53,3 +53,18 @@ it('restores an unknown operation after remount without another submission or au
   await userEvent.click(screen.getByRole('button', { name: 'Проверить статус' }));
   expect(log.filter((request) => request.method === 'POST')).toHaveLength(0);
 });
+
+it('updates the history status when the restored operation completes', async () => {
+  const id = '00000000-0000-4000-8000-000000000002';
+  const operation = { operation_id: id, kind: 'video', status: 'unknown', artifact_url: null };
+  fakeApi({
+    'GET /api/studio': { ...state, personal_access: true },
+    'GET /api/studio/media': { operations: [operation] },
+    [`GET /api/studio/media/${id}`]: { ...operation, status: 'complete' },
+  });
+  await renderApp('/studio');
+  await userEvent.click(await screen.findByRole('button', { name: 'Проверить статус' }));
+  expect(await screen.findByText('Результат сохранён.')).toBeInTheDocument();
+  expect(screen.getByText(/Видео · Готово/)).toBeInTheDocument();
+  expect(screen.queryByText(/Видео · Исход неизвестен/)).not.toBeInTheDocument();
+});
