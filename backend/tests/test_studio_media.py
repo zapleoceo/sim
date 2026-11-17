@@ -6,7 +6,7 @@ import pytest
 from conftest import OWNER, login
 from sqlalchemy import select
 
-from sim.adapters.db.models import AdminUser
+from sim.adapters.db.models import AdminUser, TraceEvent
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoResult
 from sim.services.studio_media import (
@@ -99,6 +99,13 @@ async def test_disabled_api_and_private_status(api, container):
     state = (await api.get("/api/studio")).json()
     assert state["capabilities_verified"] is False
     assert state["speech_available"] is False and state["video_available"] is False
+    async with container.factory() as session:
+        events = list(await session.scalars(select(TraceEvent).where(
+            TraceEvent.name == "POST /api/studio/media")))
+        assert events
+        for event in events:
+            assert event.detail["request_body"] == {
+                "omitted": "Тело приватной медиаоперации не сохраняется"}
     container.settings.studio_owner_telegram_id = OWNER[0] + 1
     for suffix in ("", "/artifact"):
         assert (await api.get(f'/api/studio/media/{body["operation_id"]}{suffix}')).status_code == 403

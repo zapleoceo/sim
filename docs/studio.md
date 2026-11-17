@@ -1,5 +1,9 @@
 # Private Studio media: dormant wiring
 
+HTTP audit retains method/path/status/actor, but omits Studio media request bodies.
+Artifact response bodies are not traced. Private prompts and binary media are not copied
+into the activity request-body viewer.
+
 Studio has separate speech/video controls and a service wired to the existing Broker
 ports. Production constructs the service with `enabled=False`; there is deliberately
 no environment, owner setting or API parameter to enable it. Status reports **disabled,
