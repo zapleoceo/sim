@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { MediaControls } from './media-controls';
+import { MediaRoutes } from './media-routes';
 import { VideoDraft } from './video-draft';
 
 export const STUDIO_MAX_MESSAGES = 24;
@@ -143,6 +144,7 @@ export function StudioPage() {
           {state.detail && <p className="rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{state.detail}</p>}
           {state.personal_access && state.draft_scope && <VideoDraft key={state.draft_scope} scope={state.draft_scope} />}
           <MediaControls key={state.draft_scope ?? 'unbound'} state={state} />
+          <MediaRoutes routes={state.route_plan ?? []} />
 
           <section aria-labelledby="chat-h" className="flex flex-col gap-4 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">

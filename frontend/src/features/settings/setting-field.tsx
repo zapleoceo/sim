@@ -21,9 +21,10 @@ import { parseSettingValue, replaceSetting, settingHint, settingAnchor, SETTINGS
 const MODEL_AUTO = 'По умолчанию — маршрут Broker';
 
 /** A Broker model picker; falls back to a plain input when Broker does not answer. */
-function ModelInput({ value, onChange, ...control }: {
+function ModelInput({ value, onChange, emptyLabel = MODEL_AUTO, ...control }: {
   value: string;
   onChange: (v: string) => void;
+  emptyLabel?: string;
   id?: string;
   'aria-invalid'?: boolean;
   'aria-describedby'?: string;
@@ -35,7 +36,7 @@ function ModelInput({ value, onChange, ...control }: {
       {...control}
       value={value}
       onChange={onChange}
-      options={modelOptions(models.data ?? [], value, MODEL_AUTO)}
+      options={modelOptions(models.data ?? [], value, emptyLabel)}
       disabled={models.isPending}
     />
   );
@@ -92,7 +93,9 @@ export function SettingField({ item }: { item: AppSettingItem }) {
     </>}
     {expanded && <fieldset disabled={busy} className="min-w-0">
       <Field label={item.label} hint={settingHint(item)} error={error}>
-        {item.kind === 'model' ? <ModelInput value={draft} onChange={setDraft} />
+        {item.kind === 'model' ? <ModelInput value={draft} onChange={setDraft}
+          emptyLabel={['studio_photo_subscription_model', 'studio_photo_google_model', 'studio_video_model'].includes(item.key)
+            ? 'Не выбрана — генерация выключена' : undefined} />
           : item.kind === 'text' ? <Textarea value={draft} onChange={(e) => setDraft(e.target.value)}
             autoFocus={open} className="min-h-48 max-h-[65vh] font-mono text-sm" />
             : <Input value={draft} onChange={(e) => setDraft(e.target.value)} inputMode={item.kind === 'int' ? 'numeric' : undefined}

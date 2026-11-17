@@ -1,5 +1,13 @@
 import { http } from './http';
 
+export interface StudioRoute {
+  kind: string;
+  label: string;
+  chain: { provider: string; model: string }[];
+  available: false;
+  reason: string;
+}
+
 export interface StudioState {
   photo_url: string | null;
   video_url: string | null;
@@ -13,6 +21,7 @@ export interface StudioState {
   personal_access?: boolean;
   draft_scope?: string | null;
   detail: string;
+  route_plan?: StudioRoute[];
 }
 export interface StudioMessage { role: 'user' | 'assistant'; content: string }
 export interface StudioDraft { scope: string; revision: number; text: string }
