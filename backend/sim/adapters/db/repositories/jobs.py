@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import select, update
 
+from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.base import Repository
 from sim.trace_context import current_trace_id
@@ -22,6 +23,20 @@ def backoff_s(attempts: int) -> int:
 class JobRepo(Repository[Job]):
     model = Job
 
+    async def lock_reply_key(self, dedup_key: str | None) -> bool:
+        """All reply producers share the existing dialog lock, not a reverse-order lock.
+
+        A handler may own its running job row and NS_REPLY first; NS_REPLY is only
+        ever tried, never waited for. Claim takes row locks with SKIP LOCKED and no
+        dialog lock. Pending rows are locked only after NS_DIALOG. Retry settlement
+        tries its running row without waiting while it owns NS_DIALOG.
+        """
+        prefix, _, value = (dedup_key or "").partition(":")
+        if prefix != "reply" or not value.isascii() or not value.isdigit():
+            return False
+        await lock(self.session, NS_DIALOG, int(value))
+        return True
+
     async def enqueue(
         self,
         kind: str,
@@ -31,18 +46,28 @@ class JobRepo(Repository[Job]):
         dedup_key: str | None = None,
         max_attempts: int = 5,
     ) -> Job:
+        if await self.lock_reply_key(dedup_key):
+            existing = await self.pending_by_key(dedup_key)
+            if existing is not None:
+                existing.run_at = max(existing.run_at, run_at)
+                return existing
         job = Job(
             kind=kind, payload=payload, run_at=run_at, dedup_key=dedup_key, max_attempts=max_attempts,
             trace_id=current_trace_id(),
         )
         return await self.add(job)
 
-    async def pending_by_key(self, dedup_key: str) -> Job | None:
+    async def pending_by_key(self, dedup_key: str, *, for_update: bool = True) -> Job | None:
+        """Protected lookup for mutation; pure observers must opt out of locks."""
+        reply = for_update and await self.lock_reply_key(dedup_key)
+        stmt = (select(Job)
+                .where(Job.dedup_key == dedup_key, Job.status == "pending")
+                .order_by(Job.id.desc()).limit(1))
+        if reply:
+            # Re-evaluate status if claim won the row first, and refresh cached run_at.
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(
-            select(Job)
-            .where(Job.dedup_key == dedup_key, Job.status == "pending")
-            .order_by(Job.id.desc())
-            .limit(1)
+            stmt
         )
 
     async def upsert_pending(
@@ -78,6 +103,7 @@ class JobRepo(Repository[Job]):
         return found is not None
 
     async def cancel_pending(self, kind: str, dedup_key: str) -> int:
+        await self.lock_reply_key(dedup_key)
         res = await self.session.execute(
             update(Job)
             .where(Job.kind == kind, Job.dedup_key == dedup_key, Job.status == "pending")
@@ -160,10 +186,33 @@ class JobRepo(Repository[Job]):
         """
         exhausted = (not retry) or claim_attempt >= job.max_attempts
         values: dict[str, Any] = {"last_error": error[:2000], "locked_until": None}
+        if not exhausted and await self.lock_reply_key(job.dedup_key):
+            # Failure settlement is a fresh transaction. Do not wait on a live owner's
+            # running row while holding its dialog lock; stale failures change nothing.
+            if await self.lock_attempt(job.id, claim_attempt) is None:
+                return False
+            pending = await self.pending_by_key(job.dedup_key)
+            if pending is not None:
+                if pending.attempts:
+                    # Two previously executed identities can hold unknown Broker receipts.
+                    # Keep both histories, do not choose/replay either automatically.
+                    exhausted = True
+                    reason = "conflicting executed reply retries require reconciliation"
+                    pending.status, pending.finished_at, pending.last_error = "failed", now, reason
+                    values["last_error"] = reason
+                else:
+                    # The fresh pending token has no external execution. Retain the retry
+                    # identity (and its durable receipts), but keep the latest plan/payload.
+                    values.update(payload=dict(pending.payload),
+                                  run_at=max(pending.run_at,
+                                             now + timedelta(seconds=backoff_s(claim_attempt))))
+                    pending.status, pending.finished_at = "cancelled", now
+                    pending.last_error = f"coalesced into reply retry {job.id}"
         if exhausted:
             values.update(status="failed", finished_at=now)
         else:
-            values.update(status="pending", run_at=now + timedelta(seconds=backoff_s(claim_attempt)))
+            values["status"] = "pending"
+            values.setdefault("run_at", now + timedelta(seconds=backoff_s(claim_attempt)))
         res = await self.session.execute(
             update(Job)
             .where(Job.id == job.id, Job.status == "running", Job.attempts == claim_attempt)

@@ -58,6 +58,9 @@ jobs:
       - name: Bounded video decoder offline regression
         working-directory: backend
         run: uv run --frozen pytest -q tests/test_video_frames.py tests/test_video_process.py
+      - name: Deterministic transcription/reply race
+        working-directory: backend
+        run: uv run --frozen pytest -q tests/test_media_reply_race.py
       - name: Backend unit tests
         working-directory: backend
         run: uv run --frozen pytest -q --ignore=tests/test_nginx_origin_audit.py

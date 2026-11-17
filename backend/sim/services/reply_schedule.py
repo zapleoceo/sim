@@ -309,7 +309,7 @@ class ReplyScheduler:
 
     async def waits_until(self, dialog_id: int) -> datetime | None:
         """When the dialog's delayed reply is due, or None when no delayed reply is planned."""
-        job = await self.jobs.pending_by_key(jobkinds.reply_key(dialog_id))
+        job = await self.jobs.pending_by_key(jobkinds.reply_key(dialog_id), for_update=False)
         delay = dict(job.payload or {}).get("delay") if job is not None else None
         if not delay or not delay.get("cls") or job.run_at <= self.clock():
             return None
