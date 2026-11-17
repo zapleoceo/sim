@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 from conftest import OWNER, login
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
 from sim.adapters.db.models import AdminUser, TraceEvent
 from sim.ports.speech import SpeechError, SpeechResult
@@ -142,7 +142,11 @@ async def test_known_remote_receipt_reconciles_without_post(media_setup, contain
     assert (await restarted.reconcile(owner_id, row.id)).status == "complete"
     assert (await restarted.reconcile(owner_id, row.id)).status == "complete"
     assert remote.submits == 1 and remote.reads == 2
-    assert len(await restarted.recent(owner_id)) == 1
+    history = await restarted.recent(owner_id)
+    assert len(history) == 1
+    assert "result_encrypted" in inspect(history[0]).unloaded
+    status = await restarted.get(owner_id, row.id, include_artifact=False)
+    assert "result_encrypted" in inspect(status).unloaded
     assert await restarted.recent(owner_id + 1000) == []
 
 

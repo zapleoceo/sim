@@ -146,7 +146,7 @@ async def generate_media(body: MediaRequest, c: App, p: Owner):
 async def media_status(operation_id: UUID, c: App, p: Owner):
     if not personal_owner(c, p):
         raise HTTPException(403, "Personal owner access required")
-    row = await media_service(c).get(p.user.id, str(operation_id))
+    row = await media_service(c).get(p.user.id, str(operation_id), include_artifact=False)
     if row is None:
         raise HTTPException(404, "Operation not found")
     return operation_out(row)

@@ -60,7 +60,8 @@ job. A lost submit receipt cannot safely be discovered or resubmitted. Such an i
 remains blocked. No invented correlation, provider probe or new Broker request is used.
 
 Owner-bound GET history returns up to50 operations, unresolved first, without prompts
-or encrypted payloads. UI restores the pending ID after reload; local status checks are
+or encrypted payloads. History/status queries defer the large encrypted artifact column
+instead of loading it and merely hiding it at serialization. UI restores the pending ID after reload; local status checks are
 GET-only and remote reconciliation is a separate disabled action. No localStorage is
 used. History failure keeps generation blocked; the server still fences all unknown IDs.
 

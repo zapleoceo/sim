@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, ForeignKey, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, defer, mapped_column
 
 from sim.adapters.crypto import SecretBox
 from sim.adapters.db.base import Base
@@ -64,15 +64,19 @@ class StudioMedia:
 
     async def recent(self, owner_id: int) -> list[StudioOperation]:
         async with self.factory() as session:
-            return list(await session.scalars(select(StudioOperation).where(
+            return list(await session.scalars(select(StudioOperation).options(
+                defer(StudioOperation.result_encrypted)).where(
                 StudioOperation.owner_id == owner_id).order_by(
                 StudioOperation.status.desc(), StudioOperation.created_at.desc(),
                 StudioOperation.id.desc()).limit(50)))
 
-    async def get(self, owner_id: int, operation_id: str) -> StudioOperation | None:
+    async def get(self, owner_id: int, operation_id: str, *, include_artifact: bool = True) -> StudioOperation | None:
         async with self.factory() as session:
-            row = await session.get(StudioOperation, operation_id)
-            return row if row is not None and row.owner_id == owner_id else None
+            query = select(StudioOperation).where(
+                StudioOperation.id == operation_id, StudioOperation.owner_id == owner_id)
+            if not include_artifact:
+                query = query.options(defer(StudioOperation.result_encrypted))
+            return await session.scalar(query)
 
     async def execute(self, owner_id: int, request: MediaRequest) -> StudioOperation:
         # Production wiring ALWAYS leaves this false. Tests inject fake ports explicitly.
