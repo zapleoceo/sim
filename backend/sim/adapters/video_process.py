@@ -33,11 +33,12 @@ async def discard(reader: asyncio.StreamReader) -> None:
 
 
 async def terminate(proc: asyncio.subprocess.Process) -> None:
-    if proc.returncode is None:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    # The leader may already have exited while another group member retains a
+    # pipe. Always terminate the session group, not only a live leader.
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
     # Drain after killing, without accumulating output. wait() alone can hang on
     # full PIPE transports. This task is shielded even from repeated cancellation.
     await asyncio.gather(discard(proc.stdout), discard(proc.stderr), proc.wait())
@@ -57,7 +58,7 @@ async def run_video_process(args: Sequence[str], data: bytes, limit_s: float) ->
             sys.executable, "-I", str(helper), *args,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=PIPE_BUFFER,
-            env=CLEAN_ENV, cwd="/", start_new_session=True,
+            env=CLEAN_ENV, cwd="/", start_new_session=True, close_fds=True,
         )
     except OSError as exc:
         raise AudioError("isolated video decoder unavailable") from exc

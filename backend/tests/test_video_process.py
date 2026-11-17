@@ -52,12 +52,22 @@ async def test_overflow_kills_and_reaps_without_unbounded_communicate(monkeypatc
     assert args[1] == "-I" and args[2].endswith("_video_limits.py")
     assert options["env"] == _video_limits.CLEAN_ENV
     assert options["start_new_session"] and options["cwd"] == "/"
+    assert options["close_fds"]
     assert options["stdin"] == asyncio.subprocess.DEVNULL
     assert options["limit"] == video_process.PIPE_BUFFER
 
 
 async def test_timeout_kills_and_reaps(monkeypatch):
     proc, _ = setup(monkeypatch)
+    with pytest.raises(AudioError, match="timed out"):
+        await video_process.run_video_process(["ffprobe"], b"", 0.01)
+    assert proc.reaped and proc.returncode == -9
+
+
+async def test_exited_leader_with_open_pipes_still_terminates_group(monkeypatch):
+    proc, _ = setup(monkeypatch)
+    proc.returncode = 0
+    proc.exited.set()
     with pytest.raises(AudioError, match="timed out"):
         await video_process.run_video_process(["ffprobe"], b"", 0.01)
     assert proc.reaped and proc.returncode == -9
