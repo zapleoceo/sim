@@ -49,7 +49,7 @@ function SettingsView({ helpers = false }: { helpers?: boolean }) {
     {query.isPending && <div aria-busy="true"><Skeleton className="h-40 w-full" /></div>}
     {query.isError && <ErrorState onRetry={() => void query.refetch()} />}
     {query.isSuccess && !groups.length && <p role="status" className="rounded-lg border p-6 text-sm text-muted-foreground">Нет доступных настроек.</p>}
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[14rem_minmax(0,1fr)]">
+    <div className={'grid min-w-0 gap-4' + (groups.length > 1 ? ' lg:grid-cols-[14rem_minmax(0,1fr)]' : '')}>
       <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
         {groups.length > 1 && <>
           <label className="flex flex-col gap-1 text-sm lg:hidden">Раздел настроек

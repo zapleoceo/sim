@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from '@tanstack/react-router';
@@ -47,6 +47,8 @@ export function SettingField({ item }: { item: AppSettingItem }) {
   const confirm = useConfirm();
   const hash = useLocation({ select: (location) => location.hash });
   const draftKey = [...SETTINGS_DRAFTS, item.key];
+  const mutationKey = ['settings-editor-write', item.key];
+  const busy = useIsMutating({ mutationKey }) > 0;
   const stored = useQuery<SettingDraft | null>({ queryKey: draftKey, queryFn: () => null,
     initialData: null, enabled: false, gcTime: Infinity });
   const [open, setOpen] = useState(false);
@@ -66,13 +68,12 @@ export function SettingField({ item }: { item: AppSettingItem }) {
     discard();
     toast.success(message);
   };
-  const save = useMutation({ mutationFn: (value: string | number) => settingsApi.save(item.key, value),
+  const save = useMutation({ mutationKey, mutationFn: (value: string | number) => settingsApi.save(item.key, value),
     onSuccess: (updated) => apply(updated, 'Сохранено'),
     onError: () => setError('Не удалось сохранить. Ваш текст оставлен в редакторе; попробуйте ещё раз.') });
-  const reset = useMutation({ mutationFn: () => settingsApi.reset(item.key),
+  const reset = useMutation({ mutationKey, mutationFn: () => settingsApi.reset(item.key),
     onSuccess: (updated) => apply(updated, 'Возвращено значение по умолчанию'),
     onError: () => setError('Не удалось сбросить настройку. Ваш текст оставлен в редакторе.') });
-  const busy = save.isPending || reset.isPending;
   const onSave = async (): Promise<void> => {
     const parsed = parseSettingValue(item, draft);
     if (!parsed.ok) { setError(parsed.error); return; }

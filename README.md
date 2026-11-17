@@ -12,6 +12,8 @@ not written to browser storage. Closing/reloading the app loses drafts (settings
 warn before unload). A changed server value is shown as a conflict; overwriting it needs
 explicit confirmation, or the owner can load the saved value. This is UI conflict
 awareness, not a server-side atomic compare-and-swap. Failed mutations retain the draft.
+In-flight field writes stay disabled even after navigating away and back, so an older
+save cannot erase newer input entered through a remounted editor.
 CI component coverage uses fake APIs for save/reset/CSRF, route/hash history, refetch
 conflicts, errors and permissions. No model routes are activated by this UI change.
 Live desktop/mobile visual acceptance has not been performed.

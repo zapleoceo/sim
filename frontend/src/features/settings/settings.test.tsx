@@ -65,6 +65,26 @@ async function edit(label: string) {
 }
 
 describe('SettingsPage', () => {
+  it('keeps a pending save locked across navigation until its receipt', async () => {
+    let finish!: (value: AppSettingItem) => void;
+    const response = new Promise<AppSettingItem>((resolve) => { finish = resolve; });
+    const log = fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD] }, 'PUT /api/settings/style': () => response });
+    const app = await renderApp('/settings');
+    const input = await edit('Манера письма');
+    const user = userEvent.setup();
+    await user.type(input, ' ещё');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+    await act(() => app.router.navigate({ to: '/agents' }));
+    await screen.findByRole('heading', { name: 'Помощники' });
+    await act(() => app.router.history.back());
+    expect(await screen.findByLabelText('Манера письма')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    expect(log.filter((r) => r.method === 'PUT')).toHaveLength(1);
+    await act(async () => { finish({ ...STYLE, value: 'коротко ещё' }); await response; });
+    await waitFor(() => expect(screen.queryByText('Не сохранено')).not.toBeInTheDocument());
+    expect(await edit('Манера письма')).toHaveValue('коротко ещё');
+  });
+
   it('opens instructions intentionally, saves with CSRF, then hides clean save actions', async () => {
     const log = fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
       'PUT /api/settings/style': (r) => ({ ...STYLE, value: (r.body as { value: string }).value, is_default: false }) });
