@@ -88,10 +88,17 @@ async def studio_media_checks(url):
             raise AssertionError("stale draft overwrote delete")
         except DraftConflict:
             pass
-        # Disposable synthetic drafts only; production downgrade retains even tombstones.
-        async with transaction(factory) as session:
-            await session.execute(text("DELETE FROM studio_draft"))
         print("PostgreSQL Studio draft concurrent first-save, reload and delete fencing PASS")
+    finally:
+        await engine.dispose()
+
+
+async def discard_synthetic_studio_drafts(url):
+    # Called only after the guarded CI runner proves downgrade refuses retained drafts.
+    engine = create_async_engine(url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DELETE FROM studio_draft"))
     finally:
         await engine.dispose()
 

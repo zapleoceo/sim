@@ -323,6 +323,13 @@ durable Broker reconciliation. Video is sampled frames only, not speech recognit
 audio/PDF/Office are unsupported in this mode. No paid fallback. Synthetic checks run only in CI.
 # Studio media wiring (disabled)
 
+Private video drafts can be saved and restored independently of disabled generation.
+They use the existing personal-owner gate and SecretBox encryption, with explicit save,
+confirmed deletion, revision conflicts and account/reference isolation. A draft never
+creates a job or calls Broker; availability changes cannot automatically generate it.
+Migration 0038 preserves drafts and deletion revisions on downgrade. Unsaved edits remain
+memory-only; same-filename image replacement is not a reference-version change.
+
 Studio speech/video controls are intentionally disabled, with capability verification
 explicitly unknown. The dormant service uses existing Broker ports and a durable,
 encrypted operation journal; unresolved outcomes block retries, including new request IDs.
