@@ -18,6 +18,7 @@ class Process:
         self.stdout = asyncio.StreamReader(limit=video_process.PIPE_BUFFER)
         self.stderr = asyncio.StreamReader(limit=video_process.PIPE_BUFFER)
         self.exited = asyncio.Event()
+        self.spawned = asyncio.Event()
         self.reaped = False
 
     async def wait(self):
@@ -35,7 +36,12 @@ class Process:
 
 def setup(monkeypatch):
     proc = Process()
-    spawn = AsyncMock(return_value=proc)
+
+    async def create(*args, **kwargs):
+        proc.spawned.set()
+        return proc
+
+    spawn = AsyncMock(side_effect=create)
     monkeypatch.setattr(video_process.asyncio, "create_subprocess_exec", spawn)
     monkeypatch.setattr(video_process.os, "killpg", proc.kill)
     return proc, spawn
@@ -84,8 +90,7 @@ async def test_repeated_cancellation_still_reaps(monkeypatch):
 
     monkeypatch.setattr(video_process, "terminate", delayed_reaper)
     task = asyncio.create_task(video_process.run_video_process(["ffmpeg"], b"", 1))
-    while not spawn.called:
-        await asyncio.sleep(0)
+    await proc.spawned.wait()
     task.cancel()
     await asyncio.sleep(0)
     task.cancel()
