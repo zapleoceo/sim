@@ -136,7 +136,7 @@ describe('SettingsPage', () => {
     await screen.findByRole('heading', { name: 'Помощники' });
     await act(() => app.router.history.back());
     await screen.findByLabelText('Манера письма');
-    act(() => app.router.options.context!.queryClient.setQueryData(qk.settings, [{ ...STYLE, value: 'другой текст', updated_at: '2026-11-17T00:00:00Z' }, GUARD]));
+    act(() => { app.router.options.context!.queryClient.setQueryData(qk.settings, [{ ...STYLE, value: 'другой текст', updated_at: '2026-11-17T00:00:00Z' }, GUARD]); });
     expect(screen.getByLabelText('Манера письма')).toHaveValue('мой черновик');
     expect(await screen.findByText(/На сервере появилось другое значение/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Сохранить' }));
