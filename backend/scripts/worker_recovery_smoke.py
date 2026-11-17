@@ -31,8 +31,8 @@ async def reply_pending_contention(factory):
             [claim] = await JobRepo(s).claim(now, 90, 1)
             claims.append((claim.id, claim.attempts))
 
-    async def pause_after_missing(repo, dedup_key):
-        result = await original(repo, dedup_key)
+    async def pause_after_missing(repo, dedup_key, **kwargs):
+        result = await original(repo, dedup_key, **kwargs)
         if repo.session is owner_session[0] and not selected.is_set():
             assert result is None
             selected.set()
@@ -118,6 +118,12 @@ async def reply_pending_contention(factory):
                 claim, "late synthetic failure", now, claim_attempt=claim.attempts), 10)
         assert await JobRepo(live).complete(claim.id, now, claim_attempt=claim.attempts)
     print("PostgreSQL reverse busy/revision order and live-owner failure fence PASS")
+    # An overdue-watch read must not accumulate dialog locks across many dialogs.
+    async with transaction(factory) as reader:
+        await JobRepo(reader).pending_by_key(key, for_update=False)
+        async with transaction(factory) as writer:
+            assert await try_lock(writer, NS_DIALOG, dialog_id)
+    print("PostgreSQL pending observer takes no dialog lock PASS")
 
 
 async def worker_recovery_checks(factory):

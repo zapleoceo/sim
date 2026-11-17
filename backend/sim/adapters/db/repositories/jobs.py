@@ -57,8 +57,9 @@ class JobRepo(Repository[Job]):
         )
         return await self.add(job)
 
-    async def pending_by_key(self, dedup_key: str) -> Job | None:
-        reply = await self.lock_reply_key(dedup_key)
+    async def pending_by_key(self, dedup_key: str, *, for_update: bool = True) -> Job | None:
+        """Protected lookup for mutation; pure observers must opt out of locks."""
+        reply = for_update and await self.lock_reply_key(dedup_key)
         stmt = (select(Job)
                 .where(Job.dedup_key == dedup_key, Job.status == "pending")
                 .order_by(Job.id.desc()).limit(1))

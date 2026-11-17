@@ -8,8 +8,10 @@ PostgreSQL; unit tests and Ruff passed before the concurrency assertion failed.
 
 Reply pending writers now serialize through the existing NS_DIALOG lock in JobRepo,
 including direct enqueue, upsert, scheduling reads/edits, cancellation and retry settlement.
-NS_REPLY is only tried; claim uses SKIP LOCKED without taking NS_DIALOG. Failure settlement
-must skip a locked live running row rather than wait for it under NS_DIALOG. Pending reads
+NS_REPLY is only tried; claim uses SKIP LOCKED without taking NS_DIALOG.
+Pure deadline observers opt out of locks, so the overdue-watch batch cannot accumulate
+dialog locks in a conflicting order.
+Failure settlement must skip a locked live running row rather than wait for it under NS_DIALOG. Pending reads
 lock and refresh their row so a concurrent claim cannot turn a stale cached row into a lost retry.
 This guarantee covers canonical reply:<dialog_id> keys, not all unrelated job types or raw SQL.
 Fresh pending retries coalesce into the original executing job ID, retaining its Broker journal,
