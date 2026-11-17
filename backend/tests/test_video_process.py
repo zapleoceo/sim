@@ -80,7 +80,7 @@ async def test_exited_leader_with_open_pipes_still_terminates_group(monkeypatch)
 
 
 async def test_repeated_cancellation_still_reaps(monkeypatch):
-    proc, spawn = setup(monkeypatch)
+    proc, _ = setup(monkeypatch)
     release = asyncio.Event()
     original = video_process.terminate
 
