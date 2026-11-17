@@ -33,3 +33,23 @@ it('only reads status after an uncertain POST; keeps the draft and prevents anot
   await waitFor(() => expect(screen.getByText(/Статус получить не удалось/)).toBeInTheDocument());
   expect(log.filter((request) => request.method === 'POST')).toHaveLength(1);
 });
+
+it('restores an unknown operation after remount without another submission or automatic reconciliation', async () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  const operation = { operation_id: id, kind: 'video', status: 'unknown', artifact_url: null };
+  const log = fakeApi({
+    'GET /api/studio': { ...state, personal_access: true },
+    'GET /api/studio/media': { operations: [operation] },
+    [`GET /api/studio/media/${id}`]: operation,
+  });
+  const first = await renderApp('/studio');
+  expect(await screen.findByText(/Восстановлена незавершённая операция/)).toBeInTheDocument();
+  first.unmount();
+  await renderApp('/studio');
+  expect(await screen.findByText(`Операция: ${id}`)).toBeInTheDocument();
+  expect(screen.getByLabelText('Тип результата')).toHaveValue('video');
+  expect(screen.getByRole('button', { name: 'Создать медиа' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Сверить с Broker' })).toBeDisabled();
+  await userEvent.click(screen.getByRole('button', { name: 'Проверить статус' }));
+  expect(log.filter((request) => request.method === 'POST')).toHaveLength(0);
+});

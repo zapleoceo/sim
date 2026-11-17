@@ -329,3 +329,9 @@ encrypted operation journal; unresolved outcomes block retries, including new re
 No owner binding, provider grants, budget or media-recognition settings are activated.
 See [Studio gates, recovery semantics and CI coverage](docs/studio.md).
 
+Studio hardening adds bounded response streams, WAV/MP4 container checks, owner-only
+operation history after reload and GET-only reconciliation of retained video job IDs.
+Lost video receipts and synchronous speech outcomes remain blocked: the reviewed Broker
+contract does not provide safe correlation for them. Generation/reconciliation stay
+hard-disabled; this is not permission or readiness to activate paid media routes.
+

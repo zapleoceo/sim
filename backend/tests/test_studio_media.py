@@ -16,6 +16,7 @@ from sim.services.studio_media import (
     StudioOperation,
     StudioUnavailable,
 )
+from tests.studio_fixtures import mp4_bytes, wav_bytes
 
 
 class FakeMedia:
@@ -27,11 +28,11 @@ class FakeMedia:
         self.calls.append((text, kwargs))
         if self.error:
             raise self.error
-        return SpeechResult(b"synthetic-audio", "audio/wav")
+        return SpeechResult(wav_bytes(), "audio/wav")
 
     async def generate_video(self, prompt, **kwargs):
         self.calls.append((prompt, kwargs))
-        return VideoResult(b"synthetic-video", "video/mp4")
+        return VideoResult(mp4_bytes(), "video/mp4")
 
 
 @pytest.fixture
@@ -51,7 +52,7 @@ async def test_completed_receipt_reused_after_restart(media_setup, container, ki
     row = await service.execute(owner_id, request)
     assert row.status == "complete"
     assert "synthetic-" not in row.result_encrypted
-    assert service.artifact(row)[0].startswith(b"synthetic-")
+    assert service.artifact(row)[0] == (wav_bytes() if kind == "speech" else mp4_bytes())
     restarted = StudioMedia(container.factory, container.box, fake, fake, enabled=True)
     assert (await restarted.execute(owner_id, request)).id == row.id
     assert len(fake.calls) == 1
@@ -109,3 +110,97 @@ async def test_disabled_api_and_private_status(api, container):
     container.settings.studio_owner_telegram_id = OWNER[0] + 1
     for suffix in ("", "/artifact"):
         assert (await api.get(f'/api/studio/media/{body["operation_id"]}{suffix}')).status_code == 403
+
+
+async def test_known_remote_receipt_reconciles_without_post(media_setup, container):
+    _, fake, owner_id = media_setup
+
+    class Remote:
+        scope, submits, reads, ready = "synthetic-scope", 0, 0, False
+
+        async def submit_video(self, prompt):
+            self.submits += 1
+            return "42"
+
+        async def read_video(self, remote_id):
+            assert remote_id == "42"
+            self.reads += 1
+            return VideoResult(mp4_bytes(), "video/mp4") if self.ready else None
+
+    remote = Remote()
+    service = StudioMedia(container.factory, container.box, fake, None, enabled=True, remote=remote)
+    request = MediaRequest(operation_id=uuid4(), kind="video", text="Synthetic fixture")
+    row = await service.execute(owner_id, request)
+    assert row.status == "unknown" and remote.submits == 1
+    assert container.box.decrypt_json(row.result_encrypted)["remote_id"] == "42"
+    restarted = StudioMedia(container.factory, container.box, fake, None, enabled=True, remote=remote)
+    remote.scope = "different-project-key"
+    with pytest.raises(StudioConflict, match="matching retained"):
+        await restarted.reconcile(owner_id, row.id)
+    assert remote.reads == 1
+    remote.scope, remote.ready = "synthetic-scope", True
+    assert (await restarted.reconcile(owner_id, row.id)).status == "complete"
+    assert (await restarted.reconcile(owner_id, row.id)).status == "complete"
+    assert remote.submits == 1 and remote.reads == 2
+    assert len(await restarted.recent(owner_id)) == 1
+    assert await restarted.recent(owner_id + 1000) == []
+
+
+async def test_unknown_without_receipt_cannot_reconcile(media_setup):
+    service, fake, owner_id = media_setup
+    fake.error = SpeechError("lost response")
+    request = MediaRequest(operation_id=uuid4(), kind="speech", text="Synthetic")
+    with pytest.raises(SpeechError):
+        await service.execute(owner_id, request)
+    with pytest.raises(StudioConflict, match="matching retained"):
+        await service.reconcile(owner_id, str(request.operation_id))
+    assert len(fake.calls) == 1
+
+
+async def test_lost_video_submit_receipt_never_reposts(media_setup, container):
+    from sim.ports.video import VideoError
+
+    _, fake, owner_id = media_setup
+
+    class LostReceipt:
+        scope, submits = "synthetic-scope", 0
+
+        async def submit_video(self, prompt):
+            self.submits += 1
+            raise VideoError("accepted remotely, response lost")
+
+        async def read_video(self, remote_id):
+            raise AssertionError("No retained ID: must not guess a job")
+
+    remote = LostReceipt()
+    service = StudioMedia(container.factory, container.box, fake, None, enabled=True, remote=remote)
+    request = MediaRequest(operation_id=uuid4(), kind="video", text="Synthetic")
+    with pytest.raises(VideoError):
+        await service.execute(owner_id, request)
+    assert (await service.execute(owner_id, request)).status == "unknown"
+    with pytest.raises(StudioConflict):
+        await service.reconcile(owner_id, str(request.operation_id))
+    with pytest.raises(StudioConflict):
+        await service.execute(owner_id, request.model_copy(update={"operation_id": uuid4()}))
+    assert remote.submits == 1
+
+
+async def test_history_and_artifacts_are_owner_bound_and_private(media_setup, api, container):
+    service, _, owner_id = media_setup
+    container.settings.studio_owner_telegram_id = OWNER[0]
+    request = MediaRequest(operation_id=uuid4(), kind="speech", text="private synthetic text")
+    row = await service.execute(owner_id, request)
+    listing = await api.get("/api/studio/media")
+    assert listing.status_code == 200
+    assert listing.json()["operations"][0]["operation_id"] == row.id
+    assert "private synthetic text" not in listing.text and "encrypted" not in listing.text
+    result = await api.get(f"/api/studio/media/{row.id}/artifact")
+    assert result.content == wav_bytes()
+    assert result.headers["cache-control"] == "private, no-store"
+    assert result.headers["x-content-type-options"] == "nosniff"
+    token = await login(api, OWNER[0])
+    assert (await api.post(f"/api/studio/media/{row.id}/reconcile",
+        headers={"X-CSRF-Token": token})).status_code == 423
+    container.settings.studio_owner_telegram_id = OWNER[0] + 1
+    assert (await api.get("/api/studio/media")).status_code == 403
+    assert (await api.get(f"/api/studio/media/{row.id}/artifact")).status_code == 403
