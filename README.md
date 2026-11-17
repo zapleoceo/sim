@@ -323,6 +323,11 @@ durable Broker reconciliation. Video is sampled frames only, not speech recognit
 audio/PDF/Office are unsupported in this mode. No paid fallback. Synthetic checks run only in CI.
 # Studio media wiring (disabled)
 
+The media/reply concurrency regression runs early in CI and then with the full suite.
+It deterministically commits a synthetic transcription between reply's initial dialog read
+and its media-job check, as well as testing the opposite order. A superseded draft must
+never be sent and must not strand an unanswered message when the worker restarts.
+
 Private video drafts can be saved and restored independently of disabled generation.
 They use the existing personal-owner gate and SecretBox encryption, with explicit save,
 confirmed deletion, revision conflicts and account/reference isolation. A draft never
