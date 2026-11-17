@@ -20,7 +20,10 @@ HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parent
 sys.path.insert(0, str(BACKEND))
 from broker_reconciliation_smoke import broker_reconciliation_checks  # noqa: E402
-from studio_media_smoke import studio_media_checks  # noqa: E402
+from studio_media_smoke import (  # noqa: E402
+    discard_synthetic_studio_history,
+    studio_media_checks,
+)
 from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
 
 from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
@@ -193,6 +196,14 @@ def main():
     asyncio.run(content_mcp_concurrency(url))
     asyncio.run(mcp_oauth_concurrency(url))
     asyncio.run(studio_media_checks(url))
+    try:
+        command.downgrade(cfg, "0036")
+    except RuntimeError as exc:
+        if str(exc) != "Cannot discard Studio operation history; reconcile and retain it":
+            raise
+    else:
+        raise AssertionError("Studio downgrade discarded durable receipts")
+    asyncio.run(discard_synthetic_studio_history(url))
     # Disposable DB only: 0008 schema downgrade loses operator data. Production must not do this.
     command.downgrade(cfg, "0007")
     asyncio.run(check_state(url, "0007"))

@@ -321,3 +321,11 @@ The bounded recognition component and its current format/capability limits are d
 pending/done/unsupported/failed states, bounded Telegram downloads, retained captions and
 durable Broker reconciliation. Video is sampled frames only, not speech recognition;
 audio/PDF/Office are unsupported in this mode. No paid fallback. Synthetic checks run only in CI.
+# Studio media wiring (disabled)
+
+Studio speech/video controls are intentionally disabled, with capability verification
+explicitly unknown. The dormant service uses existing Broker ports and a durable,
+encrypted operation journal; unresolved outcomes block retries, including new request IDs.
+No owner binding, provider grants, budget or media-recognition settings are activated.
+See [Studio gates, recovery semantics and CI coverage](docs/studio.md).
+

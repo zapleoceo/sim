@@ -3,6 +3,7 @@ import asyncio
 from uuid import uuid4
 
 from cryptography.fernet import Fernet
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from sim.adapters.crypto import SecretBox
@@ -72,5 +73,15 @@ async def studio_media_checks(url):
         assert (await restarted.execute(owner_id, second_request)).status == "unknown"
         assert fake.calls == 2
         print("PostgreSQL Studio committed intent, concurrent duplicate, restart and cancellation PASS")
+    finally:
+        await engine.dispose()
+
+
+async def discard_synthetic_studio_history(url):
+    # Only the guarded disposable CI runner may erase these synthetic receipts.
+    engine = create_async_engine(url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DELETE FROM studio_operation"))
     finally:
         await engine.dispose()

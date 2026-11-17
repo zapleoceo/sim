@@ -21,4 +21,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().execute(sa.text("SELECT count(*) FROM studio_operation")).scalar_one():
+        raise RuntimeError("Cannot discard Studio operation history; reconcile and retain it")
     op.drop_table("studio_operation")

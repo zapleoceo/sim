@@ -34,6 +34,8 @@ adapters decode complete responses; service output caps (2 MiB speech, 20 MiB vi
 post-response validation, NOT transport memory bounds. No remote job ID reconciliation
 is implemented for these ports; an unknown intent requires investigation and remains
 blocked indefinitely. Do not activate by simply flipping the constructor argument.
+Downgrade refuses to discard a nonempty operation journal. Keep receipts on rollback;
+only disposable CI explicitly deletes its synthetic history after checking this refusal.
 
 CI uses fake speech/video only: disabled/default/auth/CSRF, completed reuse, changed
 request conflict, encrypted artifact, cross-owner isolation, unknown and cancellation
