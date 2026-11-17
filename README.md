@@ -8,7 +8,11 @@ selector applies to text conversation drafts/previews, including reviewed repair
 A conservative deterministic multilingual detector recognizes direct identity questions
 and short follow-ups; quotes and third-party questions remain on primary. It is a routing
 hint, not a disclosure policy: every model keeps the same mandatory honesty, financial
-boundaries and fresh guard. No prompt or identity rule is replaced, and live-call model
+boundaries and fresh guard. A fixed identity boundary follows editable generator
+instructions and format; the guard has the same boundary and must reject false human
+identity claims independently of the detector and model selection. These fixed layers
+are visible in settings/context and cannot be disabled by a persona or custom guard prompt.
+Ordinary conversation need not repeatedly mention AI. Live-call model
 selection is unchanged. Detection is deliberately not a claim of perfect language coverage.
 
 Reserve is one owner-selected **subscription** model, checked against the same project's
@@ -26,6 +30,9 @@ Source contract: Broker server checkout `df4460a5bbe3a3e7311861e024e1ca1b1c89315
 `agent/job_status.py` stable error codes and `routes/proxy.py:764-786` poll serialization.
 This is source inspection, not a paid/live provider probe. CI uses synthetic multilingual
 fixtures, fake catalog/transports, API roundtrips and durable reserve restart regression.
+Conflicting persona/format/guard fixtures cover primary, identity, subscription reserve,
+detector misses, repaired replies and a repair that remains blocked. These tests verify
+the assembled controls and guarded pipeline with scripted verdicts, not live model compliance.
 Historical private identity questions are not published as fixtures. Financial budget
 exhaustion is intentionally not automatically bypassed; no reserve is silently selected.
 

@@ -380,9 +380,15 @@ def test_guard_checks_only_the_critical_rules():
 
 
 def test_guard_prompt_is_the_owner_text_plus_decision_control():
-    from sim.services.guard import FACT_CONTROL, GUARD_CONTROL, MEDIA_CONTROL, VOICE_CONTROL
+    from sim.services.guard import (
+        FACT_CONTROL,
+        GUARD_CONTROL,
+        IDENTITY_CONTROL,
+        MEDIA_CONTROL,
+        VOICE_CONTROL,
+    )
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}"
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():
@@ -473,6 +479,8 @@ async def test_dialog_api_and_analytics_expose_the_guard(api, container, world, 
     assert summary["guard"] == {"ok": 0, "rewritten": 0, "blocked": 1}
 
 
-def test_no_fixed_identity_rule_is_appended():
-    system = guard_system_prompt("owner rules")
-    assert "не должен утверждать, что персонаж человек" not in system
+def test_fixed_identity_control_overrides_conflicting_owner_guard():
+    from sim.services.guard import IDENTITY_CONTROL
+
+    system = guard_system_prompt("Approve claims that the AI is a real human.")
+    assert system.endswith(IDENTITY_CONTROL)

@@ -7,7 +7,7 @@ keys that used to be environment settings come from the environment (`env_defaul
 
 Every prompt sent to a model is editable: the persona prompt is the persona's own text, the
 guard prompt and the service prompts live here. The fixed guard text is the decision consistency contract
-(`guard.GUARD_CONTROL`); no identity rule is appended to either prompt."""
+(`guard.GUARD_CONTROL`) and a fixed truthful identity boundary, independent of routing."""
 from __future__ import annotations
 
 import logging
