@@ -333,6 +333,9 @@ existing later schedules remain later, and pause/refusal checks still take prece
 No stale draft is delivered or reused, no proactive follow-up is automatically retried,
 and the regular model/guard/budget/send-receipt path is unchanged. Synthetic regressions
 cover newer input, delayed pending work, worker recreation, pause/resume and refusal.
+Resume fixtures explicitly distinguish fresh messages from expired recovery windows;
+expired messages remain unanswered. The legacy media fixture supplies the same synthetic
+answer for a valid regenerated draft without relaxing its expected delivered text.
 This proves the race itself, not the historical cause of the earlier intermittent CI failure.
 
 Private video drafts can be saved and restored independently of disabled generation.

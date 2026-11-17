@@ -112,12 +112,13 @@ async def test_new_inbound_preserves_later_pending_time_and_restarts_once(
     assert any("Newer synthetic request" in str(messages) for messages, _ in fake_llm.gen_calls)
 
 
-@pytest.mark.parametrize("restriction", ["pause", "refused"])
+@pytest.mark.parametrize("restriction", ["pause", "refused", "stale"])
 async def test_revision_recovery_respects_pause_refusal_and_explicit_resume(
     container, world, fake_llm, connector, monkeypatch, restriction,
 ):
     fake_llm.replies = [decision_json(reply="Stale answer"), decision_json(reply="Resumed answer")]
-    incoming = await ingest(container, world.channel.id, inbound("Synthetic request"))
+    occurred = utcnow() - timedelta(days=30) if restriction == "stale" else utcnow()
+    incoming = await ingest(container, world.channel.id, inbound("Synthetic request", at=occurred))
     await make_due(container)
     original = fake_llm.chat
     changed = False
@@ -143,9 +144,9 @@ async def test_revision_recovery_respects_pause_refusal_and_explicit_resume(
         assert await JobRepo(session).pending_by_key(jobkinds.reply_key(dialog.id)) is None
         # Explicit owner/operator resume uses the existing service and recovery policy.
         recovery = await container.ai_pause(session).resume(dialog)
-        assert recovery.status == ("queued" if restriction == "pause" else "refused")
+        assert recovery.status == {"pause": "queued", "refused": "refused", "stale": "stale"}[restriction]
     await make_due(container)
     restarted = Worker(container)
     for _ in range(4):
         await restarted.tick()
-    assert connector.port.sent == ([] if restriction == "refused" else [("chat-1", "Resumed answer")])
+    assert connector.port.sent == ([("chat-1", "Resumed answer")] if restriction == "pause" else [])
