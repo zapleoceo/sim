@@ -3,6 +3,7 @@ import json
 import pytest
 
 from sim.adapters.audio import run_process
+from sim.adapters.video_process import run_video_process
 from sim.services.video_frames import VideoUnsupported, sample_video
 
 MP4 = b"\0\0\0\x18ftypmp42\0\0\0\0mp42isom"
@@ -44,5 +45,13 @@ async def test_real_offline_decoder_with_synthetic_color_video():
         "-f", "mp4", "pipe:1",
     ], b"", 10)
     assert code == 0
-    frames = await sample_video(video)
+    async def checked_runner(args, data, limit_s):
+        result = await run_video_process(args, data, limit_s)
+        # This fixture contains only generated colors: bounded stderr is safe
+        # diagnostic evidence in CI, never enabled on real user media.
+        assert result[0] == 0, (result[0], result[2].decode("utf-8", "replace"))
+        assert result[1], (args[0], "empty output")
+        return result
+
+    frames = await sample_video(video, runner=checked_runner)
     assert len(frames) == 5 and all(frame.startswith(b"\xff\xd8") for frame in frames)
