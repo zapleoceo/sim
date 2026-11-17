@@ -1,5 +1,14 @@
 # Sim
 
+### Dormant Studio media routes
+
+Studio shows a collapsed route plan with explicit blockers, not a live Broker check.
+Owner preferences for subscription photos, Google photo reserve and regular video persist
+through the existing settings API; defaults are empty and cannot activate generation.
+Unknown outcomes, budgets, safety and permission denials never permit fallback.
+See [media routing contracts and provider limits](docs/media-routing.md).
+Synthetic CI covers persistence/reset, auth/CSRF, route validation and unavailable UI.
+
 ### Settings and helper editors
 
 Shared settings and helpers use a wide grouped workspace: desktop group navigation,

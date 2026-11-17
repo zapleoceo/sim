@@ -65,6 +65,12 @@ class SettingSpec:
             if not isinstance(value, str):
                 raise SettingError(f"{self.key}: a Broker model id or an empty text is required")
             model = value.strip()
+            if model and self.key == "studio_photo_subscription_model" and not model.startswith("codex-sub/"):
+                raise SettingError("Studio photo primary requires a codex-sub model")
+            if model and self.key == "studio_photo_google_model" and not model.startswith("gemini/"):
+                raise SettingError("Studio photo reserve requires a Google Broker model")
+            if model and self.key == "studio_video_model" and model != "gemini/gemini-omni-1.2-flash":
+                raise SettingError("Studio video model has no supported Broker contract")
             if model and not MODEL.match(model):
                 raise SettingError(f"{self.key}: a Broker model id like codex-sub/gpt-6.1-terra is required")
             return model
@@ -221,6 +227,17 @@ SPECS: tuple[SettingSpec, ...] = (
                 "Сколько дней хранить записи журнала системы (Активность → Журнал). 0 — не удалять.",
                 "int", None, 0, 365),
 )
+SPECS += (
+    SettingSpec("studio_photo_subscription_model", MEDIA_GROUP, "Studio: модель фото по подписке",
+                "План, не активация. Точный codex-sub ID; экспорт PNG и права требуют проверки.",
+                "model", ""),
+    SettingSpec("studio_photo_google_model", MEDIA_GROUP, "Studio: резерв фото Google",
+                "План, не активация. Порт генерации ещё отсутствует; vision не генерирует фото.",
+                "model", ""),
+    SettingSpec("studio_video_model", MEDIA_GROUP, "Studio: модель обычного видео",
+                "План, не активация. Пока допустим только gemini/gemini-omni-1.2-flash; "
+                "пусто — не выбрана. Качество, права и бюджет ещё не подтверждены.", "model", ""),
+)
 BY_KEY: Mapping[str, SettingSpec] = {spec.key: spec for spec in SPECS}
 
 
@@ -279,6 +296,9 @@ class AppSettings:
     trace_retention_days: int
     video_note_owner_telegram_id: int
     persona_photo_model: str
+    studio_photo_subscription_model: str
+    studio_photo_google_model: str
+    studio_video_model: str
     persona_media_gap_min: int
 
     def prompt_texts(self) -> PromptTexts:

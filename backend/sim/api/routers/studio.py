@@ -14,10 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from sim.adapters.llm.broker import BrokerLLM
 from sim.adapters.studio_broker import StudioBroker
-from sim.api.deps import App, Owner
+from sim.api.deps import App, Db, Owner
 from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
 from sim.ports.video import VideoError
+from sim.services.app_settings import AppSettingsService, env_defaults
+from sim.services.media_routes import route_plan
 from sim.services.studio_drafts import DraftConflict, StudioDrafts
 from sim.services.studio_media import (
     MediaRequest,
@@ -119,7 +121,7 @@ async def subscription_models(c: App) -> list[str]:
 
 
 @router.get("")
-async def status(c: App, p: Owner):
+async def status(c: App, p: Owner, s: Db):
     personal = personal_owner(c, p)
     models: list[str] = []
     detail = "Генерация речи и видео в Studio выключена. Возможности и права Broker для неё не проверены."
@@ -141,6 +143,8 @@ async def status(c: App, p: Owner):
         "personal_access": personal,
         "draft_scope": draft_scope(c, p) if personal else None,
         "detail": detail,
+        "route_plan": route_plan(await AppSettingsService(s, env_defaults(c.settings)).load())
+        if personal else [],
     }
 
 
