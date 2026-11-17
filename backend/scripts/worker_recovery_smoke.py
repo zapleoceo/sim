@@ -10,7 +10,7 @@ from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.clock import utcnow
-from sim.services.conversation import ConversationService, REPLY_BUSY_S
+from sim.services.conversation import REPLY_BUSY_S, ConversationService
 from sim.services.job_execution import require_live_execution
 from sim.services.send_receipts import SendReceipts, SendUncertain
 from sim.worker.handlers import Handler
