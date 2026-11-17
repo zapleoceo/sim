@@ -1,5 +1,25 @@
 # Sim
 
+### Settings and helper editors
+
+Shared settings and helpers use a wide grouped workspace: desktop group navigation,
+mobile section selector, explicit instruction editors, concise helper roles and current
+model controls. Existing setting/group hashes (including Back/Forward) and owner access
+are retained. Fixed guard/honesty text remains available in read-only details.
+Save actions appear only for changed fields; reset requires confirmation. Drafts live
+only in the current query client's memory, survive SPA navigation and refetch, and are
+not written to browser storage. An app-level unload guard warns while any settings draft
+exists, including after navigating to Inbox or a persona. Saving/discarding the last
+draft removes the listener. Closing/reloading despite the warning loses memory drafts;
+browser unload prompts are best-effort, not persistent storage. A changed server value is shown as a conflict; overwriting it needs
+explicit confirmation, or the owner can load the saved value. This is UI conflict
+awareness, not a server-side atomic compare-and-swap. Failed mutations retain the draft.
+In-flight field writes stay disabled even after navigating away and back, so an older
+save cannot erase newer input entered through a remounted editor.
+CI component coverage uses fake APIs for save/reset/CSRF, route/hash history, refetch
+conflicts, errors and permissions. No model routes are activated by this UI change.
+Live desktop/mobile visual acceptance has not been performed.
+
 ### Owner-selected conversation models
 
 Personas keep the existing primary model and add two empty-by-default choices:
