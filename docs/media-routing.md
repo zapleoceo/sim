@@ -9,15 +9,16 @@ Google image namespace validation is syntactic: its generation port does not yet
 | Operation | Intended route | Remaining boundary |
 | --- | --- | --- |
 | Photo | Codex subscription PNG export → Google | Verified model/account/project policy; Google generation port absent. Vision only analyzes. |
-| Circle | Google Omni → existing SIM packaging | Video key, budget, response parser and durable receipt unconfirmed; AI marking retained. |
+| Circle | Google Omni → existing SIM packaging | Video key, budget and durable receipt unconfirmed; AI marking retained. |
 | Video | Owner-selected Omni candidate | Only current Broker video contract; no proven quality winner or automatic Vivix fallback. |
 | Call | ElevenLabs voice → Vivix avatar | Adapters, RTC bridge and Telegram video-call bridge not confirmed. |
 
 Production Broker image ee43c095225c11d08d0944cf0edd9523a6307d21d368369f170bbcec1a1f37f1
 read 2026-11-17: providers/gemini_video.py uses /v1beta/interactions and
 gemini/gemini-omni-1.2-flash, 3–15s, 360p/720p, 9:16/16:9; explicitly not live verified.
-Its parser reads outputs/steps.content while SDK examples show output_video. Broker owner
-must establish raw wire compatibility; SDK property alone does not prove a wire defect.
+Its parser reads outputs/steps.content. The official REST response schema distinguishes
+steps[].content[] from SDK output_video; this difference is NOT a demonstrated defect.
+Broker's separate synthetic contract tests do not prove live entitlement or output quality.
 No Broker edits, paid probes, credentials, grants, budget or production changes here.
 
 Official sources checked 2026-11-17:
