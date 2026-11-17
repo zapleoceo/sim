@@ -11,6 +11,7 @@ from sim.adapters.db.models import AdminUser
 from sim.adapters.db.session import make_session_factory, transaction
 from sim.domain.enums import Role
 from sim.ports.speech import SpeechResult
+from sim.services.studio_drafts import DraftConflict, StudioDrafts
 from sim.services.studio_media import MediaRequest, StudioConflict, StudioMedia
 from tests.studio_fixtures import wav_bytes
 
@@ -74,6 +75,23 @@ async def studio_media_checks(url):
         assert (await restarted.execute(owner_id, second_request)).status == "unknown"
         assert fake.calls == 2
         print("PostgreSQL Studio committed intent, concurrent duplicate, restart and cancellation PASS")
+        drafts = StudioDrafts(factory, box)
+        outcomes = await asyncio.gather(
+            drafts.save(owner_id, "synthetic", 0, "first"),
+            drafts.save(owner_id, "synthetic", 0, "second"), return_exceptions=True)
+        assert sum(isinstance(item, DraftConflict) for item in outcomes) == 1
+        saved = await StudioDrafts(factory, box).read(owner_id, "synthetic")
+        assert saved["revision"] == 1 and saved["text"] in {"first", "second"}
+        await drafts.save(owner_id, "synthetic", 1, "")
+        try:
+            await drafts.save(owner_id, "synthetic", 1, "stale resurrection")
+            raise AssertionError("stale draft overwrote delete")
+        except DraftConflict:
+            pass
+        # Disposable synthetic drafts only; production downgrade retains even tombstones.
+        async with transaction(factory) as session:
+            await session.execute(text("DELETE FROM studio_draft"))
+        print("PostgreSQL Studio draft concurrent first-save, reload and delete fencing PASS")
     finally:
         await engine.dispose()
 

@@ -10,9 +10,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { studioApi, type StudioMessage } from '@/lib/api/studio';
 import { errorMessage } from '@/lib/errors';
+import { useAuth } from '@/lib/auth';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import { MediaControls } from './media-controls';
+import { VideoDraft } from './video-draft';
 
 export const STUDIO_MAX_MESSAGES = 24;
 export const STUDIO_MAX_CHARS = 32000;
@@ -44,7 +46,8 @@ function Placeholder({ children }: { children: ReactNode }) {
 
 /** Owner's private studio: source photo, video from it, and a chat on subscription models. */
 export function StudioPage() {
-  const studio = useQuery({ queryKey: qk.studio, queryFn: studioApi.get, retry: false });
+  const { user } = useAuth();
+  const studio = useQuery({ queryKey: [...qk.studio, user?.id], queryFn: studioApi.get, retry: false, enabled: !!user });
   const [model, setModel] = useState('');
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<StudioMessage[]>([]);
@@ -138,7 +141,8 @@ export function StudioPage() {
             </MediaPanel>
           </div>
           {state.detail && <p className="rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{state.detail}</p>}
-          <MediaControls state={state} />
+          {state.personal_access && state.draft_scope && <VideoDraft key={state.draft_scope} scope={state.draft_scope} />}
+          <MediaControls key={state.draft_scope ?? 'unbound'} state={state} />
 
           <section aria-labelledby="chat-h" className="flex flex-col gap-4 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
