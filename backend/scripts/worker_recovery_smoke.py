@@ -24,6 +24,12 @@ async def reply_pending_contention(factory):
     selected, release, busy_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
     original = JobRepo.pending_by_key
     owner_session, busy_pid = [], []
+    claims = []
+    for _ in range(2):
+        async with transaction(factory) as s:
+            await JobRepo(s).enqueue("reply", {"dialog_id": dialog_id}, now, dedup_key=key)
+            [claim] = await JobRepo(s).claim(now, 90, 1)
+            claims.append((claim.id, claim.attempts))
 
     async def pause_after_missing(repo, dedup_key):
         result = await original(repo, dedup_key)
@@ -36,19 +42,23 @@ async def reply_pending_contention(factory):
     async def revision_retry():
         async with transaction(factory) as s:
             owner_session.append(s)
+            assert await JobRepo(s).lock_attempt(*claims[0]) is not None
             assert await try_lock(s, NS_REPLY, dialog_id)
             await lock(s, NS_DIALOG, dialog_id)
             service = SimpleNamespace(jobs=JobRepo(s), clock=lambda: now)
             await ConversationService.defer_reply(service, dialog_id, 0)
+            assert await JobRepo(s).complete(claims[0][0], now, claim_attempt=claims[0][1])
 
     async def busy_retry():
         await selected.wait()
         async with transaction(factory) as s:
+            assert await JobRepo(s).lock_attempt(*claims[1]) is not None
             busy_pid.append(await s.scalar(text("select pg_backend_pid()")))
             assert not await try_lock(s, NS_REPLY, dialog_id)
             busy_started.set()
             service = SimpleNamespace(jobs=JobRepo(s), clock=lambda: now)
             await ConversationService.defer_reply(service, dialog_id, REPLY_BUSY_S)
+            assert await JobRepo(s).complete(claims[1][0], now, claim_attempt=claims[1][1])
 
     JobRepo.pending_by_key = pause_after_missing
     tasks = [asyncio.create_task(revision_retry()), asyncio.create_task(busy_retry())]
@@ -80,6 +90,34 @@ async def reply_pending_contention(factory):
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         JobRepo.pending_by_key = original
+
+    # Reverse ordering: the busy defer commits before revision recovery.
+    async with transaction(factory) as owner:
+        assert await try_lock(owner, NS_REPLY, dialog_id)
+        async with transaction(factory) as busy:
+            assert not await try_lock(busy, NS_REPLY, dialog_id)
+            await ConversationService.defer_reply(
+                SimpleNamespace(jobs=JobRepo(busy), clock=lambda: now), dialog_id, REPLY_BUSY_S)
+        await lock(owner, NS_DIALOG, dialog_id)
+        await ConversationService.defer_reply(
+            SimpleNamespace(jobs=JobRepo(owner), clock=lambda: now), dialog_id, 0)
+    async with transaction(factory) as s:
+        pending = list(await s.scalars(select(Job).where(
+            Job.dedup_key == key, Job.status == "pending")))
+        assert len(pending) == 1 and pending[0].run_at == now + timedelta(seconds=REPLY_BUSY_S)
+        pending[0].status = "cancelled"
+
+    # Failure settlement must not invert NS_DIALOG -> live running-row wait.
+    async with transaction(factory) as s:
+        await JobRepo(s).enqueue("reply", {}, now, dedup_key=key)
+        [claim] = await JobRepo(s).claim(now, 90, 1)
+    async with transaction(factory) as live:
+        assert await JobRepo(live).lock_attempt(claim.id, claim.attempts)
+        async with transaction(factory) as late:
+            assert not await asyncio.wait_for(JobRepo(late).fail(
+                claim, "late synthetic failure", now, claim_attempt=claim.attempts), 10)
+        assert await JobRepo(live).complete(claim.id, now, claim_attempt=claim.attempts)
+    print("PostgreSQL reverse busy/revision order and live-owner failure fence PASS")
 
 
 async def worker_recovery_checks(factory):

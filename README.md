@@ -3,6 +3,20 @@
 PR124's PostgreSQL gate also forces revision-recovery and a competing busy reply
 to overlap at the missing pending-job read. It asserts one pending replacement and
 the later busy deadline; this is separate from the transcript/worker-instance regression.
+Test-only SHA 649bf6c / CI 44057567711 reproduced exactly two pending retries in
+PostgreSQL; unit tests and Ruff passed before the concurrency assertion failed.
+
+Reply pending writers now serialize through the existing NS_DIALOG lock in JobRepo,
+including direct enqueue, upsert, scheduling reads/edits, cancellation and retry settlement.
+NS_REPLY is only tried; claim uses SKIP LOCKED without taking NS_DIALOG. Failure settlement
+must skip a locked live running row rather than wait for it under NS_DIALOG. Pending reads
+lock and refresh their row so a concurrent claim cannot turn a stale cached row into a lost retry.
+This guarantee covers canonical reply:<dialog_id> keys, not all unrelated job types or raw SQL.
+Fresh pending retries coalesce into the original executing job ID, retaining its Broker journal,
+latest payload and later deadline. Two already-executed retry identities fail closed with
+reconciliation diagnostics and the existing giveup policy; neither is blindly replayed.
+Before rollout, inspect historical duplicate pending reply keys; do not silently delete or
+merge previously executed jobs with unknown external receipts. No migration rewrites history.
 
 ### Settings and helper editors
 
