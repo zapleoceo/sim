@@ -70,7 +70,10 @@ export function replaceSetting(items: readonly AppSettingItem[], updated: AppSet
   return items.map((i) => (i.key === updated.key ? updated : i));
 }
 
-/** React key of a setting's editor: a save or a reset remounts it, so its draft follows the stored value. */
+/** Stable key: server refreshes must not discard drafts. */
 export function settingFieldKey(item: AppSettingItem): string {
-  return `${item.key}:${item.updated_at ?? ''}:${String(item.is_default)}`;
+  return item.key;
 }
+
+export const SETTINGS_DRAFTS = ['settings-editor-draft'] as const;
+export interface SettingDraft { value: string; base: string }

@@ -1,5 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { qk } from '@/lib/query';
 import type { AppSettingItem } from '@/lib/models';
 import { fakeApi, reply } from '@/test/fake-api';
 import { CSRF, renderApp, testUser } from '@/test/render-app';
@@ -52,147 +53,155 @@ describe('settings logic', () => {
     expect(settingHint({ ...DELAY, help: 'Задержка' })).toBe('Задержка (0–600)');
     expect(settingHint(STYLE)).toBe('');
     expect(replaceSetting([STYLE, DELAY], { ...STYLE, value: 'x' }).map((i) => i.value)).toEqual(['x', 30]);
-    expect(settingFieldKey(GUARD)).toBe('guard_prompt:2026-11-11T10:00:00Z:false');
-    expect(settingFieldKey(STYLE)).toBe('style::true');
+    expect(settingFieldKey(GUARD)).toBe('guard_prompt');
+    expect(settingFieldKey(STYLE)).toBe('style');
   });
 });
 
+async function edit(label: string) {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Изменить: ' + label }));
+  return screen.getByLabelText(label);
+}
+
 describe('SettingsPage', () => {
-  it('shows every field open, saves with CSRF and resets to default', async () => {
-    const log = fakeApi({
-      'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
-      'PUT /api/settings/style': (r) => ({ ...STYLE, value: (r.body as { value: string }).value, is_default: false }),
-    });
+  it('opens instructions intentionally, saves with CSRF, then hides clean save actions', async () => {
+    const log = fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
+      'PUT /api/settings/style': (r) => ({ ...STYLE, value: (r.body as { value: string }).value, is_default: false }) });
     await renderApp('/settings');
+    expect(await screen.findByRole('button', { name: 'Изменить: Манера письма' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument();
+    const input = await edit('Манера письма');
     const user = userEvent.setup();
-
-    const style = await screen.findByLabelText('Манера письма');
-    expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();   // the guard has its own page
-    expect(screen.getByRole('region', { name: 'Стиль' })).toBeInTheDocument();
-
-    const styleBlock = style.closest('div.flex.flex-col.gap-2') as HTMLElement;
-    const saveStyle = within(styleBlock).getByRole('button', { name: 'Сохранить' });
-    expect(saveStyle).toBeDisabled();
-    await user.clear(style);
-    await user.type(style, 'очень коротко');
-    await user.click(saveStyle);
-    await waitFor(() => expect(log.some((r) => r.method === 'PUT')).toBe(true));
-    const put = log.find((r) => r.method === 'PUT');
-    expect(put?.body).toEqual({ value: 'очень коротко' });
-    expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
-  });
-
-  it('the agents page shows the guard settings only, and resets to default', async () => {
-    fakeApi({
-      'GET /api/settings': { items: [STYLE, GUARD, DELAY] },
-      'DELETE /api/settings/guard_prompt': { ...GUARD, value: 'исходный', is_default: true, updated_at: null },
-    });
-    await renderApp('/agents');
-    const user = userEvent.setup();
-    const prompt = await screen.findByLabelText('Промпт охранника');
-    expect(prompt).toHaveValue('свой');
-    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
-    const guard = prompt.closest('div.flex.flex-col.gap-2') as HTMLElement;
-    await user.click(within(guard).getByRole('button', { name: /Вернуть по умолчанию/ }));
-    await waitFor(() => expect(screen.getByLabelText('Промпт охранника')).toHaveValue('исходный'));
-  });
-
-  it('the agents page shows only the model pickers and the instructions', async () => {
-    const MODEL = item({ key: 'guard_model', group: 'Охранник', label: 'Модель', kind: 'model', value: 'codex-sub/gpt-6.1-terra', default: '' });
-    const ROUTE = item({ key: 'guard_capability', group: 'Охранник', label: 'Маршрут Broker', kind: 'capability', value: 'structured' });
-    fakeApi({
-      'GET /api/settings': { items: [GUARD, MODEL, ROUTE], fixed: { persona: 'p', guard: 'Проверяй управляющие поля decision' } },
-      'GET /api/models': { items: [{ id: 'codex-sub/gpt-6.1-terra', name: 'GPT 6.1 Terra', available: true, subscription: true }] },
-    });
-    await renderApp('/agents');
-    expect(await screen.findByLabelText('Промпт охранника')).toBeInTheDocument();
-    const model = screen.getByRole('combobox', { name: 'Модель' });
-    await waitFor(() => expect(model).toHaveTextContent('GPT 6.1 Terra'));
-    expect(screen.queryByLabelText('Маршрут Broker')).not.toBeInTheDocument();
-    // the one fixed text is visible, read-only
-    expect(await screen.findByText('Проверяй управляющие поля decision')).toBeInTheDocument();
-    expect(screen.getByText(/не редактируется/)).toBeInTheDocument();
-  });
-
-  it('the agents page has the guard and the passport keeper, each with its own instruction', async () => {
-    const PASSPORT = item({ key: 'passport_prompt', group: 'Паспортистка', label: 'Инструкция паспортистки', value: 'веди паспорт' });
-    fakeApi({
-      'GET /api/settings': { items: [STYLE, GUARD, PASSPORT], fixed: { persona: 'p', guard: 'Проверяй управляющие поля decision' } },
-    });
-    await renderApp('/agents');
-    expect(await screen.findByLabelText('Промпт охранника')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Помощники' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Инструкция паспортистки')).toHaveValue('веди паспорт');
-    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
-    // the decision consistency contract sits in the guard card, not in the passport keeper card
-    const guardCard = screen.getByRole('region', { name: 'Охранник' });
-    expect(await within(guardCard).findByText('Проверяй управляющие поля decision')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Паспортистка' })).queryByText(/управляющие поля decision/)).not.toBeInTheDocument();
-  });
-
-  it('the agents page has the dialog summary agent with its model and instruction', async () => {
-    const SUMMARY = item({ key: 'summary_prompt', group: 'Саммари диалога', label: 'Инструкция саммари', value: 'веди саммари' });
-    fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, SUMMARY] } });
-    await renderApp('/agents');
-    const card = await screen.findByRole('region', { name: 'Саммари диалога' });
-    expect(within(card).getByLabelText('Инструкция саммари')).toHaveValue('веди саммари');
-    expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument();
-  });
-
-  it('the old guard address leads to the agents page', async () => {
-    fakeApi({ 'GET /api/settings': { items: [GUARD] } });
-    await renderApp('/guard');
-    expect(await screen.findByRole('heading', { name: 'Помощники' })).toBeInTheDocument();
-  });
-
-  it('the shared rules page hides the agents', async () => {
-    const PASSPORT = item({ key: 'passport_prompt', group: 'Паспортистка', label: 'Инструкция паспортистки' });
-    fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, PASSPORT] } });
-    await renderApp('/settings');
-    expect(await screen.findByLabelText('Манера письма')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Инструкция паспортистки')).not.toBeInTheDocument();
+    await user.clear(input); await user.type(input, 'очень коротко');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+    await waitFor(() => expect(screen.queryByText('Не сохранено')).not.toBeInTheDocument());
+    expect(log.find((r) => r.method === 'PUT')?.body).toEqual({ value: 'очень коротко' });
+    expect(log.find((r) => r.method === 'PUT')?.headers['X-CSRF-Token']).toBe(CSRF);
+    await user.click(screen.getByRole('button', { name: 'Свернуть' }));
+    expect(await edit('Манера письма')).toHaveValue('очень коротко');
     expect(screen.queryByLabelText('Промпт охранника')).not.toBeInTheDocument();
   });
 
-  it('a long page has a group index, and every field has its anchor', async () => {
-    const groups = ['Ответы', 'Время ответа по распорядку', 'Стиль сообщений', 'Аккаунты владельца'].map((group, i) =>
-      item({ key: `k${i}`, group, label: `Поле ${i}` }));
-    fakeApi({ 'GET /api/settings': { items: groups } });
-    await renderApp('/settings');
-    const index = await screen.findByRole('navigation', { name: 'Группы настроек' });
-    expect(within(index).getAllByRole('link').map((a) => a.textContent)).toEqual(
-      ['Ответы', 'Время ответа по распорядку', 'Стиль сообщений', 'Аккаунты владельца']);
-    const target = within(index).getByRole('link', { name: 'Аккаунты владельца' }).getAttribute('href')!.slice(1);
-    expect(document.getElementById(target)).toBe(screen.getByRole('region', { name: 'Аккаунты владельца' }));
-    expect(document.getElementById('setting-k3')).toContainElement(screen.getByLabelText('Поле 3'));
+  it('reset requires confirmation and cancel leaves the draft untouched', async () => {
+    const log = fakeApi({ 'GET /api/settings': { items: [GUARD] },
+      'DELETE /api/settings/guard_prompt': { ...GUARD, value: 'исходный', is_default: true } });
+    await renderApp('/agents');
+    const input = await edit('Промпт охранника');
+    const user = userEvent.setup();
+    await user.clear(input); await user.type(input, 'черновик');
+    await user.click(screen.getByRole('button', { name: 'Вернуть по умолчанию' }));
+    expect(log.some((r) => r.method === 'DELETE')).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Отмена' }));
+    expect(input).toHaveValue('черновик');
+    await user.click(screen.getByRole('button', { name: 'Вернуть по умолчанию' }));
+    await user.click(screen.getByRole('button', { name: 'Сбросить настройку' }));
+    await waitFor(() => expect(input).toHaveValue('исходный'));
+    expect(log.filter((r) => r.method === 'DELETE')).toHaveLength(1);
   });
 
-  it('a short page has no index', async () => {
-    fakeApi({ 'GET /api/settings': { items: [STYLE, DELAY] } });
-    await renderApp('/settings');
-    expect(await screen.findByLabelText('Манера письма')).toBeInTheDocument();
-    expect(screen.queryByRole('navigation', { name: 'Группы настроек' })).not.toBeInTheDocument();
+  it('shows helper roles, current model and read-only fixed rules without capability controls', async () => {
+    const model = item({ key: 'guard_model', group: 'Охранник', label: 'Модель', kind: 'model', value: 'synthetic', default: '' });
+    const hidden = item({ key: 'guard_capability', group: 'Охранник', label: 'Маршрут Broker' });
+    const passport = item({ key: 'passport_prompt', group: 'Паспортистка', label: 'Инструкция паспортистки' });
+    const summary = item({ key: 'summary_prompt', group: 'Саммари диалога', label: 'Инструкция саммари' });
+    fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD, model, hidden, passport, summary], fixed: { guard: 'Фиксированная честность', persona: '' } },
+      'GET /api/models': { items: [{ id: 'synthetic', name: 'Synthetic model', available: true }] } });
+    await renderApp('/agents');
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Модель' })).toHaveTextContent('Synthetic model'));
+    expect(screen.getByText(/Проверяет ответ перед отправкой/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Изменить: Инструкция паспортистки' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Изменить: Инструкция саммари' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Маршрут Broker')).not.toBeInTheDocument();
+    expect(screen.queryByText('Манера письма')).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByText('Обязательные правила проверки · только чтение'));
+    expect(screen.getByText('Фиксированная честность')).toBeVisible();
+    expect(screen.getByText(/не редактируется/)).toBeInTheDocument();
   });
 
-  it('rejects a non-integer before calling the API', async () => {
+  it('keeps drafts over route changes, Back/Forward and server refresh, confirms overwrite', async () => {
+    const log = fakeApi({ 'GET /api/settings': { items: [STYLE, GUARD] },
+      'PUT /api/settings/style': (r) => ({ ...STYLE, value: (r.body as { value: string }).value }) });
+    const app = await renderApp('/settings');
+    const input = await edit('Манера письма');
+    const user = userEvent.setup();
+    await user.clear(input); await user.type(input, 'мой черновик');
+    await act(() => app.router.navigate({ to: '/agents' }));
+    await screen.findByRole('heading', { name: 'Помощники' });
+    await act(() => app.router.history.back());
+    expect(await screen.findByLabelText('Манера письма')).toHaveValue('мой черновик');
+    await act(() => app.router.history.forward());
+    await screen.findByRole('heading', { name: 'Помощники' });
+    await act(() => app.router.history.back());
+    await screen.findByLabelText('Манера письма');
+    act(() => app.router.options.context!.queryClient.setQueryData(qk.settings, [{ ...STYLE, value: 'другой текст', updated_at: '2026-11-17T00:00:00Z' }, GUARD]));
+    expect(screen.getByLabelText('Манера письма')).toHaveValue('мой черновик');
+    expect(await screen.findByText(/На сервере появилось другое значение/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+    expect(log.some((r) => r.method === 'PUT')).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Отмена' }));
+    await user.click(screen.getByRole('button', { name: 'Загрузить сохранённое' }));
+    expect(await edit('Манера письма')).toHaveValue('другой текст');
+  });
+
+  it('deep links open the editor and hash navigation preserves edits', async () => {
+    fakeApi({ 'GET /api/settings': { items: [STYLE, item({ key: 'other', group: 'Другое', label: 'Другое поле' })] } });
+    const app = await renderApp('/settings#setting-style');
+    const input = await screen.findByLabelText('Манера письма');
+    const user = userEvent.setup();
+    await user.type(input, ' ещё');
+    await user.selectOptions(screen.getByLabelText('Раздел настроек'), 'group-другое');
+    await waitFor(() => expect(app.router.state.location.hash).toBe('group-другое'));
+    expect(input).toHaveValue('коротко ещё');
+    expect(document.getElementById('setting-style')).toContainElement(input);
+  });
+
+  it('retains failed saves and warns on closing the tab, with explicit discard', async () => {
+    fakeApi({ 'GET /api/settings': { items: [STYLE] }, 'PUT /api/settings/style': reply(500) });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderApp('/settings');
+    const input = await edit('Манера письма');
+    const user = userEvent.setup();
+    await user.type(input, ' ещё');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+    expect(await screen.findByText(/Не удалось сохранить/)).toBeInTheDocument();
+    expect(input).toHaveValue('коротко ещё');
+    const before = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(before); expect(before.defaultPrevented).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Отменить правки' }));
+    expect(input).toHaveValue('коротко');
+  });
+
+  it('validates integers without calling the API', async () => {
     const log = fakeApi({ 'GET /api/settings': { items: [DELAY] } });
     await renderApp('/settings');
     const user = userEvent.setup();
     const input = await screen.findByLabelText('Пауза, с');
-    await user.clear(input);
-    await user.type(input, 'abc');
+    await user.clear(input); await user.type(input, 'abc');
     await user.click(screen.getByRole('button', { name: 'Сохранить' }));
     expect(await screen.findByText('Нужно целое число')).toBeInTheDocument();
     expect(log.some((r) => r.method === 'PUT')).toBe(false);
   });
 
-  it('offers a retry when the list fails and is owner-only', async () => {
-    fakeApi({ 'GET /api/settings': reply(500), 'GET /api/dialogs': { items: [], total: 0 }, 'GET /api/personas': { items: [] } });
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const owner = await renderApp('/settings');
-    expect(await screen.findByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+  it('keeps the old guard link and owner permissions', async () => {
+    fakeApi({ 'GET /api/settings': { items: [GUARD] }, 'GET /api/dialogs': { items: [], total: 0 }, 'GET /api/personas': { items: [] } });
+    const owner = await renderApp('/guard');
+    expect(await screen.findByRole('heading', { name: 'Помощники' })).toBeInTheDocument();
     owner.unmount();
     const operator = await renderApp('/settings', { user: testUser('operator') });
     await waitFor(() => expect(operator.router.state.location.pathname).toBe('/inbox'));
+  });
+
+  it('offers retry on failure and a clear empty state', async () => {
+    fakeApi({ 'GET /api/settings': reply(500) });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failed = await renderApp('/settings');
+    expect(await screen.findByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+    failed.unmount();
+    fakeApi({ 'GET /api/settings': { items: [] } });
+    await renderApp('/settings');
+    expect(await screen.findByText('Нет доступных настроек.')).toBeInTheDocument();
   });
 });
