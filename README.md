@@ -1,5 +1,25 @@
 # Sim
 
+PR124's PostgreSQL gate also forces revision-recovery and a competing busy reply
+to overlap at the missing pending-job read. It asserts one pending replacement and
+the later busy deadline; this is separate from the transcript/worker-instance regression.
+Test-only SHA 649bf6c / CI 44057567711 reproduced exactly two pending retries in
+PostgreSQL; unit tests and Ruff passed before the concurrency assertion failed.
+
+Reply pending writers now serialize through the existing NS_DIALOG lock in JobRepo,
+including direct enqueue, upsert, scheduling reads/edits, cancellation and retry settlement.
+NS_REPLY is only tried; claim uses SKIP LOCKED without taking NS_DIALOG.
+Pure deadline observers opt out of locks, so the overdue-watch batch cannot accumulate
+dialog locks in a conflicting order.
+Failure settlement must skip a locked live running row rather than wait for it under NS_DIALOG. Pending reads
+lock and refresh their row so a concurrent claim cannot turn a stale cached row into a lost retry.
+This guarantee covers canonical reply:<dialog_id> keys, not all unrelated job types or raw SQL.
+Fresh pending retries coalesce into the original executing job ID, retaining its Broker journal,
+latest payload and later deadline. Two already-executed retry identities fail closed with
+reconciliation diagnostics and the existing giveup policy; neither is blindly replayed.
+Before rollout, inspect historical duplicate pending reply keys; do not silently delete or
+merge previously executed jobs with unknown external receipts. No migration rewrites history.
+
 ### Settings and helper editors
 
 Shared settings and helpers use a wide grouped workspace: desktop group navigation,
@@ -322,6 +342,21 @@ pending/done/unsupported/failed states, bounded Telegram downloads, retained cap
 durable Broker reconciliation. Video is sampled frames only, not speech recognition;
 audio/PDF/Office are unsupported in this mode. No paid fallback. Synthetic checks run only in CI.
 # Studio media wiring (disabled)
+
+The media/reply concurrency regression runs early in CI and then with the full suite.
+It deterministically commits a synthetic transcription between reply's initial dialog read
+and its media-job check, as well as testing the opposite order. A superseded draft must
+never be sent and must not strand an unanswered message when the worker restarts.
+CI44047747901 at test-only521a1cd proved this loss (superseded, no replacement), while
+the opposite order passed. Revision changes now retain one normal deduplicated reply;
+existing later schedules remain later, and pause/refusal checks still take precedence.
+No stale draft is delivered or reused, no proactive follow-up is automatically retried,
+and the regular model/guard/budget/send-receipt path is unchanged. Synthetic regressions
+cover newer input, delayed pending work, worker recreation, pause/resume and refusal.
+Resume fixtures explicitly distinguish fresh messages from expired recovery windows;
+expired messages remain unanswered. The legacy media fixture supplies the same synthetic
+answer for a valid regenerated draft without relaxing its expected delivered text.
+This proves the race itself, not the historical cause of the earlier intermittent CI failure.
 
 Private video drafts can be saved and restored independently of disabled generation.
 They use the existing personal-owner gate and SecretBox encryption, with explicit save,

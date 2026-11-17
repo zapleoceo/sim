@@ -83,7 +83,9 @@ async def test_media_job_downloads_via_port_and_transcribes(container, world, fa
 
 async def test_reply_waits_for_the_transcript(container, world, fake_llm, connector):
     fake_llm.transcript = "хочу записаться"
-    fake_llm.replies = [decision_json(reply="Отлично!")]
+    # A revision race may discard one generated draft and retry with current context.
+    # Keep the fake model's answer stable across that valid retry; delivery stays exactly once.
+    fake_llm.replies = [decision_json(reply="Отлично!")] * 2
     await ingest_voice(container, world)
     worker = Worker(container)
     await drain(container, worker)

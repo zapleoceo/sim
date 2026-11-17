@@ -486,6 +486,12 @@ class ConversationService:
         if dialog.ai_paused:                # a human took over meanwhile
             return ReplyOutcome("skipped") if followup else await self.paused(dialog_id)
         if dialog.activity_revision != activity_revision:
+            # A transcript can commit after our initial Dialog read but before the media
+            # check. Unlike a new inbound, that update does not enqueue its own reply.
+            # Preserve one durable retry (and any later scheduled time) before settling
+            # this stale attempt. Pause/refusal above still take precedence.
+            if not followup:
+                await self.defer_reply(dialog_id, 0)
             return ReplyOutcome("superseded")
         newer = await self.messages.last(dialog_id, Direction.IN)
         if newer is not None and newer.id > cutoff:
