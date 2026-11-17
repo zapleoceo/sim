@@ -65,6 +65,8 @@ async def schema_and_concurrency(url):
             ))).scalars())
             if not {"operator_id", "operator_name"} <= columns:
                 raise AssertionError("0008 operator columns missing")
+            if not {"media_status", "media_reason"} <= columns:
+                raise AssertionError("0036 incoming media status columns missing")
             indexes = set((await conn.execute(text(
                 "SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='message'"
             ))).scalars())

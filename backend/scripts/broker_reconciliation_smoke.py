@@ -15,6 +15,7 @@ from sim.adapters.llm.broker import BrokerLLM
 from sim.clock import utcnow
 from sim.services.broker_requests import BrokerRequests
 from sim.services.job_execution import require_live_execution
+from sim.services.media_recognition import DEFAULT_MODEL, SubscriptionMediaRecognizer
 from sim.services.send_receipts import SendReceipts
 from sim.worker.handlers import Handler
 from sim.worker.loop import Worker
@@ -24,15 +25,17 @@ async def broker_reconciliation_checks(factory):
     box = SecretBox(Fernet.generate_key().decode())
     for lose_at in ("post", "poll"):
         await recovery_case(factory, box, lose_at)
+    await recovery_case(factory, box, "post", media=True)
     # Only synthetic fixtures in this explicitly disposable database are removed
     # so the subsequent migration round-trip cannot discard recovery history.
     async with transaction(factory) as s:
-        assert len(list(await s.scalars(select(BrokerRequest)))) == 2
+        assert len(list(await s.scalars(select(BrokerRequest)))) == 3
         await s.execute(delete(BrokerRequest))
     print("Full Worker Broker recovery: accepted/unknown POST, DB loss, late owner, idempotency and receipts PASS")
+    print("Subscription media recognition: unknown POST/DB loss recovery without duplicate inference PASS")
 
 
-async def recovery_case(factory, box, lose_at):
+async def recovery_case(factory, box, lose_at, *, media=False):
     now = [utcnow()]
     container = SimpleNamespace(factory=factory, clock=lambda: now[0], registry={},
         settings=SimpleNamespace(calls_enabled=False))
@@ -41,9 +44,15 @@ async def recovery_case(factory, box, lose_at):
     logical_jobs = {}
     receipts = SendReceipts(factory, container.clock)
     message_id = 920000001 if lose_at == "post" else 920000002
+    if media:
+        message_id = 920000003
 
     def make_broker(old):
         async def transport(request):
+            if request.url.path == "/v1/models":
+                return httpx.Response(200, json={"data": [{"id": DEFAULT_MODEL,
+                    "billing_type": "subscription", "available": True, "capabilities": ["chat:fast"],
+                    "job_request": {"message_content": ["text", "image_data_url"]}}]})
             if request.method == "POST":
                 key = request.headers["Idempotency-Key"]
                 posts.append((key, request.content))
@@ -72,11 +81,14 @@ async def recovery_case(factory, box, lose_at):
     def handler(broker):
         async def run(c, s, payload):
             backend_pid.append(await s.scalar(text("select pg_backend_pid()")))
-            result = await broker.chat([{"role": "user", "content": "synthetic private question"}])
+            if media:
+                answer = await SubscriptionMediaRecognizer(broker).recognize(b"synthetic document", "document")
+            else:
+                answer = (await broker.chat([{"role": "user", "content": "synthetic private question"}])).text
             await require_live_execution()
             if await receipts.previous(message_id, "d" * 64) is None:
                 await receipts.claim(message_id, "d" * 64)
-                effects.append(result.text)  # mocked channel, no network send
+                effects.append(answer)  # mocked channel, no network send
                 await receipts.acknowledge(message_id, "d" * 64, "synthetic-receipt")
         return Handler(run)
 
