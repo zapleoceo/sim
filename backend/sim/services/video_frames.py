@@ -9,7 +9,8 @@ from pathlib import Path
 
 import filetype
 
-from sim.adapters.audio import AudioError, Runner, run_process
+from sim.adapters.audio import AudioError, Runner
+from sim.adapters.video_process import run_video_process
 
 MAX_VIDEO_BYTES = 5 * 1024 * 1024
 MAX_DURATION_S = 60
@@ -23,7 +24,7 @@ class VideoUnsupported(ValueError):
     """Invalid/over-limit input, unavailable decoder or unsupported video container."""
 
 
-async def sample_video(data: bytes, *, runner: Runner = run_process) -> list[bytes]:
+async def sample_video(data: bytes, *, runner: Runner = run_video_process) -> list[bytes]:
     if not data or len(data) > MAX_VIDEO_BYTES:
         raise VideoUnsupported("video_size")
     detected = filetype.guess(data)

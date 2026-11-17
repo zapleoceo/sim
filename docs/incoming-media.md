@@ -29,6 +29,15 @@ Limits:
   1 MiB total. Fixed ffmpeg argv, private temporary paths, file-only input
   protocols, thread/allocation/time limits. Audio is explicitly NOT transcribed;
   unsampled events are unknown. Base64 plus prompt fits the 2 MB durable journal.
+- Untrusted video uses a separate Linux-only runner, not the audio runner:
+  stdout streaming caps 16 KiB probe/1 MiB frame, stderr 16 KiB, 8 KiB pipe buffers;
+  overflow/timeout/cancellation kill and reap the child process group and drain
+  without accumulating output. An isolated Python bootstrap applies hard 512 MiB
+  address-space and 6 CPU-second limits before codec exec, zero core/file-output
+  limits and 32 open descriptors. Only /usr/bin/ffprobe or ffmpeg can be exec'd;
+  stdin is closed, environment is a fixed whitelist without app credentials.
+  Wall time is capped at 8 seconds per child. Other platforms fail closed.
+  This contains resources; it is not a filesystem/network namespace sandbox.
 - Raw audio/voice, PDF and Office: explicit unsupported; no paid substitution.
 - Output: 12,000 characters, explicit truncation marker. Provider truncation
   reasons fail closed rather than being presented as complete.
@@ -53,6 +62,9 @@ journal: failed recognition is not a claim that Broker cancelled an accepted job
 
 Synthetic CI tests cover queue/caption/context/status, bounds, unsupported input,
 pause preservation, duplicate completion, newer previews, unknown POST recovery,
-redaction, UI labels and offline generated video. No private fixtures, live model
-probes, real channel sends or local test/build/lint execution. Production
+redaction, UI labels and offline generated video.
+Decoder tests also cover stdout/stderr overflow, timeout, repeated cancellation,
+kill/reap, hard-limit bootstrap ordering, kernel readback/allocation refusal and
+the exact clean child environment. No private fixtures, live model probes, real
+channel sends or local test/build/lint execution. Production
 activation and live quality remain separate from implementation acceptance.
