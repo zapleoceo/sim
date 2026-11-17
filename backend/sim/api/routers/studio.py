@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
+from sim.adapters.llm.broker import BrokerLLM
+from sim.adapters.studio_broker import StudioBroker
 from sim.api.deps import App, Owner
 from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
@@ -89,6 +91,7 @@ async def status(c: App, p: Owner):
         "models": models, "text_available": bool(models), "media_available": False,
         "speech_available": False, "video_available": False,
         "media_status": "disabled", "capabilities_verified": False,
+        "personal_access": personal,
         "detail": detail,
     }
 
@@ -96,7 +99,34 @@ async def status(c: App, p: Owner):
 def media_service(c: App) -> StudioMedia:
     # Deliberately no setting/query switch. A future reviewed activation must verify
     # identity, provider grants, budgets, bounded responses and recovery contract first.
-    return StudioMedia(c.factory, c.box, c.speech, c.video)
+    bounded = StudioBroker(c.llm) if isinstance(c.llm, BrokerLLM) else None
+    return StudioMedia(c.factory, c.box, bounded, None, remote=bounded)
+
+
+def operation_out(row):
+    return {"operation_id": row.id, "kind": row.kind, "status": row.status,
+            "created_at": row.created_at.isoformat() + "Z",
+            "artifact_url": f"/api/studio/media/{row.id}/artifact" if row.status == "complete" else None}
+
+
+@router.get("/media")
+async def media_history(c: App, p: Owner):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    return {"operations": [operation_out(row) for row in await media_service(c).recent(p.user.id)]}
+
+
+@router.post("/media/{operation_id}/reconcile")
+async def reconcile_media(operation_id: UUID, c: App, p: Owner):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    try:
+        row = await media_service(c).reconcile(p.user.id, str(operation_id))
+    except StudioUnavailable as exc:
+        raise HTTPException(423, "Сверка Studio выключена; внешний запрос не отправлен") from exc
+    except (StudioConflict, VideoError) as exc:
+        raise HTTPException(409, "Результат не подтверждён; повторная генерация запрещена") from exc
+    return operation_out(row)
 
 
 @router.post("/media")
@@ -109,18 +139,17 @@ async def generate_media(body: MediaRequest, c: App, p: Owner):
         raise HTTPException(423, "Генерация Studio выключена; запрос провайдеру не отправлен") from exc
     except (StudioConflict, SpeechError, VideoError) as exc:
         raise HTTPException(409, "Результат не подтверждён. Не повторяйте генерацию; требуется проверка операции") from exc
-    return {"operation_id": row.id, "status": row.status}
+    return operation_out(row)
 
 
 @router.get("/media/{operation_id}")
 async def media_status(operation_id: UUID, c: App, p: Owner):
     if not personal_owner(c, p):
         raise HTTPException(403, "Personal owner access required")
-    row = await media_service(c).get(p.user.id, str(operation_id))
+    row = await media_service(c).get(p.user.id, str(operation_id), include_artifact=False)
     if row is None:
         raise HTTPException(404, "Operation not found")
-    return {"operation_id": row.id, "status": row.status,
-            "artifact_url": f"/api/studio/media/{row.id}/artifact" if row.status == "complete" else None}
+    return operation_out(row)
 
 
 @router.get("/media/{operation_id}/artifact")
@@ -131,7 +160,10 @@ async def media_artifact(operation_id: UUID, c: App, p: Owner):
     row = await service.get(p.user.id, str(operation_id))
     if row is None or row.status != "complete":
         raise HTTPException(404, "Confirmed artifact not found")
-    data, mime = service.artifact(row)
+    try:
+        data, mime = service.artifact(row)
+    except (StudioConflict, ValueError, KeyError) as exc:
+        raise HTTPException(409, "Сохранённый файл не прошёл проверку") from exc
     return Response(data, media_type=mime, headers={
         "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
     })

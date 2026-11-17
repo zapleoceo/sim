@@ -12,6 +12,7 @@ from sim.adapters.db.session import make_session_factory, transaction
 from sim.domain.enums import Role
 from sim.ports.speech import SpeechResult
 from sim.services.studio_media import MediaRequest, StudioConflict, StudioMedia
+from tests.studio_fixtures import wav_bytes
 
 
 async def studio_media_checks(url):
@@ -27,7 +28,7 @@ async def studio_media_checks(url):
             self.calls += 1
             entered.set()
             await finish.wait()
-            return SpeechResult(b"synthetic", "audio/wav")
+            return SpeechResult(wav_bytes(), "audio/wav")
 
     fake = FakeSpeech()
     service = StudioMedia(factory, box, fake, None, enabled=True)
