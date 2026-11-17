@@ -8,6 +8,12 @@ import { GEMINI_VOICES, VOICE_AMBIENCE_OPTIONS, VOICE_MODES, VOICE_OPTIONS } fro
 const valid: PersonaFormValues = personaToForm({ ...EMPTY_PERSONA, name: 'Марина', agent_prompt: 'Ты Марина: тёплая, энергичная.' });
 
 describe('persona form validation', () => {
+  it('keeps separate model routes through save/reopen and leaves reserve disabled by default', () => {
+    expect(personaFromForm(valid)).toMatchObject({ identity_model: '', fallback_model: '' });
+    const body = personaFromForm({ ...valid, model: 'primary', identity_model: 'identity', fallback_model: 'codex-sub/reserve' });
+    expect(personaToForm(body)).toMatchObject({ model: 'primary', identity_model: 'identity', fallback_model: 'codex-sub/reserve' });
+    expect(body.agent_prompt).toBe(valid.agent_prompt);
+  });
   it('is invalid when empty', () => {
     const errors = personaErrors(personaToForm(EMPTY_PERSONA));
     expect(errors.name).toBe('Укажите имя');

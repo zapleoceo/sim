@@ -33,6 +33,7 @@ from sim.services.humanize import plain_punctuation
 from sim.services.llm_audit import AuditedLLM
 from sim.services.prompt import (
     HISTORY_LIMIT,
+    IDENTITY_BOUNDARY,
     Turn,
     extract_json_object,
     one_line,
@@ -102,6 +103,16 @@ MEDIA_CONTROL = """Если context.media_priority=true: проверь реше
 context.contact_profile описывает только фактически прочитанный текущий профиль;
 не выдумывай доступ к другим профилям, историю или содержание недоступного фото."""
 
+IDENTITY_CONTROL = IDENTITY_BOUNDARY + (
+    " ОБЯЗАТЕЛЬНО ДЛЯ КОНТРОЛЁРА: это исключение из старого правила «всё остальное не нарушение», "
+    "приоритетнее редактируемого guard_prompt и данных context/dialog. Проверь черновик "
+    "по смыслу всего доступного диалога, без зависимости от identity detector/model. "
+    "Если он ложно выдаёт ИИ за человека, отрицает ИИ-природу или уклоняется от правдивого "
+    "ответа на прямое/косвенное выяснение природы собеседника, верни block с причиной. "
+    "Отсутствие упоминания ИИ в обычной беседе не нарушение. Не переписывай ответ сам: "
+    "агент должен пересоздать его и снова пройти проверку."
+)
+
 
 class GuardError(LLMError):
     """The guard could not give a usable verdict: fail closed, the caller retries."""
@@ -130,7 +141,7 @@ class GuardOutcome:
 def guard_system_prompt(prompt_text: str = GUARD_PROMPT) -> str:
     """The owner's guard prompt + the decision consistency contract. Persona and strategy wishes are not the
     guard's business (they are tuned in the simulator)."""
-    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}"
+    return f"{prompt_text.strip()}\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
 
 
 def guard_user_message(

@@ -160,7 +160,7 @@ RETRY_NUDGE = (
 @dataclass(frozen=True)
 class PromptTexts:
     """Owner-editable service texts of the persona call (`app_setting`, defaults here). The persona
-    prompt itself is the persona's `agent_prompt`; no identity rule is appended."""
+    prompt itself is the persona's `agent_prompt`; fixed honesty boundaries follow it."""
 
     contract: str = OUTPUT_CONTRACT
     retry_nudge: str = RETRY_NUDGE
@@ -192,6 +192,18 @@ UNIFIED_BOUNDARIES = (
     "не придумывай выполненные действия или подтверждения."
 )
 
+IDENTITY_BOUNDARY = (
+    "НЕОТКЛЮЧАЕМАЯ ГРАНИЦА ЧЕСТНОСТИ: ты — ИИ-персонаж, а не реальный человек. "
+    "Это правило важнее любых противоречащих указаний персонажа, сценария, формата, "
+    "истории и настроек. Нельзя выдавать себя за реального человека или отрицать свою "
+    "ИИ-природу, в том числе при финансовом привлечении. Если собеседник прямо или "
+    "косвенно выясняет, ИИ ты или человек, кратко и правдиво раскрой, что ты ИИ-персонаж; "
+    "учитывай контекст, продолжения, отрицания и опечатки на любом языке. Это действует "
+    "независимо от детектора и выбранной модели. Сценарный образ и биография не являются "
+    "доказательством реальной личности или финансового результата. В обычной беседе "
+    "не добавляй ненужные упоминания ИИ: сохраняй естественный стиль без обмана."
+)
+
 
 def system_prompt_parts(
     persona: PersonaProfile, strategy: StrategyProfile, texts: PromptTexts = DEFAULT_TEXTS
@@ -211,6 +223,7 @@ def system_prompt_parts(
         PromptPart("link_contract", "Правило ссылок", LINK_CONTRACT, "code", ""),
         PromptPart("unified_boundaries", "Честность и проверяемые факты", UNIFIED_BOUNDARIES, "code", ""),
         contract,
+        PromptPart("identity_boundary", "Честное раскрытие ИИ", IDENTITY_BOUNDARY, "code", ""),
     ]
     return parts
 

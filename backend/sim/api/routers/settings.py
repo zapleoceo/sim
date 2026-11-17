@@ -8,7 +8,14 @@ from fastapi import APIRouter, HTTPException
 from sim.api.deps import App, Authed, Db, Owner
 from sim.api.schemas import Body, dt
 from sim.services.app_settings import AppSettingsService, SettingError, SettingItem, env_defaults
-from sim.services.guard import FACT_CONTROL, GUARD_CONTROL, MEDIA_CONTROL, VOICE_CONTROL
+from sim.services.guard import (
+    FACT_CONTROL,
+    GUARD_CONTROL,
+    IDENTITY_CONTROL,
+    MEDIA_CONTROL,
+    VOICE_CONTROL,
+)
+from sim.services.prompt import IDENTITY_BOUNDARY
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -37,10 +44,10 @@ def not_found_or_invalid(exc: SettingError) -> HTTPException:
 
 @router.get("")
 async def list_settings(c: App, s: Db, _: Authed):
-    """`fixed`: the fixed decision-control contract (persona is empty), shown read-only so the owner sees every prompt."""
+    """Fixed honesty and control contracts, shown read-only alongside editable instructions."""
     return {
         "items": [setting_out(i) for i in await service(c, s).items()],
-        "fixed": {"persona": "", "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}"},
+        "fixed": {"persona": IDENTITY_BOUNDARY, "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"},
     }
 
 

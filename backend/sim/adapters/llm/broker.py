@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 
 from sim.ports.image import ImageError, ImageReference, ImageResult
-from sim.ports.llm import LLMError, LLMResult
+from sim.ports.llm import LLMError, LLMResult, LLMTerminalError
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoError, VideoResult
 from sim.services.broker_requests import BrokerRequests, RequestEntry
@@ -48,12 +48,8 @@ TERMINAL_ERRORS = {"error", "failed", "cancelled", "canceled"}
 IMAGE_CAPABILITY = "chat:fast"
 
 
-class BrokerTerminalError(LLMError):
+class BrokerTerminalError(LLMTerminalError):
     """A confirmed remote terminal result, distinct from a timeout/unknown outcome."""
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        super().__init__(f"Broker job {data.get('status')}: {data.get('error')}")
-        self.data = data
 
 
 async def check_execution(request: httpx.Request) -> None:
@@ -182,6 +178,7 @@ class BrokerLLM:
         temperature: float | None = None,
         workflow: str | None = None,
         recovery_key: str | None = None,
+        retry_terminal: bool = True,
     ) -> LLMResult:
         body: dict[str, Any] = {"messages": messages}
         if json_mode:
@@ -213,7 +210,8 @@ class BrokerLLM:
                         log.info("Reconciled terminal Broker job %s", pending.remote_id)
                         continue  # terminal error committed; never swallow unknown outcomes
                 entry = await self.requests.prepare(owner, index, self.request_scope,
-                    {"params": params, "body": body, "recovery_key": recovery_key})
+                      {"params": params, "body": body, "recovery_key": recovery_key},
+                      retry_terminal=retry_terminal)
                 recovered = entry.status == "done"
                 exchange["request"] = safe_payload({"path": "/v1/jobs",
                     "params": entry.request["params"], "body": entry.request["body"]}, secrets=(self.key,))

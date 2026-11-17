@@ -88,6 +88,8 @@ class PersonaIn(Body):
     agent_prompt: str = Field(min_length=1, max_length=100000)
     language: str = Field(default="ru", max_length=200)
     model: str = Field(default="", max_length=120)
+    identity_model: str = Field(default="", max_length=120)
+    fallback_model: str = Field(default="", max_length=120)
     voice_id: str = Field(default="", max_length=120)    # Gemini TTS voice name, "" = none
     voice_mode: VoiceMode = VoiceMode.OFF
     voice_style: str = Field(default="", max_length=300)
@@ -263,6 +265,7 @@ def persona_out(p: Persona) -> dict[str, Any]:
         "timezone": p.timezone, "routine": p.routine, "gender": p.gender, "avatar_url": p.avatar_url,
         "agent_prompt": p.agent_prompt,
         "language": p.language, "model": p.model,
+        "identity_model": p.identity_model, "fallback_model": p.fallback_model,
         "voice_id": p.voice_id, "voice_mode": p.voice_mode.value, "voice_style": p.voice_style,
         "voice_ambience": p.voice_ambience.value, "accept_calls": p.accept_calls,
         "strategy_id": p.strategy_id, "is_active": p.is_active, "created_at": dt(p.created_at),

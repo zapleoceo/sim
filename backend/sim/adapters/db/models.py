@@ -188,6 +188,8 @@ class Persona(Base):
     agent_prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
     language: Mapped[str] = mapped_column(Text, default="ru")
     model: Mapped[str] = mapped_column(String(120), default="")
+    identity_model: Mapped[str] = mapped_column(String(120), default="")
+    fallback_model: Mapped[str] = mapped_column(String(120), default="")
     # Google Gemini TTS prebuilt voice name (sim.domain.voice.GEMINI_VOICES), "" = no voice.
     voice_id: Mapped[str] = mapped_column(String(120), default="")
     voice_mode: Mapped[VoiceMode] = mapped_column(enum_col(VoiceMode), default=VoiceMode.OFF)

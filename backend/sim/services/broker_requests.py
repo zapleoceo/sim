@@ -72,6 +72,7 @@ class BrokerRequests:
 
     async def prepare(
         self, owner: Execution, index: int, scope: str, request: dict[str, Any],
+        *, retry_terminal: bool = True,
     ) -> RequestEntry:
         await require_live_execution()
         encoded(request, MAX_REQUEST_BYTES)
@@ -89,7 +90,7 @@ class BrokerRequests:
                 if row.status == "pending":
                     raise LLMError("Previous Broker request has an unknown outcome; reconcile first")
                 if row.request_hash == fingerprint and (
-                    row.status == "done" or previous_generation == owner.generation
+                    row.status == "done" or previous_generation == owner.generation or not retry_terminal
                 ):
                     return self.entry(row)
             else:

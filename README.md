@@ -1,5 +1,41 @@
 # Sim
 
+### Owner-selected conversation models
+
+Personas keep the existing primary model and add two empty-by-default choices:
+`identity_model` (otherwise primary) and `fallback_model` (otherwise off). The identity
+selector applies to text conversation drafts/previews, including reviewed repairs.
+A conservative deterministic multilingual detector recognizes direct identity questions
+and short follow-ups; quotes and third-party questions remain on primary. It is a routing
+hint, not a disclosure policy: every model keeps the same mandatory honesty, financial
+boundaries and fresh guard. A fixed identity boundary follows editable generator
+instructions and format; the guard has the same boundary and must reject false human
+identity claims independently of the detector and model selection. These fixed layers
+are visible in settings/context and cannot be disabled by a persona or custom guard prompt.
+Ordinary conversation need not repeatedly mention AI. Live-call model
+selection is unchanged. Detection is deliberately not a claim of perfect language coverage.
+
+Reserve is one owner-selected **subscription** model, checked against the same project's
+catalog before use. Only confirmed terminal Broker `error_code=model_unavailable` or
+`capacity_busy` permits it. Timeout/pending/unknown POST, quota/budget/billing/auth failures,
+cancellation, safety and unclassified failures do not permit fallback. The adapter still
+reconciles all unresolved requests before any POST. Routed calls preserve terminal receipts
+across worker generations: a restart after reserve acceptance does not re-buy primary or
+reserve. Terminal failures remain recorded for that logical request, rather than retried
+under a new key on every worker attempt. Changing effective context/config creates a new
+logical request under the PR117 reconciliation rules. Broker remains the authorization
+and budget authority; no key, scope, quota or provider changes are made.
+
+Source contract: Broker server checkout `df4460a5bbe3a3e7311861e024e1ca1b1c893156`,
+`agent/job_status.py` stable error codes and `routes/proxy.py:764-786` poll serialization.
+This is source inspection, not a paid/live provider probe. CI uses synthetic multilingual
+fixtures, fake catalog/transports, API roundtrips and durable reserve restart regression.
+Conflicting persona/format/guard fixtures cover primary, identity, subscription reserve,
+detector misses, repaired replies and a repair that remains blocked. These tests verify
+the assembled controls and guarded pipeline with scripted verdicts, not live model compliance.
+Historical private identity questions are not published as fixtures. Financial budget
+exhaustion is intentionally not automatically bypassed; no reserve is silently selected.
+
 ### Durable Broker chat recovery
 
 Worker chat calls commit an encrypted request and random project-scoped idempotency

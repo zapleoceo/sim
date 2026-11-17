@@ -32,6 +32,14 @@ class LLMError(Exception):
     exchange: dict[str, Any] | None = None
 
 
+class LLMTerminalError(LLMError):
+    """Confirmed remote failure with structured Broker status/code, never a timeout."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        super().__init__(f"Broker job {data.get('status')}: {data.get('error')}")
+        self.data = data
+
+
 class LLMPort(Protocol):
     async def chat(
         self,
@@ -44,6 +52,7 @@ class LLMPort(Protocol):
         temperature: float | None = None,
         workflow: str | None = None,
         recovery_key: str | None = None,
+        retry_terminal: bool = True,
     ) -> LLMResult: ...
 
     async def transcribe(self, audio: bytes, filename: str) -> LLMResult: ...

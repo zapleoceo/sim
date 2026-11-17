@@ -103,6 +103,7 @@ DEFAULT_MODEL = "маршрут по умолчанию"     # a persona without
 # Persona and strategy fields whose change reaches the conversation, as the journal names them.
 # The persona's strategy and model are journaled as their own kinds.
 PERSONA_FIELDS = {
+    "identity_model": "модель вопросов об ИИ", "fallback_model": "подписочный резерв",
     "agent_prompt": "промпт агента",
     "name": "имя", "routine": "распорядок", "language": "язык", "birth_date": "дата рождения",
     "timezone": "часовой пояс", "voice_mode": "голосовые ответы", "accept_calls": "приём звонков",

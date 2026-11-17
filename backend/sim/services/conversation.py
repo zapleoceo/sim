@@ -36,6 +36,7 @@ from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import MediaDecision
+from sim.services.model_routing import routed_chat, selected_model
 from sim.services.outbound import OutboundService, cancel_queued_ai
 from sim.services.owner_accounts import is_owner_account
 from sim.services.passport import PASSPORT_DELAY_S
@@ -361,12 +362,15 @@ class ConversationService:
         workflow: str,
         dialog_id: int | None,
         recovery_key: str | None = None,
+        model: str | None = None,
     ) -> tuple[Decision | None, LLMResult]:
         """One model call, plus ONE retry when the JSON is unusable."""
-        result = await self.llm.chat(
+        result = await routed_chat(
+            self.llm,
             messages,
             capability="chat:sales",
-            model=persona.model or None,
+            model=model or persona.model or None,
+            fallback_model=persona.fallback_model or "",
             json_mode=True,
             workflow=workflow,
             dialog_id=dialog_id,
@@ -377,10 +381,12 @@ class ConversationService:
             log.warning("unusable decision (workflow=%s dialog=%s), retrying", workflow, dialog_id)
             nudge = (await self.config()).prompt_texts().retry_nudge
             retry = [*messages, {"role": "system", "content": nudge}]
-            result = await self.llm.chat(
+            result = await routed_chat(
+                self.llm,
                 retry,
                 capability="chat:sales",
-                model=persona.model or None,
+                model=model or persona.model or None,
+                fallback_model=persona.fallback_model or "",
                 json_mode=True,
                 workflow=workflow,
                 dialog_id=dialog_id,
@@ -665,7 +671,7 @@ class ConversationService:
             key = hashlib.sha256(json.dumps({**identity, "messages": stable_prompt},
                 sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id,
-                                              recovery_key=key)
+                                              recovery_key=key, model=selected_model(persona, history))
             guard: GuardOutcome | None = None
             if decision is not None and decision.reply:
                 review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
