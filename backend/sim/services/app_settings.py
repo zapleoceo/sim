@@ -86,6 +86,10 @@ class SettingSpec:
 
 
 SPECS: tuple[SettingSpec, ...] = (
+    SettingSpec("incoming_media_subscription", "Входящие вложения", "Распознавание по подписке",
+                "0 — прежний режим; 1 — изображения, UTF-8 документы и кадры видео через "
+                "разрешённую подписочную Terra. Звук, PDF и Office не распознаются; "
+                "платного резерва нет. Только новые вложения после включения.", "int", 0, 0, 1),
     SettingSpec("history_limit", "Ответы", "Сколько реплик помнить",
                 "Сколько последних сообщений уходит охраннику, паспортистке, в симуляции и звонки. Ответ персонажа в диалоге собирается иначе: см. «Окно контекста».",
                 "int", HISTORY_LIMIT, 6, 100),
@@ -238,6 +242,7 @@ FALLBACK_ENV = {"guard_capability": "structured", "guard_fallback_capability": "
 
 @dataclass(frozen=True)
 class AppSettings:
+    incoming_media_subscription: int
     history_limit: int
     context_window_hours: int
     context_token_limit: int

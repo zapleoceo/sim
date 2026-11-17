@@ -160,6 +160,8 @@ export type Direction = 'in' | 'out';
 export type Author = 'client' | 'ai' | 'operator';
 export type Delivery = 'queued' | 'sent' | 'failed' | 'cancelled';
 export interface Message {
+  media_status?: 'pending' | 'done' | 'unsupported' | 'failed' | null;
+  media_reason?: string | null;
   handoff_reason?: string | null;
   handoff_at?: string | null;
   id: number;

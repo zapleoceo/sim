@@ -31,7 +31,7 @@ async def test_document_uses_exact_subscription_without_paid_transcription():
     assert await SubscriptionMediaRecognizer(llm).recognize(b"hello", "document")
     args, kw = llm.chat.call_args
     assert kw == {"capability": "chat:fast", "model": DEFAULT_MODEL,
-                  "workflow": "incoming_media"}
+                  "workflow": "incoming_media", "retry_terminal": False}
     assert args[0][1]["content"] == [{"type": "text", "text": "hello"}]
     llm.transcribe.assert_not_called()
 

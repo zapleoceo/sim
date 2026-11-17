@@ -1,37 +1,55 @@
-# Incoming media recognition (implementation in progress)
+# Incoming media recognition
 
-`SubscriptionMediaRecognizer` is a bounded, subscription-only recognition boundary.
-It uses the project's authenticated Broker catalog and pins
-`codex-sub/gpt-6.1-terra` on `chat:fast`, workflow `incoming_media`. It does not
-change the persona's reply model, grant scopes, or fall back to paid APIs.
+Opt-in owner setting `incoming_media_subscription` defaults to **0**. With value
+1, new incoming Telegram bot/user attachments enter the existing `media` queue;
+reply jobs wait for its settlement. Old jobs retain their original mode. Turning
+it off stops queued subscription interpretation; it never reroutes that job to
+paid transcription. Legacy mode's existing voice processing is unchanged.
+No setting is activated by a migration or deployment.
 
-The 2026-11-16 production catalog advertises text and image data URLs for that
-model, JSON output and client tools; per-token subscription price is zero,
-excluding the existing subscription fee. Catalog availability is not a live
-inference test (`tested=false`). No live inference was performed for this work.
+The recognizer pins `codex-sub/gpt-6.1-terra`, capability `chat:fast`, workflow
+`incoming_media`. Every call checks this project's authenticated catalog for
+subscription billing, availability and text/image capabilities. No grants,
+paid fallback, raw audio inference or persona reply-model changes are made.
+Broker source `df4460a5bbe3a3e7311861e024e1ca1b1c893156`,
+`src/aibroker/providers/job_contract.py` (read 2026-11-17), permits subscription
+text/image data URLs, with a 3,000,000-byte prompt maximum. This is a contract
+check, not live quality/latency or upstream capability proof.
 
-Current boundary accepts JPEG/PNG/WebP/GIF signatures (maximum 2 MiB so base64
-fits Broker's 3 MB prompt contract; Broker
-fully decodes images and enforces its own pixel/single-frame limits) and UTF-8
-plain-text documents (64 KiB). Documents remain inert prompt data. Unsupported
-binary documents, PDF, audio and raw video fail explicitly before inference.
-Results are bounded to 12,000 characters with an explicit truncation marker.
+Limits:
+- Downloads: 5 MiB and 45 seconds; Telegram bot streams with a byte cap,
+  Telegram user writes into a capped sink (including missing/incorrect size).
+  Other adapters without a bounded-download method report unsupported.
+- JPEG/PNG/WebP/GIF signatures: 1 MiB; Broker additionally decodes/checks images.
+- Inert UTF-8 plain-text documents: 64 KiB, no binary/control-character inputs.
+- MP4/WebM: 60 seconds, 1920x1080 pixels, five ordered frames at most 640x640,
+  1 MiB total. Fixed ffmpeg argv, private temporary paths, file-only input
+  protocols, thread/allocation/time limits. Audio is explicitly NOT transcribed;
+  unsampled events are unknown. Base64 plus prompt fits the 2 MB durable journal.
+- Raw audio/voice, PDF and Office: explicit unsupported; no paid substitution.
+- Output: 12,000 characters, explicit truncation marker. Provider truncation
+  reasons fail closed rather than being presented as complete.
 
-Video preparation now samples exactly five ordered frames from MP4/WebM, at most
-5 MiB, 60 seconds, 1920x1080 input pixels. Frames are scaled to at most 640x640,
-1 MiB each and 2 MiB together. Decoder commands use fixed argv, private temporary
-paths, file-only input protocols, one decoding thread, allocation and time limits.
-No script/macros or embedded instructions are executed. The result explicitly
-states that only selected frames were interpreted and audio was not transcribed.
-CI includes an offline synthetic color video, without a model or channel call.
+`message.media_status`: pending/done/unsupported/failed (null for legacy).
+`media_reason` contains a bounded diagnostic code, not raw provider errors.
+API and inbox expose state. Caption remains in `message.text`; successful
+interpretation is appended as attachment data, not instructions. Failure leaves
+an honest marker so the agent cannot claim to have read/heard the attachment.
+Only the same message is finalized under the dialog lock; duplicate completion
+is ignored, newer message previews survive, and existing pauses/opt-outs are not
+changed. A deleted message is not recreated. There is no channel send here.
 
-This increment is not connected to the queue and does not claim incoming
-media is enabled in production. Remaining implementation: bounded video frame
-acceptance, durable recognition status/context and queue integration, captions,
-download limits, race handling and API presentation. Subscription raw audio is
-not supported by the current Broker contract; do not silently use the existing
-paid transcription endpoint to claim subscription speech support. PDF/Office
-support also requires a separately bounded extraction path.
+Broker calls use PR117's encrypted durable journal and worker generation fence.
+An unknown POST is reconciled before another call; terminal errors are retained
+(`retry_terminal=False`), no fallback/rebuy is introduced. Binary data URLs are
+redacted from audit before persistence/API. Accepted request bytes in the private
+recovery journal are encrypted, not exposed by activity APIs. Local downloaded
+media uses the existing authenticated media route. Exhausted processing leaves
+failed state without handoff or pause. Unknown remote outcomes remain in the
+journal: failed recognition is not a claim that Broker cancelled an accepted job.
 
-Tests use synthetic bytes and mocked Broker calls. Run only through SIM CI on
-the published commit, with no real channel sends, accounts or provider probes.
+Synthetic CI tests cover queue/caption/context/status, bounds, unsupported input,
+pause preservation, duplicate completion, newer previews, unknown POST recovery,
+redaction, UI labels and offline generated video. No private fixtures, live model
+probes, real channel sends or local test/build/lint execution. Production
+activation and live quality remain separate from implementation acceptance.

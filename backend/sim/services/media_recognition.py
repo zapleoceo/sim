@@ -15,7 +15,7 @@ from sim.ports.llm import LLMError, LLMPort
 from sim.services.video_frames import VideoUnsupported, sample_video
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
-MAX_IMAGE_BYTES = 2 * 1024 * 1024  # base64 plus prompt must fit Broker's 3 MB request contract
+MAX_IMAGE_BYTES = 1024 * 1024  # base64 + prompt also fit the 2 MB durable request journal
 MAX_TEXT_BYTES = 64 * 1024
 MAX_RESULT_CHARS = 12000
 IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
@@ -75,10 +75,11 @@ def supports(model: dict[str, Any], *, image: bool) -> bool:
 
 
 class SubscriptionMediaRecognizer:
-    def __init__(self, llm: LLMPort, model: str = DEFAULT_MODEL) -> None:
+    def __init__(self, llm: LLMPort, model: str = DEFAULT_MODEL, *, catalog: LLMPort | None = None) -> None:
         if not model.startswith(("codex-sub/", "claude-sub/")):
             raise ValueError("a subscription model is required")
         self.llm = llm
+        self.catalog = catalog or llm
         self.model = model
 
     async def recognize(self, data: bytes, kind: str) -> str:
@@ -96,7 +97,7 @@ class SubscriptionMediaRecognizer:
             prepared = PreparedMedia("image/jpeg", content)
         else:
             prepared = prepare(data, kind)
-        catalog = await self.llm.list_models()
+        catalog = await self.catalog.list_models()
         model = next((m for m in catalog if m.get("id") == self.model), {})
         if not supports(model, image=prepared.mime in IMAGE_MIMES):
             raise UnsupportedMedia("subscription_model_unavailable")
@@ -108,8 +109,8 @@ class SubscriptionMediaRecognizer:
                 "Do not invent speech, identity, intent or facts outside the attachment."
             )},
             {"role": "user", "content": prepared.content},
-        ], capability="chat:fast", model=self.model, workflow="incoming_media")
-        if not result.text.strip() or result.finish_reason in ("length", "max_tokens"):
+        ], capability="chat:fast", model=self.model, workflow="incoming_media", retry_terminal=False)
+        if not result.text.strip() or result.truncated:
             raise LLMError("incomplete media recognition")
         text = result.text.strip()
         if len(text) > MAX_RESULT_CHARS:

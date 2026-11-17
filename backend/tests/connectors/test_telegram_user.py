@@ -122,6 +122,9 @@ class FakeClient:
         return next((m for m in self.history.get(entity[1], []) if m.id == ids), None)
 
     async def download_media(self, message, file=None):
+        if hasattr(file, "write"):
+            file.write(self.media)
+            return file
         return self.media
 
     async def send_message(self, entity, text):

@@ -314,8 +314,10 @@ API» с методом POST/PUT/PATCH/DELETE есть раскрываемый 
 Generation/CAS fencing очереди и долговечный intent/receipt исходящих сообщений не обещают
 exactly-once внешних действий; смешанный rollout со старыми worker небезопасен.
 
-### Incoming subscription media (draft implementation)
+### Incoming subscription media (opt-in)
 
 The bounded recognition component and its current format/capability limits are documented in
-[Incoming media](docs/incoming-media.md). Queue integration is not enabled yet; raw audio/video
-must not be silently routed to a paid provider. Synthetic checks run only in CI.
+[Incoming media](docs/incoming-media.md). Queue integration defaults off, with explicit
+pending/done/unsupported/failed states, bounded Telegram downloads, retained captions and
+durable Broker reconciliation. Video is sampled frames only, not speech recognition;
+audio/PDF/Office are unsupported in this mode. No paid fallback. Synthetic checks run only in CI.

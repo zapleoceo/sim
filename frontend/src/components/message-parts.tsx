@@ -45,6 +45,10 @@ export function MessageContent({ message }: { message: Message }) {
           </span>
         ))}
       {message.text && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.text}</p>}
+      {message.media_status && <p className="text-xs text-muted-foreground" role="status">
+        {{ pending: 'Вложение ожидает распознавания', done: 'Вложение распознано',
+          unsupported: 'Распознавание недоступно для этого вложения', failed: 'Не удалось распознать вложение' }[message.media_status]}
+      </p>}
       {message.author === 'ai' && <GuardBadge guard={message.guard} />}
       {message.delivery === 'failed' && (
         <p className="text-xs text-destructive">Ошибка отправки. Результат требует сверки с каналом.</p>

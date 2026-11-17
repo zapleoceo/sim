@@ -42,6 +42,7 @@ from sim.services.instagram_content import InstagramContentPublisher
 from sim.services.live import track_dialog_changes
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media import MediaService
+from sim.services.media_recognition import SubscriptionMediaRecognizer
 from sim.services.outbound import OutboundService
 from sim.services.partner import PartnerService
 from sim.services.passport import PassportService
@@ -214,7 +215,8 @@ class Container:
         return ReplyScheduler(s, clock=self.clock, settings_env=env_defaults(self.settings))
 
     def media_service(self, s: AsyncSession) -> MediaService:
-        return MediaService(s, self.registry, self.box, self.llm, self.media)
+        return MediaService(s, self.registry, self.box, self.llm, self.media,
+            recognizer=SubscriptionMediaRecognizer(self.audited(), catalog=self.llm))
 
     def persona_media(self, s: AsyncSession) -> PersonaMediaService:
         return PersonaMediaService(s, self.media, clock=self.clock)
