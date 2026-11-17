@@ -13,6 +13,7 @@ from sim.adapters.audio import AudioError
 STDERR_LIMIT = 16 * 1024
 PROBE_LIMIT = 16 * 1024
 FRAME_LIMIT = 1024 * 1024
+ENCODE_LIMIT = 8 * 1024 * 1024
 PIPE_BUFFER = 8192
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "OMP_NUM_THREADS": "1",
              "OPENBLAS_NUM_THREADS": "1", "MALLOC_ARENA_MAX": "1"}
@@ -50,23 +51,33 @@ async def cleanup(proc: asyncio.subprocess.Process, readers: list[asyncio.Task])
 
 
 async def run_video_process(args: Sequence[str], data: bytes, limit_s: float) -> tuple[int, bytes, bytes]:
+    return await _run(args, data, limit_s, encode=False)
+
+
+async def run_video_encoder(args: Sequence[str], data: bytes, limit_s: float) -> tuple[int, bytes, bytes]:
+    """Same containment, with a bounded MP4 pipe and 30 CPU / 45 wall seconds."""
+    return await _run(args, data, limit_s, encode=True)
+
+
+async def _run(args: Sequence[str], data: bytes, limit_s: float, *, encode: bool) -> tuple[int, bytes, bytes]:
     if sys.platform != "linux" or not args or args[0] not in ("ffprobe", "ffmpeg") or data:
         raise AudioError("isolated video decoder unavailable")
     helper = Path(__file__).with_name("_video_limits.py")
     try:
         proc = await asyncio.create_subprocess_exec(  # noqa: S603
-            sys.executable, "-I", str(helper), *args,
+            sys.executable, "-I", str(helper), *(("--encode",) if encode else ()), *args,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=PIPE_BUFFER,
             env=CLEAN_ENV, cwd="/", start_new_session=True, close_fds=True,
         )
     except OSError as exc:
         raise AudioError("isolated video decoder unavailable") from exc
-    readers = [asyncio.create_task(read_bounded(proc.stdout, PROBE_LIMIT if args[0] == "ffprobe" else FRAME_LIMIT)),
+    output_limit = PROBE_LIMIT if args[0] == "ffprobe" else ENCODE_LIMIT if encode else FRAME_LIMIT
+    readers = [asyncio.create_task(read_bounded(proc.stdout, output_limit)),
                asyncio.create_task(read_bounded(proc.stderr, STDERR_LIMIT)),
                asyncio.create_task(proc.wait())]
     try:
-        async with asyncio.timeout(min(limit_s, 8)):
+        async with asyncio.timeout(min(limit_s, 45 if encode else 8)):
             out, err, code = await asyncio.gather(*readers)
         return code, out, err
     except BaseException as exc:

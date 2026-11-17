@@ -1,59 +1,92 @@
-"""Video transcoding for Telegram video notes ("кружочки").
-
-The Broker returns a 9:16 (or 16:9) MP4. Telegram shows a round video note only for a square
-clip up to 640 px and one minute, so the clip is centre-cropped to a square and re-encoded once
-with ffmpeg (installed in the backend image). The audio track of the clip is kept as it is:
-nothing is mixed in and no background noise is added."""
+"""Resource-contained MP4 to Telegram video-note normalization, with truthful AI label."""
 from __future__ import annotations
 
+import json
+import math
 import tempfile
 from pathlib import Path
 
-from sim.adapters.audio import AudioError, Runner, run_process
+from sim.adapters.audio import AudioError, Runner
+from sim.adapters.video_process import ENCODE_LIMIT, run_video_encoder
 from sim.ports.video import VideoError
+from sim.services.studio_files import valid_artifact
 
-VIDEO_NOTE_SIDE = 384          # px; the size the Telegram apps record themselves
+VIDEO_NOTE_SIDE = 384
 VIDEO_NOTE_MAX_S = 60
-FFMPEG_VIDEO_TIMEOUT_S = 120.0
+VIDEO_NOTE_INPUT_LIMIT = 20 * 1024 * 1024
+FFMPEG_VIDEO_TIMEOUT_S = 45.0
 
 
-def video_note_args(src: str, dst: str) -> tuple[str, ...]:
-    """ffmpeg argv: `src` (any video) → `dst`, a square H.264/AAC MP4 with the index up front."""
+def video_note_args(src: str, dst: str = "pipe:1") -> tuple[str, ...]:
+    """Single video/audio stream, centre crop; fragmented MP4 needs no output file."""
     side = VIDEO_NOTE_SIDE
     return (
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src,
-        "-vf", f"crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side},setsar=1,"
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-max_alloc", "16777216", "-protocol_whitelist", "file,pipe",
+        "-threads", "1", "-i", src, "-map", "0:v:0", "-map", "0:a:0?",
+        "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1",
+        "-filter_threads", "1", "-vf",
+        f"crop='min(iw,ih)':'min(iw,ih)',scale={side}:{side},setsar=1,fps=30,"
         "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
         "text='AI generated':fontsize=18:fontcolor=white:box=1:boxcolor=black@0.8:"
         "boxborderw=5:x=(w-tw)/2:y=h*0.72",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "64k", "-ac", "1",
-        "-t", str(VIDEO_NOTE_MAX_S), "-movflags", "+faststart", dst,
+        "-c:v", "libx264", "-threads", "1", "-preset", "veryfast", "-crf", "26",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+        "-t", str(VIDEO_NOTE_MAX_S), "-movflags", "+frag_keyframe+empty_moov",
+        "-brand", "mp42", "-f", "mp4", dst,
     )
 
 
 class VideoNoteEncoder:
-    """Any clip ffmpeg reads → a square MP4 that Telegram plays as a video note."""
-
-    def __init__(self, runner: Runner = run_process,
+    def __init__(self, runner: Runner = run_video_encoder,
                  timeout_s: float = FFMPEG_VIDEO_TIMEOUT_S) -> None:
-        self.runner = runner
-        self.timeout_s = timeout_s
+        self.runner, self.timeout_s = runner, min(timeout_s, FFMPEG_VIDEO_TIMEOUT_S)
+
+    async def probe(self, path: Path, *, output: bool = False) -> bool:
+        code, data, _ = await self.runner((
+            "ffprobe", "-v", "error", "-max_alloc", "16777216",
+            "-protocol_whitelist", "file", "-show_entries",
+            "stream=codec_type,codec_name,width,height,pix_fmt:format=duration",
+            "-of", "json", str(path)), b"", min(self.timeout_s, 8))
+        try:
+            if code or len(data) > 16384:
+                raise ValueError
+            info = json.loads(data)
+            streams = info["streams"]
+            videos = [s for s in streams if s.get("codec_type") == "video"]
+            audio = [s for s in streams if s.get("codec_type") == "audio"]
+            v = videos[0]
+            width, height = int(v["width"]), int(v["height"])
+            duration = float(info["format"]["duration"])
+            if (not math.isfinite(duration) or not 0 < duration <= VIDEO_NOTE_MAX_S
+                    or width <= 0 or height <= 0 or width * height > 1920 * 1080):
+                raise ValueError
+            if output and (len(videos) != 1 or len(audio) > 1
+                           or width != VIDEO_NOTE_SIDE or height != VIDEO_NOTE_SIDE
+                           or v.get("codec_name") != "h264" or v.get("pix_fmt") != "yuv420p"
+                           or any(a.get("codec_name") != "aac" for a in audio)):
+                raise ValueError
+            return bool(audio)
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
+            raise VideoError("Видео не соответствует ограничениям формата или длительности") from exc
 
     async def to_video_note(self, video: bytes) -> bytes:
         if not video:
             raise VideoError("empty video")
-        # MP4 needs seekable files on both sides (the index is written last, then moved).
+        if len(video) > VIDEO_NOTE_INPUT_LIMIT or not valid_artifact(video, "video/mp4", "video"):
+            raise VideoError("Нужен корректный MP4 размером не более 20 МБ")
         with tempfile.TemporaryDirectory(prefix="sim-video-note-") as folder:
             src, dst = Path(folder) / "in.mp4", Path(folder) / "out.mp4"
             src.write_bytes(video)
             try:
-                code, _out, err = await self.runner(
-                    video_note_args(str(src), str(dst)), b"", self.timeout_s)
-            except AudioError as exc:      # ffmpeg missing or timed out (shared process runner)
-                raise VideoError(str(exc)) from exc
-            note = dst.read_bytes() if dst.is_file() else b""
-        if code != 0 or not note:
-            detail = err.decode("utf-8", "replace").strip()[:200]
-            raise VideoError(f"ffmpeg exited {code}: {detail or 'no output'}")
+                had_audio = await self.probe(src)
+                code, note, _ = await self.runner(video_note_args(str(src)), b"", self.timeout_s)
+                if (code or len(note) > ENCODE_LIMIT
+                        or not valid_artifact(note, "video/mp4", "video")):
+                    raise VideoError("Не удалось безопасно подготовить кружочек")
+                dst.write_bytes(note)
+                if await self.probe(dst, output=True) != had_audio:
+                    raise VideoError("Не удалось сохранить звук кружочка")
+            except AudioError as exc:
+                raise VideoError("Обработка видео недоступна или превысила лимит ресурсов") from exc
         return note

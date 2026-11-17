@@ -14,11 +14,14 @@ CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "OMP_NUM_THREADS": "1",
 
 
 def launch(args: list[str]) -> None:
+    encode = bool(args and args[0] == "--encode")
+    if encode:
+        args = args[1:]
     if not args or args[0] not in ("ffprobe", "ffmpeg"):
         raise ValueError("unsupported video executable")
     for kind, bounds in (
         (resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES)),
-        (resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS)),
+        (resource.RLIMIT_CPU, (30, 30) if encode else (CPU_SECONDS, CPU_SECONDS)),
         (resource.RLIMIT_STACK, (2 * 1024 * 1024, 2 * 1024 * 1024)),
         (resource.RLIMIT_CORE, (0, 0)),
         (resource.RLIMIT_FSIZE, (0, 0)),
