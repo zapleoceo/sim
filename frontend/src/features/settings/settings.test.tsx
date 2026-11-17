@@ -65,6 +65,15 @@ async function edit(label: string) {
 }
 
 describe('SettingsPage', () => {
+  it.each(['studio_photo_subscription_model', 'studio_photo_google_model', 'studio_video_model'])(
+    'does not imply automatic Broker selection for dormant %s', async (key) => {
+      fakeApi({ 'GET /api/settings': { items: [item({ key, kind: 'model', value: '', default: '' })] },
+        'GET /api/models': { items: [] } });
+      await renderApp('/settings');
+      expect(await screen.findByText('Не выбрана — генерация выключена')).toBeInTheDocument();
+      expect(screen.queryByText(/выбирает Broker/)).not.toBeInTheDocument();
+    },
+  );
   it.each(['save', 'discard'])('warns outside settings until the draft is resolved by %s', async (action) => {
     fakeApi({ 'GET /api/settings': { items: [STYLE] }, 'GET /api/dialogs': { items: [], total: 0 },
       'GET /api/personas': { items: [] }, 'PUT /api/settings/style': { ...STYLE, value: 'коротко ещё' } });

@@ -3,6 +3,7 @@
 Owner preferences studio_photo_subscription_model, studio_photo_google_model and
 studio_video_model use existing settings persistence, validation, owner/CSRF and reset.
 Defaults empty. They never activate Studio, change persona photo tools or issue a POST.
+The settings picker labels empty as disabled, never as automatic Broker selection.
 The personal-owner Studio panel is a code inventory, NOT a Broker health/rights check.
 Google image namespace validation is syntactic: its generation port does not yet exist.
 
