@@ -115,10 +115,11 @@ def test_bootstrap_limits_applied_before_fixed_exec_with_clean_environment(monke
         r = _video_limits.resource
         assert limits[r.RLIMIT_AS] == (512 * 1024 * 1024,) * 2
         assert limits[r.RLIMIT_CPU] == (6, 6)
+        assert limits[r.RLIMIT_STACK] == (2 * 1024 * 1024,) * 2
         assert limits[r.RLIMIT_FSIZE] == (0, 0) and limits[r.RLIMIT_CORE] == (0, 0)
         assert limits[r.RLIMIT_NOFILE] == (32, 32)
         assert path == "/usr/bin/ffprobe" and args == ["ffprobe", "synthetic"]
-        assert env == {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
+        assert env == {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MALLOC_ARENA_MAX": "1"}
 
     monkeypatch.setattr(_video_limits.os, "execve", execute)
     _video_limits.launch(["ffprobe", "synthetic"])

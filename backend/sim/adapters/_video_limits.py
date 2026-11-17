@@ -10,7 +10,7 @@ import sys
 MEMORY_BYTES = 512 * 1024 * 1024
 CPU_SECONDS = 6
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "OMP_NUM_THREADS": "1",
-             "OPENBLAS_NUM_THREADS": "1"}
+             "OPENBLAS_NUM_THREADS": "1", "MALLOC_ARENA_MAX": "1"}
 
 
 def launch(args: list[str]) -> None:
@@ -19,6 +19,7 @@ def launch(args: list[str]) -> None:
     for kind, bounds in (
         (resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES)),
         (resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS)),
+        (resource.RLIMIT_STACK, (2 * 1024 * 1024, 2 * 1024 * 1024)),
         (resource.RLIMIT_CORE, (0, 0)),
         (resource.RLIMIT_FSIZE, (0, 0)),
         (resource.RLIMIT_NOFILE, (32, 32)),

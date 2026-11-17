@@ -34,7 +34,9 @@ Limits:
   overflow/timeout/cancellation kill and reap the child process group and drain
   without accumulating output. An isolated Python bootstrap applies hard 512 MiB
   address-space and 6 CPU-second limits before codec exec, zero core/file-output
-  limits and 32 open descriptors. Only /usr/bin/ffprobe or ffmpeg can be exec'd;
+  limits, 2 MiB stacks and 32 open descriptors. A single glibc allocation arena
+  bounds per-thread reservation overhead within the unchanged address-space cap.
+  Only /usr/bin/ffprobe or ffmpeg can be exec'd;
   stdin is closed, environment is a fixed whitelist without app credentials.
   Wall time is capped at 8 seconds per child. Other platforms fail closed.
   This contains resources; it is not a filesystem/network namespace sandbox.

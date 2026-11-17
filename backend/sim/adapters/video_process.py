@@ -15,7 +15,7 @@ PROBE_LIMIT = 16 * 1024
 FRAME_LIMIT = 1024 * 1024
 PIPE_BUFFER = 8192
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "OMP_NUM_THREADS": "1",
-             "OPENBLAS_NUM_THREADS": "1"}
+             "OPENBLAS_NUM_THREADS": "1", "MALLOC_ARENA_MAX": "1"}
 
 
 async def read_bounded(reader: asyncio.StreamReader, maximum: int) -> bytes:
