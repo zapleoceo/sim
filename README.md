@@ -1,5 +1,9 @@
 # Sim
 
+PR124's PostgreSQL gate also forces revision-recovery and a competing busy reply
+to overlap at the missing pending-job read. It asserts one pending replacement and
+the later busy deadline; this is separate from the transcript/worker-instance regression.
+
 ### Settings and helper editors
 
 Shared settings and helpers use a wide grouped workspace: desktop group navigation,

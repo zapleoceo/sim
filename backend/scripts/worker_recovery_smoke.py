@@ -3,19 +3,87 @@ import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.clock import utcnow
+from sim.services.conversation import ConversationService, REPLY_BUSY_S
 from sim.services.job_execution import require_live_execution
 from sim.services.send_receipts import SendReceipts, SendUncertain
 from sim.worker.handlers import Handler
 from sim.worker.loop import Worker
 
 
+async def reply_pending_contention(factory):
+    """Exact revision-retry / failed NS_REPLY interleaving on two real PG transactions."""
+    dialog_id, now = 910000008, utcnow()
+    key = f"reply:{dialog_id}"
+    selected, release, busy_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    original = JobRepo.pending_by_key
+    owner_session, busy_pid = [], []
+
+    async def pause_after_missing(repo, dedup_key):
+        result = await original(repo, dedup_key)
+        if repo.session is owner_session[0] and not selected.is_set():
+            assert result is None
+            selected.set()
+            await release.wait()
+        return result
+
+    async def revision_retry():
+        async with transaction(factory) as s:
+            owner_session.append(s)
+            assert await try_lock(s, NS_REPLY, dialog_id)
+            await lock(s, NS_DIALOG, dialog_id)
+            service = SimpleNamespace(jobs=JobRepo(s), clock=lambda: now)
+            await ConversationService.defer_reply(service, dialog_id, 0)
+
+    async def busy_retry():
+        await selected.wait()
+        async with transaction(factory) as s:
+            busy_pid.append(await s.scalar(text("select pg_backend_pid()")))
+            assert not await try_lock(s, NS_REPLY, dialog_id)
+            busy_started.set()
+            service = SimpleNamespace(jobs=JobRepo(s), clock=lambda: now)
+            await ConversationService.defer_reply(service, dialog_id, REPLY_BUSY_S)
+
+    JobRepo.pending_by_key = pause_after_missing
+    tasks = [asyncio.create_task(revision_retry()), asyncio.create_task(busy_retry())]
+    try:
+        await asyncio.wait_for(busy_started.wait(), 10)
+        # Old code finishes the competing INSERT. Correct code waits for the dialog lock.
+        async def wait_for_race_boundary():
+            async with factory() as observer:
+                while not tasks[1].done():
+                    blocked = await observer.scalar(text(
+                        "select cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": busy_pid[0]})
+                    if blocked:
+                        return
+                    await asyncio.sleep(0.01)
+        await asyncio.wait_for(wait_for_race_boundary(), 10)
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 10)
+        async with transaction(factory) as s:
+            pending = list(await s.scalars(select(Job).where(
+                Job.dedup_key == key, Job.status == "pending")))
+            assert len(pending) == 1, f"duplicate pending reply retries: {len(pending)}"
+            assert pending[0].run_at == now + timedelta(seconds=REPLY_BUSY_S)
+            pending[0].status = "cancelled"
+        print("PostgreSQL revision-retry versus busy-retry: one pending, later schedule PASS")
+    finally:
+        release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        JobRepo.pending_by_key = original
+
+
 async def worker_recovery_checks(factory):
+    await reply_pending_contention(factory)
     now = [utcnow()]
     container = SimpleNamespace(
         factory=factory, clock=lambda: now[0], registry={},
