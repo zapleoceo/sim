@@ -3,13 +3,22 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from sim.api.deps import App, Owner
 from sim.ports.llm import LLMError
+from sim.ports.speech import SpeechError
+from sim.ports.video import VideoError
+from sim.services.studio_media import (
+    MediaRequest,
+    StudioConflict,
+    StudioMedia,
+    StudioUnavailable,
+)
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
 
@@ -64,7 +73,7 @@ async def subscription_models(c: App) -> list[str]:
 async def status(c: App, p: Owner):
     personal = personal_owner(c, p)
     models: list[str] = []
-    detail = "Google speech/video are not connected in Broker. No generation has been performed."
+    detail = "Генерация речи и видео в Studio выключена. Возможности и права Broker для неё не проверены."
     if not personal:
         detail += " Personal subscription access is not configured for this account."
     else:
@@ -78,8 +87,54 @@ async def status(c: App, p: Owner):
         "photo_url": "/api/studio/assets/photo" if personal and asset(c, "photo") else None,
         "video_url": "/api/studio/assets/video" if personal and asset(c, "video") else None,
         "models": models, "text_available": bool(models), "media_available": False,
+        "speech_available": False, "video_available": False,
+        "media_status": "disabled", "capabilities_verified": False,
         "detail": detail,
     }
+
+
+def media_service(c: App) -> StudioMedia:
+    # Deliberately no setting/query switch. A future reviewed activation must verify
+    # identity, provider grants, budgets, bounded responses and recovery contract first.
+    return StudioMedia(c.factory, c.box, c.speech, c.video)
+
+
+@router.post("/media")
+async def generate_media(body: MediaRequest, c: App, p: Owner):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    try:
+        row = await media_service(c).execute(p.user.id, body)
+    except StudioUnavailable as exc:
+        raise HTTPException(423, "Генерация Studio выключена; запрос провайдеру не отправлен") from exc
+    except (StudioConflict, SpeechError, VideoError) as exc:
+        raise HTTPException(409, "Результат не подтверждён. Не повторяйте генерацию; требуется проверка операции") from exc
+    return {"operation_id": row.id, "status": row.status}
+
+
+@router.get("/media/{operation_id}")
+async def media_status(operation_id: UUID, c: App, p: Owner):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    row = await media_service(c).get(p.user.id, str(operation_id))
+    if row is None:
+        raise HTTPException(404, "Operation not found")
+    return {"operation_id": row.id, "status": row.status,
+            "artifact_url": f"/api/studio/media/{row.id}/artifact" if row.status == "complete" else None}
+
+
+@router.get("/media/{operation_id}/artifact")
+async def media_artifact(operation_id: UUID, c: App, p: Owner):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    service = media_service(c)
+    row = await service.get(p.user.id, str(operation_id))
+    if row is None or row.status != "complete":
+        raise HTTPException(404, "Confirmed artifact not found")
+    data, mime = service.artifact(row)
+    return Response(data, media_type=mime, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.get("/assets/{kind}")

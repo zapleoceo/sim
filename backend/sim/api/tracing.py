@@ -83,6 +83,8 @@ def install_request_tracing(app: FastAPI) -> None:
 async def read_body(request: Request) -> dict[str, Any]:
     """The body as the log keeps it. `request.body()` is cached by Starlette and replayed to the
     route by `call_next`; files, binary and oversized bodies are not read at all."""
+    if request.url.path == "/api/studio/media" or request.url.path.startswith("/api/studio/media/"):
+        return {"omitted": "Тело приватной медиаоперации не сохраняется"}
     if request.url.path.startswith(request_body.PRIVATE_PREFIXES):
         return {"omitted": request_body.NOT_KEPT}
     content_type = request.headers.get("content-type", "")

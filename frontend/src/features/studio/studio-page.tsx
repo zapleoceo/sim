@@ -12,6 +12,7 @@ import { studioApi, type StudioMessage } from '@/lib/api/studio';
 import { errorMessage } from '@/lib/errors';
 import { qk } from '@/lib/query';
 import { cn } from '@/lib/utils';
+import { MediaControls } from './media-controls';
 
 export const STUDIO_MAX_MESSAGES = 24;
 export const STUDIO_MAX_CHARS = 32000;
@@ -137,6 +138,7 @@ export function StudioPage() {
             </MediaPanel>
           </div>
           {state.detail && <p className="rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{state.detail}</p>}
+          <MediaControls state={state} />
 
           <section aria-labelledby="chat-h" className="flex flex-col gap-4 rounded-xl border bg-card p-3 shadow-xs sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">

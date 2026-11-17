@@ -6,13 +6,25 @@ export interface StudioState {
   models: string[];
   text_available: boolean;
   media_available: boolean;
+  speech_available?: boolean;
+  video_available?: boolean;
+  capabilities_verified?: boolean;
+  media_status?: 'disabled';
   detail: string;
 }
 export interface StudioMessage { role: 'user' | 'assistant'; content: string }
+export interface StudioOperation {
+  operation_id: string;
+  status: 'unknown' | 'complete';
+  artifact_url?: string | null;
+}
 
 export const studioApi = {
   /** Silent: the studio page renders its own error block. */
   get: () => http.get<StudioState>('/api/studio', { silent: true }),
+  media: (operation_id: string, kind: 'speech' | 'video', text: string) =>
+    http.post<StudioOperation>('/api/studio/media', { operation_id, kind, text }, { silent: true }),
+  operation: (id: string) => http.get<StudioOperation>(`/api/studio/media/${id}`, { silent: true }),
   chat: (model: string, messages: StudioMessage[]) =>
     http.post<{ text: string; model: string }>('/api/studio/chat', { model, messages }, { silent: true }),
 };
