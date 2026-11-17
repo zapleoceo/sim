@@ -37,7 +37,8 @@ class FakeMedia:
 
 @pytest.fixture
 async def media_setup(api, container):
-    await login(api, OWNER[0])
+    token = await login(api, OWNER[0])
+    api.headers["X-CSRF-Token"] = token
     async with container.factory() as session:
         owner_id = await session.scalar(select(AdminUser.id).where(AdminUser.telegram_id == OWNER[0]))
     fake = FakeMedia()
@@ -202,9 +203,10 @@ async def test_history_and_artifacts_are_owner_bound_and_private(media_setup, ap
     assert result.content == wav_bytes()
     assert result.headers["cache-control"] == "private, no-store"
     assert result.headers["x-content-type-options"] == "nosniff"
-    token = await login(api, OWNER[0])
-    assert (await api.post(f"/api/studio/media/{row.id}/reconcile",
-        headers={"X-CSRF-Token": token})).status_code == 423
+    # Reuse the fixture session. Re-signing with the wall-clock/counter helper can
+    # produce the SAME auth_date/hash when the wall second advances by one.
+    # Production correctly rejects that replay; this test is not testing re-login.
+    assert (await api.post(f"/api/studio/media/{row.id}/reconcile")).status_code == 423
     container.settings.studio_owner_telegram_id = OWNER[0] + 1
     assert (await api.get("/api/studio/media")).status_code == 403
     assert (await api.get(f"/api/studio/media/{row.id}/artifact")).status_code == 403

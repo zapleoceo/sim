@@ -78,3 +78,10 @@ across service restart, bounded streaming/overflow/cancel/timeout, malformed sig
 known video receipt recovery/scope mismatch, owner history and UI reload/no-resubmit.
 No real provider quality or live visual acceptance
 is claimed. Production migration follows existing backup/stop-worker/readiness gates.
+
+The Studio history API regression reuses its fixture's authenticated session/CSRF token.
+The shared Telegram widget helper derives auth_date from wall seconds minus a counter;
+an immediate second login across a one-second boundary can repeat the same signed payload.
+Replay rejection is correct and unchanged. Studio endpoint tests must not manufacture a
+second login merely to obtain a token they already have. Main run44019802870 stopped
+before deploy on that test-only issue; no runtime/auth policy change is required.
