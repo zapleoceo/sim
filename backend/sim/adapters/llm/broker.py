@@ -181,6 +181,10 @@ class BrokerLLM:
         retry_terminal: bool = True,
     ) -> LLMResult:
         body: dict[str, Any] = {"messages": messages}
+        if workflow == "incoming_media":
+            if not model or not model.startswith("codex-sub/"):
+                raise LLMError("incoming media requires a no-shell subscription route")
+            body["no_shell"] = True
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         if model:

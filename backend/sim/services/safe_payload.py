@@ -6,7 +6,6 @@ import re
 from typing import Any
 
 LIMIT = 65536
-MEDIA_DATA = re.compile(r"data:[^;\s]+;base64,[A-Za-z0-9+/=_-]+", re.I)
 SECRET_KEY = re.compile(r"(?i)(authorization|headers|cookie|password|passwd|secret|api.?key|project.?key|private.?key|access.?token|refresh.?token|credential|session.?token|^(key|token|session)$)")
 PEM = re.compile(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", re.S)
 ASSIGNMENT = re.compile(r'''(?ix)(["']?\b(?:authorization|cookie|password|passwd|secret|token|key|api[_-]?key|project[_-]?key|access[_-]?token|refresh[_-]?token)["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)''')
@@ -15,6 +14,7 @@ HEADER_LINE = re.compile(r"(?im)\b(?:authorization|set-cookie|cookie)\s*:\s*[^\r
 QUERY_SECRET = re.compile(r"(?i)([?&](?:token|key|secret|password|code|session)=)[^&#\s]+")
 USERINFO = re.compile(r"(://)[^/\s:@]+:[^/\s@]+@")
 KEY = re.compile(r"\b(?:sk-[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\d{6,}:[A-Za-z0-9_-]{20,})\b")
+DATA_URL = re.compile(r"(?i)data:[^\s,;]+(?:;[^\s,]*)?;base64,[A-Za-z0-9+/=_-]+")
 
 
 def exchange_out(value: Any) -> dict[str, Any] | None:
@@ -61,6 +61,8 @@ def safe_payload(value: Any, *, secrets: tuple[str, ...] = ()) -> dict[str, Any]
                 truncated = True
             return out
         if isinstance(item, str):
+            # Embedded media is transport data, never diagnostic text (including copy/export).
+            item = DATA_URL.sub("[REDACTED MEDIA]", item)
             # JSON embedded in model content is still subject to key-based redaction.
             if item.lstrip().startswith(("{", "[")):
                 try:
@@ -70,7 +72,6 @@ def safe_payload(value: Any, *, secrets: tuple[str, ...] = ()) -> dict[str, Any]
             for secret in secrets:
                 if secret:
                     item = item.replace(secret, "[REDACTED]")
-            item = MEDIA_DATA.sub("[REDACTED MEDIA]", item)
             item = PEM.sub("[REDACTED PRIVATE KEY]", item)
             item = HEADER_LINE.sub("[REDACTED HEADER]", item)
             item = QUERY_SECRET.sub(r"\1[REDACTED]", item)

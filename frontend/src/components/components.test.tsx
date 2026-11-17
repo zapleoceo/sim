@@ -18,6 +18,16 @@ import { Input } from './ui/input';
 const base: Message = { id: 1, direction: 'out', author: 'ai', text: 'Привет', created_at: '2026-11-11T10:00:00Z', delivery: 'sent' };
 
 describe('shared components', () => {
+  it.each([
+    ['pending', 'Вложение ожидает распознавания'],
+    ['done', 'Вложение распознано'],
+    ['unsupported', 'Распознавание недоступно для этого вложения'],
+    ['failed', 'Не удалось распознать вложение'],
+  ] as const)('shows honest incoming media state %s', (media_status, label) => {
+    render(<MessageContent message={{ ...base, direction: 'in', author: 'client', media_kind: 'video', media_status, text: 'Подпись клиента' }} />);
+    expect(screen.getByRole('status')).toHaveTextContent(label);
+    expect(screen.getByText('Подпись клиента')).toBeInTheDocument();
+  });
   it('avatar falls back to initials without a photo', () => {
     render(<Avatar name="Анна Петрова" />);
     expect(screen.getByText('АП')).toBeInTheDocument();

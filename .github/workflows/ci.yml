@@ -55,6 +55,9 @@ jobs:
         run: docker build -f infra/nginx/Dockerfile.ci -t sim-nginx-audit-ci .
       - name: Isolated nginx TLS and audit regression
         run: docker run --rm --network none sim-nginx-audit-ci
+      - name: Bounded video decoder offline regression
+        working-directory: backend
+        run: uv run --frozen pytest -q tests/test_video_frames.py tests/test_video_process.py
       - name: Backend unit tests
         working-directory: backend
         run: uv run --frozen pytest -q --ignore=tests/test_nginx_origin_audit.py

@@ -328,6 +328,7 @@ def message_out(m: Message) -> dict[str, Any]:
     return {
         "id": m.id, "direction": m.direction.value, "author": m.author.value, "text": m.text,
         "media_kind": m.media_kind, "media_url": m.media_url, "created_at": dt(m.created_at),
+        "media_status": m.media_status, "media_reason": m.media_reason,
         "delivery": m.delivery.value, "model": m.model, "error": m.error,
         "operator_id": m.operator_id, "operator_name": m.operator_name,
         "handoff_reason": m.handoff_reason, "handoff_at": dt(m.handoff_at),

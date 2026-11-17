@@ -122,6 +122,9 @@ class FakeClient:
         return next((m for m in self.history.get(entity[1], []) if m.id == ids), None)
 
     async def download_media(self, message, file=None):
+        if hasattr(file, "write"):
+            file.write(self.media)
+            return file
         return self.media
 
     async def send_message(self, entity, text):
@@ -502,6 +505,9 @@ async def test_download_media_bounded(conn, made):
     port, c = await port_for(conn, made)
     c.history = {10: [msg(7)]}
     assert await port.download_media(f"{MEDIA_PREFIX}10:7") == b"bytes"
+    with pytest.raises(ValueError, match="limit"):
+        await port.download_media_bounded(f"{MEDIA_PREFIX}10:7", max_bytes=4)
+    assert await port.download_media_bounded(f"{MEDIA_PREFIX}10:7", max_bytes=5) == b"bytes"
     c.history[10][0].file = SimpleNamespace(size=10**9)
     with pytest.raises(ValueError, match="too large"):
         await port.download_media(f"{MEDIA_PREFIX}10:7")

@@ -20,6 +20,7 @@ from sim.domain.enums import Author, ClientStatus, Delivery, Direction
 from sim.domain.funnel import Actor, status_on_inbound
 from sim.ports.channel import InboundMessage
 from sim.services import jobkinds, tracing
+from sim.services.app_settings import AppSettingsService
 from sim.services.dialog_reset import DialogReset, is_reset
 from sim.services.dialog_state import EDIT_PREFIX, apply_message
 from sim.services.followup import FollowupService
@@ -262,14 +263,22 @@ class IngestService:
     async def queue_media(self, dialog: Dialog, message: Message, msg: InboundMessage) -> None:
         """Downloading and transcribing is network work: it runs as a `media` job, so the
         webhook answers at once. The reply job waits for it (see ConversationService)."""
-        if not msg.media_url or msg.media_kind not in MEDIA_KINDS:
+        if not msg.media_url:
             return
+        subscription = bool((await AppSettingsService(self.session).load()).incoming_media_subscription)
+        if msg.media_kind not in (*MEDIA_KINDS, "video", "video_note", "document", "file"):
+            return
+        if not subscription and msg.media_kind not in MEDIA_KINDS:
+            return
+        if subscription:
+            message.media_status = "pending"
         await self.jobs.enqueue(
             jobkinds.MEDIA,
             {
                 "message_id": message.id,
                 "ref": msg.media_url,
                 "kind": msg.media_kind,
+                "subscription": subscription,
                 "transcribe": msg.media_kind in VOICE_KINDS and not (msg.text or "").strip(),
             },
             self.clock(),

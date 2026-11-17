@@ -33,6 +33,7 @@ async def test_defaults_come_from_code_and_env(container):
     assert cfg.guard_prompt == GUARD_PROMPT and cfg.history_limit == HISTORY_LIMIT
     assert cfg.guard_capability == container.settings.guard_capability
     assert cfg.reply_debounce_s == container.settings.reply_debounce_s
+    assert cfg.incoming_media_subscription == 0
 
 
 async def test_set_validates_and_reset_returns_the_default(container):
@@ -53,7 +54,7 @@ async def test_set_validates_and_reset_returns_the_default(container):
 def test_shared_rules_come_in_the_order_they_act_and_owner_accounts_are_one_group():
     helpers = {"Охранник", "Паспортистка", "Саммари диалога"}
     groups = list(dict.fromkeys(spec.group for spec in SPECS if spec.group not in helpers))
-    assert groups == ["Ответы", "Время ответа по распорядку", "Стиль сообщений",
+    assert groups == ["Входящие вложения", "Ответы", "Время ответа по распорядку", "Стиль сообщений",
                       "Фото и кружочки персонажа", "Аккаунты владельца", "Служебные промпты",
                       "Контент", "Журнал"]
     owner = [spec.key for spec in SPECS if spec.group == "Аккаунты владельца"]

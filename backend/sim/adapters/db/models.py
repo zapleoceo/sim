@@ -349,6 +349,8 @@ class Message(Base):
     operator_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     text: Mapped[str] = mapped_column(Text, default="")
     media_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    media_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    media_reason: Mapped[str | None] = mapped_column(String(80), nullable=True)
     media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

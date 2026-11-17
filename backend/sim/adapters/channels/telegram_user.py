@@ -24,6 +24,7 @@ from telethon import functions as tl_functions
 from telethon import types as tl_types
 from telethon.events import NewMessage
 
+from sim.adapters.bounded_media import BoundedMediaBuffer
 from sim.adapters.channels._http import MEDIA_MAX_BYTES
 from sim.adapters.channels.capabilities import CANCEL, RECORD_VOICE, Capability
 from sim.adapters.channels.telegram import chunk_text
@@ -91,6 +92,8 @@ def media_kind_of(m: Any) -> str | None:
         return "image"
     if getattr(m, "video", None) or getattr(m, "video_note", None):
         return "video"
+    if getattr(m, "document", None):
+        return "document"
     return None
 
 
@@ -249,7 +252,9 @@ class TelethonTransport:
         size = int(getattr(getattr(message, "file", None), "size", 0) or 0)
         if size > max_bytes:
             raise ValueError(f"telegram file too large: {size} bytes")
-        data = await client.download_media(message, file=bytes)
+        with BoundedMediaBuffer(max_bytes) as sink:
+            await client.download_media(message, file=sink)
+            data = sink.getvalue()
         if not data:
             raise ValueError("message has no downloadable media")
         if len(data) > max_bytes:
@@ -588,3 +593,7 @@ class TelegramUserAdapter:
     async def download_media(self, ref: str) -> bytes:
         peer, message_id = parse_media_ref(ref)
         return await self.t.download(peer, message_id, MEDIA_MAX_BYTES)
+
+    async def download_media_bounded(self, ref: str, *, max_bytes: int) -> bytes:
+        peer, message_id = parse_media_ref(ref)
+        return await self.t.download(peer, message_id, min(max_bytes, MEDIA_MAX_BYTES))

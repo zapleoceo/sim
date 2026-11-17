@@ -22,6 +22,8 @@ from sim.domain.enums import ChannelKind
 from sim.domain.voice import VOICE_KINDS
 from sim.ports.llm import LLMError, LLMPort
 from sim.services.dialog_state import invalidate_plan
+from sim.services.incoming_media import IncomingMedia
+from sim.services.media_recognition import SubscriptionMediaRecognizer
 
 log = logging.getLogger(__name__)
 
@@ -56,12 +58,14 @@ class MediaService:
         box: SecretBox,
         llm: LLMPort,
         store: MediaStore,
+        *, recognizer: SubscriptionMediaRecognizer | None = None,
     ) -> None:
         self.session = session
         self.registry = registry
         self.box = box
         self.llm = llm
         self.store = store
+        self.recognizer = recognizer or SubscriptionMediaRecognizer(llm)
         self.messages = MessageRepo(session)
         self.dialogs = DialogRepo(session)
 
@@ -81,7 +85,11 @@ class MediaService:
         except Exception as exc:  # adapters raise heterogeneous errors; never log the ref
             raise MediaError(f"download failed: {type(exc).__name__}") from exc
 
-    async def process(self, message_id: int, ref: str, kind: str, *, transcribe: bool) -> None:
+    async def process(self, message_id: int, ref: str, kind: str, *, transcribe: bool,
+                      subscription: bool = False) -> None:
+        if subscription:
+            await IncomingMedia(self).process(message_id, ref, kind)
+            return
         message = await self.messages.get(message_id)
         if message is None:
             return
@@ -101,10 +109,14 @@ class MediaService:
             raise MediaError(f"transcription failed: {exc}") from exc
         return result.text.strip() or VOICE_FAILED
 
-    async def give_up(self, message_id: int, kind: str, *, transcribe: bool) -> None:
+    async def give_up(self, message_id: int, kind: str, *, transcribe: bool,
+                      subscription: bool = False) -> None:
         """Out of attempts: the dialog continues with an honest placeholder."""
         message = await self.messages.get(message_id)
         if message is None:
+            return
+        if subscription:
+            await IncomingMedia(self).finish(message_id, "failed", "recognition_failed")
             return
         if transcribe:
             await lock(self.session, NS_DIALOG, message.dialog_id)

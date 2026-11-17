@@ -17,6 +17,19 @@ async def no_sleep(_: float) -> None:
     return None
 
 
+@respx.mock
+async def test_incoming_media_disables_shell_and_never_routes_to_paid_model():
+    submit = respx.post(f"{URL}/v1/jobs").respond(202, json={"job_id": 7})
+    respx.get(f"{URL}/v1/jobs/7").respond(200, json=DONE)
+    broker = make()
+    await broker.chat(MSGS, model="codex-sub/gpt-6.1-terra", workflow="incoming_media")
+    assert json.loads(submit.calls[0].request.content)["no_shell"] is True
+    with pytest.raises(LLMError, match="no-shell"):
+        await broker.chat(MSGS, model="gemini/flash", workflow="incoming_media")
+    assert submit.call_count == 1
+    await broker.aclose()
+
+
 def make(**kw) -> BrokerLLM:
     return BrokerLLM(URL, "key-1", sleep=no_sleep, **kw)
 

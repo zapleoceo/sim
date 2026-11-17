@@ -216,17 +216,21 @@ class TelegramAdapter:
         return SessionStatus.ACTIVE
 
     async def download_media(self, ref: str) -> bytes:
+        return await self.download_media_bounded(ref, max_bytes=TG_MAX_FILE_BYTES)
+
+    async def download_media_bounded(self, ref: str, *, max_bytes: int) -> bytes:
         """Bytes for a `tg-file:<file_id>` marker produced by parse_update."""
+        limit = min(max_bytes, TG_MAX_FILE_BYTES)
         if not ref.startswith(TG_FILE_PREFIX):
             raise ValueError("not a tg-file ref")
         info = await self._t.call("getFile", {"file_id": ref[len(TG_FILE_PREFIX):]})
         size = int((info or {}).get("file_size") or 0)
-        if size > TG_MAX_FILE_BYTES:
+        if size > limit:
             raise ValueError(f"telegram file too large: {size} bytes")
         path = (info or {}).get("file_path")
         if not path:
             raise TelegramError("getFile returned no file_path")
-        return await self._t.download_file(path, TG_MAX_FILE_BYTES)
+        return await self._t.download_file(path, limit)
 
 
 def _media_of(msg: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -240,6 +244,8 @@ def _media_of(msg: dict[str, Any]) -> tuple[str | None, str | None]:
     for key in ("video", "video_note"):
         if msg.get(key):
             return "video", f"{TG_FILE_PREFIX}{msg[key].get('file_id')}"
+    if msg.get("document"):
+        return "document", f"{TG_FILE_PREFIX}{msg['document'].get('file_id')}"
     return None, None
 
 

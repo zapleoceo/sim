@@ -91,12 +91,14 @@ async def run_media(c: Container, s: AsyncSession, payload: dict[str, Any]) -> N
     await c.media_service(s).process(
         int(payload["message_id"]), str(payload["ref"]), str(payload["kind"]),
         transcribe=bool(payload.get("transcribe")),
+        subscription=bool(payload.get("subscription")),
     )
 
 
 async def giveup_media(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
     await c.media_service(s).give_up(
-        int(payload["message_id"]), str(payload["kind"]), transcribe=bool(payload.get("transcribe"))
+        int(payload["message_id"]), str(payload["kind"]), transcribe=bool(payload.get("transcribe")),
+        subscription=bool(payload.get("subscription")),
     )
 
 
