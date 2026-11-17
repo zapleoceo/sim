@@ -3,6 +3,7 @@ no "recording" status, failures, API, encoder and the Broker client.
 No real Broker, ffmpeg or Telegram is used."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from dataclasses import dataclass, field
@@ -443,7 +444,8 @@ async def test_encoder_crops_to_a_square_and_keeps_the_audio_track():
         if args[0] == "ffprobe":
             return 0, PROBE, b""
         seen.update(args=args, data=data, limit_s=limit_s)
-        assert Path(args[args.index("-i") + 1]).read_bytes() == ENCODER_MP4
+        source = Path(args[args.index("-i") + 1])
+        assert await asyncio.to_thread(source.read_bytes) == ENCODER_MP4
         return 0, ENCODER_MP4, b""
 
     assert await VideoNoteEncoder(runner, timeout_s=7).to_video_note(ENCODER_MP4) == ENCODER_MP4
