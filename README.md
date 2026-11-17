@@ -8,8 +8,10 @@ model controls. Existing setting/group hashes (including Back/Forward) and owner
 are retained. Fixed guard/honesty text remains available in read-only details.
 Save actions appear only for changed fields; reset requires confirmation. Drafts live
 only in the current query client's memory, survive SPA navigation and refetch, and are
-not written to browser storage. Closing/reloading the app loses drafts (settings pages
-warn before unload). A changed server value is shown as a conflict; overwriting it needs
+not written to browser storage. An app-level unload guard warns while any settings draft
+exists, including after navigating to Inbox or a persona. Saving/discarding the last
+draft removes the listener. Closing/reloading despite the warning loses memory drafts;
+browser unload prompts are best-effort, not persistent storage. A changed server value is shown as a conflict; overwriting it needs
 explicit confirmation, or the owner can load the saved value. This is UI conflict
 awareness, not a server-side atomic compare-and-swap. Failed mutations retain the draft.
 In-flight field writes stay disabled even after navigating away and back, so an older

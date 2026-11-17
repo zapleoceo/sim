@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { ErrorState } from '@/components/empty-state';
@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { settingsApi } from '@/lib/api/settings';
 import { qk } from '@/lib/query';
 import { SettingField } from './setting-field';
-import { AGENT_KEYS, groupAnchor, groupSettings, pickSettings, settingAnchor, settingFieldKey, SETTINGS_DRAFTS, type SettingDraft } from './settings-logic';
+import { AGENT_KEYS, groupAnchor, groupSettings, pickSettings, settingAnchor, settingFieldKey } from './settings-logic';
 
 export const GUARD_GROUP = 'Охранник';
 export const PASSPORT_GROUP = 'Паспортистка';
@@ -22,7 +22,6 @@ const ROLES: Record<string, string> = {
 };
 
 function SettingsView({ helpers = false }: { helpers?: boolean }) {
-  const queryClient = useQueryClient();
   const query = useQuery({ queryKey: qk.settings, queryFn: settingsApi.list });
   const hash = useLocation({ select: (location) => location.hash });
   const navigate = useNavigate();
@@ -33,15 +32,6 @@ function SettingsView({ helpers = false }: { helpers?: boolean }) {
   useEffect(() => {
     if (query.isSuccess && hash) document.getElementById(hash)?.scrollIntoView?.({ block: 'start' });
   }, [query.isSuccess, hash]);
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent): void => {
-      if (queryClient.getQueriesData<SettingDraft | null>({ queryKey: SETTINGS_DRAFTS }).some(([, draft]) => draft)) {
-        event.preventDefault(); event.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [queryClient]);
   return <Page>
     <PageHeader title={helpers ? 'Помощники' : 'Общие настройки'}
       subtitle={helpers ? 'Роли, модели и инструкции помощников персонажа.' : 'Общие параметры и служебные инструкции. Настройки персонажа остаются на его странице.'} />

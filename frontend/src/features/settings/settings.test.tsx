@@ -65,6 +65,28 @@ async function edit(label: string) {
 }
 
 describe('SettingsPage', () => {
+  it.each(['save', 'discard'])('warns outside settings until the draft is resolved by %s', async (action) => {
+    fakeApi({ 'GET /api/settings': { items: [STYLE] }, 'GET /api/dialogs': { items: [], total: 0 },
+      'GET /api/personas': { items: [] }, 'PUT /api/settings/style': { ...STYLE, value: 'коротко ещё' } });
+    const app = await renderApp('/settings');
+    const user = userEvent.setup();
+    await user.type(await edit('Манера письма'), ' ещё');
+    await act(() => app.router.navigate({ to: '/inbox' }));
+    await waitFor(() => expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument());
+    const dirty = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+    await act(() => app.router.navigate({ to: '/settings' }));
+    expect(await screen.findByLabelText('Манера письма')).toHaveValue('коротко ещё');
+    await user.click(screen.getByRole('button', { name: action === 'save' ? 'Сохранить' : 'Отменить правки' }));
+    await waitFor(() => expect(screen.queryByText('Не сохранено')).not.toBeInTheDocument());
+    await act(() => app.router.navigate({ to: '/inbox' }));
+    await waitFor(() => expect(screen.queryByLabelText('Манера письма')).not.toBeInTheDocument());
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+  });
+
   it('keeps a pending save locked across navigation until its receipt', async () => {
     let finish!: (value: AppSettingItem) => void;
     const response = new Promise<AppSettingItem>((resolve) => { finish = resolve; });
