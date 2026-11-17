@@ -11,9 +11,11 @@ export interface StudioState {
   capabilities_verified?: boolean;
   media_status?: 'disabled';
   personal_access?: boolean;
+  draft_scope?: string | null;
   detail: string;
 }
 export interface StudioMessage { role: 'user' | 'assistant'; content: string }
+export interface StudioDraft { scope: string; revision: number; text: string }
 export interface StudioOperation {
   operation_id: string;
   status: 'unknown' | 'complete';
@@ -23,6 +25,8 @@ export interface StudioOperation {
 }
 
 export const studioApi = {
+  draft: () => http.get<StudioDraft>('/api/studio/media/draft/video', { silent: true }),
+  saveDraft: (draft: StudioDraft) => http.put<StudioDraft>('/api/studio/media/draft/video', draft, { silent: true }),
   /** Silent: the studio page renders its own error block. */
   get: () => http.get<StudioState>('/api/studio', { silent: true }),
   media: (operation_id: string, kind: 'speech' | 'video', text: string) =>

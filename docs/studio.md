@@ -1,5 +1,27 @@
 # Private Studio media: dormant wiring
 
+## Private video draft (independent of generation)
+
+Personal owners can explicitly save a video draft while generation is disabled. Migration
+0038 stores at most 2000 characters encrypted with the existing SecretBox, separately from
+the operation journal. GET/PUT /api/studio/media/draft/video retain the existing owner-role,
+exact personal Telegram binding and CSRF protections. Bodies are omitted from HTTP traces,
+responses are private/no-store. No provider, job, reconciliation or channel is called.
+Save is explicit; unsaved edits are memory-only, with a best-effort browser unload warning.
+Storage/conflict errors retain local text, never claim success, and never retry automatically.
+
+Drafts are scoped to the authenticated admin and configured Studio reference filenames/binding.
+Studio has no CRM persona selector; changing a reference filename isolates the next draft.
+Replacing bytes under the same filename is not a character-version change and cannot be
+detected by this scope. Old scopes are retained privately, not silently moved to another image.
+The UI clears on account/reference changes and restores only the matching server draft.
+Concurrent stale saves return409; deletion retains a revision tombstone to prevent resurrection.
+Cancel restores the saved text; delete requires confirmation. Neither creates a job. Enabling
+generation in a future reviewed release must still require a separate explicit create command;
+this draft feature does not schedule, submit, or send an old draft on availability changes.
+CI covers reload/repeated save/cancel/delete, failed storage, encryption, trace omission,
+owner/reference isolation, and PostgreSQL concurrent first-save/delete fencing.
+
 HTTP audit retains method/path/status/actor, but omits Studio media request bodies.
 Artifact response bodies are not traced. Private prompts and binary media are not copied
 into the activity request-body viewer.

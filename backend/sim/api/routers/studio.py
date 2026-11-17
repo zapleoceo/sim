@@ -1,6 +1,8 @@
 """Private owner media studio. No paid fallback or direct provider credentials."""
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -8,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.exc import SQLAlchemyError
 
 from sim.adapters.llm.broker import BrokerLLM
 from sim.adapters.studio_broker import StudioBroker
@@ -15,6 +18,7 @@ from sim.api.deps import App, Owner
 from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
 from sim.ports.video import VideoError
+from sim.services.studio_drafts import DraftConflict, StudioDrafts
 from sim.services.studio_media import (
     MediaRequest,
     StudioConflict,
@@ -46,6 +50,49 @@ def personal_owner(c: App, p: Owner) -> bool:
     return bool(c.settings.studio_owner_telegram_id) and (
         p.user.telegram_id == c.settings.studio_owner_telegram_id
     )
+
+
+def draft_scope(c: App, p: Owner) -> str:
+    # Studio has one configured reference character, not a selected CRM persona.
+    # Rebinding its owner/reference must not silently reuse the previous character's draft.
+    return hashlib.sha256(json.dumps([
+        p.user.id, c.settings.studio_owner_telegram_id,
+        c.settings.studio_photo_filename, c.settings.studio_video_filename,
+    ]).encode()).hexdigest()
+
+
+class DraftIn(BaseModel):
+    scope: str = Field(pattern=r"^[0-9a-f]{64}$")
+    revision: int = Field(ge=0)
+    text: str = Field(max_length=2000)
+
+
+@router.get("/media/draft/video")
+async def read_video_draft(c: App, p: Owner, response: Response):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return {"scope": draft_scope(c, p), **await StudioDrafts(c.factory, c.box).read(
+            p.user.id, draft_scope(c, p))}
+    except (ValueError, SQLAlchemyError) as exc:
+        raise HTTPException(503, "Draft could not be read") from exc
+
+
+@router.put("/media/draft/video")
+async def save_video_draft(body: DraftIn, c: App, p: Owner, response: Response):
+    if not personal_owner(c, p):
+        raise HTTPException(403, "Personal owner access required")
+    if body.scope != draft_scope(c, p):
+        raise HTTPException(409, "Studio reference changed; reload the draft")
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return {"scope": body.scope, **await StudioDrafts(c.factory, c.box).save(
+            p.user.id, body.scope, body.revision, body.text)}
+    except DraftConflict as exc:
+        raise HTTPException(409, "Draft changed in another window; keep your text") from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "Draft was not confirmed saved") from exc
 
 
 def asset(c: App, kind: str) -> Path | None:
@@ -92,6 +139,7 @@ async def status(c: App, p: Owner):
         "speech_available": False, "video_available": False,
         "media_status": "disabled", "capabilities_verified": False,
         "personal_access": personal,
+        "draft_scope": draft_scope(c, p) if personal else None,
         "detail": detail,
     }
 

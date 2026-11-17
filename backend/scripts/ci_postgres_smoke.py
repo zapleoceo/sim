@@ -21,6 +21,7 @@ BACKEND = HERE.parent
 sys.path.insert(0, str(BACKEND))
 from broker_reconciliation_smoke import broker_reconciliation_checks  # noqa: E402
 from studio_media_smoke import (  # noqa: E402
+    discard_synthetic_studio_drafts,
     discard_synthetic_studio_history,
     studio_media_checks,
 )
@@ -196,6 +197,14 @@ def main():
     asyncio.run(content_mcp_concurrency(url))
     asyncio.run(mcp_oauth_concurrency(url))
     asyncio.run(studio_media_checks(url))
+    try:
+        command.downgrade(cfg, "0037")
+    except RuntimeError as exc:
+        if str(exc) != "Cannot discard Studio drafts or revision tombstones":
+            raise
+    else:
+        raise AssertionError("Studio downgrade discarded draft revision tombstones")
+    asyncio.run(discard_synthetic_studio_drafts(url))
     try:
         command.downgrade(cfg, "0036")
     except RuntimeError as exc:
