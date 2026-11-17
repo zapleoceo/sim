@@ -15,6 +15,9 @@ Broker source `df4460a5bbe3a3e7311861e024e1ca1b1c893156`,
 `src/aibroker/providers/job_contract.py` (read 2026-11-17), permits subscription
 text/image data URLs, with a 3,000,000-byte prompt maximum. This is a contract
 check, not live quality/latency or upstream capability proof.
+The same source validates `no_shell` only for codex-sub without tools; its CLI
+disables shell features. SIM explicitly sends `no_shell=true` for this workflow
+and rejects other provider routes before POST. No tools are attached.
 
 Limits:
 - Downloads: 5 MiB and 45 seconds; Telegram bot streams with a byte cap,

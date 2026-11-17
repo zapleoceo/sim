@@ -76,7 +76,7 @@ def supports(model: dict[str, Any], *, image: bool) -> bool:
 
 class SubscriptionMediaRecognizer:
     def __init__(self, llm: LLMPort, model: str = DEFAULT_MODEL, *, catalog: LLMPort | None = None) -> None:
-        if not model.startswith(("codex-sub/", "claude-sub/")):
+        if not model.startswith("codex-sub/"):
             raise ValueError("a subscription model is required")
         self.llm = llm
         self.catalog = catalog or llm
