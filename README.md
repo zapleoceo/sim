@@ -327,6 +327,13 @@ The media/reply concurrency regression runs early in CI and then with the full s
 It deterministically commits a synthetic transcription between reply's initial dialog read
 and its media-job check, as well as testing the opposite order. A superseded draft must
 never be sent and must not strand an unanswered message when the worker restarts.
+CI44047747901 at test-only521a1cd proved this loss (superseded, no replacement), while
+the opposite order passed. Revision changes now retain one normal deduplicated reply;
+existing later schedules remain later, and pause/refusal checks still take precedence.
+No stale draft is delivered or reused, no proactive follow-up is automatically retried,
+and the regular model/guard/budget/send-receipt path is unchanged. Synthetic regressions
+cover newer input, delayed pending work, worker recreation, pause/resume and refusal.
+This proves the race itself, not the historical cause of the earlier intermittent CI failure.
 
 Private video drafts can be saved and restored independently of disabled generation.
 They use the existing personal-owner gate and SecretBox encryption, with explicit save,
