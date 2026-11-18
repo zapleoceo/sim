@@ -57,7 +57,7 @@ jobs:
         run: docker run --rm --network none sim-nginx-audit-ci
       - name: Bounded video decoder offline regression
         working-directory: backend
-        run: uv run --frozen pytest -q tests/test_video_frames.py tests/test_video_process.py
+        run: uv run --frozen pytest -q tests/test_video_frames.py tests/test_video_process.py tests/test_video_note.py tests/test_video_note_bounds.py tests/test_contact_profile.py
       - name: Deterministic transcription/reply race
         working-directory: backend
         run: uv run --frozen pytest -q tests/test_media_reply_race.py

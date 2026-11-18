@@ -50,3 +50,23 @@ remain blocked. No automatic replay after availability returns.
 CI synthetic coverage: preference persistence/reset, validation, owner/CSRF/personal gate,
 inactive defaults, no inference, fallback evidence combinations, expandable UI. Live visual
 acceptance, model quality and activation are not claimed.
+
+### Existing Telegram video-note packaging: bounded normalization
+
+The existing VideoNoteEncoder is hardened, not a new endpoint or generation route.
+Input is structurally checked MP4 up to 20 MiB, finite positive duration <=60 seconds,
+up to 1920x1080 pixels. Unsupported/malformed/over-limit inputs fail closed.
+One video and optional first audio stream are centre-cropped to 384x384 H.264/yuv420p,
+30fps, AAC mono 64k; visible AI disclosure remains. No extra audio is added.
+Output is streamed as fragmented MP4 (index first), capped before accumulation at 8 MiB;
+it is probed again for format and retained audio before any caller can store/send it.
+The shared Linux runner caps stderr/probe at16KiB, child address space512MiB,
+CPU30s/wall45s per encode (probe wall8s), stack2MiB, file writes0, descriptors32;
+clean environment, fixed binaries, process-group kill/reap on overflow/timeout/cancel.
+Existing frame decoding retains its stricter CPU6s/wall8s/1MiB profile.
+Resource containment is NOT a filesystem/network namespace sandbox or codec safety proof.
+Protocol allowlist excludes network; private temp files are removed on cancellation.
+Slow/complex clips can be rejected within these limits. Audio is re-encoded, not bit-exact.
+CI uses generated color/sine fixtures, malformed metadata/output and cancellation tests;
+no provider inference, real Telegram sends or live compatibility/visual acceptance.
+Studio activation, owner/grants/budgets and remote receipt gates remain unchanged.

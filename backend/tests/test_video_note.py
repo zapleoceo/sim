@@ -3,6 +3,7 @@ no "recording" status, failures, API, encoder and the Broker client.
 No real Broker, ffmpeg or Telegram is used."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from dataclasses import dataclass, field
@@ -428,22 +429,26 @@ async def test_api_queues_the_note_for_the_allowlisted_account(api, container, s
 
 # ---- encoder -------------------------------------------------------------------------------
 
-def fake_ffmpeg(args) -> None:
-    """What ffmpeg does for the encoder: read the input file, write the output file."""
-    src, dst = args[args.index("-i") + 1], args[-1]
-    assert Path(src).read_bytes() == MP4
-    Path(dst).write_bytes(NOTE)
+ENCODER_MP4 = (b"\x00\x00\x00\x10ftypmp42\x00\x00\x00\x00"
+               b"\x00\x00\x00\x09moovx\x00\x00\x00\x09mdatx")
+PROBE = json.dumps({"streams": [
+    {"codec_type": "video", "codec_name": "h264", "width": 384, "height": 384,
+     "pix_fmt": "yuv420p"}, {"codec_type": "audio", "codec_name": "aac"}],
+    "format": {"duration": "1"}}).encode()
 
 
 async def test_encoder_crops_to_a_square_and_keeps_the_audio_track():
     seen = {}
 
     async def runner(args, data, limit_s):
+        if args[0] == "ffprobe":
+            return 0, PROBE, b""
         seen.update(args=args, data=data, limit_s=limit_s)
-        fake_ffmpeg(args)
-        return 0, b"", b""
+        source = Path(args[args.index("-i") + 1])
+        assert await asyncio.to_thread(source.read_bytes) == ENCODER_MP4
+        return 0, ENCODER_MP4, b""
 
-    assert await VideoNoteEncoder(runner, timeout_s=7).to_video_note(MP4) == NOTE
+    assert await VideoNoteEncoder(runner, timeout_s=7).to_video_note(ENCODER_MP4) == ENCODER_MP4
     args = seen["args"]
     assert seen["data"] == b"" and seen["limit_s"] == 7
     assert args == video_note_args(args[args.index("-i") + 1], args[-1])
@@ -451,16 +456,19 @@ async def test_encoder_crops_to_a_square_and_keeps_the_audio_track():
     assert "crop=" in vf and f"scale={VIDEO_NOTE_SIDE}:{VIDEO_NOTE_SIDE}" in vf
     assert args[args.index("-c:a") + 1] == "aac" and "-an" not in args   # the sound stays
     assert "-af" not in args and "-filter_complex" not in args           # nothing is mixed in
-    assert args[args.index("-movflags") + 1] == "+faststart"
+    assert args[args.index("-movflags") + 1] == "+frag_keyframe+empty_moov"
+    assert args[-1] == "pipe:1"
 
 
 @pytest.mark.parametrize("result", [(1, b"", b"Invalid data"), (0, b"", b"")])
 async def test_encoder_failure_is_a_video_error(result):
     async def runner(args, data, limit_s):
+        if args[0] == "ffprobe":
+            return 0, PROBE, b""
         return result
 
-    with pytest.raises(VideoError, match="ffmpeg exited"):
-        await VideoNoteEncoder(runner).to_video_note(MP4)
+    with pytest.raises(VideoError, match="безопасно"):
+        await VideoNoteEncoder(runner).to_video_note(ENCODER_MP4)
 
 
 async def test_encoder_rejects_empty_input_and_a_missing_binary():
@@ -472,8 +480,8 @@ async def test_encoder_rejects_empty_input_and_a_missing_binary():
     async def no_ffmpeg(args, data, limit_s):
         raise AudioError("ffmpeg unavailable: FileNotFoundError")
 
-    with pytest.raises(VideoError, match="unavailable"):
-        await VideoNoteEncoder(no_ffmpeg).to_video_note(MP4)
+    with pytest.raises(VideoError, match="недоступна"):
+        await VideoNoteEncoder(no_ffmpeg).to_video_note(ENCODER_MP4)
 
 
 # ---- media store ---------------------------------------------------------------------------
