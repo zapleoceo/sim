@@ -394,3 +394,17 @@ Lost video receipts and synchronous speech outcomes remain blocked: the reviewed
 contract does not provide safe correlation for them. Generation/reconciliation stay
 hard-disabled; this is not permission or readiness to activate paid media routes.
 
+# Summary integrity
+
+Summary updates reject provider-truncated (`length` / `max_tokens`, normalized by
+`LLMResult.truncated`) or over-6000-character results before changing stored memory,
+coverage, model or timestamps. They do not silently keep a prefix. Reply preparation
+uses the existing saved summary on this error; explicit refresh follows the existing
+error/transaction rollback path. No immediate retry or background retry loop is added.
+A later normal invocation can try the still-uncovered messages again. This does not
+recover historically lost memory or guarantee semantic completeness of model output.
+Synthetic CI regressions cover first creation, existing memory, exact-size success,
+repeat refresh, a late incomplete result racing a successful update, and rollback of
+a multi-batch refresh. The separate 400-row history disclosure and assembled-context
+UI gaps are not changed here. No provider calls or production settings are required.
+
