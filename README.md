@@ -1,5 +1,13 @@
 # Sim
 
+### Bounded video-note normalization
+
+The existing MP4-to-Telegram-circle encoder now rejects oversized/invalid inputs,
+uses the resource-contained child runner with bounded output, and verifies H.264/AAC,
+square dimensions and retained audio. AI disclosure stays visible. Synthetic CI covers
+normalization, malformed media, overflow and cancellation. This does not activate Studio
+or add provider/channel calls. See [limits and remaining gates](docs/media-routing.md).
+
 ### Dormant Studio media routes
 
 Studio shows a collapsed route plan with explicit blockers, not a live Broker check.
