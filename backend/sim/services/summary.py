@@ -129,12 +129,16 @@ class SummaryService:
                 workflow=SUMMARY_WORKFLOW, dialog_id=dialog_id,
             )
             text = (result.text or "").strip()
+            # Validate before creating/mutating the row or advancing coverage. The
+            # existing caller handles LLMError; do not retry a bad result in this loop.
+            if result.truncated or len(text) > SUMMARY_MAX:
+                raise LLMError("summary response incomplete")
             if not text:
                 log.warning("the summary agent returned nothing for dialog %s", dialog_id)
                 break
             if row is None:
                 row = await self.summaries.add(DialogSummary(dialog_id=dialog_id, messages_covered=0))
-            row.text = text[:SUMMARY_MAX]
+            row.text = text
             row.covered_message_id = fresh[-1].id
             row.covered_until = fresh[-1].created_at
             row.messages_covered = (row.messages_covered or 0) + len(fresh)
