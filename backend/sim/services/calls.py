@@ -2,7 +2,7 @@
 
   call rings → prepare (who calls, may she answer, her call prompt) → let it ring a few seconds,
   as a person reaching for the phone would, WHILE the Broker live session (Gemini Live) opens
-  (a refusal is retried once while the phone still rings) → answer → caller audio up, model
+  (only a proven transient pre-start connect failure is retried once) → answer → caller audio up, model
   speech down, paced at real time → hang up → the transcript lands in the dialog.
 
 Every action of a call that reached a dialog is written to that dialog's journal as one «Ход
@@ -80,7 +80,7 @@ CALL_WORKFLOW = "call"
 UPLINK_MS = 40                # caller audio is sent to the Broker in 40 ms chunks
 DRAIN_LIMIT_S = 10.0          # the model's last words still play after the Broker ended
 MAX_LAG_S = 0.1               # a pacer later than this restarts its schedule instead of bursting
-OPEN_ATTEMPTS = 2             # a refused live session is retried once while the phone rings
+OPEN_ATTEMPTS = 2             # only explicitly safe pre-start failures may be retried
 CANNOT_START = "Не удалось начать голосовой разговор"
 # The cause of a call that could not start, as the journal states it (and the persona reads it
 # for a day: no network guesses, nothing about the client's phone beyond the fact).
@@ -300,7 +300,7 @@ class CallService:
 
     async def open_session(self, plan: CallPlan, call: IncomingCall,
                            trace: CallTrace) -> LiveVoiceSession:
-        """The Broker live session; a refusal is retried once while the phone still rings."""
+        """Retry only proven safe pre-start failures, never an ambiguous start/refusal."""
         assert self.live is not None
         for attempt in range(1, OPEN_ATTEMPTS + 1):
             began = self.mono()
@@ -310,7 +310,7 @@ class CallService:
                     greeting=plan.greeting, workflow=CALL_WORKFLOW, max_seconds=self.max_seconds,
                 )
             except LiveVoiceError as exc:
-                retry = attempt < OPEN_ATTEMPTS and not call.ended
+                retry = exc.retry_safe and attempt < OPEN_ATTEMPTS and not call.ended
                 trace.step("session_refused", f"Голосовой сервис отказал (попытка {attempt}, "
                            f"{seconds(self.mono() - began)}): {str(exc)[:200]}"
                            + ("; пробуем ещё раз" if retry else ""), attempt=attempt)
