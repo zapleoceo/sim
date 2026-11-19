@@ -39,6 +39,11 @@ CONNECT_TIMEOUT_S = 15.0
 # only a classified transient connect failure may be retried before start.
 READY_TIMEOUT_S = 30.0
 DONE_TIMEOUT_S = 15.0
+MAX_STREAM_MESSAGE_BYTES = 1024 * 1024
+MAX_PENDING_EVENTS = 128
+MAX_PENDING_EVENT_BYTES = 512 * 1024
+MIN_SAMPLE_RATE_HZ = 8_000
+MAX_SAMPLE_RATE_HZ = 48_000
 _END = object()
 
 Connect = Callable[[str, dict[str, str]], Awaitable[Any]]
@@ -57,7 +62,7 @@ async def websocket_connect(url: str, headers: dict[str, str]) -> Any:  # pragma
     from websockets.asyncio.client import connect  # noqa: PLC0415
 
     return await connect(url, additional_headers=headers, user_agent_header=USER_AGENT,
-                         max_size=None, open_timeout=CONNECT_TIMEOUT_S)
+                         max_size=MAX_STREAM_MESSAGE_BYTES, open_timeout=CONNECT_TIMEOUT_S)
 
 
 def summary_of(done: dict[str, Any]) -> LiveVoiceSummary:
@@ -90,23 +95,42 @@ def event_of(message: dict[str, Any]) -> LiveVoiceEvent | None:
     return None
 
 
+class ReceiveBacklogOverflow(Exception):
+    """A stream cannot be queued without dropping or reordering events."""
+
+
+def checked_rate(value: Any, default: int) -> int:
+    rate = int(default if value is None else value)
+    if not MIN_SAMPLE_RATE_HZ <= rate <= MAX_SAMPLE_RATE_HZ:
+        raise ValueError("unsupported live audio rate")
+    return rate
+
+
 class BrokerLiveSession:
     def __init__(self, ws: Any, ready: dict[str, Any]) -> None:
         self.ws = ws
-        self.input_rate_hz = int(ready.get("input_rate_hz") or 16000)
-        self.output_rate_hz = int(ready.get("output_rate_hz") or 24000)
+        self.input_rate_hz = checked_rate(ready.get("input_rate_hz"), 16000)
+        self.output_rate_hz = checked_rate(ready.get("output_rate_hz"), 24000)
         self.model = str(ready["model"]) if ready.get("model") else None
         self.provider = str(ready["provider"]) if ready.get("provider") else None
-        self.queue: asyncio.Queue[Any] = asyncio.Queue()
+        self.queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=MAX_PENDING_EVENTS + 1)
+        self.queued_event_bytes = 0
         self.summary = LiveVoiceSummary(end_reason="no_summary", model=self.model, provider=self.provider)
         self.finished = False
         self.reader = asyncio.ensure_future(self.read())
+
+    def enqueue(self, event: LiveVoiceEvent, size: int) -> None:
+        if (self.queue.qsize() >= MAX_PENDING_EVENTS
+                or self.queued_event_bytes + size > MAX_PENDING_EVENT_BYTES):
+            raise ReceiveBacklogOverflow()
+        self.queue.put_nowait((event, size))
+        self.queued_event_bytes += size
 
     async def read(self) -> None:
         try:
             async for raw in self.ws:
                 if isinstance(raw, bytes):
-                    self.queue.put_nowait(LiveVoiceEvent(AUDIO, pcm=raw))
+                    self.enqueue(LiveVoiceEvent(AUDIO, pcm=raw), len(raw))
                     continue
                 message = json.loads(raw)
                 if not isinstance(message, dict):
@@ -123,7 +147,15 @@ class BrokerLiveSession:
                     continue
                 event = event_of(message)
                 if event is not None:
-                    self.queue.put_nowait(event)
+                    self.enqueue(event, len(raw.encode("utf-8")))
+        except ReceiveBacklogOverflow:
+            # Do not deliver a suffix with audio, text or interruptions missing. Drop
+            # the entire undelivered backlog and end the session as a technical fault.
+            while not self.queue.empty():
+                self.queue.get_nowait()
+            self.queued_event_bytes = 0
+            self.summary = replace(self.summary, end_reason="receive_backlog_overflow")
+            log.warning("live session ended: receive backlog overflow")
         except Exception as exc:   # a dropped socket ends the conversation, it is not a crash
             self.summary = replace(self.summary, end_reason="transport_error")
             log.warning("live session read ended: %s", type(exc).__name__)
@@ -140,7 +172,9 @@ class BrokerLiveSession:
             if item is _END:
                 self.queue.put_nowait(_END)       # every later reader stops too
                 return
-            yield item
+            event, size = item
+            self.queued_event_bytes -= size
+            yield event
 
     async def finish(self) -> LiveVoiceSummary:
         if not self.finished:
@@ -200,4 +234,9 @@ class BrokerLiveVoice:
             detail = first.get("detail") if isinstance(first, dict) else None
             code = first.get("code") if isinstance(first, dict) else None
             raise LiveVoiceError(f"live: refused ({code}): {detail}"[:300])
-        return BrokerLiveSession(ws, first)
+        try:
+            return BrokerLiveSession(ws, first)
+        except (ValueError, TypeError, OverflowError) as exc:
+            with contextlib.suppress(Exception):
+                await ws.close()
+            raise LiveVoiceError("live: invalid ready audio metadata") from exc

@@ -165,6 +165,22 @@ first with the existing redacted request/response blocks expanded; remaining ste
 errors, truncation notices and copy controls remain available. No payload is rebuilt.
 Tests use synthetic API fixtures; live browser visual acceptance remains separate.
 
+### Live call audio backlogs
+
+The Telegram input queue retains the latest 50 audio frames (typically 500 ms),
+rejects empty or oversized frames and reserves space for hang-up. The native callback
+coalesces incoming mic PCM through one pending loop drain and up to 128 frames per
+bridge, not a coroutine per native batch. Its pinned single NTgCalls frame callback
+is voice-only: SIM has no other frame consumers and ignores non-mic/non-incoming
+frames as before. ChatStatus and other native callbacks are unchanged. Video would
+need an explicit second bounded route, not this mailbox. If the Broker
+stream exceeds 128 pending events or 512 KiB of pending payload, SIM discards the
+undelivered backlog and ends the stream as a technical failure. It never drops
+individual model events and continues, because playback guard needs the matching
+audio, transcript and interruption sequence. Each WebSocket message is limited to
+1 MiB and negotiated PCM rates to 8–48 kHz. The existing guarded playback and
+delivery-receipt rules are unchanged. CI uses fake streams only.
+
 ### Guard independence preserves objections
 
 A primary guard objection (block, legacy rewrite or contradictory ok) returns to
