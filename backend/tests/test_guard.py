@@ -61,7 +61,7 @@ async def test_ok_sends_the_draft_and_records_the_verdict(container, world, fake
     assert len(calls) == 1 and calls[0].capability == "structured" and calls[0].model == "fake-guard"
 
 
-async def test_legacy_rewrite_returns_feedback_to_generator(container, world, fake_llm):
+async def test_legacy_rewrite_retries_without_reviewer_boilerplate(container, world, fake_llm):
     corrected = "Доход зависит от многих факторов."
     fake_llm.replies = [decision_json(reply=DRAFT), decision_json(reply=corrected)]
     fake_llm.guard_replies = [
@@ -76,19 +76,22 @@ async def test_legacy_rewrite_returns_feedback_to_generator(container, world, fa
     assert ai.guard_verdict == "ok" and ai.guard_violations == []
     assert ai.delivery is Delivery.QUEUED
     assert len(fake_llm.gen_calls) == len(fake_llm.guard_calls) == 2
-    assert "обещание дохода" in fake_llm.gen_calls[1][0][-1]["content"]
+    retry = "\n".join(message["content"] for message in fake_llm.gen_calls[1][0])
+    assert "тип: review" in retry and "обещание дохода" not in retry and DRAFT not in retry
     second = json.loads(fake_llm.guard_calls[1][0][1]["content"])
     assert second["draft_reply"] == corrected
 
 
 @pytest.mark.parametrize("violations,fixed", [(["ложное обещание"], ""), ([], "Guard replacement")])
-async def test_ok_with_violations_still_returns_feedback(container, world, fake_llm, violations, fixed):
+async def test_ok_with_violations_still_retries_without_internal_feedback(container, world, fake_llm, violations, fixed):
     fake_llm.replies = [decision_json(reply=DRAFT),
                         decision_json(reply="Результат не гарантирован.")]
     fake_llm.guard_replies = [guard_json("ok", violations, fixed), guard_json("ok")]
     await start(container, world)
     assert (await run_reply(container)).status == "sent"
-    assert (violations[0] if violations else "противоречивый") in fake_llm.gen_calls[1][0][-1]["content"]
+    retry = "\n".join(message["content"] for message in fake_llm.gen_calls[1][0])
+    assert "тип: review" in retry and DRAFT not in retry
+    assert not any(violation in retry for violation in violations)
     _, _, messages, _ = await state(container)
     assert ai_messages(messages)[0].text == "Результат не гарантирован"
 
@@ -253,8 +256,9 @@ async def test_same_model_objection_survives_independent_ok_and_repairs_decision
         "structured", "structured", "prefilter",
     ]
     assert len(fake_llm.gen_calls) == 2
-    if violations:
-        assert violations[0] in fake_llm.gen_calls[1][0][-1]["content"]
+    retry = "\n".join(message["content"] for message in fake_llm.gen_calls[1][0])
+    assert rejected not in retry and "тип: review" in retry
+    assert not any(violation in retry for violation in violations)
 
 
 async def test_independent_block_after_same_model_ok_is_preserved(container, world, fake_llm):
@@ -269,7 +273,8 @@ async def test_independent_block_after_same_model_ok_is_preserved(container, wor
     _, dialog, messages, _ = await state(container)
     assert not dialog.ai_paused and not dialog.needs_operator
     assert [m.text for m in ai_messages(messages)] == ["Repaired reply"]
-    assert "Unsupported claim" in fake_llm.gen_calls[1][0][-1]["content"]
+    retry = "\n".join(message["content"] for message in fake_llm.gen_calls[1][0])
+    assert "Unsupported claim" not in retry and "тип: review" in retry
 
 
 @pytest.mark.parametrize("model", ["fake-model", "  FAKE-MODEL  "])

@@ -136,11 +136,10 @@ messages or changed instructions/settings invalidate it. The actual submitted pr
 keeps real time, and guard always checks the recovered draft against freshly computed
 trusted facts. A rejected stale draft is repaired through the normal guarded path.
 No canonical clock is sent to a model. Non-conversation calls retain exact-body identity.
-Reuse assumes unchanged effective context: history-window expiry, a call incident's
-24-hour expiry or media cooldown expiry may intentionally require a fresh generation
+Reuse assumes unchanged effective context: history-window expiry or media cooldown expiry may intentionally require a fresh generation
 after prior requests settle. This does not guarantee zero additional generation cost
 at these boundaries; uncertain requests still block resubmission. See the contract
-document for this distinction and the real-handler incident-expiry regression.
+document for this distinction and the real-handler audit-only incident regression.
 Profile snapshots provide a separate identity representation without their observation
 timestamp; actual prompts retain that timestamp. Status, fields, user-authored dates
 and photo bytes are preserved in the identity, so genuine profile changes invalidate it.
@@ -196,6 +195,17 @@ individual model events and continues, because playback guard needs the matching
 audio, transcript and interruption sequence. Each WebSocket message is limited to
 1 MiB and negotiated PCM rates to 8–48 kHz. The existing guarded playback and
 delivery-receipt rules are unchanged. CI uses fake streams only.
+
+### Model context excludes internal audit and rejected drafts
+
+The communication feed and terminal handoff audit are unchanged. Model context
+keeps only allowlisted conversation facts from journal events, with no raw actor
+or reason metadata. Actual delivered conversation remains intact. Known system
+boilerplate is projected out of derived passport/summary text without rewriting
+stored data. A rejected reply is regenerated from clean context and a bounded
+repair category, not a previous unapproved draft or free-form guard explanation.
+The new draft is checked again. Superseded attempts still send nothing, and their
+worker detail now distinguishes a revision change from a newer inbound ID.
 
 ### Guard independence preserves objections
 

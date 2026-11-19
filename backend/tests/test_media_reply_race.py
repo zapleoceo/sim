@@ -134,7 +134,11 @@ async def test_transcript_commit_does_not_lose_reply(
         async with container.factory() as session:
             events = list(await session.scalars(select(TraceEvent).where(
                 TraceEvent.name == jobkinds.REPLY)))
-            assert any((event.detail or {}).get("outcome") == "superseded" for event in events)
+            assert any(
+                (event.detail or {}).get("outcome") == "superseded"
+                and (event.detail or {}).get("reason") == "activity_revision_changed"
+                for event in events
+            )
             pending = list(await session.scalars(select(Job).where(
                 Job.kind == jobkinds.REPLY, Job.status == "pending")))
             assert len(pending) == 1, "superseded reply was completed without a replacement"

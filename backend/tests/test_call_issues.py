@@ -26,25 +26,19 @@ async def test_record_failure_preserves_existing_policy(container, world, paused
         assert not any(e.kind == "handoff" for e in events)
 
 
-async def test_call_issue_context_is_scoped_recent_and_not_an_instruction(container, world):
+async def test_call_issue_stays_in_audit_but_out_of_model_context(container, world):
     did = await chatting_world(container, world)
     now = container.clock()
     await service(container, FakeLive()).record_unanswered(did, "", "provider_open_failed")
     async with container.factory() as s:
         journal = CommunicationJournal(s, clock=lambda: now)
-        lines = await journal.context_lines(did, now - timedelta(days=2))
-        assert any("Не удалось начать" in line for line in lines)
-        assert any("Не выдумывай" in line and "Не повторяй" in line for line in lines)
-        assert not await journal.context_lines(did + 1000, now - timedelta(days=2))
-        later = CommunicationJournal(s, clock=lambda: now + timedelta(days=2))
-        assert not any("голосовой разговор" in line for line in
-                       await later.context_lines(did, now - timedelta(days=2)))
-        assert any(e.kind == CALL_ISSUE for e in await later.feed(did))
+        assert not await journal.context_lines(did, now - timedelta(days=2))
+        assert any(e.kind == CALL_ISSUE for e in await journal.feed(did))
         conv = service(container, FakeLive()).conversation(s)
         dialog = await conv.dialogs.get(did)
         persona = await conv.personas.get(dialog.client.persona_id)
         prompt = await conv.call_prompt(dialog, persona)
-        assert "Не удалось начать голосовой разговор" in prompt
+        assert "Не удалось начать голосовой разговор" not in prompt
 
 
 async def test_provider_refusal_journals_without_pausing(container, world):

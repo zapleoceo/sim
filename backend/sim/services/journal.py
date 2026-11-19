@@ -30,7 +30,7 @@ Kinds and who writes them:
 The persona's media decisions have their own journal in the same feed and context
 (`sim.services.media_decisions`): they are not repeated here.
 
-The persona reads the records of the context window (`context_lines`), but nothing older than
+The persona reads allowlisted facts projected from the context window (`context_lines`), but nothing older than
 the last wipe of the chat: after «Очистить чат» or `/reset` she starts from a clean page. Those
 wipes also delete the dialog's older records (`DialogReset.clear_chat`), so the feed starts with
 the wipe line."""
@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.adapters.db.models import AdminUser, Client, Dialog, DialogEvent, Persona
 from sim.adapters.db.repositories.conversations import DialogEventRepo
 from sim.clock import Clock, utcnow
+from sim.services.conversation_memory import conversational_memory
 
 STAGE = "stage"
 STATUS = "status"
@@ -68,6 +69,7 @@ NEXT_STEP = "next_step"
 URGENT = "urgent"
 
 WIPES = (CHAT_CLEARED, RESET)     # the persona's context starts after the last of these
+CONVERSATION_FACTS = frozenset({STAGE, STATUS, NEEDS, NOTES, NEXT_STEP})
 
 AI_ON = "on"
 AI_PAUSED = "paused"
@@ -170,7 +172,7 @@ def changed_lines(old: str, new: str) -> tuple[str, str]:
 
 
 def event_line(event: DialogEvent) -> str:
-    """One record as the persona reads it in her context (long values are shortened there)."""
+    """One complete record for audit/debugging (long values are shortened here)."""
     old = VALUE_LABELS.get(event.from_value, clip(event.from_value, CONTEXT_VALUE_MAX))
     new = VALUE_LABELS.get(event.to_value, clip(event.to_value, CONTEXT_VALUE_MAX))
     change = f"{old} → {new}" if old and new else (new or old)
@@ -242,23 +244,19 @@ class CommunicationJournal:
         return await self.events.recent(dialog_id, limit)
 
     async def context_lines(self, dialog_id: int, since: datetime) -> list[str]:
-        """What the persona reads: the records since `since` and after the last wipe of the chat."""
+        """Project allowlisted conversational facts after the last wipe, not the audit feed."""
         events = await self.events.since(dialog_id, since)
         wipes = [i for i, event in enumerate(events) if event.kind in WIPES]
         if wipes:
             events = events[wipes[-1] + 1:]
-        # The course of a call is for the admin only; technical incidents remain in the feed,
-        # but cease to prime later conversations.
-        events = [e for e in events if e.kind != CALL_STEPS]
-        events = [e for e in events if e.kind != CALL_ISSUE
-                  or e.created_at >= self.clock() - timedelta(hours=24)]
-        lines = [event_line(event) for event in events[-CONTEXT_EVENTS:]]
-        if any(e.kind == CALL_ISSUE for e in events[-CONTEXT_EVENTS:]):
-            lines.append("Технический итог звонка — факт только этого диалога. Учитывай дату UTC; "
-                         "при уместности можно кратко упомянуть прерванный разговор. "
-                         "Не выдумывай сетевую причину или проблему у клиента. "
-                         "Не повторяй объяснение, если уже обсудили его; обязательной реплики нет.")
-        return lines
+        lines = []
+        for event in events:
+            if event.kind not in CONVERSATION_FACTS:
+                continue
+            value = clip(conversational_memory(event.to_value), CONTEXT_VALUE_MAX)
+            if value:
+                lines.append(f"- {event.created_at:%Y-%m-%d %H:%M} {KIND_LABELS[event.kind]}: {value}")
+        return lines[-CONTEXT_EVENTS:]
 
     # ---- persona-wide changes ------------------------------------------------------------
     async def persona_edited(

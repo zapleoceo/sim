@@ -18,8 +18,9 @@ from sim.services.app_settings import AppSettingsService
 from sim.services.context_window import ContextWindow, estimate_tokens, fit
 from sim.services.funnel import FunnelService
 from sim.services.journal import CommunicationJournal, Who, changed_lines, event_line
+from sim.services.passport import passport_request
 from sim.services.prompt import dynamic_context
-from sim.services.summary import SUMMARY_WORKFLOW
+from sim.services.summary import SUMMARY_WORKFLOW, summary_request
 from tests.conftest import OPERATOR, OWNER, decision_json, inbound, login
 from tests.test_conversation import run_reply
 from tests.test_ingest import ingest
@@ -247,25 +248,55 @@ def test_a_journal_line_reads_what_who_and_why():
     assert changed_lines("а\nб", "б\nв") == ("а", "в")
 
 
-async def test_the_persona_reads_the_journal_of_the_window_but_not_what_was_before_a_wipe(
+async def test_reply_keeps_conversation_facts_and_sent_words_not_operational_audit(
     container, world, fake_llm,
 ):
-    await ingest(container, world.channel.id, inbound("Привет", at=NOW - timedelta(minutes=2)))
+    await ingest(container, world.channel.id, inbound("Первый вопрос", at=NOW - timedelta(minutes=3)))
     dialog = await the_dialog(container)
+    said = "Я уже передала ваш вопрос специалисту"
+    boilerplate = "Передача оператору и ответ человека не подтверждены; медиа не отправлены."
+    passport = f"Собеседник изучает язык.\n- {boilerplate}"
     async with transaction(container.factory) as s:
         log = CommunicationJournal(s)
         await log.record(dialog.id, journal.NOTES, new="до очистки")
-        await log.record(dialog.id, journal.CHAT_CLEARED, who=Who("owner", "Дима"))
+        await log.record(dialog.id, journal.CHAT_CLEARED, who=Who("owner", "Synthetic owner"))
         client = await s.get(Client, dialog.client_id)
+        client.passport = passport
         await FunnelService(s).operator_update(
-            client, stage=Stage.INTERESTED, status=None, reason="созвон", who=Who("operator", "Оля"))
+            client, stage=Stage.INTERESTED, status=None, reason="internal stage note",
+            who=Who("operator", "Synthetic operator"),
+        )
+        for kind in (journal.HANDOFF, journal.AI_PAUSE, journal.MODEL, journal.CALL_ISSUE):
+            await log.record(dialog.id, kind, new="internal audit marker", reason=kind)
+        s.add(message(dialog.id, said, NOW - timedelta(minutes=2), client=False))
+    await ingest(container, world.channel.id, inbound(
+        "Где посмотреть материалы?", ext="new-question", at=NOW - timedelta(minutes=1),
+    ))
     await run_reply(container)
     prompt = prompt_of(fake_llm)
-    assert "ЖУРНАЛ КОММУНИКАЦИИ" in prompt
-    assert "смена этапа: first_contact → interested; кто: оператор Оля; причина: созвон" in prompt
-    assert "до очистки" not in prompt and "чат очищен" not in prompt
-    # The journal is data of the closing system message, never a turn of the conversation.
-    assert "ЖУРНАЛ" not in "\n".join(m["content"] for m in fake_llm.gen_calls[-1][0][1:-1])
+    assert "ЖУРНАЛА КОММУНИКАЦИИ" in prompt and "смена этапа: interested" in prompt
+    assert "Собеседник изучает язык." in prompt
+    assert not any(item in prompt for item in (
+        "до очистки", "чат очищен", "internal audit marker", "internal stage note",
+        "Synthetic operator", boilerplate,
+    ))
+    turns = "\n".join(m["content"] for m in fake_llm.gen_calls[-1][0][1:-1])
+    assert said in turns and "Где посмотреть материалы?" in turns
+    assert {journal.HANDOFF, journal.AI_PAUSE, journal.MODEL, journal.CALL_ISSUE}.issubset(
+        e.kind for e in await events_of(container)
+    )
+    async with container.factory() as s:
+        assert (await s.get(Client, dialog.client_id)).passport == passport
+
+
+def test_known_operational_boilerplate_is_projected_out_before_memory_reuse():
+    line = "Передача оператору и ответ человека не подтверждены; медиа не отправлены."
+    fact = "Собеседник спросил, когда ему ответит оператор."
+    memo = f"{fact}\n- {line}"
+    projected = dynamic_context(ctx("Synthetic", "r1", summary=memo, passport=memo), STRATEGY)
+    assert fact in projected and line not in projected
+    assert json.loads(passport_request("Synthetic", memo, [])[0]["content"])["passport"] == fact
+    assert json.loads(summary_request("Synthetic", memo, [])[0]["content"])["summary"] == fact
 
 
 # ---- the context window ----------------------------------------------------------------------

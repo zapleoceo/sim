@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 
 from sim.domain.enums import ClientStatus, Delivery, Stage
+from sim.services import jobkinds
 from tests.conftest import decision_json, guard_json
 from tests.test_conversation import run_reply, start, state
 
 
-async def test_guard_rejection_returns_reason_to_generator_then_applies_only_new_decision(
+async def test_guard_rejection_retries_with_clean_context_then_applies_only_new_decision(
     container, world, fake_llm
 ):
     fake_llm.replies = [
@@ -23,9 +24,9 @@ async def test_guard_rejection_returns_reason_to_generator_then_applies_only_new
     assert client.stage is Stage.NEEDS_IDENTIFIED and client.needs == ["новая цель"]
     assert not dialog.needs_operator
     assert messages[-1].text == "Уточню детали"
-    retry = fake_llm.gen_calls[1][0]
-    assert "этап не следует из диалога" in retry[-1]["content"]
-    assert "Плохой ответ" in retry[-2]["content"]
+    retry = "\n".join(message["content"] for message in fake_llm.gen_calls[1][0])
+    assert "тип: review" in retry
+    assert "этап не следует из диалога" not in retry and "Плохой ответ" not in retry
     first_guard = json.loads(fake_llm.guard_calls[0][0][1]["content"])
     assert first_guard["decision"]["stage"] == "engaged"
     assert first_guard["decision"]["needs"] == ["неверно"]
@@ -46,13 +47,15 @@ async def test_two_guard_rejections_pause_once_without_mutating_client(
     await start(container, world)
     first = await run_reply(container)
     second = await run_reply(container)
-    client, dialog, messages, _ = await state(container)
+    client, dialog, messages, jobs = await state(container)
     assert first.status == "needs_operator" and second.status == "skipped"
     assert client.stage is Stage.FIRST_CONTACT and client.needs == []
     assert client.status is ClientStatus.ACTIVE and not client.no_followups
     assert dialog.ai_paused and dialog.needs_operator
     assert len([m for m in messages if m.delivery is Delivery.CANCELLED]) == 1
     assert len([m for m in messages if m.text == "Я уточню и вернусь с ответом чуть позже."]) == 1
+    assert [j.kind for j in jobs].count(jobkinds.SEND) == 1
+    assert not any(j.kind in {jobkinds.VIDEO_NOTE, jobkinds.PERSONA_MEDIA} for j in jobs)
 
 
 async def test_preview_carries_forward_only_approved_context(container, world, fake_llm):
