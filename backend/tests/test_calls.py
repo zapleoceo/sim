@@ -563,14 +563,14 @@ async def test_a_call_is_one_trace_of_the_system_log(container, world, live, sta
     assert step.detail["outcome"] == outcome and "Пауза перед ответом" in step.detail["steps"]
 
 
-async def test_a_refused_session_is_retried_once_while_it_rings(container, world):
+async def test_a_safe_pre_start_failure_is_retried_once_while_it_rings(container, world):
     did = await chatting_world(container, world)
 
     class FlakyLive(FakeLive):
         async def open(self, **kw):
             self.opened.append(kw)
             if len(self.opened) == 1:
-                raise LiveVoiceError("live: refused (503): busy")
+                raise LiveVoiceError("live: transient pre-start connect failure", retry_safe=True)
             return self.session
 
     live, call = FlakyLive(), FakeCall()
@@ -1326,3 +1326,55 @@ async def test_container_ring_delay_precedes_the_broker_session(container, world
     svc.sleep = sleep
     assert (await svc.handle(world.channel.id, call)).status == "answered"
     assert len(pauses) == 1 and 4 <= pauses[0] <= 9
+
+
+@pytest.mark.parametrize("mode", [
+    "timeout_after_start", "send_ambiguous", "malformed_ready",
+    "auth", "quota", "budget", "unknown_connect", "auth_connect",
+    "transient_connect", "caller_gone",
+])
+async def test_live_open_retry_boundary(container, world, mode):
+    """Fake sockets only: no provider, Telegram or network requests."""
+    did = await chatting_world(container, world)
+    call = FakeCall()
+    sockets = []
+    attempts = []
+
+    class Socket(FakeSocket):
+        async def send(self, data):
+            await super().send(data)  # deliberately record a possibly delivered start
+            if mode == "send_ambiguous":
+                raise ConnectionError("send outcome unknown")
+
+        async def recv(self):
+            if mode == "malformed_ready":
+                return "not json"
+            return await super().recv()
+
+    async def connect(url, headers):
+        attempts.append((url, headers))
+        if mode == "unknown_connect":
+            raise RuntimeError("unknown")
+        if mode == "auth_connect":
+            raise PermissionError("not authorized")
+        if mode == "caller_gone":
+            call.ended = True
+            raise TimeoutError()
+        if mode == "transient_connect":
+            raise ConnectionRefusedError()
+        first = (TimeoutError() if mode in {"timeout_after_start", "send_ambiguous"}
+                 else {"type": "error", "code": mode, "detail": "synthetic refusal"})
+        ws = Socket(first)
+        sockets.append(ws)
+        return ws
+
+    live = BrokerLiveVoice("https://fake.invalid", "fake", connect=connect)
+    outcome = await service(container, live).handle(world.channel.id, call)
+    assert outcome.status == ("skipped:hung_up" if mode == "caller_gone" else "refused")
+    assert not call.answered
+    assert len(attempts) == (2 if mode == "transient_connect" else 1)
+    assert all(ws.closed for ws in sockets)
+    assert sum(len(ws.sent) for ws in sockets) == (1 if sockets else 0)
+    _, steps = await journal_of(container, did)
+    if mode != "transient_connect":
+        assert "пробуем ещё раз" not in steps
