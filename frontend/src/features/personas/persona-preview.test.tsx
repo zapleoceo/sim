@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { fakeApi, reply } from '@/test/fake-api';
@@ -9,6 +10,38 @@ const initialContext = { stage: 'first_contact', status: 'active', needs: [], ne
 const ok = { reply: 'Привет! Чем помочь?', model: 'fake-model', latency_ms: 42, decision: { stage: 'engaged' }, guard: null };
 
 describe('PersonaPreview', () => {
+  it('shows persona-scoped gallery photos and a bundled video circle without sending a reply', async () => {
+    const log = fakeApi({
+      'GET /api/personas/1/media': {
+        items: [
+          { id: 3, kind: 'video_note' },
+          { id: 7, kind: 'photo', file_url: 'https://example.invalid/untrusted.jpg' },
+        ],
+      },
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PersonaPreview personaId={1} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Показать фото из галереи' }));
+    expect(await screen.findByRole('img', { name: 'Фото из галереи персонажа' }))
+      .toHaveAttribute('src', '/api/personas/1/media/7/file');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Показать тестовый кружок' }));
+    const video = screen.getByLabelText('Тестовый видеокружок');
+    expect(video.tagName).toBe('VIDEO');
+    expect(video).toHaveAttribute('src', '/preview-circle.mp4');
+    expect(video).toHaveAttribute('controls');
+    expect(video.parentElement).toHaveClass('rounded-full');
+    expect(screen.queryByRole('img', { name: 'Фото из галереи персонажа' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Очистить' }));
+    expect(screen.queryByLabelText('Тестовый видеокружок')).not.toBeInTheDocument();
+    expect(log.map((entry) => entry.path)).toEqual(['/api/personas/1/media']);
+  });
+
   it('sends the message with history on submit without a native page submit', async () => {
     const log = fakeApi({ 'POST /api/personas/1/preview': ok });
     render(<PersonaPreview personaId={1} />);
