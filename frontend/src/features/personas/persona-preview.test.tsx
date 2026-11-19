@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { fakeApi, reply } from '@/test/fake-api';
 import { PersonaPreview } from './persona-preview';
 
+const defaultStages = { schedule: false, debounce: false, decision_context: true };
 const initialContext = { stage: 'first_contact', status: 'active', needs: [], next_step: '' };
 
 const ok = { reply: 'Привет! Чем помочь?', model: 'fake-model', latency_ms: 42, decision: { stage: 'engaged' }, guard: null };
@@ -20,7 +21,7 @@ describe('PersonaPreview', () => {
     expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
     expect(screen.getByText('fake-model · 42 мс')).toBeInTheDocument();
     expect(log).toHaveLength(1);
-    expect(log[0]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext });
+    expect(log[0]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext, stages: defaultStages });
 
     await userEvent.type(input, 'а цена?{Enter}');
     await waitFor(() => expect(log).toHaveLength(2));
@@ -32,7 +33,49 @@ describe('PersonaPreview', () => {
       ],
       voice_input: false,
       ...initialContext,
+      stages: defaultStages,
     });
+  });
+
+  it('sends only this test chat’s stage choices and shows the returned estimate without waiting', async () => {
+    let calls = 0;
+    const log = fakeApi({
+      'POST /api/personas/1/preview': () => (++calls === 1 ? {
+        ...ok,
+        stages: {
+          schedule: { enabled: true, wait_s: 3600, reason: 'на работе' },
+          debounce: { enabled: true, wait_s: 8 },
+          estimated_wait_s: 3600,
+          decision_context: false,
+        },
+      } : { ...ok, reply: 'Второй ответ' }),
+    });
+    render(<PersonaPreview personaId={1} />);
+    const context = screen.getByRole('checkbox', { name: /решения прошлых реплик/ });
+    expect(context).toBeChecked();
+    expect(screen.getByText(/отдельные агенты планирования здесь не запускаются/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('checkbox', { name: /по расписанию/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /паузу перед ответом/ }));
+    await userEvent.click(context);
+    const input = screen.getByRole('textbox', { name: 'Сообщение' });
+    await userEvent.type(input, 'проверка{Enter}');
+
+    expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
+    expect(log[0]?.body).toMatchObject({
+      stages: { schedule: true, debounce: true, decision_context: false },
+    });
+    await userEvent.click(screen.getByText('Этапы ответа'));
+    expect(screen.getByText(/3600 с.*в тесте не ждали/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Основной промпт без контекста решений' }));
+    await userEvent.type(input, 'ещё раз{Enter}');
+    expect(await screen.findByText('Второй ответ')).toBeInTheDocument();
+    expect(log[1]?.body).toMatchObject({
+      stages: { schedule: false, debounce: false, decision_context: false },
+      history: [{ role: 'user', text: 'проверка' }, { role: 'assistant', text: ok.reply }],
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Очистить' }));
+    expect(context).toBeChecked();
   });
 
   it('sends an attached photo as its Broker description and plays the voice reply', async () => {
@@ -52,7 +95,7 @@ describe('PersonaPreview', () => {
     expect(screen.getByRole('img', { name: 'check.jpg' })).toHaveAttribute('src', '/api/media/abc.jpg');
     expect(screen.getByLabelText('Голосовой ответ')).toHaveAttribute('src', '/api/media/v.ogg');
     const sent = log.find((r) => r.path === '/api/personas/1/preview');
-    expect(sent?.body).toEqual({ message: 'смотри\n[изображение: чек на 500 грн]', history: [], voice_input: false, ...initialContext });
+    expect(sent?.body).toEqual({ message: 'смотри\n[изображение: чек на 500 грн]', history: [], voice_input: false, ...initialContext, stages: defaultStages });
     expect(log[0]?.body).toBeInstanceOf(FormData);
   });
 
@@ -83,7 +126,7 @@ describe('PersonaPreview', () => {
     expect(await screen.findByText('Привет! Чем помочь?')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(log).toHaveLength(2);
-    expect(log[1]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext });
+    expect(log[1]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext, stages: defaultStages });
   });
 
   it('marks a blocked reply and clears the chat', async () => {
