@@ -256,12 +256,18 @@ async def test_reply_keeps_conversation_facts_and_sent_words_not_operational_aud
     said = "Я уже передала ваш вопрос специалисту"
     boilerplate = "Передача оператору и ответ человека не подтверждены; медиа не отправлены."
     passport = f"Собеседник изучает язык.\n- {boilerplate}"
+    technical_step = "Передать оператору просьбу клиента о кружочке."
+    ordinary_step = "Уточнить удобное время занятия."
+    fake_llm.replies = [decision_json(next_step="")]
     async with transaction(container.factory) as s:
         log = CommunicationJournal(s)
         await log.record(dialog.id, journal.NOTES, new="до очистки")
         await log.record(dialog.id, journal.CHAT_CLEARED, who=Who("owner", "Synthetic owner"))
         client = await s.get(Client, dialog.client_id)
         client.passport = passport
+        client.next_step = technical_step
+        await log.record(dialog.id, journal.NEXT_STEP, new=technical_step)
+        await log.record(dialog.id, journal.NEXT_STEP, new=ordinary_step)
         await FunnelService(s).operator_update(
             client, stage=Stage.INTERESTED, status=None, reason="internal stage note",
             who=Who("operator", "Synthetic operator"),
@@ -275,18 +281,22 @@ async def test_reply_keeps_conversation_facts_and_sent_words_not_operational_aud
     await run_reply(container)
     prompt = prompt_of(fake_llm)
     assert "ЖУРНАЛА КОММУНИКАЦИИ" in prompt and "смена этапа: interested" in prompt
-    assert "Собеседник изучает язык." in prompt
+    assert "Собеседник изучает язык." in prompt and ordinary_step in prompt
+    assert technical_step not in prompt
     assert not any(item in prompt for item in (
         "до очистки", "чат очищен", "internal audit marker", "internal stage note",
         "Synthetic operator", boilerplate,
     ))
     turns = "\n".join(m["content"] for m in fake_llm.gen_calls[-1][0][1:-1])
     assert said in turns and "Где посмотреть материалы?" in turns
+    events = await events_of(container)
     assert {journal.HANDOFF, journal.AI_PAUSE, journal.MODEL, journal.CALL_ISSUE}.issubset(
-        e.kind for e in await events_of(container)
+        e.kind for e in events
     )
+    assert any(e.kind == journal.NEXT_STEP and e.to_value == technical_step for e in events)
     async with container.factory() as s:
-        assert (await s.get(Client, dialog.client_id)).passport == passport
+        client = await s.get(Client, dialog.client_id)
+        assert client.passport == passport and client.next_step == technical_step
 
 
 def test_operational_sentence_suffix_is_removed_without_losing_earlier_facts_or_headings():
@@ -305,6 +315,19 @@ def test_operational_sentence_suffix_is_removed_without_losing_earlier_facts_or_
     # Explicitly quoted participant words, rather than an unquoted audit sentence, are not removed.
     quoted = f"Собеседник процитировал сообщение: «{tail}»"
     assert json.loads(passport_request("Synthetic", quoted, [])[0]["content"])["passport"] == quoted
+
+
+def test_next_step_projection_removes_only_standalone_operational_assignments():
+    for step in ("Передать оператору просьбу прислать кружок.", "Перевести диалог на паузу."):
+        assert step not in dynamic_context(ctx("Synthetic", "r1", next_step=step), STRATEGY)
+    for step in (
+        "Уточнить срок и расписание занятия.",
+        "Передать оператору просьбу; уточнить дату занятия.",
+        "Передать оператору просьбу и уточнить дату занятия.",
+        "Собеседник процитировал: «Передать оператору просьбу».",
+        "Обсудить, когда оператор подтвердит расписание.",
+    ):
+        assert step in dynamic_context(ctx("Synthetic", "r1", next_step=step), STRATEGY)
 
 
 # ---- the context window ----------------------------------------------------------------------

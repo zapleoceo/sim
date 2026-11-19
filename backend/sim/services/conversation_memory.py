@@ -21,3 +21,22 @@ def conversational_memory(text: str) -> str:
             continue
         lines.append(_OPERATIONAL_TAIL.sub("", line))
     return "\n".join(lines).strip()
+
+
+# A standalone operational assignment, not a broad keyword filter. Leave mixed
+# prose, multiple steps and quoted speech intact.
+_OPERATIONAL_NEXT_STEP = re.compile(
+    r"(?:передать\s+(?:оператору|диалог\s+оператору)(?:\s+[^.;:!?…«»“”\"\n]+)?"
+    r"|(?:поставить|перевести)\s+(?:ии|диалог)\s+на\s+паузу"
+    r"|приостановить\s+ответы\s+ии)[.!…]?",
+    re.IGNORECASE,
+)
+_MIXED_STEP = re.compile(r"\b(?:и|затем|после)\b", re.IGNORECASE)
+
+
+def conversational_next_step(text: str) -> str:
+    """Project only clear handoff/pause assignments out of the model-facing next step."""
+    value = conversational_memory(text)
+    if _OPERATIONAL_NEXT_STEP.fullmatch(value) and not _MIXED_STEP.search(value):
+        return ""
+    return value

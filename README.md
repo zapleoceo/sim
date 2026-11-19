@@ -204,7 +204,8 @@ or reason metadata. A recent answered call may contribute only the neutral fact
 that some speech may not have played; unconnected attempts and causes stay in
 audit. Actual delivered conversation remains intact. Known system
 boilerplate is projected out of derived passport/summary text without rewriting
-stored data. A rejected reply is regenerated from clean context and a bounded
+stored data. Standalone internal next-step assignments to transfer or pause AI
+are omitted at read time; mixed steps and participant quotes stay intact. A rejected reply is regenerated from clean context and a bounded
 repair category, not a previous unapproved draft or free-form guard explanation.
 The new draft is checked again. Superseded attempts still send nothing, and their
 worker detail now distinguishes a revision change from a newer inbound ID.

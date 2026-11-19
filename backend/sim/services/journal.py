@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.adapters.db.models import AdminUser, Client, Dialog, DialogEvent, Persona
 from sim.adapters.db.repositories.conversations import DialogEventRepo
 from sim.clock import Clock, utcnow
-from sim.services.conversation_memory import conversational_memory
+from sim.services.conversation_memory import conversational_memory, conversational_next_step
 
 STAGE = "stage"
 STATUS = "status"
@@ -261,7 +261,8 @@ class CommunicationJournal:
                 continue
             if event.kind not in CONVERSATION_FACTS:
                 continue
-            value = clip(conversational_memory(event.to_value), CONTEXT_VALUE_MAX)
+            project = conversational_next_step if event.kind == NEXT_STEP else conversational_memory
+            value = clip(project(event.to_value), CONTEXT_VALUE_MAX)
             if value:
                 lines.append(f"- {event.created_at:%Y-%m-%d %H:%M} {KIND_LABELS[event.kind]}: {value}")
         return lines[-CONTEXT_EVENTS:]
