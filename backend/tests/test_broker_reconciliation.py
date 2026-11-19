@@ -434,7 +434,7 @@ async def test_reply_retry_preserves_broker_intent_without_operator_handoff(cont
     try:
         first = (await worker.claim_jobs(1))[0]
         status, _, _ = await worker.attempt(*first[:4])
-        assert status == tracing.RETRY and first.id == job_id
+        assert status == tracing.RETRY and first.job_id == job_id
         async with transaction(container.factory) as s:
             job = await s.get(Job, job_id)
             assert job.status == "pending"
@@ -447,7 +447,7 @@ async def test_reply_retry_preserves_broker_intent_without_operator_handoff(cont
         ready = case == "recovered"
         last = (await worker.claim_jobs(1))[0]
         status, _, detail = await worker.attempt(*last[:4])
-        assert last.id == job_id and last.attempt == 2
+        assert last.job_id == job_id and last.attempt == 2
     finally:
         await broker.aclose()
 
