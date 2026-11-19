@@ -210,6 +210,20 @@ supplied. CI uses synthetic profiles, photos, transports and model responses.
 Production activation requires choosing the intended existing channel; no new
 credentials are created. Private/unavailable fields are never reconstructed.
 
+### Telegram voice bridge attachment
+
+A transient timeout or connection failure during the read-only bridge preflight
+(get the logged-in Telegram user, resolve that user's own peer) does not erase the
+handler. Messaging remains available; the following eligible use after a 30-second
+cooldown retries the preflight. Successful attachment does not make recurring probes.
+The preflight timeout is 5 seconds. Authorization and unknown failures do not retry.
+
+A failure or cancellation after native construction starts is different: the binding
+may already have registered callbacks, and removing Telethon subscriptions only
+is not full cleanup. The client will not retry native startup in that case; reset
+the transport/worker after diagnosis. SIM subscribes to call events only after native
+startup returns successfully. CI uses fake clients, not real Telegram calls.
+
 ### Worker recovery
 
 Worker crash recovery uses a 90-second claim grace and a PostgreSQL execution row

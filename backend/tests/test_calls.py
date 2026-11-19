@@ -15,7 +15,12 @@ import pytest
 from sqlalchemy import select
 
 from sim.adapters.channels.capabilities import CallListener, Capability
-from sim.adapters.channels.telegram_user import TelegramUserAdapter, TelethonTransport, TGUserState
+from sim.adapters.channels.telegram_user import (
+    CALL_BRIDGE_RETRY_S,
+    TelegramUserAdapter,
+    TelethonTransport,
+    TGUserState,
+)
 from sim.adapters.channels.tg_calls import (
     ANSWER_TIMEOUT_S,
     CallAnswerTimeout,
@@ -1002,13 +1007,26 @@ class FakeTelethonClient:
         self.handlers: list = []
 
     def add_event_handler(self, handler, event) -> None:
-        self.handlers.append(handler)
+        self.handlers.append((handler, event))
+
+    def list_event_handlers(self) -> list:
+        return list(self.handlers)
+
+    def remove_event_handler(self, handler, event) -> int:
+        self.handlers.remove((handler, event))
+        return 1
 
     def is_connected(self) -> bool:
         return self.connected
 
     async def connect(self) -> None:
         self.connected = True
+
+    async def get_me(self):
+        return SimpleNamespace(id=1)
+
+    async def get_input_entity(self, user_id):
+        return SimpleNamespace(user_id=user_id)
 
 
 async def test_transport_attaches_the_call_bridge_once_and_survives_its_failure():
@@ -1032,15 +1050,180 @@ async def test_transport_attaches_the_call_bridge_once_and_survives_its_failure(
 
     class Broken:
         def __init__(self, client, on_call) -> None:
+            made.append((client, on_call))
             raise ImportError("no ntgcalls")
 
-    broken = TelethonTransport(FakeTelethonClient, on_call=on_call, call_bridge=Broken)
+    now = 100.0
+    broken = TelethonTransport(FakeTelethonClient, on_call=on_call, call_bridge=Broken,
+                               clock=lambda: now)
     await broken.ready()
+    now += 2 * CALL_BRIDGE_RETRY_S
     await broken.ready()
-    assert broken.calls is None
+    assert broken.calls is None and len(made) == 2
     plain = TelethonTransport(FakeTelethonClient, call_bridge=Broken)
     await plain.ready()
     assert plain.calls is None
+
+
+async def test_call_bridge_only_subscribes_sim_after_native_start():
+    class BrokenNative(FakeTgCalls):
+        async def start(self) -> None:
+            assert self.handler is None
+            raise TimeoutError()
+
+    async def on_call(call):
+        pytest.fail("a partially started native bridge dispatched a call")
+
+    lib = SimpleNamespace(**{**vars(LIB), "PyTgCalls": BrokenNative})
+    bridge = TelegramCallBridge("fake", on_call, lib=lib)
+    with pytest.raises(TimeoutError):
+        await bridge.start()
+    assert not bridge.started and bridge.calls.handler is None
+
+
+@pytest.mark.parametrize("failing_step", ["get_me", "resolve_peer"])
+async def test_transient_call_bridge_preflight_is_retried_before_native_start(failing_step):
+    now = 100.0
+    probes = []
+    native_event = object()
+    attached = []
+
+    class Client(FakeTelethonClient):
+        async def get_me(self):
+            probes.append("get_me")
+            if failing_step == "get_me" and probes.count("get_me") == 1:
+                raise ConnectionResetError("fake reset")
+            return await super().get_me()
+
+        async def get_input_entity(self, user_id):
+            probes.append("resolve_peer")
+            if failing_step == "resolve_peer" and probes.count("resolve_peer") == 1:
+                raise TimeoutError()
+            return await super().get_input_entity(user_id)
+
+    client = Client()
+
+    class Bridge:
+        def __init__(self, client, on_call) -> None:
+            self.on_call = on_call
+            client.add_event_handler(self.raw, native_event)
+            attached.append(self)
+
+        async def raw(self, event) -> None:
+            await self.on_call(event)
+
+        async def start(self) -> None:
+            return None
+
+    seen = []
+
+    async def on_call(call):
+        seen.append(call)
+
+    transport = TelethonTransport(lambda: client, lambda: None, on_call=on_call,
+                                  call_bridge=Bridge, clock=lambda: now)
+    assert await transport.ready() is client
+    assert transport.calls is None
+    [messaging_subscription] = client.list_event_handlers()
+    assert messaging_subscription[0] == transport.new_message
+    now += CALL_BRIDGE_RETRY_S - 1
+    await transport.ready()
+    assert not attached and probes.count("get_me") == 1
+    now += 1
+    assert await asyncio.gather(transport.ready(), transport.ready()) == [client, client]
+    assert len(attached) == 1 and transport.calls is attached[0]
+    assert probes.count("get_me") == 2
+    assert client.list_event_handlers() == [messaging_subscription, (attached[-1].raw, native_event)]
+    await client.list_event_handlers()[-1][0]("synthetic ring")
+    assert seen == ["synthetic ring"]
+
+
+async def test_cancelled_native_start_detaches_subscription_and_does_not_retry():
+    started = asyncio.Event()
+    client = FakeTelethonClient()
+    now = 100.0
+    attached = []
+
+    class Bridge:
+        def __init__(self, client, on_call) -> None:
+            attached.append(self)
+            client.add_event_handler(on_call, object())
+
+        async def start(self) -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+    async def on_call(call):
+        return None
+
+    transport = TelethonTransport(lambda: client, on_call=on_call, call_bridge=Bridge,
+                                  clock=lambda: now)
+    ready = asyncio.create_task(transport.ready())
+    await asyncio.wait_for(started.wait(), 1)
+    ready.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await ready
+    assert transport.calls is None and not client.list_event_handlers()
+    now += 2 * CALL_BRIDGE_RETRY_S
+    assert await transport.ready() is client
+    assert len(attached) == 1
+
+
+@pytest.mark.parametrize("error", [TimeoutError, ConnectionResetError])
+@pytest.mark.parametrize("can_detach", [True, False])
+async def test_late_native_start_failure_never_retries(error, can_detach):
+    class Client(FakeTelethonClient):
+        def remove_event_handler(self, handler, event) -> int:
+            if can_detach:
+                return super().remove_event_handler(handler, event)
+            return 0
+
+    now = 100.0
+    made = []
+    client = Client()
+
+    class Bridge:
+        def __init__(self, client, on_call) -> None:
+            made.append(self)
+            client.add_event_handler(on_call, object())
+
+        async def start(self) -> None:
+            self.binding_registered = True  # removing Raw does not undo this side effect
+            raise error()
+
+    async def on_call(call):
+        return None
+
+    transport = TelethonTransport(lambda: client, on_call=on_call, call_bridge=Bridge, clock=lambda: now)
+    assert await transport.ready() is client
+    now += 2 * CALL_BRIDGE_RETRY_S
+    assert await transport.ready() is client
+    assert len(made) == 1 and made[0].binding_registered and transport.calls is None
+    assert bool(client.list_event_handlers()) is not can_detach
+
+
+async def test_unauthorized_call_bridge_preflight_does_not_create_or_retry():
+    now = 100.0
+    probes = []
+
+    class Client(FakeTelethonClient):
+        async def get_me(self):
+            probes.append("unauthorized")
+            return None
+
+    client = Client()
+
+    def bridge(*args):
+        pytest.fail("native bridge created on an unauthorized client")
+
+    async def on_call(call):
+        return None
+
+    transport = TelethonTransport(lambda: client, on_call=on_call, call_bridge=bridge, clock=lambda: now)
+    assert await transport.ready() is client
+    now += 2 * CALL_BRIDGE_RETRY_S
+    assert await transport.ready() is client
+    assert probes == ["unauthorized"]
 
 
 async def test_connector_routes_calls_of_its_channel_to_the_worker_handler():
