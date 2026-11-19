@@ -20,7 +20,7 @@ import type { TraceKind, TraceSortField, TraceStatus, TraceStep } from '@/lib/tr
 import { CheckList, ColumnHeader } from './column-header';
 import {
   DEFAULT_SORT, EMPTY_LOG_FILTERS, KIND_LABELS, KINDS, STATUS_LABELS, STATUSES, activeFilterCount, activeFilters,
-  agentLabel, formatMs, nextSort, shortTrace, toLogParams, toggle, validateLogFilters, type LogFilters, type LogSort,
+  agentLabel, formatMs, nextSort, replyStepOutcomeLabel, shortTrace, toLogParams, toggle, validateLogFilters, type LogFilters, type LogSort,
 } from './log-logic';
 
 const LIVE_INTERVAL_MS = 5000;
@@ -33,8 +33,9 @@ const STATUS_VARIANT: Record<TraceStatus, 'success' | 'destructive' | 'warning' 
   warning: 'warning',
 };
 
-export function StatusBadge({ status }: { status: TraceStatus }) {
-  return <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABELS[status]}</Badge>;
+export function StatusBadge({ status, step }: { status: TraceStatus; step?: TraceStep }) {
+  const outcome = step ? replyStepOutcomeLabel(step) : null;
+  return <Badge variant={outcome ? 'muted' : STATUS_VARIANT[status]}>{outcome ?? STATUS_LABELS[status]}</Badge>;
 }
 
 export function KindBadge({ kind }: { kind: TraceKind }) {
@@ -281,7 +282,7 @@ function LogRow({ step, onOpen }: { step: TraceStep; onOpen: () => void }) {
         )}
       </TableCell>
       <TableCell>
-        <StatusBadge status={step.status} />
+        <StatusBadge status={step.status} step={step} />
       </TableCell>
       <TableCell className="text-right tabular whitespace-nowrap">{formatMs(step.duration_ms)}</TableCell>
       <TableCell className="hidden text-right tabular md:table-cell">{step.attempt ?? '—'}</TableCell>

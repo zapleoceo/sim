@@ -203,7 +203,8 @@ export function replyPlanText(plan: ReplyPlan): string {
 /** The chat state title for a planned reply: being written, delayed by her routine, or simply
  * queued (debounce, after a pause, a retry after an error). */
 export function replyPlanTitle(plan: ReplyPlan): string {
-  if (plan.writing) return 'Пишет ответ';
+  if (plan.phase === 'running_or_recovering') return 'Ответ готовится или ожидает восстановления';
+  if (plan.phase === 'writing' || (!plan.phase && plan.writing)) return 'Пишет ответ';
   return plan.cls ? 'Ответ отложен' : 'Ответ запланирован';
 }
 

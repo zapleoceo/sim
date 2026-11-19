@@ -1,6 +1,6 @@
 import {
   DEFAULT_SORT, EMPTY_LOG_FILTERS, KIND_LABELS, KINDS, STATUS_LABELS, STATUSES, activeFilterCount, detailPairs, formatMs,
-  nextSort, timelineBar, toLogParams, toggle, validateLogFilters,
+  nextSort, replyStepOutcomeLabel, timelineBar, toLogParams, toggle, validateLogFilters,
 } from './log-logic';
 
 const PAGE = { page: 2, size: 50 };
@@ -57,6 +57,26 @@ describe('system log logic', () => {
     expect(timelineBar(500, 500, 1000)).toEqual({ left: 50, width: 50 });
     expect(timelineBar(0, 0, 0).width).toBeGreaterThan(0);
     expect(timelineBar(1000, 10, 1000).left).toBeLessThan(100);
+  });
+
+  it('labels completed non-delivery attempts without relabeling server status', () => {
+    const step = { kind: 'job', name: 'reply', status: 'ok', detail: {} } as const;
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'busy' } }))
+      .toBe('Отложено: уже готовится другой ответ');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'superseded' } }))
+      .toBe('Черновик устарел, не отправлен');
+    expect(replyStepOutcomeLabel({ ...step, status: 'retry', detail: { outcome: 'busy' } })).toBeNull();
+    expect(replyStepOutcomeLabel({ ...step, kind: 'send', detail: { outcome: 'busy' } })).toBeNull();
+    expect(replyStepOutcomeLabel({ ...step, name: 'followup', detail: { outcome: 'busy' } })).toBeNull();
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'waiting_media' } }))
+      .toBe('Отложено: ожидается медиа');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'skipped' } }))
+      .toBe('Ответ не отправлен');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'needs_operator' } }))
+      .toBe('Передано оператору');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'sent' } })).toBeNull();
+    expect(replyStepOutcomeLabel(step)).toBeNull();
+    expect(STATUS_LABELS.ok).toBe('Успешно');
   });
 
   it('names the reply watch steps and the warning status', () => {

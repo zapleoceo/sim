@@ -294,6 +294,17 @@ is not full cleanup. The client will not retry native startup in that case; rese
 the transport/worker after diagnosis. SIM subscribes to call events only after native
 startup returns successfully. CI uses fake clients, not real Telegram calls.
 
+### Reply queue and log display
+
+The dialog API derives a read-only phase from the actual selected queue row and
+server time: queued, writing with a current lease, or preparing/awaiting recovery
+when the running lease is missing or expired. An expired lease does not prove a
+worker stopped; the live execution lock can still hold. The UI no longer treats
+this uncertain phase as writing. Manual Reply Now behavior and worker leases,
+deadlines, retry policy and delivery are unchanged. In Activity, successful
+worker steps report deferred, superseded, skipped or handed-off replies without
+changing stored status or filters.
+
 ### Worker recovery
 
 Worker crash recovery uses a 90-second claim grace and a PostgreSQL execution row
