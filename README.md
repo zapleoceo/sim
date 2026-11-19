@@ -1,5 +1,14 @@
 # Sim
 
+### Telegram voice bridge attachment
+
+A transient connection failure while attaching the native bridge leaves Telegram
+messaging available and retries attachment on the next use after a 30-second
+cooldown. The retry removes only that failed bridge's Telethon subscriptions and
+requires cleanup to succeed; unknown, dependency or authorization failures and
+uncertain cleanup do not retry on the same client. No SIM call handler is registered
+until native startup succeeds. CI uses fake clients, not real Telegram calls.
+
 ### Bounded video-note normalization
 
 The existing MP4-to-Telegram-circle encoder now rejects oversized/invalid inputs,
