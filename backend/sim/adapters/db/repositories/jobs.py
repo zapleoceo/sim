@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 from sim.adapters.db.locks import NS_DIALOG, lock
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.base import Repository
+from sim.services.jobkinds import PERSONA_MEDIA, VIDEO_NOTE
 from sim.trace_context import current_trace_id
 
 BACKOFF_BASE_S = 30
@@ -131,6 +132,18 @@ class JobRepo(Repository[Job]):
         ).all()
         claimed: list[Job] = []
         for job in rows:
+            # An expired running generation may already have made a paid request.
+            # Retain its identity/payload and quarantine only the expired execution;
+            # never infer non-acceptance from the lack of a persisted provider ID.
+            if (job.status == "running" and job.attempts > 0
+                    and job.kind in (PERSONA_MEDIA, VIDEO_NOTE)):
+                await self.session.execute(
+                    update(Job)
+                    .where(Job.id == job.id, Job.kind == job.kind, Job.attempts == job.attempts, stale)
+                    .values(status="failed", finished_at=now, locked_until=None,
+                            last_error="media_generation_outcome_unknown: automatic replay blocked")
+                )
+                continue
             res = await self.session.execute(
                 update(Job)
                 .where(
