@@ -27,6 +27,7 @@ from studio_media_smoke import (  # noqa: E402
 )
 from worker_recovery_smoke import worker_recovery_checks  # noqa: E402
 
+from sim.adapters.db.models import Job  # noqa: E402
 from sim.adapters.db.repositories.jobs import JobRepo  # noqa: E402
 from sim.adapters.db.session import make_session_factory, transaction  # noqa: E402
 from sim.clock import utcnow  # noqa: E402
@@ -132,10 +133,51 @@ async def schema_and_concurrency(url):
             assert await repo.lock_attempt(recovery_id, 2) is not None
             assert await repo.complete(recovery_id, now, claim_attempt=2)
         print("PostgreSQL schema, send-intent contention, execution lock and restart fence PASS")
+        await media_reclaim_checks(factory)
         await worker_recovery_checks(factory)
         await broker_reconciliation_checks(factory)
     finally:
         await engine.dispose()
+
+
+async def media_reclaim_checks(factory):
+    """An expired live lease is skipped; only a lost generation gets quarantined."""
+    now = utcnow()
+    expired = now + timedelta(seconds=91)
+
+    async def try_claim():
+        async with transaction(factory) as competitor:
+            assert await JobRepo(competitor).claim(expired, 90, 1) == []
+
+    for kind, owner_completed in (("video_note", False), ("persona_media", True)):
+        payload = {"provider_job_id": "synthetic-receipt"}
+        async with transaction(factory) as session:
+            job_id = (await JobRepo(session).enqueue(kind, payload, now)).id
+        async with transaction(factory) as session:
+            [first] = await JobRepo(session).claim(now, 90, 1)
+            assert first.id == job_id and first.attempts == 1
+
+        async with transaction(factory) as owner:
+            assert await JobRepo(owner).lock_attempt(job_id, 1) is not None
+            # A competing claimant must skip this live transaction despite expiry.
+            await asyncio.wait_for(try_claim(), 5)
+            if owner_completed:
+                assert await JobRepo(owner).complete(job_id, expired, claim_attempt=1)
+
+        # The first owner released without completion; the second completed under
+        # its row lock. Neither case may dispatch another provider request.
+        await asyncio.wait_for(try_claim(), 5)
+        async with transaction(factory) as session:
+            stored = await session.get(Job, job_id)
+            assert stored.status == ("done" if owner_completed else "failed")
+            assert stored.payload == payload and stored.attempts == 1
+            assert stored.locked_until is None and stored.finished_at == expired
+            if owner_completed:
+                assert stored.last_error is None
+            else:
+                assert stored.last_error.startswith("media_generation_outcome_unknown:")
+            assert not await JobRepo(session).complete(job_id, expired, claim_attempt=1)
+    print("PostgreSQL expired media quarantine and live completion fence PASS")
 
 
 async def check_state(url, expected_revision):

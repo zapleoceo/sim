@@ -26,6 +26,21 @@ Unknown outcomes, budgets, safety and permission denials never permit fallback.
 See [media routing contracts and provider limits](docs/media-routing.md).
 Synthetic CI covers persistence/reset, auth/CSRF, route validation and unavailable UI.
 
+### Expired media generation leases
+
+An expired, already-claimed running `video_note` or `persona_media` job is quarantined
+with terminal `media_generation_outcome_unknown` rather than re-dispatched. The
+original payload, attempts and any stored receipt are retained for reconciliation.
+A still-locked live handler can finish; existing pending jobs and unrelated work
+keep their current policy. A crash before submitting can also be quarantined,
+since reclaim cannot distinguish it from a lost accepted response. Do not create
+replacement jobs solely because no remote ID is known.
+
+This is not general logical idempotency and does not activate generation, new
+providers or outbound media. A future route must commit a durable intent before one
+POST, checkpoint its remote ID before polling, and reconcile unknown outcomes without
+a second POST or SEND. CI exercises the PostgreSQL race with mocked effects only.
+
 PR124's PostgreSQL gate also forces revision-recovery and a competing busy reply
 to overlap at the missing pending-job read. It asserts one pending replacement and
 the later busy deadline; this is separate from the transcript/worker-instance regression.
