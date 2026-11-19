@@ -58,7 +58,19 @@ async def test_conflicting_instructions_cannot_remove_honesty_from_routes_and_re
     assert len(fake_llm.guard_calls) == 2
     for messages, _ in fake_llm.guard_calls:
         assert messages[0]["content"].endswith(IDENTITY_CONTROL)
-    assert "False human identity" in fake_llm.gen_calls[-1][0][-1]["content"]
+    repair, _ = fake_llm.gen_calls[-1]
+    assert repair[-1]["role"] == "system" and repair[-1]["content"].endswith("(тип: review).")
+    assert any(message["role"] == "user" and message["content"] == question for message in repair)
+    for message in repair:
+        assert dishonest not in message["content"]
+        assert "False human identity" not in message["content"]
+
+    guarded_drafts = [json.loads(messages[1]["content"])["draft_reply"]
+                      for messages, _ in fake_llm.guard_calls]
+    assert guarded_drafts == [dishonest, truthful]
+    assert result.guard is not None and result.guard.allowed is repair_approved
+    if not repair_approved:
+        assert result.guard.violations == ["Still rejected"]
 
 
 @pytest.mark.parametrize("text", [

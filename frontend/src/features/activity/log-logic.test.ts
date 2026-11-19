@@ -68,6 +68,13 @@ describe('system log logic', () => {
     expect(replyStepOutcomeLabel({ ...step, status: 'retry', detail: { outcome: 'busy' } })).toBeNull();
     expect(replyStepOutcomeLabel({ ...step, kind: 'send', detail: { outcome: 'busy' } })).toBeNull();
     expect(replyStepOutcomeLabel({ ...step, name: 'followup', detail: { outcome: 'busy' } })).toBeNull();
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'waiting_media' } }))
+      .toBe('Отложено: ожидается медиа');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'skipped' } }))
+      .toBe('Ответ не отправлен');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'needs_operator' } }))
+      .toBe('Передано оператору');
+    expect(replyStepOutcomeLabel({ ...step, detail: { outcome: 'sent' } })).toBeNull();
     expect(replyStepOutcomeLabel(step)).toBeNull();
     expect(STATUS_LABELS.ok).toBe('Успешно');
   });

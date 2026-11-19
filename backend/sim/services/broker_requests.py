@@ -31,6 +31,13 @@ def encoded(data: dict[str, Any], limit: int) -> str:
     return value
 
 
+async def has_pending_broker_request(session: AsyncSession, job_id: int) -> bool:
+    """A durable intent is unresolved even if the Broker POST receipt was lost."""
+    return await session.scalar(select(BrokerRequest.job_id).where(
+        BrokerRequest.job_id == job_id, BrokerRequest.status == "pending",
+    ).limit(1)) is not None
+
+
 @dataclass(frozen=True)
 class RequestEntry:
     job_id: int

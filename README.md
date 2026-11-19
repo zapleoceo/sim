@@ -136,11 +136,10 @@ messages or changed instructions/settings invalidate it. The actual submitted pr
 keeps real time, and guard always checks the recovered draft against freshly computed
 trusted facts. A rejected stale draft is repaired through the normal guarded path.
 No canonical clock is sent to a model. Non-conversation calls retain exact-body identity.
-Reuse assumes unchanged effective context: history-window expiry, a call incident's
-24-hour expiry or media cooldown expiry may intentionally require a fresh generation
+Reuse assumes unchanged effective context: history-window expiry, expiry of a recent answered-call fact, or media cooldown expiry may intentionally require a fresh generation
 after prior requests settle. This does not guarantee zero additional generation cost
 at these boundaries; uncertain requests still block resubmission. See the contract
-document for this distinction and the real-handler incident-expiry regression.
+document for this distinction and the real-handler audit-only incident regression.
 Profile snapshots provide a separate identity representation without their observation
 timestamp; actual prompts retain that timestamp. Status, fields, user-authored dates
 and photo bytes are preserved in the identity, so genuine profile changes invalidate it.
@@ -167,6 +166,11 @@ the separate authority for delivery; a completed model call does not prove deliv
 HTTP 400/401/402/403/422 alone is NOT evidence of non-acceptance (replay can be denied
 after an earlier acceptance). Such an intent remains unresolved until read-only
 reconciliation succeeds. See `docs/broker-recovery-contract.md` for source evidence.
+
+An unanswered reply whose Broker intent remains unresolved when worker retries expire
+stays failed for reconciliation; the trace shows `broker_reconciliation_required`.
+The worker does not auto-pause the chat, hand it to an operator, or blindly replay
+that request. Operator pauses, opt-outs and guard handoffs remain unchanged.
 
 ### Recorded agents and selected activity calls
 
@@ -196,6 +200,20 @@ individual model events and continues, because playback guard needs the matching
 audio, transcript and interruption sequence. Each WebSocket message is limited to
 1 MiB and negotiated PCM rates to 8–48 kHz. The existing guarded playback and
 delivery-receipt rules are unchanged. CI uses fake streams only.
+
+### Model context excludes internal audit and rejected drafts
+
+The communication feed and terminal handoff audit are unchanged. Model context
+keeps only allowlisted conversation facts from journal events, with no raw actor
+or reason metadata. A recent answered call may contribute only the neutral fact
+that some speech may not have played; unconnected attempts and causes stay in
+audit. Actual delivered conversation remains intact. Known system
+boilerplate is projected out of derived passport/summary text without rewriting
+stored data. Standalone internal next-step assignments to transfer or pause AI
+are omitted at read time; mixed steps and participant quotes stay intact. A rejected reply is regenerated from clean context and a bounded
+repair category, not a previous unapproved draft or free-form guard explanation.
+The new draft is checked again. Superseded attempts still send nothing, and their
+worker detail now distinguishes a revision change from a newer inbound ID.
 
 ### Guard independence preserves objections
 
@@ -284,8 +302,8 @@ when the running lease is missing or expired. An expired lease does not prove a
 worker stopped; the live execution lock can still hold. The UI no longer treats
 this uncertain phase as writing. Manual Reply Now behavior and worker leases,
 deadlines, retry policy and delivery are unchanged. In Activity, successful
-worker steps with business outcome `busy` or `superseded` are labelled as
-deferred or not sent, without changing stored status or filters.
+worker steps report deferred, superseded, skipped or handed-off replies without
+changing stored status or filters.
 
 ### Worker recovery
 
@@ -494,3 +512,38 @@ repeat refresh, a late incomplete result racing a successful update, and rollbac
 a multi-batch refresh. The separate 400-row history disclosure and assembled-context
 UI gaps are not changed here. No provider calls or production settings are required.
 
+
+### Этапы ответа в тестовом чате персонажа
+
+В «Проверить персонажа» переключатели действуют только для текущего тестового
+чата, не сохраняются в анкете и не затрагивают Inbox, Telegram или другие каналы.
+Пробный ответ не отправляется клиенту. Настройки применяются к следующему
+запросу или повтору; «Очистить» возвращает исходные настройки.
+
+- **Пауза перед ответом** и **ожидание по расписанию** по умолчанию не
+  рассчитываются. Если их включить, «Этапы ответа» покажут оценку ожидания
+  до начала ответа на одно новое сообщение по общим правилам планировщика.
+  Ответ приходит без искусственного ожидания; это не время работы модели,
+  не пауза между частями сообщения и не имитация очереди живого диалога.
+- **Решения прошлых реплик** по умолчанию передаются в следующий запрос
+  (этап воронки, потребности, следующий шаг, тестовая передача оператору).
+  Если их отключить, эти данные сбрасываются только в тестовом чате.
+  Отказ от общения не сбрасывается переключателем.
+- Кнопка **«Основной промпт без контекста решений»** отключает эти три
+  параметра. Сохранённый промпт, история, распорядок как факт о персонаже,
+  выбор модели, формат и обязательный контролёр остаются. Отдельные
+  планировщики, генерация паспорта и действия в каналах здесь не запускаются.
+
+`POST /api/personas/{id}/preview` принимает необязательный объект `stages`
+с булевыми ключами `debounce`, `schedule`, `decision_context`.
+Без него сохраняется прежний режим; в ответе `stages` содержит фактические
+параметры теста и оценку ожидания в секундах.
+
+#### Предпросмотр фото и видеокружка
+
+В «Проверить персонажа» кнопка «Показать фото из галереи» открывает первое
+фото из галереи текущего персонажа по существующему маршруту с авторизацией.
+Если галерея пуста, чат сообщит об этом. «Показать тестовый кружок» открывает
+в том же чате встроенный круглый плеер с коротким MP4 из приложения.
+Кнопка «Очистить» убирает образец. Эти действия не входят в историю для модели,
+не создают сообщений или медиа в живых диалогах и ничего не отправляют в Telegram.

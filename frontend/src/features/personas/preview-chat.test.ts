@@ -1,5 +1,5 @@
 import type { PreviewAttachment, PreviewResponse } from '@/lib/models';
-import { INITIAL_PREVIEW, attachmentText, historyOf, isIdle, previewReducer } from './preview-chat';
+import { INITIAL_PREVIEW, PROMPT_ONLY_STAGES, attachmentText, historyOf, isIdle, previewReducer } from './preview-chat';
 import { recordingType } from './use-voice-recorder';
 
 describe('voice recorder', () => {
@@ -86,6 +86,26 @@ describe('preview chat state', () => {
     s = previewReducer(s, { type: 'send', text: 'b' });
     expect(s.messages.map((m) => m.text)).toEqual(['b']);
     expect(s.failure).toBeNull();
+    s = previewReducer(s, { type: 'success', reply: reply('ответ') });
     expect(previewReducer(s, { type: 'reset' })).toEqual(INITIAL_PREVIEW);
   });
+});
+
+it('keeps preview switches local, cannot change them mid-request, and shows the server diagnostics for each reply', () => {
+  let s = previewReducer(INITIAL_PREVIEW, { type: 'stages', stages: PROMPT_ONLY_STAGES });
+  expect(s.stages).toEqual({ schedule: false, debounce: false, decision_context: false });
+  s = previewReducer(s, { type: 'send', text: 'а' });
+  expect(previewReducer(s, { type: 'stages', stages: INITIAL_PREVIEW.stages })).toBe(s);
+  expect(previewReducer(s, { type: 'reset' })).toBe(s);
+  const stages = {
+    schedule: { enabled: false, wait_s: 0, reason: '' },
+    debounce: { enabled: false, wait_s: 0 },
+    estimated_wait_s: 0,
+    decision_context: false,
+  };
+  s = previewReducer(s, { type: 'success', reply: { ...reply('ответ'), stages } });
+  expect(s.messages[1]?.stages).toEqual(stages);
+  expect(s.stages).toEqual(PROMPT_ONLY_STAGES);
+  s = previewReducer(s, { type: 'reset' });
+  expect(s.stages).toEqual({ schedule: false, debounce: false, decision_context: true });
 });

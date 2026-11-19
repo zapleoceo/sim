@@ -27,6 +27,7 @@ from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.models import catalog_items
 from sim.services.persona_ambience import voice_ambience
 from sim.services.preview_media import MAX_BYTES
+from sim.services.preview_stages import PreviewStages
 from sim.services.prompt import Turn
 from sim.services.prompt_versions import PromptVersions, VersionNotFound, restored_note
 from sim.wiring import Container
@@ -209,6 +210,7 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
     result = await c.conversation(s).preview(
         persona, body.message, history, stage=body.stage, status=body.status,
         needs=body.needs, next_step=body.next_step,
+        stages=PreviewStages(body.stages.schedule, body.stages.debounce, body.stages.decision_context),
     )
     d = result.decision
     return {
@@ -223,6 +225,7 @@ async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Au
         },
         "guard": preview_guard(result.guard),
         "context": result.context,
+        "stages": result.diagnostics,
         "model": result.model,
         "latency_ms": result.latency_ms,
     }

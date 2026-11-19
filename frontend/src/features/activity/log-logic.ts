@@ -42,6 +42,9 @@ export function replyStepOutcomeLabel(step: Pick<TraceStep, 'kind' | 'name' | 's
   if (step.kind !== 'job' || step.name !== 'reply' || step.status !== 'ok') return null;
   if (step.detail?.outcome === 'busy') return 'Отложено: уже готовится другой ответ';
   if (step.detail?.outcome === 'superseded') return 'Черновик устарел, не отправлен';
+  if (step.detail?.outcome === 'waiting_media') return 'Отложено: ожидается медиа';
+  if (step.detail?.outcome === 'skipped') return 'Ответ не отправлен';
+  if (step.detail?.outcome === 'needs_operator') return 'Передано оператору';
   return null;
 }
 

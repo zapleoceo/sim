@@ -53,12 +53,34 @@ checks that fields/status/photo changes and dates inside bio are not erased.
 
 The reuse guarantee covers unchanged effective context with different computed clock
 facts or profile observation time. It does not freeze the entire conversation snapshot.
-ContextWindow can drop messages at its configured age boundary; journal.context_lines
-removes call_issue context after 24 hours; persona_media_tool.busy can change the media
-offer when gap_min expires. These are intentional effective-context changes and may
-start a new generator job even without new user activity, but only after previously
-accepted requests settle. An uncertain outcome still blocks all new submissions.
-The real run_reply regression crosses a call incident's 24-hour boundary and verifies
-its removal, a new generation, and terminal reconciliation before the second POST.
+ContextWindow can drop messages at its configured age boundary; persona_media_tool.busy
+can change the media offer when gap_min expires. These intentional context changes may
+start a new generator job after previously accepted requests settle. An uncertain outcome
+still blocks submissions. Raw call incidents are audit-only; the real run_reply regression
+checks that an audit-only incident does not change input or re-purchase a generation.
+Only a recent answered call may contribute the sanitized fact that some speech may not
+have played. Its expiry can still change the effective context, not the audit history.
 Thus this increment does not promise zero additional generation cost for every
 time-only restart. Guard always uses fresh time, including when generation is reused.
+
+
+## Reply worker exhaustion with an unresolved Broker request
+
+A local polling deadline is not a provider verdict or billing limit. While the
+reply job has worker attempts left, the existing backoff retries the same queue
+identity, reconciling its durable Broker intent before any new submission. A
+known remote ID is polled; if the submission receipt is missing, recovery uses
+read-only correlation. Poll errors and missing receipts are not a reason to
+resubmit or switch models.
+
+If the worker exhausts its existing attempt budget while a Broker intent remains
+unresolved, the job stays failed with its last error and durable intent intact.
+The worker trace records `broker_reconciliation_required`. This does not pause
+the dialog, set its operator flag, change any existing manual pause or opt-out,
+or send an unreviewed response. There is no automatic replay after exhaustion;
+reconcile the original remote outcome rather than blindly requeueing it.
+
+This is separate from a genuine conversational or guard handoff. The existing
+configured reserve remains restricted to a confirmed terminal Broker `error`
+with `model_unavailable` or `capacity_busy` and an available subscription route
+listed for the same project. An ambiguous pending or timeout does not qualify.

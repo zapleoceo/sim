@@ -42,6 +42,7 @@ from sim.services.owner_accounts import is_owner_account
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.persona_clock import persona_facts
 from sim.services.persona_media_tool import PersonaMediaTool
+from sim.services.preview_stages import PreviewStages, stage_diagnostics
 from sim.services.prompt import (
     Decision,
     DialogContext,
@@ -50,7 +51,6 @@ from sim.services.prompt import (
     Turn,
     build_messages,
     handoff_link,
-    one_line,
     parse_decision,
     registration_link,
 )
@@ -99,6 +99,7 @@ class PreviewResult:
     latency_ms: int
     guard: GuardOutcome | None = None
     context: dict[str, Any] | None = None
+    diagnostics: dict[str, object] | None = None
 
 
 def will_speak(persona: Persona, followup: bool, inbound: Message | None) -> bool:
@@ -492,13 +493,13 @@ class ConversationService:
             # this stale attempt. Pause/refusal above still take precedence.
             if not followup:
                 await self.defer_reply(dialog_id, 0)
-            return ReplyOutcome("superseded")
+            return ReplyOutcome("superseded", reason="activity_revision_changed")
         newer = await self.messages.last(dialog_id, Direction.IN)
         if newer is not None and newer.id > cutoff:
             # The client wrote again while we were thinking: this answer is already stale. The
             # reply job queued for that message answers with the full context.
             await self.defer_reply(dialog_id, 0)
-            return ReplyOutcome("superseded")
+            return ReplyOutcome("superseded", reason="newer_inbound")
         if draft.decision is None or draft.guard is None or not draft.guard.allowed:
             return await self.handoff_failed(dialog, draft)
         voice = will_speak(persona, followup, newer)
@@ -690,35 +691,41 @@ class ConversationService:
             else:
                 rejection = "решение не содержит корректного ответа"
             if attempt == 0:
-                feedback = one_line(rejection, 500)
+                code = "format" if guard is None else "review"
                 ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
                 stable_prompt = await self.prompt(persona, strategy, history,
                     recovery_context(ctx), whole_history=whole_history)
-                repair = [
-                    {"role": "assistant", "content": result.text[:4000]},
-                    {"role": "system", "content":
-                     "Контролёр отклонил черновик: " + feedback +
-                     ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
-                ]
-                prompt = [*prompt, *repair]
-                stable_prompt = [*stable_prompt, *repair]
+                # Do not turn rejected output or free-form diagnostics into history.
+                repair = {"role": "system", "content":
+                          f"Повтори полный JSON-ответ по фактам разговора (тип: {code})."}
+                prompt = [*prompt, repair]
+                stable_prompt = [*stable_prompt, repair]
         return Draft(decision, result, guard, rejection)
 
     async def preview(
         self, persona: Persona, message: str, history: list[Turn] | None = None,
         *, stage: Stage = Stage.FIRST_CONTACT, status: ClientStatus = ClientStatus.ACTIVE,
         needs: list[str] | None = None, next_step: str = "",
+        stages: PreviewStages | None = None,
     ) -> PreviewResult:
-        """Same builder as production; nothing is persisted or sent."""
+        """Use the saved persona and guard. All switch state belongs to this preview request."""
+        stages = PreviewStages() if stages is None else stages
         strategy = await self.strategy_for(persona.id)
+        now = self.clock()
+        # A handoff pause is only a simulated state here. A refusal remains visible even with
+        # carry-forward off. The model's decision and the guard still see the essential controls.
+        if not stages.decision_context:
+            stage, needs, next_step = Stage.FIRST_CONTACT, [], ""
+            if status is ClientStatus.PAUSED:
+                status = ClientStatus.ACTIVE
         ctx = DialogContext(
             stage=stage,
             status=status.value,
             client_name="Preview",
             channel_kind="preview",
             ref_code="PREVIEW",
-            now=self.clock(),
+            now=now,
             needs=list(needs or []),
             next_step=next_step,
         )
@@ -726,13 +733,19 @@ class ConversationService:
         draft = await self.draft_reply(persona, strategy, turns, ctx, workflow="preview")
         reply = draft.guard.text if draft.guard is not None and draft.guard.allowed else ""
         approved = draft.decision if reply else None
+        carry = approved if stages.decision_context else None
+        if approved and (approved.refused or approved.stop_contact):
+            status = ClientStatus.REFUSED
+        elif carry and carry.handoff_to_operator and status is not ClientStatus.REFUSED:
+            status = ClientStatus.PAUSED
         context = {
-            "stage": advance_by_ai(stage, approved.stage).value if approved else stage.value,
-            "status": (ClientStatus.REFUSED if approved and (approved.refused or approved.stop_contact)
-                       else ClientStatus.PAUSED if approved and approved.handoff_to_operator
-                       else status).value,
-            "needs": approved.needs if approved and approved.needs else list(needs or []),
-            "next_step": approved.next_step if approved and approved.next_step else next_step,
+            "stage": advance_by_ai(stage, carry.stage).value if carry else stage.value,
+            "status": status.value,
+            "needs": carry.needs if carry and carry.needs else list(needs or []),
+            "next_step": carry.next_step if carry and carry.next_step else next_step,
         }
+        diagnostics = stage_diagnostics(
+            stages, await self.config(), now, persona.routine, persona.timezone, message,
+        )
         return PreviewResult(reply, draft.decision, draft.result.model, draft.result.latency_ms,
-                             draft.guard, context)
+                             draft.guard, context, diagnostics)

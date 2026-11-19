@@ -3,9 +3,10 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { GuardBadge } from '@/components/guard-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import type { PreviewAttachment, PreviewVoice } from '@/lib/models';
+import type { PreviewAttachment, PreviewStageDiagnostics, PreviewStageOptions, PreviewVoice } from '@/lib/models';
 import { cn } from '@/lib/utils';
-import { isIdle, usePreviewChat } from './preview-chat';
+import { isIdle, PROMPT_ONLY_STAGES, usePreviewChat } from './preview-chat';
+import { PreviewGalleryPhoto, PreviewVideoCircle } from './preview-media';
 import { canRecord, useVoiceRecorder } from './use-voice-recorder';
 
 /** Files the Broker can read: voice/audio (transcription), images (vision), plain text. */
@@ -33,6 +34,32 @@ function VoiceView({ v }: { v: PreviewVoice }) {
   return <span className="text-[11px] text-warning">Голос не сгенерирован: {v.error}</span>;
 }
 
+const STAGE_SWITCHES: ReadonlyArray<readonly [keyof PreviewStageOptions, string]> = [
+  ['debounce', 'Рассчитать паузу перед ответом'],
+  ['schedule', 'Рассчитать ожидание по расписанию'],
+  ['decision_context', 'Учитывать решения прошлых реплик и паузу при передаче оператору'],
+];
+
+
+function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
+  const schedule = stages.schedule;
+  return (
+    <details className="max-w-full text-xs text-muted-foreground">
+      <summary className="cursor-pointer">Этапы ответа</summary>
+      <ul className="mt-1 space-y-0.5">
+        <li>Основной промпт: использован</li>
+        <li>Пауза перед ответом: {stages.debounce.enabled ? `${stages.debounce.wait_s} с` : 'не рассчитывалась'}</li>
+        <li>Ожидание по расписанию: {schedule.enabled ? `${schedule.wait_s} с` : 'не рассчитывалось'}
+          {schedule.reason ? ` (${schedule.reason})` : ''}</li>
+        <li>Решения прошлых реплик: {stages.decision_context ? 'учитываются' : 'не учитываются'}</li>
+        {stages.schedule.enabled || stages.debounce.enabled
+          ? <li>Расчёт до начала ответа: {stages.estimated_wait_s} с. В тесте не ждали.</li>
+          : null}
+      </ul>
+    </details>
+  );
+}
+
 /**
  * Trial replies without sending anything to a client; uses the saved persona settings.
  * Errors are shown inline with «Повторить» (the old admin swallowed them).
@@ -41,6 +68,7 @@ function VoiceView({ v }: { v: PreviewVoice }) {
 export function PersonaPreview({ personaId }: { personaId: number }) {
   const chat = usePreviewChat(personaId);
   const recorder = useVoiceRecorder();
+  const [sample, setSample] = useState<'photo' | 'circle' | null>(null);
   const [text, setText] = useState('');
   const log = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -49,7 +77,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
   useEffect(() => {
     const el = log.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat.messages.length, chat.busy, chat.uploading, chat.failure]);
+  }, [chat.messages.length, chat.busy, chat.uploading, chat.failure, sample]);
 
   const submit = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
@@ -80,11 +108,47 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
         <h2 id="preview-h" className="text-base font-semibold">
           Проверить персонажа
         </h2>
-        <Button variant="ghost" size="sm" onClick={chat.reset} disabled={!chat.messages.length || chat.busy}>
+        <Button variant="ghost" size="sm" onClick={() => { chat.reset(); setSample(null); }} disabled={!idle || recorder.recording}>
           Очистить
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Пробный ответ без отправки клиенту. Проверяются сохранённые настройки.</p>
+      <fieldset disabled={!idle || recorder.recording} className="space-y-2 rounded-lg border p-3 text-sm">
+        <legend className="px-1 font-medium">Этапы тестового ответа</legend>
+        <p className="text-xs text-muted-foreground">
+          Только этот чат. Расчёты не задерживают ответ; ожидание самой модели остаётся.
+          Отдельные агенты планирования здесь не запускаются.
+        </p>
+        {STAGE_SWITCHES.map(([key, label]) => (
+          <label key={key} className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={chat.stages[key]}
+              onChange={(e) => chat.setStages({ ...chat.stages, [key]: e.target.checked })}
+            />
+            {label}
+          </label>
+        ))}
+        <Button
+          type="button" variant="outline" size="sm"
+          onClick={() => chat.setStages(PROMPT_ONLY_STAGES)}
+        >
+          Основной промпт без контекста решений
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          История, факты о персонаже (включая распорядок), формат и контроль ответа остаются.
+          Сохранённые настройки и живые диалоги не меняются.
+        </p>
+      </fieldset>
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => setSample('photo')}>
+          Показать фото из галереи
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setSample('circle')}>
+          Показать тестовый кружок
+        </Button>
+      </div>
 
       <div
         ref={log}
@@ -92,7 +156,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
         aria-live="polite"
         className="flex max-h-[28rem] min-h-52 flex-col gap-2 overflow-y-auto rounded-lg bg-muted/60 p-3"
       >
-        {chat.messages.length === 0 && !chat.busy && (
+        {chat.messages.length === 0 && !chat.busy && !sample && (
           <p className="m-auto text-center text-sm text-muted-foreground">Напишите сообщение, как это сделал бы клиент.</p>
         )}
         {chat.messages.map((m, i) => (
@@ -116,6 +180,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             )}
             <GuardBadge guard={m.guard} />
             {m.meta && <span className="text-[11px] text-muted-foreground">{m.meta}</span>}
+            {m.stages && <StageDiagnostics stages={m.stages} />}
             {m.decision != null && (
               <details className="max-w-full text-xs">
                 <summary className="cursor-pointer text-muted-foreground">Решение модели</summary>
@@ -126,6 +191,12 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             )}
           </div>
         ))}
+        {sample && (
+          <div className="flex max-w-full flex-col items-start gap-1 self-start rounded-2xl bg-bubble-ai px-3 py-2 text-sm">
+            <span className="text-xs text-muted-foreground">Предпросмотр медиа</span>
+            {sample === 'photo' ? <PreviewGalleryPhoto personaId={personaId} /> : <PreviewVideoCircle />}
+          </div>
+        )}
         {chat.uploading && (
           <div className="flex justify-end">
             <div className="animate-pulse rounded-2xl bg-bubble-client px-3 py-2 text-sm text-muted-foreground">распознаю…</div>
