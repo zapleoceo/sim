@@ -167,6 +167,11 @@ HTTP 400/401/402/403/422 alone is NOT evidence of non-acceptance (replay can be 
 after an earlier acceptance). Such an intent remains unresolved until read-only
 reconciliation succeeds. See `docs/broker-recovery-contract.md` for source evidence.
 
+An unanswered reply whose Broker intent remains unresolved when worker retries expire
+stays failed for reconciliation; the trace shows `broker_reconciliation_required`.
+The worker does not auto-pause the chat, hand it to an operator, or blindly replay
+that request. Operator pauses, opt-outs and guard handoffs remain unchanged.
+
 ### Recorded agents and selected activity calls
 
 The owner-only log and trace drawer show role/workflow, saved model and provider from

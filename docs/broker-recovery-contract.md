@@ -62,3 +62,25 @@ Only a recent answered call may contribute the sanitized fact that some speech m
 have played. Its expiry can still change the effective context, not the audit history.
 Thus this increment does not promise zero additional generation cost for every
 time-only restart. Guard always uses fresh time, including when generation is reused.
+
+
+## Reply worker exhaustion with an unresolved Broker request
+
+A local polling deadline is not a provider verdict or billing limit. While the
+reply job has worker attempts left, the existing backoff retries the same queue
+identity, reconciling its durable Broker intent before any new submission. A
+known remote ID is polled; if the submission receipt is missing, recovery uses
+read-only correlation. Poll errors and missing receipts are not a reason to
+resubmit or switch models.
+
+If the worker exhausts its existing attempt budget while a Broker intent remains
+unresolved, the job stays failed with its last error and durable intent intact.
+The worker trace records `broker_reconciliation_required`. This does not pause
+the dialog, set its operator flag, change any existing manual pause or opt-out,
+or send an unreviewed response. There is no automatic replay after exhaustion;
+reconcile the original remote outcome rather than blindly requeueing it.
+
+This is separate from a genuine conversational or guard handoff. The existing
+configured reserve remains restricted to a confirmed terminal Broker `error`
+with `model_unavailable` or `capacity_busy` and an available subscription route
+listed for the same project. An ambiguous pending or timeout does not qualify.

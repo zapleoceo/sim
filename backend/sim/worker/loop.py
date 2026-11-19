@@ -16,8 +16,9 @@ from sim.adapters.db.session import transaction
 from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
-from sim.services import tracing
+from sim.services import jobkinds, tracing
 from sim.services.app_settings import trace_retention_days
+from sim.services.broker_requests import has_pending_broker_request
 from sim.services.conversation import ConversationError
 from sim.services.job_execution import execution_scope, require_live_execution
 from sim.services.reengagement import ReengagementService
@@ -196,6 +197,11 @@ class Worker:
                 job, error, self.c.clock(), claim_attempt=claim_attempt, retry=retry
             )
             detail["max_attempts"] = job.max_attempts
+            if exhausted and kind == jobkinds.REPLY and await has_pending_broker_request(s, job_id):
+                # Queue failure is not a conversational handoff. Preserve the failed
+                # job and its Broker intent; neither resume nor replace it automatically.
+                detail["reason"] = "broker_reconciliation_required"
+                return tracing.ERROR, error, detail
         if exhausted and handler is not None and handler.giveup is not None:
             detail["gave_up"] = True
             try:

@@ -7,15 +7,17 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from sim.adapters.db.models import BrokerRequest, Dialog, DialogEvent, Message, Persona
+from sim.adapters.db.models import BrokerRequest, Dialog, DialogEvent, Job, Message, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker import BrokerLLM, BrokerTerminalError
-from sim.domain.enums import Stage
+from sim.domain.enums import ClientStatus, Stage
 from sim.ports.llm import LLMError
+from sim.services import jobkinds, tracing
 from sim.services.broker_requests import BrokerRequests
 from sim.services.conversation import recovery_context
 from sim.services.job_execution import Execution, ExecutionLost
 from sim.services.prompt import DialogContext
+from sim.worker.loop import Worker
 from tests.conftest import decision_json, guard_json, inbound
 from tests.test_ingest import ingest
 
@@ -386,6 +388,90 @@ async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_tim
     async with container.factory() as s:
         messages = list(await s.scalars(select(Message).where(Message.delivery == "queued")))
         assert len(messages) == 1
+
+
+@pytest.mark.parametrize("case", ["pending", "poll_error", "unknown", "recovered", "paused", "refused"])
+async def test_reply_retry_preserves_broker_intent_without_operator_handoff(container, world, connector, case):
+    now = [datetime(2026, 11, 19, 16, 38)]
+    container.clock = lambda: now[0]
+    await ingest(container, world.channel.id, inbound("Synthetic question", at=now[0]))
+    async with transaction(container.factory) as s:
+        job = (await s.scalars(select(Job).where(Job.kind == jobkinds.REPLY))).one()
+        job.run_at, job.max_attempts = now[0], 2
+        job_id = job.id
+
+    posts, polls, workflows = [], [], {}
+    ready = False
+
+    def transport(request):
+        if request.method == "POST":
+            workflow = json.loads(request.content)["workflow"]
+            posts.append(workflow)
+            if case == "unknown":
+                raise httpx.ReadTimeout("synthetic lost receipt", request=request)
+            remote_id = str(40 + len(posts))
+            workflows[remote_id] = workflow
+            return httpx.Response(200, json={"job_id": remote_id})
+        if request.url.path == "/v1/jobs":
+            return httpx.Response(200, json={"pagination_complete": True, "jobs": []})
+        remote_id = request.url.path.rsplit("/", 1)[-1]
+        polls.append(remote_id)
+        if case == "poll_error":
+            return httpx.Response(503)
+        if not ready:
+            return httpx.Response(200, json={"status": "pending"})
+        is_guard = workflows[remote_id] == "guard"
+        return httpx.Response(200, json={"status": "done",
+            "model": "synthetic-guard" if is_guard else "synthetic-generator",
+            "text": guard_json() if is_guard else decision_json(reply="Synthetic answer")})
+
+    broker = BrokerLLM("https://broker.invalid", "test-project",
+                       requests=BrokerRequests(container.factory, container.box), poll_budget_s=-1)
+    broker._client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
+    container.llm = broker
+    worker = Worker(container)
+    try:
+        first = (await worker.claim_jobs(1))[0]
+        status, _, _ = await worker.attempt(*first[:4])
+        assert status == tracing.RETRY and first.job_id == job_id
+        async with transaction(container.factory) as s:
+            job = await s.get(Job, job_id)
+            assert job.status == "pending"
+            now[0] = job.run_at
+            dialog = (await s.scalars(select(Dialog))).unique().one()
+            if case == "paused":
+                dialog.ai_paused = True
+            if case == "refused":
+                dialog.client.status = ClientStatus.REFUSED
+        ready = case == "recovered"
+        last = (await worker.claim_jobs(1))[0]
+        status, _, detail = await worker.attempt(*last[:4])
+        assert last.job_id == job_id and last.attempt == 2
+    finally:
+        await broker.aclose()
+
+    unresolved = case in {"pending", "poll_error", "unknown"}
+    assert status == (tracing.ERROR if unresolved else tracing.OK)
+    if unresolved:
+        assert detail["reason"] == "broker_reconciliation_required"
+    assert not detail.get("gave_up")
+    async with container.factory() as s:
+        dialog = (await s.scalars(select(Dialog))).unique().one()
+        assert dialog.ai_paused is (case == "paused")
+        assert not dialog.needs_operator
+        assert not list(await s.scalars(select(DialogEvent).where(DialogEvent.kind == "handoff")))
+        job = await s.get(Job, job_id)
+        assert job.status == ("failed" if unresolved else "done")
+        if unresolved:
+            assert job.last_error and (await s.get(BrokerRequest, (job_id, 0))).status == "pending"
+        sends = list(await s.scalars(select(Job).where(Job.kind == jobkinds.SEND)))
+        assert len(sends) == int(case == "recovered")
+    assert not connector.port.sent
+    assert posts == (["reply", "guard"] if case == "recovered" else ["reply"])
+    assert polls == {
+        "pending": ["41", "41"], "poll_error": ["41", "41"], "unknown": [],
+        "recovered": ["41", "41", "42"], "paused": ["41"], "refused": ["41"],
+    }[case]
 
 
 def test_profile_identity_preserves_fields_status_photo_and_user_timestamps():
