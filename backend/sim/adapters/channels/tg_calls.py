@@ -178,8 +178,9 @@ class TelegramCallBridge:
     async def start(self) -> None:
         if self.started:
             return
-        self.calls.on_update()(self.on_update)
+        # A partially started native bridge must not dispatch SIM call handlers.
         await self.calls.start()
+        self.calls.on_update()(self.on_update)
         self.started = True
 
     def forget(self, call: TelegramCall) -> None:
