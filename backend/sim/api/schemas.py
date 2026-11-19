@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from sim.adapters.db.models import (
     AdminUser,
@@ -145,6 +145,14 @@ class PreviewHistoryItem(Body):
     text: str
 
 
+class PreviewStagesIn(Body):
+    model_config = ConfigDict(extra="forbid")
+
+    schedule: StrictBool = False
+    debounce: StrictBool = False
+    decision_context: StrictBool = True
+
+
 class PreviewIn(Body):
     message: str = Field(min_length=1, max_length=4000)
     history: list[PreviewHistoryItem] = Field(default_factory=list, max_length=60)
@@ -155,6 +163,7 @@ class PreviewIn(Body):
     # The message is the transcript of a voice note recorded in the admin: a persona in
     # «mirror» voice mode answers with a voice note, as it would in a channel.
     voice_input: bool = False
+    stages: PreviewStagesIn = Field(default_factory=PreviewStagesIn)
 
 
 class StrategyIn(Body):

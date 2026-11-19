@@ -13,6 +13,7 @@ from sim.adapters.db.session import transaction
 from sim.domain.enums import ChannelKind
 from sim.services import jobkinds
 from sim.services.app_settings import SPECS, AppSettingsService
+from sim.services.preview_stages import PreviewStages, stage_diagnostics
 from sim.services.reply_schedule import (
     AFTER_PAUSE,
     BUSY,
@@ -446,3 +447,31 @@ def test_0025_adds_the_urgent_flag_and_roundtrips(tmp_path):
     assert "urgent" in columns(db, "dialog")
     command.downgrade(cfg, "0024")
     assert "urgent" not in columns(db, "dialog")
+
+
+async def test_test_chat_can_estimate_either_wait_without_sleeping_or_changing_config(container):
+    async with transaction(container.factory) as s:
+        cfg = await AppSettingsService(s, {"reply_debounce_s": 4}).load()
+        now = fri(9, 10)
+        assert stage_diagnostics(
+            PreviewStages(), cfg, now, ROUTINE, "UTC", "Привет",
+        ) == {
+            "schedule": {"enabled": False, "wait_s": 0, "reason": ""},
+            "debounce": {"enabled": False, "wait_s": 0},
+            "estimated_wait_s": 0,
+            "decision_context": True,
+        }
+        for schedule, debounce, wait in [(True, False, 1800), (False, True, 4), (True, True, 1800)]:
+            result = stage_diagnostics(
+                PreviewStages(schedule, debounce), cfg, now, ROUTINE, "UTC", "Привет",
+            )
+            assert result["estimated_wait_s"] == wait
+            assert result["schedule"] == {
+                "enabled": schedule,
+                "wait_s": 1800 if schedule else 0,
+                "reason": "на работе: консультации с клиентами до 13:00" if schedule else "",
+            }
+            assert result["debounce"] == {"enabled": debounce, "wait_s": 4 if debounce else 0}
+        assert stage_diagnostics(
+            PreviewStages(schedule=True), cfg, now, ROUTINE, "UTC", "Срочно",
+        )["estimated_wait_s"] == 120

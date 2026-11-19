@@ -3,9 +3,9 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { GuardBadge } from '@/components/guard-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import type { PreviewAttachment, PreviewVoice } from '@/lib/models';
+import type { PreviewAttachment, PreviewStageDiagnostics, PreviewStageOptions, PreviewVoice } from '@/lib/models';
 import { cn } from '@/lib/utils';
-import { isIdle, usePreviewChat } from './preview-chat';
+import { isIdle, PROMPT_ONLY_STAGES, usePreviewChat } from './preview-chat';
 import { canRecord, useVoiceRecorder } from './use-voice-recorder';
 
 /** Files the Broker can read: voice/audio (transcription), images (vision), plain text. */
@@ -31,6 +31,32 @@ function VoiceView({ v }: { v: PreviewVoice }) {
     return <audio controls preload="metadata" src={v.media_url} className="h-9 max-w-full" aria-label="Голосовой ответ" />;
   }
   return <span className="text-[11px] text-warning">Голос не сгенерирован: {v.error}</span>;
+}
+
+const STAGE_SWITCHES: ReadonlyArray<readonly [keyof PreviewStageOptions, string]> = [
+  ['debounce', 'Рассчитать паузу перед ответом'],
+  ['schedule', 'Рассчитать ожидание по расписанию'],
+  ['decision_context', 'Учитывать решения прошлых реплик и паузу при передаче оператору'],
+];
+
+
+function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
+  const schedule = stages.schedule;
+  return (
+    <details className="max-w-full text-xs text-muted-foreground">
+      <summary className="cursor-pointer">Этапы ответа</summary>
+      <ul className="mt-1 space-y-0.5">
+        <li>Основной промпт: использован</li>
+        <li>Пауза перед ответом: {stages.debounce.enabled ? `${stages.debounce.wait_s} с` : 'не рассчитывалась'}</li>
+        <li>Ожидание по расписанию: {schedule.enabled ? `${schedule.wait_s} с` : 'не рассчитывалось'}
+          {schedule.reason ? ` (${schedule.reason})` : ''}</li>
+        <li>Решения прошлых реплик: {stages.decision_context ? 'учитываются' : 'не учитываются'}</li>
+        {stages.schedule.enabled || stages.debounce.enabled
+          ? <li>Расчёт до начала ответа: {stages.estimated_wait_s} с. В тесте не ждали.</li>
+          : null}
+      </ul>
+    </details>
+  );
 }
 
 /**
@@ -80,11 +106,38 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
         <h2 id="preview-h" className="text-base font-semibold">
           Проверить персонажа
         </h2>
-        <Button variant="ghost" size="sm" onClick={chat.reset} disabled={!chat.messages.length || chat.busy}>
+        <Button variant="ghost" size="sm" onClick={chat.reset} disabled={!idle || recorder.recording}>
           Очистить
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Пробный ответ без отправки клиенту. Проверяются сохранённые настройки.</p>
+      <fieldset disabled={!idle || recorder.recording} className="space-y-2 rounded-lg border p-3 text-sm">
+        <legend className="px-1 font-medium">Этапы тестового ответа</legend>
+        <p className="text-xs text-muted-foreground">
+          Только этот чат. Расчёты не задерживают ответ; ожидание самой модели остаётся.
+          Отдельные агенты планирования здесь не запускаются.
+        </p>
+        {STAGE_SWITCHES.map(([key, label]) => (
+          <label key={key} className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={chat.stages[key]}
+              onChange={(e) => chat.setStages({ ...chat.stages, [key]: e.target.checked })}
+            />
+            {label}
+          </label>
+        ))}
+        <Button
+          type="button" variant="outline" size="sm"
+          onClick={() => chat.setStages(PROMPT_ONLY_STAGES)}
+        >
+          Основной промпт без контекста решений
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          История, факты о персонаже (включая распорядок), формат и контроль ответа остаются.
+          Сохранённые настройки и живые диалоги не меняются.
+        </p>
+      </fieldset>
 
       <div
         ref={log}
@@ -116,6 +169,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             )}
             <GuardBadge guard={m.guard} />
             {m.meta && <span className="text-[11px] text-muted-foreground">{m.meta}</span>}
+            {m.stages && <StageDiagnostics stages={m.stages} />}
             {m.decision != null && (
               <details className="max-w-full text-xs">
                 <summary className="cursor-pointer text-muted-foreground">Решение модели</summary>

@@ -5,7 +5,7 @@ import json
 
 from sim.domain.enums import ClientStatus, Delivery, Stage
 from sim.services import jobkinds
-from tests.conftest import decision_json, guard_json
+from tests.conftest import OWNER, decision_json, guard_json, login
 from tests.test_conversation import run_reply, start, state
 
 
@@ -75,3 +75,59 @@ async def test_preview_carries_forward_only_approved_context(container, world, f
         )
         assert second.reply == ""
         assert second.context == first.context
+
+
+async def test_test_chat_can_ignore_handoff_and_funnel_context_but_keeps_prompt_history_and_guard(
+    api, world, fake_llm,
+):
+    url = f"/api/personas/{world.persona.id}/preview"
+    headers = {"X-CSRF-Token": await login(api, OWNER[0])}
+    fake_llm.replies = [
+        decision_json(reply="Проверю", stage="engaged", needs=["новая цель"],
+                      handoff_to_operator=True, handoff_reason="Нужен специалист"),
+    ] * 2
+    body = {
+        "message": "Продолжим", "history": [{"role": "user", "text": "Ранее я спросил"}],
+        "stage": "engaged", "status": "paused", "needs": ["старая цель"],
+        "next_step": "старый план",
+    }
+    ordinary = await api.post(url, json=body, headers=headers)
+    assert ordinary.status_code == 200
+    assert ordinary.json()["context"]["status"] == "paused"
+
+    isolated = await api.post(url, json={**body, "stages": {"decision_context": False}}, headers=headers)
+    assert isolated.status_code == 200
+    result = isolated.json()
+    assert result["context"] == {
+        "stage": "first_contact", "status": "active", "needs": [], "next_step": "",
+    }
+    assert result["decision"]["handoff_to_operator"] is True
+    assert result["guard"]["verdict"] == "ok"
+    assert result["stages"]["decision_context"] is False
+    usual_prompt, isolated_prompt = (call[0] for call in fake_llm.gen_calls)
+    assert usual_prompt[0] == isolated_prompt[0]
+    assert "НЕОТКЛЮЧАЕМАЯ ГРАНИЦА ЧЕСТНОСТИ" in isolated_prompt[0]["content"]
+    assert "Ранее я спросил" in isolated_prompt[1]["content"]
+    assert "старый план" in usual_prompt[-1]["content"]
+    assert "старый план" not in isolated_prompt[-1]["content"]
+    assert len(fake_llm.guard_calls) == 2
+
+
+async def test_test_chat_switch_cannot_clear_refusal_or_disable_guard(api, world, fake_llm):
+    url = f"/api/personas/{world.persona.id}/preview"
+    headers = {"X-CSRF-Token": await login(api, OWNER[0])}
+    fake_llm.replies = [decision_json(reply="Хорошо, больше не пишу.", stop_contact=True)]
+    body = {"message": "Больше не пиши", "stages": {"decision_context": False}}
+    refused = await api.post(url, json=body, headers=headers)
+    assert refused.status_code == 200
+    assert refused.json()["context"]["status"] == "refused"
+
+    fake_llm.replies = [decision_json(reply="Черновик")] * 2
+    fake_llm.guard_replies = [guard_json("block", ["ошибка"])] * 2
+    blocked = await api.post(url, json={**body, "status": "refused"}, headers=headers)
+    assert blocked.status_code == 200
+    assert blocked.json()["reply"] == ""
+    assert blocked.json()["context"]["status"] == "refused"
+    assert blocked.json()["guard"]["verdict"] == "blocked"
+    invalid = await api.post(url, json={**body, "stages": {"guard": False}}, headers=headers)
+    assert invalid.status_code == 422

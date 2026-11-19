@@ -104,11 +104,19 @@ export interface GuardInfo {
 /** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
 export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
 export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
+export interface PreviewStageOptions { schedule: boolean; debounce: boolean; decision_context: boolean }
+export interface PreviewStageDiagnostics {
+  schedule: { enabled: boolean; wait_s: number; reason: string };
+  debounce: { enabled: boolean; wait_s: number };
+  estimated_wait_s: number;
+  decision_context: boolean;
+}
 export interface PreviewResponse {
   reply: string;
   decision: unknown;
   guard: GuardInfo | null;
   context?: PreviewContext;
+  stages?: PreviewStageDiagnostics;
   model: string;
   latency_ms: number;
   voice?: PreviewVoice | null;
