@@ -1,5 +1,14 @@
 # Sim
 
+### Live call startup retries
+
+While an incoming call is still ringing, SIM retries Broker Live startup at most once,
+and only for an explicitly classified connection timeout or connection refusal before
+it attempts to send `start`. Authorization, quota and budget refusals, unclassified
+connection failures, and ambiguous send or ready outcomes are not retried. This avoids
+duplicate starts; it does not prove a remote session has stopped or restore provider
+capacity. See the [live session retry boundary and CI coverage](docs/live-open-retry-boundary.md).
+
 ### Bounded video-note normalization
 
 The existing MP4-to-Telegram-circle encoder now rejects oversized/invalid inputs,

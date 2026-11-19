@@ -38,7 +38,11 @@ class LiveVoiceSummary:
 
 
 class LiveVoiceError(Exception):
-    """The broker refused or failed the session (no paid key, scope, cap, provider error)."""
+    """An open failure. Retry requires explicit proof that no start was attempted."""
+
+    def __init__(self, message: str, *, retry_safe: bool = False) -> None:
+        super().__init__(message)
+        self.retry_safe = retry_safe
 
 
 class LiveVoiceSession(Protocol):

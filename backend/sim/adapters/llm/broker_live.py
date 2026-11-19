@@ -36,7 +36,7 @@ LIVE_PATH = "/v1/live"
 USER_AGENT = "sim-live/1.0"          # Cloudflare in front of the Broker refuses a bare client
 CONNECT_TIMEOUT_S = 15.0
 # The Broker walks its keys while connecting to Google. A caller rarely waits longer than this,
-# and the call service retries a refusal once while the phone still rings.
+# only a classified transient connect failure may be retried before start.
 READY_TIMEOUT_S = 30.0
 DONE_TIMEOUT_S = 15.0
 _END = object()
@@ -177,8 +177,16 @@ class BrokerLiveVoice:
         try:
             ws = await self.connect(self.url, {"X-Project-Key": self.key})
         except Exception as exc:
-            raise LiveVoiceError(f"live: connect failed: {type(exc).__name__}: {exc}"[:300]) from exc
+            # No start has been attempted. Only concrete transient transport failures
+            # qualify; HTTP/auth errors and unknown exceptions fail closed.
+            retry_safe = isinstance(exc, (TimeoutError, ConnectionRefusedError))
+            raise LiveVoiceError(
+                f"live: connect failed: {type(exc).__name__}: {exc}"[:300],
+                retry_safe=retry_safe,
+            ) from exc
         try:
+            # Even a failed send can have reached the Broker. Never retry this phase
+            # without a broker-backed idempotency / no-session-created contract.
             await ws.send(json.dumps(start, ensure_ascii=False))
             first = json.loads(await asyncio.wait_for(ws.recv(), READY_TIMEOUT_S))
         except Exception as exc:
