@@ -44,6 +44,7 @@ FOLLOW_LIMIT = 100                    # per dialog per poll once a cursor exists
 SENT_LIMIT = 500
 PROFILE_PHOTO_LIMIT = 512 * 1024
 CALL_BRIDGE_RETRY_S = 30.0
+CALL_BRIDGE_PREFLIGHT_TIMEOUT_S = 5.0
 
 
 class ProfilePhotoBuffer(io.BytesIO):
@@ -156,6 +157,23 @@ class TelethonTransport:
     async def attach_calls(self, client: Any) -> None:
         """Voice attach must not discard the configured handler or break messaging."""
         assert self._on_call is not None
+
+        # Probe the two read-only Telegram operations used by the pinned native start.
+        # Do not use get_me(input_peer=True): it can return a cached entity.
+        try:
+            async with asyncio.timeout(CALL_BRIDGE_PREFLIGHT_TIMEOUT_S):
+                me = await client.get_me()
+                if me is None:
+                    self._call_retry_at = float("inf")
+                    return
+                await client.get_input_entity(me.id)
+        except Exception as exc:
+            retry = isinstance(exc, (ConnectionError, TimeoutError))
+            self._call_retry_at = self._clock() + CALL_BRIDGE_RETRY_S if retry else float("inf")
+            logger.warning("telegram_user call bridge preflight failed: %s; retry=%s",
+                           type(exc).__name__, retry)
+            return
+
         added: list[tuple[Any, Any]] | None = None
         try:
             before = client.list_event_handlers()
@@ -167,13 +185,15 @@ class TelethonTransport:
                 added = [pair for pair in client.list_event_handlers() if pair not in before]
             await bridge.start()
         except (Exception, asyncio.CancelledError) as exc:
+            # Native start can have registered binding callbacks before raising or
+            # being cancelled. Detach known raw subscriptions but never restart on
+            # this client: cleanup cannot establish that the binding is inactive.
+            self._call_retry_at = float("inf")
             clean = added is not None and self.detach_call_handlers(client, added)
-            retry = clean and isinstance(exc, (ConnectionError, TimeoutError, asyncio.CancelledError))
-            self._call_retry_at = self._clock() + CALL_BRIDGE_RETRY_S if retry else float("inf")
+            logger.warning("telegram_user native call bridge attach failed: %s; raw_cleanup=%s",
+                           type(exc).__name__, clean)
             if isinstance(exc, asyncio.CancelledError):
                 raise
-            logger.warning("telegram_user call bridge attach failed: %s; retry=%s",
-                           type(exc).__name__, retry)
             return
         self.calls = bridge
 
