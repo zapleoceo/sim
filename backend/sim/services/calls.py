@@ -66,7 +66,7 @@ from sim.services.conversation import ConversationService, history_turns, with_p
 from sim.services.dialog_state import apply_message
 from sim.services.followup import FollowupService
 from sim.services.guard import BLOCKED, GuardOutcome
-from sim.services.journal import CALL_ISSUE, CALL_STEPS, SYSTEM, CommunicationJournal
+from sim.services.journal import CALL_ENDED_WITH_ISSUE, CALL_ISSUE, CALL_STEPS, SYSTEM, CommunicationJournal
 from sim.services.persona_ambience import contextual_ambience
 from sim.services.prompt import Decision, Turn
 from sim.services.reengagement import eligible, signature
@@ -569,7 +569,7 @@ class CallService:
             if failure or any(t.cancel_reason for t in recorded):
                 header.error = failure or "context_changed"
                 await journal.record(
-                    dialog.id, CALL_ISSUE, new="Звонок завершён с технической проблемой",
+                    dialog.id, CALL_ISSUE, new=CALL_ENDED_WITH_ISSUE,
                     who=SYSTEM, reason="Часть ответа могла не прозвучать. Можно продолжить в чате.")
             return [m.id for m in rows]
 

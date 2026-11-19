@@ -289,14 +289,22 @@ async def test_reply_keeps_conversation_facts_and_sent_words_not_operational_aud
         assert (await s.get(Client, dialog.client_id)).passport == passport
 
 
-def test_known_operational_boilerplate_is_projected_out_before_memory_reuse():
-    line = "Передача оператору и ответ человека не подтверждены; медиа не отправлены."
-    fact = "Собеседник спросил, когда ему ответит оператор."
-    memo = f"{fact}\n- {line}"
+def test_operational_sentence_suffix_is_removed_without_losing_earlier_facts_or_headings():
+    tail = "Фактическая передача и ответ человека не подтверждены; фото и кружочек в диалоге не отправлены."
+    facts = ("Собеседник спросил, когда ему ответит оператор. "
+             "Персона предложила передать вопрос специалисту.")
+    heading = "Как общается: задаёт короткие вопросы."
+    memo = f"{facts} {tail}\n\n{heading}"
+    clean = f"{facts}\n\n{heading}"
     projected = dynamic_context(ctx("Synthetic", "r1", summary=memo, passport=memo), STRATEGY)
-    assert fact in projected and line not in projected
-    assert json.loads(passport_request("Synthetic", memo, [])[0]["content"])["passport"] == fact
-    assert json.loads(summary_request("Synthetic", memo, [])[0]["content"])["summary"] == fact
+    assert facts in projected and heading in projected and tail not in projected
+    assert json.loads(passport_request("Synthetic", memo, [])[0]["content"])["passport"] == clean
+    assert json.loads(summary_request("Synthetic", memo, [])[0]["content"])["summary"] == clean
+    marked = f"{facts}\n- {tail}"
+    assert json.loads(passport_request("Synthetic", marked, [])[0]["content"])["passport"] == facts
+    # Explicitly quoted participant words, rather than an unquoted audit sentence, are not removed.
+    quoted = f"Собеседник процитировал сообщение: «{tail}»"
+    assert json.loads(passport_request("Synthetic", quoted, [])[0]["content"])["passport"] == quoted
 
 
 # ---- the context window ----------------------------------------------------------------------

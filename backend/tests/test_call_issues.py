@@ -41,6 +41,22 @@ async def test_call_issue_stays_in_audit_but_out_of_model_context(container, wor
         assert "Не удалось начать голосовой разговор" not in prompt
 
 
+async def test_recent_answered_call_only_projects_the_conversation_fact(container, world):
+    did = await chatting_world(container, world)
+    now = container.clock()
+    await service(container, FakeLive()).record(did, await FakeSession().finish(), now,
+        turns=[], failure="synthetic_internal_transport_detail")
+    async with container.factory() as s:
+        journal = CommunicationJournal(s, clock=lambda: now)
+        (line,) = await journal.context_lines(did, now - timedelta(days=2))
+        assert line.endswith("В звонке часть ответа могла не прозвучать.")
+        assert "технической проблемой" not in line and "synthetic_internal" not in line
+        assert not await journal.context_lines(did + 1000, now - timedelta(days=2))
+        later = CommunicationJournal(s, clock=lambda: now + timedelta(hours=25))
+        assert not await later.context_lines(did, now - timedelta(days=2))
+        assert any(event.kind == CALL_ISSUE for event in await later.feed(did))
+
+
 async def test_provider_refusal_journals_without_pausing(container, world):
     did = await chatting_world(container, world)
     outcome = await service(container, FakeLive(error=LiveVoiceError("synthetic"))).handle(

@@ -56,7 +56,9 @@ facts or profile observation time. It does not freeze the entire conversation sn
 ContextWindow can drop messages at its configured age boundary; persona_media_tool.busy
 can change the media offer when gap_min expires. These intentional context changes may
 start a new generator job after previously accepted requests settle. An uncertain outcome
-still blocks submissions. Call incidents are audit-only; the real run_reply regression
-demonstrates that incident age no longer changes model input or re-purchases a generation.
+still blocks submissions. Raw call incidents are audit-only; the real run_reply regression
+checks that an audit-only incident does not change input or re-purchase a generation.
+Only a recent answered call may contribute the sanitized fact that some speech may not
+have played. Its expiry can still change the effective context, not the audit history.
 Thus this increment does not promise zero additional generation cost for every
 time-only restart. Guard always uses fresh time, including when generation is reused.

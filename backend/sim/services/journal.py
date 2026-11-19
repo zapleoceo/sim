@@ -54,6 +54,7 @@ AI_PAUSE = "ai_pause"
 REPLY_DELAY = "reply_delay"
 HANDOFF = "handoff"
 CALL_ISSUE = "call_issue"
+CALL_ENDED_WITH_ISSUE = "Звонок завершён с технической проблемой"
 CALL_STEPS = "call_steps"
 RESOLVED = "resolved"
 CHAT_CLEARED = "chat_cleared"
@@ -250,7 +251,14 @@ class CommunicationJournal:
         if wipes:
             events = events[wipes[-1] + 1:]
         lines = []
+        recent = self.clock() - timedelta(hours=24)
         for event in events:
+            if (event.kind == CALL_ISSUE and event.to_value == CALL_ENDED_WITH_ISSUE
+                    and event.created_at >= recent):
+                # The answered-call writer recorded that some speech might not have played.
+                # Do not import transport causes or claim a connection failed before answer.
+                lines.append(f"- {event.created_at:%Y-%m-%d %H:%M} В звонке часть ответа могла не прозвучать.")
+                continue
             if event.kind not in CONVERSATION_FACTS:
                 continue
             value = clip(conversational_memory(event.to_value), CONTEXT_VALUE_MAX)

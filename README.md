@@ -136,7 +136,7 @@ messages or changed instructions/settings invalidate it. The actual submitted pr
 keeps real time, and guard always checks the recovered draft against freshly computed
 trusted facts. A rejected stale draft is repaired through the normal guarded path.
 No canonical clock is sent to a model. Non-conversation calls retain exact-body identity.
-Reuse assumes unchanged effective context: history-window expiry or media cooldown expiry may intentionally require a fresh generation
+Reuse assumes unchanged effective context: history-window expiry, expiry of a recent answered-call fact, or media cooldown expiry may intentionally require a fresh generation
 after prior requests settle. This does not guarantee zero additional generation cost
 at these boundaries; uncertain requests still block resubmission. See the contract
 document for this distinction and the real-handler audit-only incident regression.
@@ -200,7 +200,9 @@ delivery-receipt rules are unchanged. CI uses fake streams only.
 
 The communication feed and terminal handoff audit are unchanged. Model context
 keeps only allowlisted conversation facts from journal events, with no raw actor
-or reason metadata. Actual delivered conversation remains intact. Known system
+or reason metadata. A recent answered call may contribute only the neutral fact
+that some speech may not have played; unconnected attempts and causes stay in
+audit. Actual delivered conversation remains intact. Known system
 boilerplate is projected out of derived passport/summary text without rewriting
 stored data. A rejected reply is regenerated from clean context and a bounded
 repair category, not a previous unapproved draft or free-form guard explanation.
