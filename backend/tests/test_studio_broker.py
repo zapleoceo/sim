@@ -98,6 +98,19 @@ async def test_submit_ignores_untrusted_poll_url_and_does_not_poll_automatically
         await broker.aclose()
 
 
+async def test_studio_speech_transport_pins_single_broker_submission():
+    stream = Stream([json.dumps({"audio_base64": base64.b64encode(wav_bytes()).decode(),
+                                "mime_type": "audio/wav"}).encode()])
+    broker, media, calls = adapter(stream)
+    try:
+        result = await media.synthesize("Synthetic", voice="Kore", workflow="studio")
+        assert result.audio == wav_bytes()
+        assert [(call.method, call.url.path) for call in calls] == [("POST", "/v1/speech")]
+        assert json.loads(calls[0].content)["model"] == "gemini/gemini-3.8-flash-tts"
+    finally:
+        await broker.aclose()
+
+
 async def test_redirect_is_refused_without_following_or_reading():
     stream = Stream([b"private"])
     broker, media, calls = adapter(stream, {"location": "https://evil.test"}, status=302)

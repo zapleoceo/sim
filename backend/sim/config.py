@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)
     # Private subscription studio: explicit account binding, disabled by default.
     studio_owner_telegram_id: int = 0
+    # Enable each billed route only after its owner, project grant and budget are confirmed.
+    studio_speech_enabled: bool = False
+    studio_video_enabled: bool = False
     studio_photo_filename: str = ""
     studio_video_filename: str = ""
 

@@ -382,17 +382,18 @@ creates a job or calls Broker; availability changes cannot automatically generat
 Migration 0038 preserves drafts and deletion revisions on downgrade. Unsaved edits remain
 memory-only; same-filename image replacement is not a reference-version change.
 
-Studio speech/video controls are intentionally disabled, with capability verification
-explicitly unknown. The dormant service uses existing Broker ports and a durable,
-encrypted operation journal; unresolved outcomes block retries, including new request IDs.
-No owner binding, provider grants, budget or media-recognition settings are activated.
+Private Studio speech and video use separate default-off switches, exact owner binding
+and pinned Broker models. Only an eligible configured route can be offered in the UI
+or admitted by the API. The current synchronous speech route cannot guarantee a single
+provider attempt, so speech stays unavailable. The encrypted operation journal blocks
+new requests after an unresolved outcome. Owner binding and provider grants are configured separately.
 See [Studio gates, recovery semantics and CI coverage](docs/studio.md).
 
 Studio hardening adds bounded response streams, WAV/MP4 container checks, owner-only
 operation history after reload and GET-only reconciliation of retained video job IDs.
 Lost video receipts and synchronous speech outcomes remain blocked: the reviewed Broker
-contract does not provide safe correlation for them. Generation/reconciliation stay
-hard-disabled; this is not permission or readiness to activate paid media routes.
+contract does not provide safe correlation for them. Video reconciliation can only read
+an existing job in the original Broker project; it cannot start another generation.
 
 # Summary integrity
 

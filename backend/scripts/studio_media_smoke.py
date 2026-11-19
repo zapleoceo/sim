@@ -32,7 +32,7 @@ async def studio_media_checks(url):
             return SpeechResult(wav_bytes(), "audio/wav")
 
     fake = FakeSpeech()
-    service = StudioMedia(factory, box, fake, None, enabled=True)
+    service = StudioMedia(factory, box, fake, None, enabled_kinds=frozenset({"speech"}))
     try:
         async with transaction(factory) as session:
             owner = AdminUser(role=Role.OWNER, display_name="Synthetic Studio owner")
@@ -44,7 +44,7 @@ async def studio_media_checks(url):
         try:
             await asyncio.wait_for(entered.wait(), 5)
             # Independent service/session sees committed intent while provider is blocked.
-            restarted = StudioMedia(factory, box, fake, None, enabled=True)
+            restarted = StudioMedia(factory, box, fake, None, enabled_kinds=frozenset({"speech"}))
             same = await asyncio.wait_for(restarted.execute(owner_id, request), 5)
             assert same.status == "unknown" and fake.calls == 1
             try:

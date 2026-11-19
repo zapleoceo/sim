@@ -12,6 +12,14 @@ from sim.adapters.llm.broker import BrokerLLM
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoError, VideoResult
 
+STUDIO_MODELS = {
+    "speech": "gemini/gemini-3.8-flash-tts",
+    "video": "gemini/gemini-omni-1.2-flash",
+}
+# The synchronous speech route can rotate paid keys after a provider timeout.
+# Keep it unavailable until Broker offers a single-attempt or durable dispatch contract.
+SAFE_GENERATION_KINDS = frozenset({"video"})
+
 
 class StudioBroker:
     def __init__(self, broker: BrokerLLM):
@@ -48,6 +56,27 @@ class StudioBroker:
             # Never include a provider body, private prompt or authorization in errors.
             raise VideoError("Studio Broker response unavailable or invalid; do not resubmit") from exc
 
+    async def listed_kinds(self, requested: frozenset[str]) -> frozenset[str]:
+        requested = requested & SAFE_GENERATION_KINDS
+        if not self.broker.key or not requested:
+            return frozenset()
+        try:
+            data = await self.request("GET", "/v1/models", 512 * 1024, seconds=8)
+        except VideoError:
+            return frozenset()
+        rows = data.get("data")
+        if not isinstance(rows, list):
+            return frozenset()
+        return frozenset(
+            kind for kind in requested
+            if any(isinstance(row, dict)
+                   and row.get("id") == STUDIO_MODELS[kind]
+                   and row.get("billing_type") == "api"
+                   and row.get("available") is not False
+                   and isinstance(row.get("capabilities"), list)
+                   and kind in row["capabilities"] for row in rows)
+        )
+
     @staticmethod
     def decode(data: dict, field: str, limit: int) -> bytes:
         value = data.get(field)
@@ -64,7 +93,8 @@ class StudioBroker:
     async def synthesize(self, text: str, *, voice: str, style: str = "", workflow=None):
         try:
             data = await self.request("POST", "/v1/speech", 3 * 1024 * 1024,
-                body={"text": text, "voice": voice, "style": style, "workflow": workflow}, seconds=95)
+                body={"text": text, "voice": voice, "style": style, "workflow": workflow,
+                      "model": STUDIO_MODELS["speech"]}, seconds=95)
             return SpeechResult(self.decode(data, "audio_base64", 2 * 1024 * 1024),
                                 str(data.get("mime_type", "")))
         except VideoError as exc:
@@ -73,7 +103,8 @@ class StudioBroker:
     async def submit_video(self, prompt: str) -> str:
         data = await self.request("POST", "/v1/video/jobs", 32 * 1024,
             body={"prompt": prompt, "duration_s": 4, "resolution": "720p",
-                  "aspect_ratio": "9:16", "workflow": "studio"})
+                  "aspect_ratio": "9:16", "workflow": "studio", "provider": "gemini",
+                  "model": STUDIO_MODELS["video"]})
         value = data.get("job_id")
         if type(value) is not int or not 0 < value < 2**63:
             raise VideoError("Invalid Studio remote receipt")

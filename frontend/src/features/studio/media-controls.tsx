@@ -32,7 +32,7 @@ export function MediaControls({ state }: { state: StudioState }) {
     }).catch(() => { if (active) setHistoryError(true); });
     return () => { active = false; };
   }, [state.personal_access]);
-  const allowed = historyReady && state.capabilities_verified === true &&
+  const allowed = state.personal_access === true && historyReady && state.capabilities_verified === true &&
     (kind === 'speech' ? state.speech_available === true : state.video_available === true);
 
   const remember = (next: StudioOperation) => {
@@ -68,7 +68,7 @@ export function MediaControls({ state }: { state: StudioState }) {
   };
 
   const reconcile = async () => {
-    if (!id || busy || !allowed) return;
+    if (!id || busy || !allowed || kind !== 'video' || result?.status !== 'unknown') return;
     setBusy(true);
     try {
       const next = await studioApi.reconcile(id);
@@ -82,8 +82,10 @@ export function MediaControls({ state }: { state: StudioState }) {
     <section aria-labelledby="studio-media-h" className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:p-5">
       <h2 id="studio-media-h" className="text-base font-semibold">Создать речь или видео</h2>
       <p className="text-sm text-muted-foreground">
-        Генерация выключена до проверки личного доступа, возможностей и лимитов Broker.
-        Подписочный чат не означает доступ к Google speech/video. Фото автоматически не передаётся.
+        {state.media_available
+          ? 'Генерация запускается по кнопке и может расходовать лимит Broker.'
+          : 'Генерация недоступна для текущих настроек Studio.'}
+        {' '}Подписочный чат не означает доступ к Google speech/video. Фото автоматически не передаётся.
       </p>
       <Field label="Тип результата">
         <select aria-label="Тип результата" value={kind} disabled={busy || !!id}
@@ -102,8 +104,11 @@ export function MediaControls({ state }: { state: StudioState }) {
       {id && <div className="flex flex-wrap items-center gap-2">
         <p className="break-all text-xs text-muted-foreground">Операция: {id}</p>
         <Button variant="outline" disabled={busy} onClick={() => void check(id)}>Проверить статус</Button>
-        {result?.status !== 'complete' && <Button variant="outline" disabled={busy || !allowed}
+        {kind === 'video' && result?.status === 'unknown' && <Button variant="outline" disabled={busy || !allowed}
           onClick={() => void reconcile()}>Сверить с Broker</Button>}
+        {result?.status === 'complete' && <Button variant="outline" disabled={busy} onClick={() => {
+          setId(null); setResult(null); setText(''); setNotice('');
+        }}>Новая операция</Button>}
       </div>}
       {historyError && <p role="alert">История операций недоступна. Генерация заблокирована; обновите страницу позже.</p>}
       {history.length > 0 && <details>

@@ -17,7 +17,7 @@ export interface StudioState {
   speech_available?: boolean;
   video_available?: boolean;
   capabilities_verified?: boolean;
-  media_status?: 'disabled';
+  media_status?: 'disabled' | 'available';
   personal_access?: boolean;
   draft_scope?: string | null;
   detail: string;

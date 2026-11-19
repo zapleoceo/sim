@@ -20,7 +20,9 @@ it('keeps media disabled without claiming a verified provider outage', async () 
 
 it('only reads status after an uncertain POST; keeps the draft and prevents another POST', async () => {
   const log = fakeApi({
-    'GET /api/studio': { ...state, speech_available: true, capabilities_verified: true },
+    'GET /api/studio': { ...state, personal_access: true, media_available: true,
+      speech_available: true, capabilities_verified: true },
+    'GET /api/studio/media': { operations: [] },
     'POST /api/studio/media': reply(502),
   });
   await renderApp('/studio');
@@ -32,6 +34,23 @@ it('only reads status after an uncertain POST; keeps the draft and prevents anot
   await userEvent.click(screen.getByRole('button', { name: 'Проверить статус' }));
   await waitFor(() => expect(screen.getByText(/Статус получить не удалось/)).toBeInTheDocument());
   expect(log.filter((request) => request.method === 'POST')).toHaveLength(1);
+});
+
+it('offers only the configured kind and waits for an explicit submit', async () => {
+  const log = fakeApi({
+    'GET /api/studio': { ...state, personal_access: true, media_available: true,
+      video_available: true, capabilities_verified: true },
+    'GET /api/studio/media': { operations: [] },
+  });
+  await renderApp('/studio');
+  const button = await screen.findByRole('button', { name: 'Создать медиа' });
+  expect(button).toBeDisabled();
+  await userEvent.selectOptions(screen.getByLabelText('Тип результата'), 'video');
+  await userEvent.type(screen.getByLabelText('Текст для генерации'), 'Synthetic');
+  expect(button).toBeEnabled();
+  expect(log.filter((request) => request.method === 'POST')).toHaveLength(0);
+  await userEvent.selectOptions(screen.getByLabelText('Тип результата'), 'speech');
+  expect(button).toBeDisabled();
 });
 
 it('restores an unknown operation after remount without another submission or automatic reconciliation', async () => {
