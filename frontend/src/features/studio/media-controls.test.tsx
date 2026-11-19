@@ -56,9 +56,10 @@ it('offers only the configured kind and waits for an explicit submit', async () 
 it('restores an unknown operation after remount without another submission or automatic reconciliation', async () => {
   const id = '00000000-0000-4000-8000-000000000001';
   const operation = { operation_id: id, kind: 'video', status: 'unknown', artifact_url: null };
+  const completed = { ...operation, operation_id: '00000000-0000-4000-8000-000000000003', status: 'complete' };
   const log = fakeApi({
     'GET /api/studio': { ...state, personal_access: true },
-    'GET /api/studio/media': { operations: [operation] },
+    'GET /api/studio/media': { operations: [operation, completed] },
     [`GET /api/studio/media/${id}`]: operation,
   });
   const first = await renderApp('/studio');
@@ -70,6 +71,9 @@ it('restores an unknown operation after remount without another submission or au
   expect(screen.getByRole('button', { name: 'Создать медиа' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Сверить с Broker' })).toBeDisabled();
   await userEvent.click(screen.getByRole('button', { name: 'Проверить статус' }));
+  await userEvent.click(screen.getByText('История операций · до 50 записей'));
+  await userEvent.click(screen.getByRole('button', { name: `Открыть ${completed.operation_id}` }));
+  expect(screen.getByRole('button', { name: 'Новая операция' })).toBeDisabled();
   expect(log.filter((request) => request.method === 'POST')).toHaveLength(0);
 });
 

@@ -34,6 +34,8 @@ export function MediaControls({ state }: { state: StudioState }) {
   }, [state.personal_access]);
   const allowed = state.personal_access === true && historyReady && state.capabilities_verified === true &&
     (kind === 'speech' ? state.speech_available === true : state.video_available === true);
+  const unresolved = history.some((operation) => operation.status === 'unknown');
+  const canGenerate = allowed && !busy && !id && !unresolved;
 
   const remember = (next: StudioOperation) => {
     setResult(next);
@@ -54,7 +56,7 @@ export function MediaControls({ state }: { state: StudioState }) {
   };
 
   const generate = async () => {
-    if (!allowed || busy || id || !text.trim()) return;
+    if (!canGenerate || !text.trim()) return;
     const nextId = crypto.randomUUID();
     setId(nextId);
     setBusy(true);
@@ -96,9 +98,9 @@ export function MediaControls({ state }: { state: StudioState }) {
       </Field>
       <Field label="Текст для генерации">
         <Textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={2000}
-          disabled={!allowed || busy || !!id} />
+          disabled={!canGenerate} />
       </Field>
-      <Button onClick={() => void generate()} disabled={!allowed || busy || !!id || !text.trim()}>
+      <Button onClick={() => void generate()} disabled={!canGenerate || !text.trim()}>
         {busy ? 'Ожидаем…' : 'Создать медиа'}
       </Button>
       {id && <div className="flex flex-wrap items-center gap-2">
@@ -106,7 +108,7 @@ export function MediaControls({ state }: { state: StudioState }) {
         <Button variant="outline" disabled={busy} onClick={() => void check(id)}>Проверить статус</Button>
         {kind === 'video' && result?.status === 'unknown' && <Button variant="outline" disabled={busy || !allowed}
           onClick={() => void reconcile()}>Сверить с Broker</Button>}
-        {result?.status === 'complete' && <Button variant="outline" disabled={busy} onClick={() => {
+        {result?.status === 'complete' && <Button variant="outline" disabled={busy || unresolved} onClick={() => {
           setId(null); setResult(null); setText(''); setNotice('');
         }}>Новая операция</Button>}
       </div>}

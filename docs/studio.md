@@ -94,7 +94,8 @@ Owner-bound GET history returns up to50 operations, unresolved first, without pr
 or encrypted payloads. History/status queries defer the large encrypted artifact column
 instead of loading it and merely hiding it at serialization. UI restores the pending ID after reload; local status checks are
 GET-only and remote reconciliation is a separate explicit video action. No localStorage is
-used. History failure keeps generation blocked; the server still fences all unknown IDs.
+used. History failure keeps generation blocked. Opening an older completed result does not
+unlock generation while another operation is unknown. The server still fences all unknown IDs.
 
 Before enabling a supported route, use an authoritative mapping to the existing owner
 account, and confirm the Broker project grant, eligible model/key and budget. With
