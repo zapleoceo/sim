@@ -90,7 +90,8 @@ async def test_stalled_loop_native_burst_schedules_one_bounded_drain(monkeypatch
     assert not box.pending and not box.scheduled
 
 
-async def test_native_install_replaces_frames_only_and_filters_non_mic(monkeypatch):
+@pytest.mark.parametrize("installable", [True, False])
+async def test_native_install_gates_dispatch_and_filters_non_mic(monkeypatch, installable):
     seen = []
     entered = asyncio.Event()
     monkeypatch.setattr(tg_calls, "MAX_NATIVE_PENDING_FRAMES", 2)
@@ -100,20 +101,33 @@ async def test_native_install_replaces_frames_only_and_filters_non_mic(monkeypat
             self.callback = None
 
         def on_frames(self, fn):
+            if self.callback is not None and not installable:
+                raise RuntimeError("synthetic native mailbox install failure")
             self.callback = fn
 
     class Calls:
         def __init__(self, client):
             self._binding = Binding()
             self.status_hook = None
+            self.native_ready = False
+
+            def predecessor(*args):
+                pytest.fail("unbounded predecessor called")
+
+            self.predecessor = predecessor
 
         def on_update(self):
             def register(fn):
+                assert self.native_ready
+                assert self._binding.callback is not None
+                assert self._binding.callback is not self.predecessor
                 self.status_hook = fn
             return register
 
         async def start(self):
-            self._binding.on_frames(lambda *args: pytest.fail("unbounded predecessor called"))
+            assert self.status_hook is None
+            self._binding.on_frames(self.predecessor)
+            self.native_ready = True
 
     class Update:
         Status = SimpleNamespace(INCOMING_CALL=1, DISCARDED_CALL=2)
@@ -134,6 +148,13 @@ async def test_native_install_replaces_frames_only_and_filters_non_mic(monkeypat
         await asyncio.Event().wait()
 
     bridge = tg_calls.TelegramCallBridge("fake", on_call, lib=lib)
+    if not installable:
+        with pytest.raises(RuntimeError, match="synthetic native mailbox install failure"):
+            await bridge.start()
+        assert bridge.calls.native_ready
+        assert bridge.calls.status_hook is None and not bridge.started and bridge.native_pcm is None
+        return
+
     await bridge.start()
     assert bridge.calls.status_hook == bridge.on_update
     await bridge.calls.status_hook(None, Update(42, Update.Status.INCOMING_CALL))

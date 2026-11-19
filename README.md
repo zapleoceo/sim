@@ -173,7 +173,8 @@ coalesces incoming mic PCM through one pending loop drain and up to 128 frames p
 bridge, not a coroutine per native batch. Its pinned single NTgCalls frame callback
 is voice-only: SIM has no other frame consumers and ignores non-mic/non-incoming
 frames as before. ChatStatus and other native callbacks are unchanged. Video would
-need an explicit second bounded route, not this mailbox. If the Broker
+need an explicit second bounded route, not this mailbox. SIM dispatch starts only
+after native startup and mailbox installation both succeed. If the Broker
 stream exceeds 128 pending events or 512 KiB of pending payload, SIM discards the
 undelivered backlog and ends the stream as a technical failure. It never drops
 individual model events and continues, because playback guard needs the matching
@@ -225,6 +226,20 @@ unrestricted LLM tool/RPC interface. Existing dialog history is the only chat hi
 supplied. CI uses synthetic profiles, photos, transports and model responses.
 Production activation requires choosing the intended existing channel; no new
 credentials are created. Private/unavailable fields are never reconstructed.
+
+### Telegram voice bridge attachment
+
+A transient timeout or connection failure during the read-only bridge preflight
+(get the logged-in Telegram user, resolve that user's own peer) does not erase the
+handler. Messaging remains available; the following eligible use after a 30-second
+cooldown retries the preflight. Successful attachment does not make recurring probes.
+The preflight timeout is 5 seconds. Authorization and unknown failures do not retry.
+
+A failure or cancellation after native construction starts is different: the binding
+may already have registered callbacks, and removing Telethon subscriptions only
+is not full cleanup. The client will not retry native startup in that case; reset
+the transport/worker after diagnosis. SIM subscribes to call events only after native
+startup returns successfully. CI uses fake clients, not real Telegram calls.
 
 ### Worker recovery
 

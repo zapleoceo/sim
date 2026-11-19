@@ -241,10 +241,11 @@ class TelegramCallBridge:
     async def start(self) -> None:
         if self.started:
             return
-        self.calls.on_update()(self.on_update)
+        # Neither partial native startup nor a failed mailbox install may dispatch a call.
         await self.calls.start()
         if self.use_native_mic_mailbox:
             self.install_native_mic_mailbox()
+        self.calls.on_update()(self.on_update)
         self.started = True
 
     def install_native_mic_mailbox(self) -> None:
