@@ -43,6 +43,7 @@ FIRST_SYNC_WINDOW = timedelta(hours=24)
 FOLLOW_LIMIT = 100                    # per dialog per poll once a cursor exists
 SENT_LIMIT = 500
 PROFILE_PHOTO_LIMIT = 512 * 1024
+CALL_BRIDGE_RETRY_S = 30.0
 
 
 class ProfilePhotoBuffer(io.BytesIO):
@@ -125,6 +126,7 @@ class TelethonTransport:
         self, client_factory: Callable[[], Any], on_new_message: Callable[[], None] | None = None,
         *, on_call: Callable[[Any], Awaitable[None]] | None = None,
         call_bridge: Callable[..., Any] = TelegramCallBridge,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._factory = client_factory
         self._client: Any | None = None
@@ -132,33 +134,60 @@ class TelethonTransport:
         self._on_new = on_new_message
         self._on_call = on_call
         self._call_bridge = call_bridge
+        self._clock = clock
+        self._call_retry_at = 0.0
         self.calls: Any | None = None
 
     async def ready(self) -> Any:
         async with self._connect_lock:
             if self._client is None:
                 self._client = self._factory()
+                self.calls = None
+                self._call_retry_at = 0.0
                 if self._on_new is not None:
                     self._client.add_event_handler(self.new_message, NewMessage(incoming=True))
             if not self._client.is_connected():
                 await self._client.connect()
-            if self._on_call is not None and self.calls is None:
+            if (self._on_call is not None and self.calls is None
+                    and self._clock() >= self._call_retry_at):
                 await self.attach_calls(self._client)
             return self._client
 
     async def attach_calls(self, client: Any) -> None:
-        """Voice calls ride the same client. A failure (no native library, an account that
-        cannot call) only disables calls: messaging must keep working."""
+        """Voice attach must not discard the configured handler or break messaging."""
         assert self._on_call is not None
+        added: list[tuple[Any, Any]] | None = None
         try:
-            bridge = self._call_bridge(client, self._on_call)
+            before = client.list_event_handlers()
+            try:
+                bridge = self._call_bridge(client, self._on_call)
+            finally:
+                # py-tgcalls 3.0.0 installs its Telethon Raw callback synchronously
+                # in construction. Track only those handlers, not later unrelated ones.
+                added = [pair for pair in client.list_event_handlers() if pair not in before]
             await bridge.start()
-        except Exception as exc:
-            logger.warning("telegram_user calls disabled: %s: %s", type(exc).__name__,
-                           str(exc)[:200])
-            self._on_call = None
+        except (Exception, asyncio.CancelledError) as exc:
+            clean = added is not None and self.detach_call_handlers(client, added)
+            retry = clean and isinstance(exc, (ConnectionError, TimeoutError, asyncio.CancelledError))
+            self._call_retry_at = self._clock() + CALL_BRIDGE_RETRY_S if retry else float("inf")
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            logger.warning("telegram_user call bridge attach failed: %s; retry=%s",
+                           type(exc).__name__, retry)
             return
         self.calls = bridge
+
+    @staticmethod
+    def detach_call_handlers(client: Any, added: list[tuple[Any, Any]]) -> bool:
+        if not added:
+            return True
+        try:
+            for callback, event in added:
+                client.remove_event_handler(callback, event)
+            remaining = client.list_event_handlers()
+            return all(pair not in remaining for pair in added)
+        except Exception:
+            return False
 
     async def new_message(self, event: Any) -> None:
         """Telethon NewMessage handler: only private chats with people wake the poll."""
