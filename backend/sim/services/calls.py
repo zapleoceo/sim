@@ -94,6 +94,7 @@ END_REASONS = {
     "caller_hung_up": "клиент положил трубку", "time_limit": "лимит длительности звонка",
     "no_summary": "голосовой сервис не прислал итог", "provider_error": "ошибка голосового сервиса",
     "transport_error": "оборвалась связь с голосовым сервисом",
+    "receive_backlog_overflow": "переполнена очередь голосового сервиса",
     "summary_timeout": "голосовой сервис не прислал итог вовремя",
     "provider_finish_failed": "не удалось закрыть голосовую сессию",
 }
@@ -282,7 +283,10 @@ class CallService:
             except Exception:
                 log.exception("call hangup failed dialog=%s", plan.dialog_id)
                 playback.failure = playback.failure or "transport_hangup_failed"
-        if summary.end_reason in {"no_summary", "provider_error", "transport_error", "summary_timeout"}:
+        if summary.end_reason in {
+            "no_summary", "provider_error", "transport_error", "summary_timeout",
+            "receive_backlog_overflow",
+        }:
             playback.failure = playback.failure or summary.end_reason
         ending = END_REASONS.get(summary.end_reason, summary.end_reason or "причина не передана")
         trace.step("ended", f"Звонок окончен, {clock_text(summary.duration_s)}: {ending}"
