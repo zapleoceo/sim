@@ -1022,6 +1022,12 @@ class FakeTelethonClient:
     async def connect(self) -> None:
         self.connected = True
 
+    async def get_me(self):
+        return SimpleNamespace(id=1)
+
+    async def get_input_entity(self, user_id):
+        return SimpleNamespace(user_id=user_id)
+
 
 async def test_transport_attaches_the_call_bridge_once_and_survives_its_failure():
     made: list = []
@@ -1075,11 +1081,27 @@ async def test_call_bridge_only_subscribes_sim_after_native_start():
     assert not bridge.started and bridge.calls.handler is None
 
 
-async def test_transient_call_bridge_attach_retries_without_duplicating_native_handlers():
+@pytest.mark.parametrize("failing_step", ["get_me", "resolve_peer"])
+async def test_transient_call_bridge_preflight_is_retried_before_native_start(failing_step):
     now = 100.0
-    client = FakeTelethonClient()
+    probes = []
     native_event = object()
     attached = []
+
+    class Client(FakeTelethonClient):
+        async def get_me(self):
+            probes.append("get_me")
+            if failing_step == "get_me" and probes.count("get_me") == 1:
+                raise ConnectionResetError("fake reset")
+            return await super().get_me()
+
+        async def get_input_entity(self, user_id):
+            probes.append("resolve_peer")
+            if failing_step == "resolve_peer" and probes.count("resolve_peer") == 1:
+                raise TimeoutError()
+            return await super().get_input_entity(user_id)
+
+    client = Client()
 
     class Bridge:
         def __init__(self, client, on_call) -> None:
@@ -1091,8 +1113,7 @@ async def test_transient_call_bridge_attach_retries_without_duplicating_native_h
             await self.on_call(event)
 
         async def start(self) -> None:
-            if len(attached) == 1:
-                raise ConnectionResetError("fake reset")
+            return None
 
     seen = []
 
@@ -1107,21 +1128,25 @@ async def test_transient_call_bridge_attach_retries_without_duplicating_native_h
     assert messaging_subscription[0] == transport.new_message
     now += CALL_BRIDGE_RETRY_S - 1
     await transport.ready()
-    assert len(attached) == 1
+    assert not attached and probes.count("get_me") == 1
     now += 1
     assert await asyncio.gather(transport.ready(), transport.ready()) == [client, client]
-    assert len(attached) == 2 and transport.calls is attached[-1]
+    assert len(attached) == 1 and transport.calls is attached[0]
+    assert probes.count("get_me") == 2
     assert client.list_event_handlers() == [messaging_subscription, (attached[-1].raw, native_event)]
     await client.list_event_handlers()[-1][0]("synthetic ring")
     assert seen == ["synthetic ring"]
 
 
-async def test_cancelled_bridge_start_does_not_leave_a_subscription():
+async def test_cancelled_native_start_detaches_subscription_and_does_not_retry():
     started = asyncio.Event()
     client = FakeTelethonClient()
+    now = 100.0
+    attached = []
 
     class Bridge:
         def __init__(self, client, on_call) -> None:
+            attached.append(self)
             client.add_event_handler(on_call, object())
 
         async def start(self) -> None:
@@ -1131,18 +1156,26 @@ async def test_cancelled_bridge_start_does_not_leave_a_subscription():
     async def on_call(call):
         return None
 
-    transport = TelethonTransport(lambda: client, on_call=on_call, call_bridge=Bridge)
+    transport = TelethonTransport(lambda: client, on_call=on_call, call_bridge=Bridge,
+                                  clock=lambda: now)
     ready = asyncio.create_task(transport.ready())
     await asyncio.wait_for(started.wait(), 1)
     ready.cancel()
     with pytest.raises(asyncio.CancelledError):
         await ready
     assert transport.calls is None and not client.list_event_handlers()
+    now += 2 * CALL_BRIDGE_RETRY_S
+    assert await transport.ready() is client
+    assert len(attached) == 1
 
 
-async def test_failed_call_bridge_cleanup_keeps_messaging_but_blocks_retry():
+@pytest.mark.parametrize("error", [TimeoutError, ConnectionResetError])
+@pytest.mark.parametrize("can_detach", [True, False])
+async def test_late_native_start_failure_never_retries(error, can_detach):
     class Client(FakeTelethonClient):
         def remove_event_handler(self, handler, event) -> int:
+            if can_detach:
+                return super().remove_event_handler(handler, event)
             return 0
 
     now = 100.0
@@ -1155,7 +1188,8 @@ async def test_failed_call_bridge_cleanup_keeps_messaging_but_blocks_retry():
             client.add_event_handler(on_call, object())
 
         async def start(self) -> None:
-            raise TimeoutError()
+            self.binding_registered = True  # removing Raw does not undo this side effect
+            raise error()
 
     async def on_call(call):
         return None
@@ -1164,7 +1198,32 @@ async def test_failed_call_bridge_cleanup_keeps_messaging_but_blocks_retry():
     assert await transport.ready() is client
     now += 2 * CALL_BRIDGE_RETRY_S
     assert await transport.ready() is client
-    assert len(made) == 1 and transport.calls is None
+    assert len(made) == 1 and made[0].binding_registered and transport.calls is None
+    assert bool(client.list_event_handlers()) is not can_detach
+
+
+async def test_unauthorized_call_bridge_preflight_does_not_create_or_retry():
+    now = 100.0
+    probes = []
+
+    class Client(FakeTelethonClient):
+        async def get_me(self):
+            probes.append("unauthorized")
+            return None
+
+    client = Client()
+
+    def bridge(*args):
+        pytest.fail("native bridge created on an unauthorized client")
+
+    async def on_call(call):
+        return None
+
+    transport = TelethonTransport(lambda: client, on_call=on_call, call_bridge=bridge, clock=lambda: now)
+    assert await transport.ready() is client
+    now += 2 * CALL_BRIDGE_RETRY_S
+    assert await transport.ready() is client
+    assert probes == ["unauthorized"]
 
 
 async def test_connector_routes_calls_of_its_channel_to_the_worker_handler():
