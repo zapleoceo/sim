@@ -213,6 +213,26 @@ instead of silently saving a prefix. The previous complete passport and update t
 remain intact; the existing job retry policy handles the failure. This does not restore
 historical text already lost, or remove the documented context size bounds.
 
+### Prepared Telegram MP4 transport
+
+Telegram user accounts expose a dormant port for one prepared MP4. It checks
+size and bounded MP4 container structure before resolving the exact private-user
+entity. It uses one throttled upload invocation with a literal caption and
+requires a positive message ID as transport acknowledgement. Durable SendReceipts
+remain separate. This is structural validation,
+not codec or playback verification. The adapter does not replay uncertain
+uploads or replace video with a text send; it does not change Telethon's own
+transport handling.
+
+Ordinary gallery video still cannot be delivered by SIM. This port is not wired to
+outbound, gallery selection, Studio or generation.
+A future caller must resolve owner-uploaded PersonaMedia for the correct persona
+through the local MediaStore, enforce recipient consent and existing pause/
+refusal guards, obtain SendReceipts before mutation, and fail closed on missing
+or unsupported video rather than using the ordinary text fallback. Any future
+paid generation also needs durable pre-submit intent and remote-ID reconciliation.
+CI uses only fake Telegram clients and synthetic MP4 boxes.
+
 ### Current-contact profile and requested media
 
 Owner settings `media_priority_telegram_ids` (empty by default) prefer permissible
