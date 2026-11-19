@@ -9,6 +9,7 @@ from alembic import command
 from sqlalchemy import select
 
 from sim.adapters.db.models import Dialog, Job, Persona
+from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.domain.enums import ChannelKind
 from sim.services import jobkinds
@@ -25,6 +26,7 @@ from sim.services.reply_schedule import (
     URGENT_WORDS,
     WORK,
     WRITING,
+    WRITING_UNCERTAIN,
     Incoming,
     Plan,
     ScheduleRules,
@@ -294,7 +296,8 @@ def test_the_card_names_why_any_planned_reply_waits():
     assert plan_reason(job(), {"pause": True}, "UTC", now) == AFTER_PAUSE
     assert plan_reason(job(), work, "UTC", now) == "на работе: консультации до 13:00 (распорядок: UTC)"
     assert plan_reason(job(run_at=now), work, "UTC", now) == DUE
-    assert plan_reason(job(status="running"), work, "UTC", now) == WRITING
+    assert plan_reason(job(status="running", locked_until=now + timedelta(seconds=1)), work, "UTC", now) == WRITING
+    assert plan_reason(job(status="running"), work, "UTC", now) == WRITING_UNCERTAIN
     retry = job(attempts=2, last_error="LLMError: chat:sales job 1 still pending after budget")
     assert plan_reason(retry, {"pause": True}, "UTC", now) == (
         "повтор после ошибки, попытка 3 из 5: LLMError: chat:sales job 1 still pending after budget; "
@@ -308,6 +311,58 @@ async def test_the_card_shows_a_reply_planned_without_a_routine_delay(api, conta
     await login(api, *OWNER)
     plan = (await api.get(f"/api/dialogs/{await dialog_id_of(container)}")).json()["dialog"]["reply_plan"]
     assert plan["reason"] == DEBOUNCE and plan["cls"] == "" and plan["writing"] is False
+
+
+async def test_reply_plan_phase_reflects_current_queue_without_changing_leases(api, container, world):
+    now = fri(15)
+    at_clock(container, now)
+    await ingest(container, world.channel.id, inbound("Synthetic question", at=now))
+    dialog_id = await dialog_id_of(container)
+    await login(api, *OWNER)
+
+    async def state():
+        response = await api.get(f"/api/dialogs/{dialog_id}")
+        assert response.status_code == 200
+        return response.json()["dialog"]["reply_plan"]
+
+    queued = await state()
+    assert queued["phase"] == "queued" and queued["writing"] is False
+    # Model the worker claim without running a handler.
+    until = now + timedelta(seconds=90)
+    original = await reply_job(container)
+    async with transaction(container.factory) as s:
+        job = await s.get(Job, original.id)
+        job.status, job.attempts, job.locked_until = "running", 1, until
+    writing = await state()
+    assert writing["phase"] == "writing" and writing["writing"] is True
+    assert writing["at"] == queued["at"] and writing["reason"] == WRITING
+
+    at_clock(container, until + timedelta(seconds=1))
+    recovering = await state()
+    assert recovering["phase"] == "running_or_recovering" and recovering["writing"] is True
+    assert recovering["reason"] == WRITING_UNCERTAIN and recovering["at"] == writing["at"]
+    retained = await reply_job(container)
+    assert (retained.status, retained.attempts, retained.locked_until) == ("running", 1, until)
+
+    async with transaction(container.factory) as s:
+        (await s.get(Job, original.id)).locked_until = None
+    assert (await state())["phase"] == "running_or_recovering"
+
+    # A genuine pending sibling is selected; GET does not reschedule either row.
+    due = until + timedelta(minutes=10)
+    key = jobkinds.reply_key(dialog_id)
+    async with transaction(container.factory) as s:
+        sibling = await JobRepo(s).enqueue(jobkinds.REPLY, {"dialog_id": dialog_id}, due, dedup_key=key)
+        sibling_id = sibling.id
+    selected = await state()
+    assert selected["phase"] == "queued" and selected["writing"] is False
+    assert selected["at"] == f"{due.isoformat()}Z"
+    async with transaction(container.factory) as s:
+        job, sibling = await s.get(Job, original.id), await s.get(Job, sibling_id)
+        assert (job.status, job.attempts, job.locked_until) == ("running", 1, None)
+        assert (sibling.status, sibling.attempts, sibling.run_at) == ("pending", 0, due)
+        job.status, sibling.status = "done", "done"
+    assert await state() is None
 
 
 def test_owner_accounts_are_private_telegram_chats_with_a_listed_id():
@@ -343,7 +398,7 @@ async def test_dialog_card_shows_the_plan_and_reply_now_releases_it(api, contain
     dialog = (await api.get(f"/api/dialogs/{dialog_id}")).json()["dialog"]
     assert dialog["urgent"] is False
     assert dialog["reply_plan"] == {
-        "at": dialog["reply_plan"]["at"], "cls": WORK, "urgent": None, "writing": False,
+        "at": dialog["reply_plan"]["at"], "cls": WORK, "urgent": None, "writing": False, "phase": "queued",
         "reason": "на работе: консультации с клиентами до 13:00 (распорядок: UTC)",
     }
     assert dialog["reply_plan"]["at"].startswith("2026-11-13T09:40")

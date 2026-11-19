@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { DialogDetail } from '@/lib/models';
+import type { DialogDetail, ReplyPlan } from '@/lib/models';
 import { ConversationState } from './conversation-state';
 
 const detail = { dialog: { id: 1, ai_paused: true, needs_operator: true,
@@ -29,4 +29,33 @@ it('operator requirement alone never claims that AI is paused', () => {
   render(<ConversationState detail={{ ...detail, dialog: { ...detail.dialog, ai_paused: false } }} onToggleAi={vi.fn()} onResolve={vi.fn()} />);
   expect(screen.getByRole('status')).toHaveTextContent('Нужен ответ оператора · ИИ включён');
   expect(screen.queryByText('ИИ выключен')).not.toBeInTheDocument();
+});
+
+
+it('distinguishes fresh writing, uncertain recovery, queued work, and completion after refresh', async () => {
+  const onReplyNow = vi.fn();
+  const plan = (phase: NonNullable<ReplyPlan['phase']>, writing: boolean): ReplyPlan => ({
+    at: '2026-11-16T09:47:00Z', reason: 'Synthetic detail', cls: '', urgent: null, phase, writing,
+  });
+  const view = (reply_plan: ReplyPlan | null) => <ConversationState
+    detail={{ ...detail, dialog: { ...detail.dialog, ai_paused: false, needs_operator: false,
+      reengagement_plan: null, reply_plan } }}
+    onToggleAi={vi.fn()} onResolve={vi.fn()} onReplyNow={onReplyNow}
+  />;
+  const { container, rerender } = render(view(plan('writing', true)));
+  expect(screen.getByRole('status')).toHaveTextContent('Пишет ответ');
+  await userEvent.click(container.querySelector('summary')!);
+
+  rerender(view(plan('running_or_recovering', true)));
+  expect(screen.getByRole('status')).toHaveTextContent('Ответ готовится или ожидает восстановления');
+  expect(screen.queryByText('Пишет ответ')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Ответить сейчас' })).not.toBeInTheDocument();
+
+  rerender(view(plan('queued', false)));
+  expect(screen.getByRole('status')).toHaveTextContent('Ответ запланирован');
+  expect(screen.getByRole('button', { name: 'Ответить сейчас' })).toBeVisible();
+  expect(onReplyNow).not.toHaveBeenCalled();
+
+  rerender(view(null));
+  expect(screen.getByRole('status')).toHaveTextContent('ИИ включён');
 });

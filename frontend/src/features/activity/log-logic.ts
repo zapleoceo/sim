@@ -1,6 +1,6 @@
 import type { QueryValue } from '@/lib/api/http';
 import { localInputToIso } from '@/lib/format';
-import type { TraceKind, TraceSortField, TraceStatus, TraceTimelineStep } from '@/lib/trace-models';
+import type { TraceKind, TraceSortField, TraceStatus, TraceStep, TraceTimelineStep } from '@/lib/trace-models';
 
 export const KIND_LABELS: Record<TraceKind, string> = {
   http: 'Запрос API',
@@ -36,6 +36,14 @@ export const STATUS_LABELS: Record<TraceStatus, string> = {
   warning: 'Предупреждение',
 };
 export const STATUSES = Object.keys(STATUS_LABELS) as TraceStatus[];
+
+/** A clean worker exit is not a delivered reply. Keep the server status for filtering. */
+export function replyStepOutcomeLabel(step: Pick<TraceStep, 'kind' | 'name' | 'status' | 'detail'>): string | null {
+  if (step.kind !== 'job' || step.name !== 'reply' || step.status !== 'ok') return null;
+  if (step.detail?.outcome === 'busy') return 'Отложено: уже готовится другой ответ';
+  if (step.detail?.outcome === 'superseded') return 'Черновик устарел, не отправлен';
+  return null;
+}
 
 /** Column filters; text inputs keep raw strings until serialized. */
 export interface LogFilters {

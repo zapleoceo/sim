@@ -110,7 +110,7 @@ function StepItem({ step, total, selected = false }: { step: TraceTimelineStep; 
       <div className="flex flex-wrap items-center gap-2">
         <KindBadge kind={step.kind} />
         <span className="min-w-0 flex-1 font-medium [overflow-wrap:anywhere]">{step.name}</span>
-        <StatusBadge status={step.status} />
+        <StatusBadge status={step.status} step={step} />
       </div>
       <div className="relative h-1.5 w-full rounded-full bg-muted" aria-hidden>
         <div

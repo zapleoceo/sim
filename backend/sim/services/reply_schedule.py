@@ -24,7 +24,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,18 +171,28 @@ def reason_text(delay: Mapping[str, Any], tz: str) -> str:
 
 
 WRITING = "персонаж пишет ответ сейчас"
+WRITING_UNCERTAIN = "ответ ещё готовится или ожидает восстановления; отправка не подтверждена"
 DUE = "в очереди: ответ начнёт писаться в ближайшие секунды"
 DEBOUNCE = "пауза перед ответом: ждёт, не допишет ли собеседник ещё"
 AFTER_PAUSE = "после снятия паузы ИИ"
 ERROR_MAX = 160
 
 
+def reply_phase(job: Job, now: datetime) -> Literal["queued", "writing", "running_or_recovering"]:
+    """Read-only projection of the selected queue row; lease is not a worker heartbeat."""
+    if job.status != "running":
+        return "queued"
+    if job.locked_until is None or job.locked_until < now:
+        return "running_or_recovering"
+    return "writing"
+
+
 def plan_reason(job: Job, delay: Mapping[str, Any], tz: str, now: datetime) -> str:
-    """Why the planned reply waits, for the dialog card: a model call is running now, a retry
-    after a failed attempt (with the error), her routine, an AI pause, or the plain debounce."""
-    if job.status == "running":
-        if job.locked_until is not None and job.locked_until < now:
-            return "ответ ещё готовится или ожидает восстановления; отправка не подтверждена"
+    """Why the selected reply waits, including a claimed job with uncertain current activity."""
+    phase = reply_phase(job, now)
+    if phase == "running_or_recovering":
+        return WRITING_UNCERTAIN
+    if phase == "writing":
         return WRITING
     parts = []
     if job.attempts and job.last_error:
@@ -326,6 +336,9 @@ class ReplyScheduler:
         delay = dict(job.payload or {}).get("delay") or {}
         persona = await self.personas.get(dialog.client.persona_id)
         tz = persona.timezone if persona is not None else ""
-        return {"at": job.run_at, "reason": plan_reason(job, delay, tz, self.clock()),
+        now = self.clock()
+        return {"at": job.run_at, "reason": plan_reason(job, delay, tz, now),
                 "cls": delay.get("cls", ""), "urgent": delay.get("urgent"),
+                "phase": reply_phase(job, now),
+                # Preserve legacy running and the manual Reply Now affordance.
                 "writing": job.status == "running"}
