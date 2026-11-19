@@ -1,7 +1,7 @@
 import { useCallback, useReducer, useRef } from 'react';
 import { personasApi } from '@/lib/api/personas';
 import { errorDetail, errorMessage } from '@/lib/errors';
-import type { GuardInfo, PreviewAttachment, PreviewContext, PreviewResponse, PreviewTurn, PreviewVoice } from '@/lib/models';
+import type { GuardInfo, PreviewAttachment, PreviewContext, PreviewResponse, PreviewStageDiagnostics, PreviewStageOptions, PreviewTurn, PreviewVoice } from '@/lib/models';
 
 export interface PreviewMsg {
   role: 'user' | 'assistant';
@@ -10,6 +10,7 @@ export interface PreviewMsg {
   meta?: string;
   decision?: unknown;
   guard?: GuardInfo | null;
+  stages?: PreviewStageDiagnostics;
   /** The client's voice note or file, shown above the text. */
   attachment?: PreviewAttachment;
   /** The persona's voice note. */
@@ -23,6 +24,7 @@ export interface PreviewFailure { text: string; history: PreviewTurn[]; error: s
 export interface PreviewState {
   messages: PreviewMsg[];
   context: PreviewContext;
+  stages: PreviewStageOptions;
   busy: boolean;
   /** A voice note or file is being recognized by the Broker. */
   uploading: boolean;
@@ -37,10 +39,14 @@ export type PreviewAction =
   | { type: 'retry' }
   | { type: 'upload' }
   | { type: 'upload-fail'; error: string }
+  | { type: 'stages'; stages: PreviewStageOptions }
   | { type: 'reset' };
+
+export const PROMPT_ONLY_STAGES: PreviewStageOptions = { schedule: false, debounce: false, decision_context: false };
 
 export const INITIAL_PREVIEW: PreviewState = {
   messages: [], context: { stage: "first_contact", status: "active", needs: [], next_step: "" },
+  stages: { ...PROMPT_ONLY_STAGES, decision_context: true },
   busy: false, uploading: false, failure: null, uploadError: null,
 };
 
@@ -52,7 +58,7 @@ export function historyOf(messages: readonly PreviewMsg[]): PreviewTurn[] {
 export function replyMessage(r: PreviewResponse): PreviewMsg {
   return {
     role: 'assistant', text: r.reply, meta: `${r.model} · ${r.latency_ms} мс`, decision: r.decision, guard: r.guard,
-    voice: r.voice ?? null,
+    voice: r.voice ?? null, stages: r.stages,
   };
 }
 
@@ -77,6 +83,7 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
         // A new message replaces an unanswered (failed) one.
         messages: [...state.messages.filter((m) => !m.failed), msg],
         context: state.context,
+        stages: state.stages,
         busy: true,
         uploading: false,
         failure: null,
@@ -102,8 +109,10 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
       return { ...state, uploading: true, uploadError: null };
     case 'upload-fail':
       return { ...state, uploading: false, uploadError: action.error };
+    case 'stages':
+      return isIdle(state) ? { ...state, stages: action.stages } : state;
     case 'reset':
-      return INITIAL_PREVIEW;
+      return isIdle(state) ? INITIAL_PREVIEW : state;
   }
 }
 
@@ -121,7 +130,8 @@ export function usePreviewChat(personaId: number) {
   const run = useCallback(
     async (text: string, history: PreviewTurn[], voiceInput: boolean) => {
       try {
-        const reply = await personasApi.preview(personaId, text, history, voiceInput, stateRef.current.context);
+        const { context, stages } = stateRef.current;
+        const reply = await personasApi.preview(personaId, text, history, voiceInput, context, stages);
         dispatch({ type: 'success', reply });
       } catch (e) {
         console.error('[preview]', e);
@@ -174,5 +184,7 @@ export function usePreviewChat(personaId: number) {
 
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);
 
-  return { ...state, send, sendFile, retry, reset };
+  const setStages = useCallback((stages: PreviewStageOptions) => dispatch({ type: 'stages', stages }), []);
+
+  return { ...state, send, sendFile, retry, reset, setStages };
 }
