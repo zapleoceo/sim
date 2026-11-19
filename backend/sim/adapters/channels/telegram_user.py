@@ -32,6 +32,7 @@ from sim.adapters.channels.tg_calls import TelegramCallBridge
 from sim.clock import utcnow
 from sim.domain.enums import ChannelKind, SessionStatus
 from sim.ports.channel import InboundMessage, SendResult
+from sim.services.studio_files import valid_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ FIRST_SYNC_WINDOW = timedelta(hours=24)
 FOLLOW_LIMIT = 100                    # per dialog per poll once a cursor exists
 SENT_LIMIT = 500
 PROFILE_PHOTO_LIMIT = 512 * 1024
+MAX_TELEGRAM_USER_ID = (1 << 63) - 1
 CALL_BRIDGE_RETRY_S = 30.0
 CALL_BRIDGE_PREFLIGHT_TIMEOUT_S = 5.0
 
@@ -113,6 +115,10 @@ class TGUserState:
         self.sent[external_id] = None
         while len(self.sent) > SENT_LIMIT:
             self.sent.popitem(last=False)
+
+
+class InvalidPreparedVideoPeer(Exception):
+    """The resolved destination is not the requested private Telegram user."""
 
 
 class TelethonTransport:
@@ -278,6 +284,23 @@ class TelethonTransport:
         sent = await client.send_message(await self.entity(client, peer_id), text)
         return int(sent.id)
 
+    async def send_video(self, peer_id: int, data: bytes, caption: str) -> int:
+        """One prepared MP4 upload to the exact resolved private-user entity."""
+        client = await self.ready()
+        peer = await self.entity(client, peer_id)
+        if not isinstance(peer, tl_types.InputPeerUser) or peer.user_id != peer_id:
+            raise InvalidPreparedVideoPeer()
+        with io.BytesIO(data) as file:
+            file.name = "video.mp4"
+            sent = await client.send_file(
+                peer, file, caption=caption[:1000], parse_mode=None, mime_type="video/mp4",
+                force_document=False, supports_streaming=True,
+            )
+        message_id = int(sent.id)
+        if message_id <= 0:
+            raise ValueError("invalid Telegram message receipt")
+        return message_id
+
     async def send_voice(self, peer_id: int, audio: bytes, duration_s: float | None) -> int:
         """An OGG/Opus voice note (voice_note=True: shown as a voice bubble, not a file)."""
         from telethon.tl.types import DocumentAttributeAudio  # noqa: PLC0415
@@ -346,7 +369,7 @@ class TelegramUserAdapter:
     kind: ChannelKind = ChannelKind.TELEGRAM_USER
     capabilities = frozenset({
         Capability.DOWNLOAD_MEDIA, Capability.SEND_VOICE, Capability.SEND_ATTACHMENT,
-        Capability.SEND_PHOTO, Capability.SEND_VIDEO_NOTE, Capability.CHAT_ACTION,
+        Capability.SEND_PHOTO, Capability.SEND_VIDEO, Capability.SEND_VIDEO_NOTE, Capability.CHAT_ACTION,
         Capability.MARK_READ, Capability.ACCEPT_CALL,
         Capability.READ_CONTACT_PROFILE,
     })
@@ -582,6 +605,34 @@ class TelegramUserAdapter:
                               error=f"flood_wait:{int(getattr(exc, 'seconds', 0) or 0)}")
         except Exception as exc:
             return SendResult(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        ext = f"{peer}:{mid}"
+        self.s.remember_sent(ext)
+        return SendResult(ok=True, external_message_id=ext)
+
+    async def send_video(
+        self, external_thread_id: str, data: bytes, caption: str,
+    ) -> SendResult:
+        """Prepared MP4 transport. Only a consent- and receipt-gated caller may invoke it."""
+        if (not 1 <= len(external_thread_id) <= 19 or not external_thread_id.isascii()
+                or not external_thread_id.isdecimal()):
+            return SendResult(ok=False, error="private contact required")
+        peer = int(external_thread_id)
+        if not 0 < peer <= MAX_TELEGRAM_USER_ID or peer == SERVICE_USER_ID:
+            return SendResult(ok=False, error="private contact required")
+        if not data or len(data) > MEDIA_MAX_BYTES:
+            return SendResult(ok=False, error="video size invalid")
+        if not valid_artifact(data, "video/mp4", "video"):
+            return SendResult(ok=False, error="prepared MP4 required")
+        try:
+            mid = await self.throttled(lambda: self.t.send_video(peer, data, caption))
+        except InvalidPreparedVideoPeer:
+            return SendResult(ok=False, error="private contact required")
+        except tg_errors.FloodWaitError as exc:
+            return SendResult(ok=False,
+                              error=f"flood_wait:{int(getattr(exc, 'seconds', 0) or 0)}")
+        except Exception as exc:
+            # The upload/mutation may have reached Telegram. Never replay or send text.
+            return SendResult(ok=False, error=f"video send uncertain: {type(exc).__name__}")
         ext = f"{peer}:{mid}"
         self.s.remember_sent(ext)
         return SendResult(ok=True, external_message_id=ext)

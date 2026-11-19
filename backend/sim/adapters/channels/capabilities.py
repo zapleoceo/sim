@@ -17,6 +17,7 @@ class Capability(StrEnum):
     SEND_VOICE = "send_voice"           # port.send_voice(thread, ogg_opus, duration_s) -> SendResult
     SEND_ATTACHMENT = "send_attachment"  # port.send_attachment(thread, bytes, name, mime, caption)
     SEND_PHOTO = "send_photo"           # port.send_photo(thread, bytes, caption) -> SendResult
+    SEND_VIDEO = "send_video"           # port.send_video(thread, mp4, caption) -> SendResult
     SEND_VIDEO_NOTE = "send_video_note" # port.send_video_note(thread, bytes) -> SendResult
     CHAT_ACTION = "chat_action"          # port.send_chat_action(thread, "typing" | "record_voice")
     MARK_READ = "mark_read"              # port.mark_read(thread, external_message_id)
@@ -77,6 +78,15 @@ class AttachmentSender(Protocol):
 @runtime_checkable
 class PhotoSender(Protocol):
     async def send_photo(
+        self, external_thread_id: str, data: bytes, caption: str,
+    ) -> SendResult: ...
+
+
+@runtime_checkable
+class VideoSender(Protocol):
+    """Send prepared MP4. Capability does not establish consent or replace SendReceipts."""
+
+    async def send_video(
         self, external_thread_id: str, data: bytes, caption: str,
     ) -> SendResult: ...
 
