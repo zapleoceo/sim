@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import type { PreviewAttachment, PreviewStageDiagnostics, PreviewStageOptions, PreviewVoice } from '@/lib/models';
 import { cn } from '@/lib/utils';
 import { isIdle, PROMPT_ONLY_STAGES, usePreviewChat } from './preview-chat';
+import { PreviewGalleryPhoto, PreviewVideoCircle } from './preview-media';
 import { canRecord, useVoiceRecorder } from './use-voice-recorder';
 
 /** Files the Broker can read: voice/audio (transcription), images (vision), plain text. */
@@ -67,6 +68,7 @@ function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
 export function PersonaPreview({ personaId }: { personaId: number }) {
   const chat = usePreviewChat(personaId);
   const recorder = useVoiceRecorder();
+  const [sample, setSample] = useState<'photo' | 'circle' | null>(null);
   const [text, setText] = useState('');
   const log = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -75,7 +77,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
   useEffect(() => {
     const el = log.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat.messages.length, chat.busy, chat.uploading, chat.failure]);
+  }, [chat.messages.length, chat.busy, chat.uploading, chat.failure, sample]);
 
   const submit = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
@@ -106,7 +108,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
         <h2 id="preview-h" className="text-base font-semibold">
           Проверить персонажа
         </h2>
-        <Button variant="ghost" size="sm" onClick={chat.reset} disabled={!idle || recorder.recording}>
+        <Button variant="ghost" size="sm" onClick={() => { chat.reset(); setSample(null); }} disabled={!idle || recorder.recording}>
           Очистить
         </Button>
       </div>
@@ -139,13 +141,22 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
         </p>
       </fieldset>
 
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => setSample('photo')}>
+          Показать фото из галереи
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setSample('circle')}>
+          Показать тестовый кружок
+        </Button>
+      </div>
+
       <div
         ref={log}
         role="log"
         aria-live="polite"
         className="flex max-h-[28rem] min-h-52 flex-col gap-2 overflow-y-auto rounded-lg bg-muted/60 p-3"
       >
-        {chat.messages.length === 0 && !chat.busy && (
+        {chat.messages.length === 0 && !chat.busy && !sample && (
           <p className="m-auto text-center text-sm text-muted-foreground">Напишите сообщение, как это сделал бы клиент.</p>
         )}
         {chat.messages.map((m, i) => (
@@ -180,6 +191,12 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             )}
           </div>
         ))}
+        {sample && (
+          <div className="flex max-w-full flex-col items-start gap-1 self-start rounded-2xl bg-bubble-ai px-3 py-2 text-sm">
+            <span className="text-xs text-muted-foreground">Предпросмотр медиа</span>
+            {sample === 'photo' ? <PreviewGalleryPhoto personaId={personaId} /> : <PreviewVideoCircle />}
+          </div>
+        )}
         {chat.uploading && (
           <div className="flex justify-end">
             <div className="animate-pulse rounded-2xl bg-bubble-client px-3 py-2 text-sm text-muted-foreground">распознаю…</div>
