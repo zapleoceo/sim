@@ -373,11 +373,10 @@ async def test_real_conversation_recovery_reuses_generation_but_checks_fresh_tim
     outcome = await attempt(2)
     assert outcome.status == "sent"  # queued only; no channel transport runs
     generator_posts = [body for body in posts if body["workflow"] == "reply"]
-    assert len(generator_posts) == (1 if change in {"clock", "profile_clock"} else 2)
+    assert len(generator_posts) == (2 if change in {"inbound", "settings"} else 1)
     if change == "incident_expiry":
-        assert "Synthetic incident nearing expiry" in json.dumps(generator_posts[0])
-        assert "Synthetic incident nearing expiry" not in json.dumps(generator_posts[1])
-        # Expired context intentionally gets a fresh generation, only after old acceptance settles.
+        assert "Synthetic incident nearing expiry" not in json.dumps(generator_posts[0])
+    if change in {"inbound", "settings"}:
         assert observed.index(("done", "101")) < observed.index(("post", "102"))
     guard_posts = [body for body in posts if body["workflow"] == "guard"]
     assert guard_posts and now[0].isoformat() + "Z" in json.dumps(guard_posts[-1])

@@ -51,7 +51,6 @@ from sim.services.prompt import (
     Turn,
     build_messages,
     handoff_link,
-    one_line,
     parse_decision,
     registration_link,
 )
@@ -494,13 +493,13 @@ class ConversationService:
             # this stale attempt. Pause/refusal above still take precedence.
             if not followup:
                 await self.defer_reply(dialog_id, 0)
-            return ReplyOutcome("superseded")
+            return ReplyOutcome("superseded", reason="activity_revision_changed")
         newer = await self.messages.last(dialog_id, Direction.IN)
         if newer is not None and newer.id > cutoff:
             # The client wrote again while we were thinking: this answer is already stale. The
             # reply job queued for that message answers with the full context.
             await self.defer_reply(dialog_id, 0)
-            return ReplyOutcome("superseded")
+            return ReplyOutcome("superseded", reason="newer_inbound")
         if draft.decision is None or draft.guard is None or not draft.guard.allowed:
             return await self.handoff_failed(dialog, draft)
         voice = will_speak(persona, followup, newer)
@@ -692,19 +691,16 @@ class ConversationService:
             else:
                 rejection = "решение не содержит корректного ответа"
             if attempt == 0:
-                feedback = one_line(rejection, 500)
+                code = "format" if guard is None else "review"
                 ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
                 stable_prompt = await self.prompt(persona, strategy, history,
                     recovery_context(ctx), whole_history=whole_history)
-                repair = [
-                    {"role": "assistant", "content": result.text[:4000]},
-                    {"role": "system", "content":
-                     "Контролёр отклонил черновик: " + feedback +
-                     ". Пересоздай полный JSON-ответ, включая управляющие поля. Не повторяй ошибку."},
-                ]
-                prompt = [*prompt, *repair]
-                stable_prompt = [*stable_prompt, *repair]
+                # Do not turn rejected output or free-form diagnostics into history.
+                repair = {"role": "system", "content":
+                          f"Повтори полный JSON-ответ по фактам разговора (тип: {code})."}
+                prompt = [*prompt, repair]
+                stable_prompt = [*stable_prompt, repair]
         return Draft(decision, result, guard, rejection)
 
     async def preview(

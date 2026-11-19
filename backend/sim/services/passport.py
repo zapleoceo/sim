@@ -23,6 +23,7 @@ from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, Direction
 from sim.ports.llm import LLMError
 from sim.services.ai_media import history_text
+from sim.services.conversation_memory import conversational_memory
 from sim.services.journal import MODEL_ACTOR, PASSPORT, CommunicationJournal, Who, changed_lines
 from sim.services.llm_audit import AuditedLLM
 
@@ -52,7 +53,7 @@ PASSPORT_PROMPT = """Ты паспортистка: ведёшь паспорт 
 
 
 def passport_request(persona: str, passport: str, dialog: list[dict[str, str]]) -> list[dict[str, Any]]:
-    payload = {"persona": persona, "passport": passport, "dialog": dialog}
+    payload = {"persona": persona, "passport": conversational_memory(passport), "dialog": dialog}
     return [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
 
 

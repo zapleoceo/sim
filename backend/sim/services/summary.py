@@ -29,6 +29,7 @@ from sim.domain.enums import Author, Direction
 from sim.ports.llm import LLMError
 from sim.services.ai_media import history_text
 from sim.services.context_window import ContextWindow, Window
+from sim.services.conversation_memory import conversational_memory
 from sim.services.llm_audit import AuditedLLM
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ def summary_request(persona: str, summary: str, messages: list[Message]) -> list
         {"role": role_of(m), "time": m.created_at.strftime("%Y-%m-%d %H:%M"), "text": text}
         for m in messages if (text := history_text(m))
     ]
-    payload = {"persona": persona, "summary": summary, "dialog": dialog}
+    payload = {"persona": persona, "summary": conversational_memory(summary), "dialog": dialog}
     return [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
 
 

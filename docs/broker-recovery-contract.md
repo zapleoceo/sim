@@ -53,13 +53,13 @@ checks that fields/status/photo changes and dates inside bio are not erased.
 
 The reuse guarantee covers unchanged effective context with different computed clock
 facts or profile observation time. It does not freeze the entire conversation snapshot.
-ContextWindow can drop messages at its configured age boundary; journal.context_lines
-removes call_issue context after 24 hours; persona_media_tool.busy can change the media
-offer when gap_min expires. These are intentional effective-context changes and may
-start a new generator job even without new user activity, but only after previously
-accepted requests settle. An uncertain outcome still blocks all new submissions.
-The real run_reply regression crosses a call incident's 24-hour boundary and verifies
-its removal, a new generation, and terminal reconciliation before the second POST.
+ContextWindow can drop messages at its configured age boundary; persona_media_tool.busy
+can change the media offer when gap_min expires. These intentional context changes may
+start a new generator job after previously accepted requests settle. An uncertain outcome
+still blocks submissions. Raw call incidents are audit-only; the real run_reply regression
+checks that an audit-only incident does not change input or re-purchase a generation.
+Only a recent answered call may contribute the sanitized fact that some speech may not
+have played. Its expiry can still change the effective context, not the audit history.
 Thus this increment does not promise zero additional generation cost for every
 time-only restart. Guard always uses fresh time, including when generation is reused.
 
