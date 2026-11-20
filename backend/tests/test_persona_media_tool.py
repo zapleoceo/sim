@@ -29,6 +29,7 @@ from sim.services.media_decisions import (
     NEUTRAL_MEDIA_SCENE,
     QUEUED,
     REFUSED,
+    UNAVAILABLE,
     MediaDecisionLog,
     general_media_request_kind,
 )
@@ -640,6 +641,30 @@ async def test_an_owner_account_has_no_gap_between_media(container, world, fake_
     await say(container, world, "А ещё?", owner)
     await run_reply(container)
     assert NO_MEDIA not in context_of(fake_llm)             # a photo a moment ago: no gap for the owner
+
+
+async def test_running_owner_generation_blocks_a_second_media_job(container, world, fake_llm, studio):
+    _, images = studio
+    owner = "169510539"
+    async with transaction(container.factory) as s:
+        (await s.scalars(select(Dialog))).unique().one().external_thread_id = owner
+    await set_setting(container, "instant_reply_telegram_ids", owner)
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    async with transaction(container.factory) as s:
+        running = await s.get(Job, job.id)
+        running.status = "running"
+        running.attempts = 1
+        running.locked_until = container.clock() + timedelta(seconds=90)
+
+    await say(container, world, "Пришли ещё фото", owner)
+    fake_llm.replies = [decision_json(reply="Всё ещё варю кофе", media=ASK)]
+    outcome = await run_reply(container)
+    assert NO_MEDIA in context_of(fake_llm)
+    assert outcome.media is not None and outcome.media.outcome == UNAVAILABLE
+    generations = [j for j in await rows(container, Job) if j.kind == jobkinds.PERSONA_MEDIA]
+    assert [(j.id, j.status) for j in generations] == [(job.id, "running")]
+    assert images.calls == []
 
 
 async def test_the_job_does_nothing_once_a_human_took_over(container, world, fake_llm, studio):

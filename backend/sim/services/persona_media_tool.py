@@ -314,8 +314,8 @@ class PersonaMediaTool:
         return Offer(tuple(kinds))
 
     async def busy(self, dialog: Dialog, gap_min: int) -> bool:
-        """A generation is queued for this dialog, or one was sent or failed within the gap."""
-        if await self.jobs.pending_by_key(jobkinds.persona_media_key(dialog.id)) is not None:
+        """A generation is pending or running, or one was sent or failed within the gap."""
+        if await self.jobs.open_by_key(jobkinds.persona_media_key(dialog.id)) is not None:
             return True
         if gap_min <= 0:
             return False
