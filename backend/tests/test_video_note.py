@@ -471,11 +471,16 @@ async def test_chat_video_stays_on_origin_channel(container, scene, before_send,
         await s.flush()
         target = ChatVideoTarget.from_dialog(dialog)
         decisions = MediaDecisionLog(s)
-        row = await decisions.add(dialog, MediaDecision("video_note", "video_note", "send", QUEUED))
+        row = await decisions.add(dialog, MediaDecision(
+            "video_note", "video_note", "send", QUEUED, scene="Synthetic",
+            planned_at_utc="2026-11-02T05:00:00+00:00", planned_light="утро",
+            reference_ids=(reference,),
+        ))
         result = await HANDLERS[jobkinds.PERSONA_MEDIA].run(container, s, {
             "dialog_id": dialog.id, "kind": "video_note", "scene": "Synthetic",
             "chat_video_target": target.payload(), "decision_id": row.id,
             "reference_ids": [reference],
+            "shot_environment": {"at": "2026-11-02T05:00:00+00:00", "light": "утро"},
         })
         message = await s.get(Message, result["message_id"])
         assert message.dialog_id == dialog.id != original.id
@@ -684,6 +689,7 @@ async def test_chat_video_requires_exactly_one_planned_persona_reference(contain
             "dialog_id": dialog.id, "kind": "video_note", "scene": "Synthetic",
             "chat_video_target": ChatVideoTarget.from_dialog(dialog).payload(),
             "reference_ids": [reference, reference + 1] if multiple else [],
+            "shot_environment": {"at": "2026-11-02T05:00:00+00:00", "light": "утро"},
         })
         assert result["outcome"] == "refused"
         assert not scene.video.calls

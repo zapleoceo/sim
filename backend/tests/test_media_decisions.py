@@ -311,7 +311,10 @@ async def test_a_decision_to_send_is_one_record_that_follows_the_photo_to_the_cl
     (job,) = await media_jobs(container)
     assert job.payload["decision_id"] == row.id
     assert record.reference_ids == tuple(job.payload["reference_ids"])
-    assert record.planned_at_utc.endswith("+00:00") and "Выбор референсов (UTC)" in row.text
+    environment = job.payload["shot_environment"]
+    assert record.planned_at_utc == environment["at"]
+    assert record.planned_light == environment["light"]
+    assert f"Освещение синтетического кадра: {record.planned_light}" in row.text
     assert reply_detail(outcome)["media"]["outcome"] == QUEUED
 
     result = await run_media_job(container)

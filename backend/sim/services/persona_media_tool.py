@@ -13,7 +13,7 @@ How it works:
   asked, what she decided, her reason, the outcome), re-checks the offer and queues the
   `persona_media` job after her text. `context()` gives the next replies her latest decisions;
 - `run()` (worker) builds the prompt: her scene plus her life right now, computed by code from
-  her time zone and weekly routine (`shot_prompt`), takes reference photos from the gallery and
+  the planned part of the local day (`shot_prompt`), takes reference photos from the gallery and
   has the Broker generate the photo (`ImagePort`) or the video note (`OwnerVideoNotes`: the same
   cache, encoder and allowlist as the owner's own notes).
 
@@ -78,12 +78,12 @@ from sim.services.media_decisions import (
     UNSENT,
     MediaDecision,
     MediaDecisionLog,
+    load,
     reason_warning,
 )
 from sim.services.owner_accounts import is_owner_account
-from sim.services.persona_clock import WEEKDAYS, age_on, day_part, local_time
+from sim.services.persona_clock import age_on, day_part, local_time
 from sim.services.persona_media import MediaRejected, checked_suffix
-from sim.services.persona_routine import doing_now
 from sim.services.prompt import MEDIA_LATER, Decision, MediaAsk, one_line
 from sim.services.video_note import (
     MAX_REFERENCE_BYTES,
@@ -102,6 +102,7 @@ PHOTO_WORKFLOW = "persona-photo"
 PHOTO_FAILED = "[фото ИИ не создано]"
 MAX_REFERENCES = 3               # the Broker takes at most 5 images and 10 MB per request
 SEND_AFTER_TEXT_S = 2.0          # the media follows her last text message
+LEGACY_SCENE_LIGHT = "нейтральное"
 NOTE_DURATION_S = 5
 NOTE_RESOLUTION = "360p"
 TAG_STEM_MIN = 4                 # letters of a gallery tag compared with the scene
@@ -162,11 +163,38 @@ class Offer:
         )
 
 
-def life_now(persona: Persona, now_utc: datetime) -> str:
-    """Her moment for the shot: weekday, part of the day and what the routine has her doing."""
-    local = local_time(persona.timezone, now_utc)
-    doing = "; ".join(doing_now(persona.routine, local)) or "свободное время"
-    return f"{WEEKDAYS[local.weekday()]}, {day_part(local.hour)}; по распорядку сейчас: {doing}"
+@dataclass(frozen=True)
+class ShotEnvironment:
+    """Server clock snapshot for synthetic lighting, with no real location or activity."""
+    at: datetime
+    light: str
+
+    @classmethod
+    def capture(cls, timezone: str, now: datetime) -> ShotEnvironment:
+        utc = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
+        return cls(utc, day_part(local_time(timezone, utc).hour))
+
+    def payload(self) -> dict[str, str]:
+        return {"at": self.at.isoformat(), "light": self.light}
+
+    @staticmethod
+    def utc_stamp(stamp: object) -> datetime | None:
+        if not isinstance(stamp, str) or not 25 <= len(stamp) <= 32 or not stamp.endswith("+00:00"):
+            return None
+        try:
+            at = datetime.fromisoformat(stamp)
+        except ValueError:
+            return None
+        return at if at.isoformat() == stamp else None
+
+    @classmethod
+    def parse(cls, value: object) -> ShotEnvironment | None:
+        if not isinstance(value, dict) or set(value) != {"at", "light"}:
+            return None
+        at, light = cls.utc_stamp(value["at"]), value["light"]
+        if at is None or light not in ("ночь", "утро", "день", "вечер"):
+            return None
+        return cls(at, light)
 
 
 def who_is(persona: Persona, now_utc: datetime) -> str:
@@ -176,17 +204,18 @@ def who_is(persona: Persona, now_utc: datetime) -> str:
     return f"{who}, возраст {age_on(persona.birth_date, local_time(persona.timezone, now_utc).date())}"
 
 
-def shot_prompt(persona: Persona, ask: MediaAsk, now_utc: datetime) -> str:
+def shot_prompt(persona: Persona, ask: MediaAsk, environment: ShotEnvironment) -> str:
     """What the image or video model gets: the kind of shot, who is in it (the references show
-    how she looks), the scene she asked for and her life at this moment. No minutes or dates in
-    it, so the same request within the same part of her day is the same prompt (cache)."""
+    how she looks), the scene she asked for and the planned synthetic lighting.
+    The exact timestamp is metadata, not part of the provider prompt or its cache key."""
+    life = (f"условное освещение для синтетической сцены: {environment.light}; "
+            "фактическое место и занятие не подтверждены")
     return "\n".join([
         FRAMES[ask.kind],
-        f"В кадре {who_is(persona, now_utc)}: тот же человек, что на приложенных фото. Лицо, "
+        f"В кадре {who_is(persona, environment.at)}: тот же человек, что на приложенных фото. Лицо, "
         "возраст, причёску и телосложение сохрани точно.",
         f"Сцена: {ask.scene}",
-        f"Жизнь этого человека в этот момент: {life_now(persona, now_utc)}. Время суток, место и "
-        "занятие в кадре должны этому соответствовать.",
+        f"Постановка кадра: {life}.",
         "Кадр приличный и бытовой: без обнажённости, без других узнаваемых людей, без документов.",
     ])
 
@@ -376,13 +405,13 @@ class PersonaMediaTool:
         else:
             outcome = QUEUED if kind in offer.kinds else UNAVAILABLE
         reference_ids: tuple[int, ...] = ()
-        planned_at = None
+        environment = None
         if outcome == QUEUED:
             limit = 1 if kind is MediaKind.VIDEO_NOTE else MAX_REFERENCES
             references = pick_references(await self.references(persona.id), ask.scene, limit)
             reference_ids = tuple(reference.id for reference in references)
             if reference_ids:
-                planned_at = self.clock()
+                environment = ShotEnvironment.capture(persona.timezone, self.clock())
             else:
                 outcome = UNAVAILABLE
         reason = ask.reason if ask is not None else ""
@@ -399,13 +428,15 @@ class PersonaMediaTool:
             owner=owner_allowed(dialog, cfg.video_note_owner_telegram_id),
             offered=tuple(k.value for k in offer.kinds),
             warning=self.warning(ask, persona),
-            planned_at_utc=planned_at.replace(tzinfo=UTC).isoformat() if planned_at is not None else None,
+            planned_at_utc=environment.at.isoformat() if environment is not None else None,
+            planned_light=environment.light if environment is not None else None,
             reference_ids=reference_ids,
         )
         row = await self.decisions.add(dialog, record)
-        if outcome == QUEUED:
+        if outcome == QUEUED and environment is not None:
             payload = {"dialog_id": dialog.id, "kind": ask.kind.value, "scene": ask.scene, "decision_id": row.id}
             payload["reference_ids"] = list(reference_ids)
+            payload["shot_environment"] = environment.payload()
             if ask.kind is MediaKind.VIDEO_NOTE:
                 payload["chat_video_target"] = ChatVideoTarget.from_dialog(dialog).payload()
             await self.jobs.enqueue(
@@ -432,22 +463,64 @@ class PersonaMediaTool:
         """Generate (or take from the cache) and queue the send. One attempt: a generation is
         not repeated on failure, the reason stays in the dialog and in the job's result. What
         came of it is written into the record of her decision."""
-        result = await self.generate(payload)
-        await self.decisions.generated(payload.get("decision_id"), result)
+        reference_ids = self.payload_reference_ids(payload)
+        record_id = payload.get("decision_id")
+        dialog_id = payload.get("dialog_id")
+        if (reference_ids is None or not isinstance(payload.get("scene"), str)
+                or type(record_id) is not int or type(dialog_id) is not int):
+            return {"outcome": "refused", "error": "invalid media plan identity"}
+        record = await self.session.scalar(select(Message).where(
+            Message.id == record_id, Message.dialog_id == dialog_id,
+        ))
+        decision = load(record) if record is not None else None
+        if (decision is None or record is None or decision.outcome != QUEUED
+                or decision.kind != payload["kind"] or decision.scene != payload.get("scene")
+                or decision.reference_ids != tuple(reference_ids)):
+            return {"outcome": "refused", "error": "media plan does not match the queued decision"}
+        if "shot_environment" in payload:
+            error = "invalid or mismatched shot environment"
+            environment = ShotEnvironment.parse(payload["shot_environment"])
+            if (environment is not None and (environment.at.isoformat() != decision.planned_at_utc
+                    or environment.light != decision.planned_light)):
+                environment = None
+        else:
+            error = "legacy shot environment cannot be verified"
+            environment = self.legacy_environment(decision)
+            if environment is not None:
+                await self.decisions.update(record_id, planned_light=environment.light)
+        if environment is None:
+            result = {"outcome": "refused", "error": error}
+        else:
+            result = await self.generate(payload, environment, reference_ids)
+        await self.decisions.generated(record_id, result)
         return result
 
-    async def generate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        dialog = await DialogRepo(self.session).get(int(payload["dialog_id"]))
+    @staticmethod
+    def payload_reference_ids(payload: dict[str, Any]) -> list[int] | None:
+        if payload.get("kind") not in (MediaKind.PHOTO.value, MediaKind.VIDEO_NOTE.value):
+            return None
+        return planned_reference_ids(payload.get("reference_ids"), MediaKind(payload["kind"]))
+
+    @staticmethod
+    def legacy_environment(decision: MediaDecision) -> ShotEnvironment | None:
+        # UTC time is scene metadata. The scoped queued record, not its age or
+        # a comparison with another wall clock, authorizes recovery.
+        at = ShotEnvironment.utc_stamp(decision.planned_at_utc)
+        if at is None or decision.planned_light is not None:
+            return None
+        return ShotEnvironment(at, LEGACY_SCENE_LIGHT)
+
+    async def generate(
+        self, payload: dict[str, Any], environment: ShotEnvironment, reference_ids: list[int],
+    ) -> dict[str, Any]:
+        dialog = await DialogRepo(self.session).get(payload["dialog_id"])
         persona = await self.session.get(Persona, dialog.client.persona_id) if dialog else None
         if dialog is None or persona is None:
             return {"outcome": "skipped", "error": "dialog or persona is gone"}
         if dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED:
             return {"outcome": "skipped", "error": "the AI is paused or the client refused"}
-        ask = MediaAsk(MediaKind(payload["kind"]), str(payload["scene"]))
-        prompt = shot_prompt(persona, ask, self.clock())
-        reference_ids = planned_reference_ids(payload.get("reference_ids"), ask.kind)
-        if reference_ids is None:
-            return {"outcome": "refused", "error": "invalid or missing planned persona reference IDs"}
+        ask = MediaAsk(MediaKind(payload["kind"]), payload["scene"])
+        prompt = shot_prompt(persona, ask, environment)
         references = await self.planned_references(persona.id, reference_ids)
         if references is None:
             return {"outcome": "refused", "error": "a planned persona reference is invalid or unavailable"}
