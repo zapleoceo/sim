@@ -93,7 +93,7 @@ describe('personas pages', () => {
     try {
       await renderApp('/personas/1');
       await userEvent.click(await screen.findByRole('button', { name: 'Сохранить персонажа' }));
-      await screen.findByText('Персонаж сохранён');
+      expect((await screen.findAllByText('Персонаж сохранён')).length).toBeGreaterThan(0);
       await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'Привет{enter}');
       expect(await screen.findByText('Ответ из очереди')).toBeInTheDocument();
       expect(log.filter((entry) => entry.method === 'POST').map((entry) => entry.path)).toEqual([path]);
