@@ -39,7 +39,7 @@ from sim.services.media_decisions import MediaDecisionLog
 from sim.services.persona_ambience import voice_ambience
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
-from sim.services.video_note import owner_allowed, owner_telegram_id
+from sim.services.video_note import ChatVideoTarget, owner_allowed, owner_telegram_id
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -244,19 +244,31 @@ class OutboundService:
         return message
 
     async def deliver(
-        self, message_id: int, *, final: bool = False, typing_s: float = 0.0
+        self, message_id: int, *, final: bool = False, typing_s: float = 0.0,
+        chat_video_target: ChatVideoTarget | None = None, media_decision_id: int | None = None,
     ) -> None:
         message = await self.messages.get(message_id)
         if message is None or message.delivery is Delivery.SENT:
             return
+        if (chat_video_target is None and message.author is Author.AI
+                and message.media_kind == MediaKind.VIDEO_NOTE
+                and is_ai_video(message.media_url) and message.original_text is not None):
+            await self.cancel_chat_video(message, "legacy chat video has no original route", media_decision_id)
+            return
         dialog = await self.dialogs.get(message.dialog_id)
         if dialog is None:
             raise SendFailed("dialog not found")
+        if chat_video_target is not None:
+            reason = await self.chat_video_rejection(chat_video_target, dialog)
+            if reason is not None:
+                await self.cancel_chat_video(message, reason, media_decision_id)
+                return
         if self.called_off(message, dialog, final):
             return
-        if not await self.ai_video_gate(message, dialog):
+        if chat_video_target is None and not await self.ai_video_gate(message, dialog):
             return
         channel = dialog.channel
+        channel_session = channel.session_enc
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
             "thread": dialog.external_thread_id, "text": message.text,
@@ -282,11 +294,36 @@ class OutboundService:
         note = await self.voice_note(message, dialog, port)
         attachment = self.attachment(message, port)
         gallery_media = self.gallery_media(message, port)
-        await require_live_execution()
-        await self.receipts.claim(message.id, fingerprint)
+        if chat_video_target is not None and gallery_media is None:
+            message.delivery = Delivery.FAILED
+            message.error = "chat video file missing; nothing sent"
+            await self.close_media_decision(message, ok=False, record_id=media_decision_id, reason=message.error)
+            return
+        if chat_video_target is None:
+            await require_live_execution()
+            await self.receipts.claim(message.id, fingerprint)
         async with self.send_step(channel, message, voice=note is not None) as step:
-            try:
+            if chat_video_target is not None:
+                # All preparation is done. Check before claiming so a known cancellation
+                # never creates an unresolved receipt for a transport call we did not make.
+                reason = await self.current_chat_video_rejection(chat_video_target, channel_session)
+                if reason is not None:
+                    await self.cancel_chat_video(message, reason, media_decision_id)
+                    return
                 await require_live_execution()
+                await self.receipts.claim(message.id, fingerprint)
+                await require_live_execution()
+                reason = await self.current_chat_video_rejection(chat_video_target, channel_session)
+                if reason is not None:
+                    # The receipt remains a fence. Only the message/decision records the
+                    # proven abort; a crash before settlement must still fail closed.
+                    await self.cancel_chat_video(
+                        message, f"aborted before transport: {reason}", media_decision_id,
+                    )
+                    return
+            try:
+                if chat_video_target is None:
+                    await require_live_execution()
                 if note is not None:
                     result = await port.send_voice(  # type: ignore[attr-defined]
                         dialog.external_thread_id, note.audio, note.duration_s,
@@ -314,13 +351,41 @@ class OutboundService:
                 raise SendUncertain(UNCERTAIN_SEND) from None
             step.detail["chars"] = len(message.text or "")
         apply_receipt(message, channel, receipt)
-        await self.close_media_decision(message, ok=True)
+        await self.close_media_decision(message, ok=True, record_id=media_decision_id)
 
-    async def close_media_decision(self, message: Message, *, ok: bool) -> None:
+    async def current_chat_video_rejection(
+        self, target: ChatVideoTarget, channel_session: str | None,
+    ) -> str | None:
+        dialog = await self.session.get(Dialog, target.dialog_id, populate_existing=True)
+        reason = await self.chat_video_rejection(target, dialog)
+        if reason is None and dialog is not None and dialog.channel.session_enc != channel_session:
+            return "original chat video channel session changed"
+        return reason
+
+    async def chat_video_rejection(self, target: ChatVideoTarget, dialog: Dialog | None) -> str | None:
+        if dialog is None or target != ChatVideoTarget.from_dialog(dialog):
+            return "original chat video route changed"
+        if dialog.channel.is_archived:
+            return "chat video channel archived"
+        if dialog.ai_paused or dialog.client.status is ClientStatus.REFUSED:
+            return "AI paused or client refused"
+        if not owner_allowed(dialog, await owner_telegram_id(self.session)):
+            return "chat video recipient is no longer allowed"
+        return None
+
+    async def cancel_chat_video(self, message: Message, reason: str, record_id: int | None) -> None:
+        message.delivery = Delivery.CANCELLED
+        message.error = f"cancelled: {reason}"
+        await self.close_media_decision(message, ok=False, record_id=record_id, reason=reason)
+
+    async def close_media_decision(
+        self, message: Message, *, ok: bool, record_id: int | None = None,
+        reason: str | None = None,
+    ) -> None:
         """A generated photo or note the persona decided to send reached the client (or did not):
         the record of that decision gets its final outcome (sim.services.media_decisions)."""
         if is_ai_photo(message.media_url) or is_ai_video(message.media_url):
-            await MediaDecisionLog(self.session, clock=self.clock).delivered(message, ok=ok)
+            await MediaDecisionLog(self.session, clock=self.clock).delivered(message, ok=ok, record_id=record_id, reason=reason)
 
     @staticmethod
     def called_off(message: Message, dialog: Dialog, final: bool) -> bool:
