@@ -65,8 +65,8 @@ function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
  * Errors are shown inline with «Повторить» (the old admin swallowed them).
  * Render with `key={personaId}` so another persona starts a clean chat.
  */
-export function PersonaPreview({ personaId }: { personaId: number }) {
-  const chat = usePreviewChat(personaId);
+export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }: { personaId: number; asyncEnabled?: boolean; ownerId?: number }) {
+  const chat = usePreviewChat(personaId, asyncEnabled, ownerId);
   const recorder = useVoiceRecorder();
   const [sample, setSample] = useState<'photo' | 'circle' | null>(null);
   const [text, setText] = useState('');
@@ -108,14 +108,14 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
         <h2 id="preview-h" className="text-base font-semibold">
           Проверить персонажа
         </h2>
-        <Button variant="ghost" size="sm" onClick={() => { chat.reset(); setSample(null); }} disabled={!idle || recorder.recording}>
+        <Button variant="ghost" size="sm" onClick={() => { chat.reset(); setSample(null); }} disabled={!idle || recorder.recording || chat.awaitingOperation}>
           Очистить
         </Button>
       </div>
       <fieldset disabled={!idle || recorder.recording} className="space-y-2 rounded-lg border p-3 text-sm">
         <legend className="px-1 font-medium">Этапы тестового ответа</legend>
         <p className="text-xs text-muted-foreground">
-          Только этот чат. Расчёты не задерживают ответ; ожидание самой модели остаётся.
+          {chat.queued ? 'Тестовые ответы через очередь пока только текстовые.' : 'Только этот чат. Расчёты не задерживают ответ; ожидание самой модели остаётся.'}
           Отдельные агенты планирования здесь не запускаются.
         </p>
         {STAGE_SWITCHES.map(([key, label]) => (
@@ -222,10 +222,12 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
               <AlertCircle className="mt-0.5 size-4 flex-none" />
               <span>Персонаж не ответил. {chat.failure.error}</span>
             </span>
-            <Button variant="outline" size="sm" onClick={chat.retry}>
-              <RotateCcw />
-              Повторить
-            </Button>
+            {!chat.failure.terminal && (
+              <Button variant="outline" size="sm" onClick={chat.retry}>
+                <RotateCcw />
+                {chat.queued ? 'Проверить запрос' : 'Повторить'}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -245,7 +247,7 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
           variant="outline"
           size="icon"
           className="size-10 flex-none"
-          disabled={!idle || recorder.recording}
+          disabled={!idle || recorder.recording || chat.awaitingOperation}
           onClick={() => fileInput.current?.click()}
           aria-label="Прикрепить файл"
         >
@@ -266,14 +268,14 @@ export function PersonaPreview({ personaId }: { personaId: number }) {
             variant={recorder.recording ? 'destructive' : 'outline'}
             size="icon"
             className="size-10 flex-none"
-            disabled={!idle}
+            disabled={!idle || chat.awaitingOperation}
             onClick={() => void toggleRecording()}
             aria-label={recorder.recording ? 'Остановить и отправить' : 'Записать голосовое'}
           >
             {recorder.recording ? <Square /> : <Mic />}
           </Button>
         )}
-        <Button type="submit" size="icon" className="size-10 flex-none" disabled={!idle || recorder.recording} aria-label="Отправить">
+        <Button type="submit" size="icon" className="size-10 flex-none" disabled={!idle || recorder.recording || chat.awaitingOperation} aria-label="Отправить">
           <Send />
         </Button>
       </form>

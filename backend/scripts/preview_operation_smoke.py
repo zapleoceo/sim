@@ -1,0 +1,84 @@
+"""PostgreSQL preview admission and queue isolation without provider calls."""
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, timedelta
+from unittest.mock import patch
+from uuid import uuid4
+
+from sqlalchemy import delete, select
+
+from sim.adapters.db.models import AdminUser, Job, Persona, PreviewOperation, Strategy
+from sim.adapters.db.repositories.jobs import JobRepo
+from sim.adapters.db.session import transaction
+from sim.api.schemas import PreviewIn
+from sim.config import Settings
+from sim.services import preview_operations
+from sim.wiring import build_container
+
+
+async def preview_operation_checks(url: str) -> None:
+    c = build_container(Settings(database_url=url, env="test", preview_async_enabled=True), registry={})
+    try:
+        async with transaction(c.factory) as s:
+            users = [AdminUser(display_name=f"Synthetic Preview owner {i}") for i in range(3)]
+            strategy = Strategy(name="Synthetic Preview strategy")
+            s.add_all([*users, strategy])
+            await s.flush()
+            persona = Persona(name="Synthetic Preview persona", strategy_id=strategy.id)
+            s.add(persona)
+            await s.flush()
+            owners, persona_id = [u.id for u in users], persona.id
+        now = c.clock()
+        prefix = int(now.replace(tzinfo=UTC).timestamp() * 1000)
+        keys = [f"{prefix}-{uuid4()}" for _ in range(4)]
+
+        async def enqueue(owner: int, key: str) -> tuple[str, int | str]:
+            try:
+                async with transaction(c.factory) as s:
+                    current = await s.get(Persona, persona_id)
+                    row = await preview_operations.start(
+                        c, s, owner, current, key, PreviewIn(message="Synthetic request"),
+                    )
+                    return key, row.job_id
+            except preview_operations.PreviewCapacity as exc:
+                return key, str(exc)
+
+        with patch.object(preview_operations, "MAX_QUEUE_OPEN", 2):
+            same_owner = await asyncio.gather(*(enqueue(owners[0], key) for key in keys[:2]))
+            accepted = [(key, job_id) for key, job_id in same_owner if isinstance(job_id, int)]
+            [(first_key, first)] = accepted
+            assert [status for _, status in same_owner if isinstance(status, str)] == ["owner"]
+            different_owners = await asyncio.gather(
+                enqueue(owners[1], keys[2]), enqueue(owners[2], keys[3]),
+            )
+            [second] = [value for _, value in different_owners if isinstance(value, int)]
+            assert [status for _, status in different_owners if isinstance(status, str)] == ["queue"]
+            assert await enqueue(owners[0], first_key) == (first_key, first)
+        ids = {first, second}
+
+        async with transaction(c.factory) as s:
+            ordinary = await JobRepo(s).enqueue("preview_smoke_normal", {}, now + timedelta(seconds=1))
+            regular_id = ordinary.id
+        async with transaction(c.factory) as s:
+            unrelated = tuple(await s.scalars(select(Job.id).where(Job.id.not_in(ids | {regular_id}))))
+            regular = await JobRepo(s).claim(now + timedelta(seconds=5), 90, exclude_ids=unrelated)
+            assert [row.id for row in regular] == [regular_id]
+
+        async def claim_preview() -> int | None:
+            async with transaction(c.factory) as s:
+                row = await JobRepo(s).claim_preview(now + timedelta(seconds=5), 90)
+                return row.id if row else None
+
+        results = await asyncio.gather(claim_preview(), claim_preview())
+        assert None in results and any(value in ids for value in results)
+        async with transaction(c.factory) as s:
+            rows = (await s.scalars(select(PreviewOperation).where(
+                PreviewOperation.owner_id.in_(owners),
+            ))).all()
+            assert {row.job_id for row in rows} == ids
+            await s.execute(delete(PreviewOperation).where(PreviewOperation.owner_id.in_(owners)))
+            await s.execute(delete(Job).where(Job.id.in_(ids | {regular_id})))
+        print("PostgreSQL preview admission, concurrent caps and ordinary queue isolation PASS")
+    finally:
+        await c.aclose()

@@ -16,7 +16,7 @@ from sim.adapters.db.session import transaction
 from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
-from sim.services import jobkinds, tracing
+from sim.services import jobkinds, preview_operations, tracing
 from sim.services.app_settings import trace_retention_days
 from sim.services.broker_requests import has_pending_broker_request
 from sim.services.conversation import ConversationError
@@ -72,6 +72,8 @@ class Worker:
         self.job_tasks: dict[int, asyncio.Task[None]] = {}
         self.purge_task: asyncio.Task[int] | None = None
         self.last_purge = float("-inf")
+        self.preview_cleanup_task: asyncio.Task[None] | None = None
+        self.last_preview_cleanup = float("-inf")
         self.watch_task: asyncio.Task[int] | None = None
         self.last_watch = float("-inf")
         self.reengagement_task: asyncio.Task[int] | None = None
@@ -107,6 +109,20 @@ class Worker:
             return [Claim(j.id, j.kind, dict(j.payload or {}), j.attempts, j.trace_id, j.run_at)
                     for j in jobs]
 
+    async def claim_preview(self) -> list[Claim]:
+        if not self.c.settings.preview_async_enabled:
+            return []
+        try:
+            async with transaction(self.c.factory) as s:
+                job = await JobRepo(s).claim_preview(self.c.clock(), lease_seconds(self.c.settings))
+                if job is None:
+                    return []
+                return [Claim(job.id, job.kind, dict(job.payload), job.attempts, job.trace_id, job.run_at)]
+        except Exception:
+            # The standard batch may already be committed. Always hand it to its handlers.
+            log.exception("preview claim failed")
+            return []
+
     def reap_jobs(self) -> None:
         for job_id, task in list(self.job_tasks.items()):
             if task.done():
@@ -124,6 +140,8 @@ class Worker:
         if capacity <= 0 or self.stop.is_set():
             return 0
         snapshot = await self.claim_jobs(capacity)
+        if len(snapshot) < capacity:
+            snapshot.extend(await self.claim_preview())
         # A stop received during claim still drains these already-leased jobs.
         for item in snapshot:
             self.job_tasks[item[0]] = asyncio.create_task(self.run_job(*item))
@@ -132,6 +150,8 @@ class Worker:
     async def tick(self) -> int:
         """Claim due jobs and run them concurrently. Returns how many were run."""
         snapshot = await self.claim_jobs(CLAIM_BATCH)
+        if len(snapshot) < CLAIM_BATCH:
+            snapshot.extend(await self.claim_preview())
         if snapshot:
             await asyncio.gather(*(self.run_job(*item) for item in snapshot))
         return len(snapshot)
@@ -183,6 +203,8 @@ class Worker:
             except Exception as exc:  # any failure is retried with backoff
                 log.warning("job %s (%s) failed: %s", job_id, kind, type(exc).__name__)
                 error = f"{type(exc).__name__}: {exc}"
+        if error is not None and kind == jobkinds.PREVIEW_REPLY:
+            error, retry = "preview_outcome_unknown", False
         async with transaction(self.c.factory) as s:
             repo = JobRepo(s)
             if error is None:
@@ -314,6 +336,21 @@ class Worker:
             self.last_purge = now
             self.purge_task = asyncio.create_task(self.purge_traces())
 
+    async def cleanup_previews(self) -> None:
+        try:
+            async with transaction(self.c.factory) as s:
+                now = self.c.clock()
+                await JobRepo(s).quarantine_expired_previews(now)
+                await preview_operations.purge(s, now, enabled=self.c.settings.preview_async_enabled)
+        except Exception:
+            log.exception("preview retention cleanup failed")
+
+    def maybe_start_preview_cleanup(self, now: float) -> None:
+        busy = self.preview_cleanup_task is not None and not self.preview_cleanup_task.done()
+        if not busy and now - self.last_preview_cleanup >= 60:
+            self.last_preview_cleanup = now
+            self.preview_cleanup_task = asyncio.create_task(self.cleanup_previews())
+
     # ---- unanswered messages -------------------------------------------------------------
     async def watch_unanswered(self) -> int:
         """Warn in the system log about client messages that wait too long while the AI is on
@@ -364,6 +401,7 @@ class Worker:
                     await self.dispatch()
                     self.maybe_start_poll(asyncio.get_running_loop().time())
                     self.maybe_start_purge(asyncio.get_running_loop().time())
+                    self.maybe_start_preview_cleanup(asyncio.get_running_loop().time())
                     self.maybe_start_watch(asyncio.get_running_loop().time())
                     self.maybe_start_reengagement(asyncio.get_running_loop().time())
                 except Exception:
@@ -378,7 +416,7 @@ class Worker:
         finally:
             stop_task.cancel()
             await asyncio.gather(stop_task, return_exceptions=True)
-            purge = [t for t in (self.purge_task, self.watch_task, self.reengagement_task) if t is not None]
+            purge = [t for t in (self.purge_task, self.preview_cleanup_task, self.watch_task, self.reengagement_task) if t is not None]
             await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(), *purge,
                                  return_exceptions=True)
             self.reap_jobs()

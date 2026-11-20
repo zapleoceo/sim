@@ -734,11 +734,11 @@ class ConversationService:
         self, persona: Persona, message: str, history: list[Turn] | None = None,
         *, stage: Stage = Stage.FIRST_CONTACT, status: ClientStatus = ClientStatus.ACTIVE,
         needs: list[str] | None = None, next_step: str = "",
-        stages: PreviewStages | None = None,
+        stages: PreviewStages | None = None, strategy: Strategy | None = None,
     ) -> PreviewResult:
         """Use the saved persona and guard. All switch state belongs to this preview request."""
         stages = PreviewStages() if stages is None else stages
-        strategy = await self.strategy_for(persona.id)
+        strategy = strategy if strategy is not None else await self.strategy_for(persona.id)
         now = self.clock()
         # A handoff pause is only a simulated state here. A refusal remains visible even with
         # carry-forward off. The model's decision and the guard still see the essential controls.
