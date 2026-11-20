@@ -16,7 +16,15 @@ from conftest import OPERATOR, OWNER, FakeConnector, FakePort, login
 from sqlalchemy import select
 
 from sim.adapters.channels.capabilities import Capability
-from sim.adapters.db.models import Channel, Client, Dialog, Job, Message, OutboundSendIntent, PersonaMedia
+from sim.adapters.db.models import (
+    Channel,
+    Client,
+    Dialog,
+    Job,
+    Message,
+    OutboundSendIntent,
+    PersonaMedia,
+)
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker import BrokerLLM
 from sim.adapters.media import MediaStore
