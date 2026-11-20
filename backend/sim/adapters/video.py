@@ -70,7 +70,7 @@ class VideoNoteEncoder:
         except (ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
             raise VideoError("Видео не соответствует ограничениям формата или длительности") from exc
 
-    async def to_video_note(self, video: bytes) -> bytes:
+    async def to_video_note(self, video: bytes, *, require_audio: bool = False) -> bytes:
         if not video:
             raise VideoError("empty video")
         if len(video) > VIDEO_NOTE_INPUT_LIMIT or not valid_artifact(video, "video/mp4", "video"):
@@ -80,6 +80,8 @@ class VideoNoteEncoder:
             src.write_bytes(video)
             try:
                 had_audio = await self.probe(src)
+                if require_audio and not had_audio:
+                    raise VideoError("В видео от провайдера нет звуковой дорожки")
                 code, note, _ = await self.runner(video_note_args(str(src)), b"", self.timeout_s)
                 if (code or len(note) > ENCODE_LIMIT
                         or not valid_artifact(note, "video/mp4", "video")):

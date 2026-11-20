@@ -27,7 +27,7 @@ from sim.adapters.db.models import Channel, Dialog, Message, Persona, PersonaMed
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.media import MediaStore
 from sim.clock import Clock, utcnow
-from sim.domain.enums import ChannelKind, MediaKind
+from sim.domain.enums import ChannelKind, ClientStatus, MediaKind
 from sim.ports.video import VideoError, VideoPort, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import (
@@ -61,7 +61,7 @@ class VideoNoteRefused(Exception):
 
 
 class VideoNoteEncoderPort(Protocol):
-    async def to_video_note(self, video: bytes) -> bytes: ...
+    async def to_video_note(self, video: bytes, *, require_audio: bool = False) -> bytes: ...
 
 
 @dataclass(frozen=True)
@@ -128,6 +128,29 @@ def owner_allowed(dialog: Dialog, owner_id: int) -> bool:
             and dialog.external_thread_id == str(owner_id))
 
 
+@dataclass(frozen=True)
+class ChatVideoTarget:
+    dialog_id: int
+    channel_id: int
+    recipient: str
+
+    @classmethod
+    def from_dialog(cls, dialog: Dialog) -> ChatVideoTarget:
+        return cls(dialog.id, dialog.channel_id, dialog.external_thread_id)
+
+    def payload(self) -> dict[str, Any]:
+        return {"dialog_id": self.dialog_id, "channel_id": self.channel_id, "recipient": self.recipient}
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> ChatVideoTarget:
+        return cls(payload["dialog_id"], payload["channel_id"], payload["recipient"])
+
+    def allows(self, dialog: Dialog, owner_id: int) -> bool:
+        return (self == self.from_dialog(dialog) and not dialog.channel.is_archived
+                and owner_allowed(dialog, owner_id) and not dialog.ai_paused
+                and dialog.client.status is not ClientStatus.REFUSED)
+
+
 async def owner_telegram_id(session: AsyncSession) -> int:
     """The allowlisted account from the owner settings; 0 = not set, send to nobody."""
     return int((await AppSettingsService(session).item(OWNER_SETTING)).value)
@@ -157,7 +180,9 @@ class OwnerVideoNotes:
         return {"status": "queued", "cached": cached, "cache_key": plan.cache_key,
                 "dialog_id": plan.dialog.id}
 
-    async def plan(self, request: VideoNoteRequest) -> Plan:
+    async def plan(
+        self, request: VideoNoteRequest, target: ChatVideoTarget | None = None,
+    ) -> Plan:
         owner_id = await owner_telegram_id(self.session)
         if owner_id <= 0:
             raise VideoNoteRefused(
@@ -165,6 +190,13 @@ class OwnerVideoNotes:
                 "Пока он не задан, кружочки не создаются и не отправляются.")
         if await self.session.get(Persona, request.persona_id) is None:
             raise VideoNoteRefused("Персона не найдена")
+        if target is not None:
+            dialog = await self.chat_dialog(request.persona_id, target)
+            reference = await self.reference(request)
+            # Manual cache entries can be silent, and chat media belongs to one exact route.
+            identity = json.dumps(target.payload(), sort_keys=True)
+            key = hashlib.sha256(f"chat-audio-v1:{cache_key(request, reference)}:{identity}".encode())
+            return Plan(dialog, key.hexdigest(), reference)
         dialog = await self.owner_dialog(request.persona_id, owner_id)
         if dialog is None:
             raise VideoNoteRefused(
@@ -172,6 +204,14 @@ class OwnerVideoNotes:
                 "сначала напишите ей с этого аккаунта.")
         reference = await self.reference(request)
         return Plan(dialog, cache_key(request, reference), reference)
+
+    async def chat_dialog(self, persona_id: int, target: ChatVideoTarget) -> Dialog:
+        dialog = await self.session.get(Dialog, target.dialog_id, populate_existing=True)
+        if (dialog is None or dialog.client.persona_id != persona_id
+                or dialog.channel.persona_id != persona_id
+                or not target.allows(dialog, await owner_telegram_id(self.session))):
+            raise VideoNoteRefused("Исходный чат больше не разрешён для кружочка или поставлен на паузу")
+        return dialog
 
     async def owner_dialog(self, persona_id: int, owner_id: int) -> Dialog | None:
         rows = (await self.session.scalars(
@@ -201,14 +241,17 @@ class OwnerVideoNotes:
         return Reference(data, mime)
 
     # ---- job (worker) --------------------------------------------------------------------
-    async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def run(
+        self, payload: dict[str, Any], *, target: ChatVideoTarget | None = None,
+        decision_id: int | None = None,
+    ) -> dict[str, Any]:
         """Cache hit: reuse the file. Miss: generate, encode, store. Then queue label + note.
 
         A refusal or a generation failure ends the job without a retry (a clip is billed): the
         reason is kept as a failed, never-sent message in the owner dialog."""
         request = VideoNoteRequest.from_payload(payload)
         try:
-            plan = await self.plan(request)    # the allowlist is re-read at run time
+            plan = await self.plan(request, target)    # the allowlist is re-read at run time
         except VideoNoteRefused as exc:
             log.warning("video note not made: %s", exc)
             return {"outcome": "refused", "error": str(exc)[:300]}
@@ -218,12 +261,19 @@ class OwnerVideoNotes:
         if not cached:
             try:
                 clip = await self.generate(request, plan)
-                await self.media.save_as(plan.name, await self.encoder.to_video_note(clip.video))
+                note_bytes = (await self.encoder.to_video_note(clip.video, require_audio=True)
+                              if target is not None else await self.encoder.to_video_note(clip.video))
+                await self.media.save_as(plan.name, note_bytes)
             except VideoError as exc:
                 self.report_failure(plan.dialog, str(exc))
                 return {"outcome": "failed", "error": str(exc)[:300]}
             cost, model = clip.cost_usd, clip.model
-        note = await self.queue(plan, cost=cost, model=model)
+        if target is not None:
+            try:
+                await self.chat_dialog(request.persona_id, target)
+            except VideoNoteRefused as exc:
+                return {"outcome": "refused", "error": str(exc)[:300]}
+        note = await self.queue(plan, cost=cost, model=model, target=target, decision_id=decision_id)
         return {"outcome": "queued", "cached": cached, "message_id": note.id, "cost_usd": cost}
 
     async def generate(self, request: VideoNoteRequest, plan: Plan) -> VideoResult:
@@ -237,7 +287,10 @@ class OwnerVideoNotes:
             workflow=VIDEO_NOTE_WORKFLOW,
         )
 
-    async def queue(self, plan: Plan, *, cost: float | None, model: str | None) -> Message:
+    async def queue(
+        self, plan: Plan, *, cost: float | None, model: str | None,
+        target: ChatVideoTarget | None = None, decision_id: int | None = None,
+    ) -> Message:
         """One AI message in the owner dialog: the video note."""
         now = self.clock()
         note = self.message(plan.dialog, "", media_kind=MediaKind.VIDEO_NOTE.value,
@@ -246,8 +299,12 @@ class OwnerVideoNotes:
         self.session.add(note)
         await self.session.flush()
         apply_message(plan.dialog, note)
+        payload: dict[str, Any] = {"message_id": note.id, "final": target is None}
+        if target is not None:
+            payload["chat_video_target"] = target.payload()
+            payload["media_decision_id"] = decision_id
         await self.jobs.enqueue(
-            jobkinds.SEND, {"message_id": note.id, "final": True},
+            jobkinds.SEND, payload,
             now, dedup_key=jobkinds.send_key(note.id),
         )
         return note

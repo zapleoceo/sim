@@ -334,11 +334,23 @@ class MediaDecisionLog:
         outcome, detail, media_message_id = generation_outcome(result)
         await self.update(record_id, outcome=outcome, detail=detail, media_message_id=media_message_id)
 
-    async def delivered(self, media: Message, *, ok: bool = True) -> None:
+    async def delivered(
+        self, media: Message, *, ok: bool = True, record_id: int | None = None,
+        reason: str | None = None,
+    ) -> None:
         """A generated photo or note was sent (or its send failed): close its decision."""
+        changes = {"outcome": SENT if ok else SEND_FAILED}
+        if reason is not None:
+            changes["detail"] = reason
+        if record_id is not None:
+            row = await self.messages.get(record_id)
+            decision = load(row) if row is not None and row.dialog_id == media.dialog_id else None
+            if decision is not None and decision.media_message_id == media.id:
+                await self.update(record_id, **changes)
+                return
         for row, decision in reversed(await self.recent(media.dialog_id, CONTEXT_RECORDS)):
             if decision.media_message_id == media.id:
-                await self.update(row.id, outcome=SENT if ok else SEND_FAILED)
+                await self.update(row.id, **changes)
                 return
 
     async def brief(self, dialog_id: int, timezone: str) -> str:

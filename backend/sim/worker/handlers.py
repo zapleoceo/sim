@@ -17,6 +17,7 @@ from sim.services import jobkinds, media_decisions, tracing
 from sim.services.conversation import AI_PAUSED, ReplyOutcome
 from sim.services.journal import HANDOFF, CommunicationJournal
 from sim.services.reengagement import ReengagementService
+from sim.services.video_note import ChatVideoTarget
 from sim.wiring import Container
 
 # A handler may return a small dict about what it did; it lands in the job step of the trace log.
@@ -136,9 +137,12 @@ async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> No
     if "reengagement_revision" in payload:
         await send_reengagement(c, s, payload)
         return
+    binding = payload.get("chat_video_target")
     await c.outbound(s).deliver(
-        int(payload["message_id"]), final=bool(payload.get("final")),
+        int(payload["message_id"]), final=binding is None and bool(payload.get("final")),
         typing_s=float(payload.get("typing_s") or 0.0),
+        chat_video_target=ChatVideoTarget.from_payload(binding) if binding is not None else None,
+        media_decision_id=payload.get("media_decision_id"),
     )
 
 

@@ -85,6 +85,7 @@ from sim.services.video_note import (
     MAX_REFERENCE_BYTES,
     NOTE_FAILED,
     REFERENCE_MIMES,
+    ChatVideoTarget,
     OwnerVideoNotes,
     VideoNoteRequest,
     owner_allowed,
@@ -329,9 +330,12 @@ class PersonaMediaTool:
         )
         row = await self.decisions.add(dialog, record)
         if outcome == QUEUED:
+            payload = {"dialog_id": dialog.id, "kind": ask.kind.value, "scene": ask.scene, "decision_id": row.id}
+            if ask.kind is MediaKind.VIDEO_NOTE:
+                payload["chat_video_target"] = ChatVideoTarget.from_dialog(dialog).payload()
             await self.jobs.enqueue(
                 jobkinds.PERSONA_MEDIA,
-                {"dialog_id": dialog.id, "kind": ask.kind.value, "scene": ask.scene, "decision_id": row.id},
+                payload,
                 self.clock() + timedelta(seconds=delay_s + SEND_AFTER_TEXT_S),
                 dedup_key=jobkinds.persona_media_key(dialog.id), max_attempts=1,
             )
@@ -368,19 +372,23 @@ class PersonaMediaTool:
         prompt = shot_prompt(persona, ask, self.clock())
         rows = pick_references(await self.references(persona.id), ask.scene)
         if ask.kind is MediaKind.VIDEO_NOTE:
-            return await self.video_note(dialog, persona, ask, prompt, rows)
+            binding = payload.get("chat_video_target")
+            if binding is None:
+                return {"outcome": "refused", "error": "chat video request lacks the original recipient binding"}
+            target = ChatVideoTarget.from_payload(binding)
+            if target != ChatVideoTarget.from_dialog(dialog):
+                return {"outcome": "refused", "error": "the original chat video recipient changed"}
+            return await self.video_note(persona, ask, prompt, rows, target, payload.get("decision_id"))
         return await self.photo(dialog, persona, ask, prompt, rows)
 
     async def video_note(
-        self, dialog: Dialog, persona: Persona, ask: MediaAsk, prompt: str, rows: list[PersonaMedia],
+        self, persona: Persona, ask: MediaAsk, prompt: str, rows: list[PersonaMedia],
+        target: ChatVideoTarget, decision_id: int | None,
     ) -> dict[str, Any]:
-        """The owner's video-note pipeline with her prompt: allowlist, cache, label, note."""
-        cfg = await self.settings.load()
-        if not owner_allowed(dialog, cfg.video_note_owner_telegram_id):
-            return {"outcome": "refused", "error": "the dialog is not with the allowlisted account"}
+        """Prepare a note on the exact allowlisted route that requested it."""
         result = await self.notes.run(VideoNoteRequest(
             persona.id, prompt, NOTE_DURATION_S, NOTE_RESOLUTION, rows[0].id if rows else None,
-        ).payload())
+        ).payload(), target=target, decision_id=decision_id)
         note = await self.session.get(Message, result["message_id"]) if "message_id" in result else None
         if note is not None:
             note.original_text = ask.scene

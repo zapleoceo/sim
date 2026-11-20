@@ -84,3 +84,23 @@ This is separate from a genuine conversational or guard handoff. The existing
 configured reserve remains restricted to a confirmed terminal Broker `error`
 with `model_unavailable` or `capacity_busy` and an available subscription route
 listed for the same project. An ambiguous pending or timeout does not qualify.
+
+## Chat-generated video notes
+
+A chat video note is bound to the original dialog, Telegram userbot channel and
+allowlisted recipient through generation and SEND. A queued chat generation
+without that binding is refused. Changing the route, archiving the channel,
+pausing the AI or recording refusal blocks the send. Chat clips require a real
+audio track before encoding and must retain it afterwards. They use a separate
+cache from manual clips. A missing chat clip fails without text fallback.
+
+Older pending AI-generated video notes with a stored chat scene and no bound
+route are cancelled, including an empty scene. Manual notes have no scene.
+Chat cancellations close the linked media decision with the reason. The route
+is checked again after the durable claim and live execution guard. If denied
+there, the message and decision record a proven abort before transport. The
+unacknowledged receipt remains as a replay fence. A crash before the abort
+commits still leaves an uncertain receipt, as does a lost transport response.
+No later preflight replaces that fence. A receipt-level terminal abort state
+would require a separate schema and settlement change. The last database read
+and external transport call are not atomic.
