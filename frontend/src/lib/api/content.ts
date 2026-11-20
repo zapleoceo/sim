@@ -7,5 +7,4 @@ export const contentApi = {
   update: (id: number, body: ContentIn) => http.put<ContentPost>(`/api/content/${id}`, body),
   remove: (id: number) => http.delete(`/api/content/${id}`),
   approve: (id: number) => http.post<ContentPost>(`/api/content/${id}/approve`, {}),
-  generateCaption: (id: number) => http.post<{ caption: string }>(`/api/content/${id}/generate-caption`, {}),
 };

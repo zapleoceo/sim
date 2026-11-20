@@ -26,6 +26,7 @@ def is_quiet(method: str, path: str) -> bool:
     return method in ("GET", "HEAD", "OPTIONS") and (
         path.startswith(QUIET_GETS)
         or (path.startswith("/api/personas/") and "/preview-operations" in path)
+        or (path.startswith("/api/content/") and "/caption-operations/" in path)
     )
 
 
@@ -89,7 +90,8 @@ async def read_body(request: Request) -> dict[str, Any]:
     if request.url.path == "/api/studio/media" or request.url.path.startswith("/api/studio/media/"):
         return {"omitted": "Тело приватной медиаоперации не сохраняется"}
     if (request.url.path.startswith("/api/personas/")
-            and "/preview-operations/" in request.url.path):
+            and "/preview-operations/" in request.url.path) or (
+                request.url.path.startswith("/api/content/") and "/caption-operations/" in request.url.path):
         return {"omitted": request_body.NOT_KEPT}
     if request.url.path.startswith(request_body.PRIVATE_PREFIXES):
         return {"omitted": request_body.NOT_KEPT}

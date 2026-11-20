@@ -4,9 +4,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import delete, func, select, update
@@ -16,6 +17,8 @@ from sim.adapters.db.locks import NS_PREVIEW_INPUT, lock
 from sim.adapters.db.models import (
     AdminUser,
     BrokerRequest,
+    CaptionOperationAlias,
+    ContentPost,
     Job,
     Persona,
     PreviewOperation,
@@ -33,6 +36,7 @@ if TYPE_CHECKING:
 
 MAX_OWNER_OPEN = 1
 MAX_QUEUE_OPEN = 16
+MAX_CAPTION_ALIASES = 8
 KEY_PATTERN = re.compile(r"([0-9]{13})-([0-9a-f-]{36})")
 KEY_TTL = timedelta(hours=24)
 RESULT_TTL = timedelta(hours=1)
@@ -75,15 +79,24 @@ async def revision(service: ConversationService, persona: Persona, strategy: Str
     ]))
 
 
-async def scoped(s: AsyncSession, owner: int, persona: int, key: str) -> PreviewOperation | None:
+async def scoped(s: AsyncSession, owner: int, resource: int, key: str, *,
+                 caption: bool = False) -> PreviewOperation | None:
+    identity = PreviewOperation.id == key
+    if caption:
+        alias = select(CaptionOperationAlias.operation_id).where(
+            CaptionOperationAlias.id == key,
+        ).scalar_subquery()
+        identity = identity | (PreviewOperation.id == alias)
+        scope = PreviewOperation.post_id == resource
+    else:
+        scope = PreviewOperation.post_id.is_(None) & (PreviewOperation.persona_id == resource)
     return await s.scalar(select(PreviewOperation).where(
-        PreviewOperation.id == key, PreviewOperation.owner_id == owner,
-        PreviewOperation.persona_id == persona,
+        identity, PreviewOperation.owner_id == owner, scope,
     ))
 
 
-async def definitively_missing(s: AsyncSession, owner: int, persona: int, key: str,
-                               now: datetime) -> bool:
+async def definitively_missing(s: AsyncSession, owner: int, resource: int, key: str,
+                               now: datetime, *, caption: bool = False) -> bool:
     try:
         expires = key_expiry(key, now)
     except ValueError:
@@ -95,26 +108,77 @@ async def definitively_missing(s: AsyncSession, owner: int, persona: int, key: s
         return False
     # Wait for any in-flight admission. After this lock, no new operation can use this key.
     await lock(s, NS_PREVIEW_INPUT, 0)
-    return await scoped(s, owner, persona, key) is None
+    return await scoped(s, owner, resource, key, caption=caption) is None
 
 
 async def start(c: Container, s: AsyncSession, owner: int, persona: Persona,
                 key: str, body: PreviewIn) -> PreviewOperation:
+    async def snapshot() -> str:
+        service = c.conversation(s)
+        return await revision(service, persona, await service.strategy_for(persona.id))
+
+    return await admit(c, s, owner, persona.id, key, body.model_dump(mode="json"), snapshot)
+
+
+def caption_draft_revision(post: ContentPost) -> str:
+    return digest(canonical({col.key: getattr(post, col.key) for col in ContentPost.__table__.columns}))
+
+
+async def caption_revision(c: Container, s: AsyncSession, post: ContentPost,
+                           request: tuple[str | None, list[dict[str, Any]]] | None = None) -> str:
+    if request is None:
+        request = await c.content(s).caption_request(post)
+    return digest(canonical([
+        "caption-v1", caption_draft_revision(post), request,
+    ]))
+
+
+async def start_caption(c: Container, s: AsyncSession, owner: int,
+                        post: ContentPost, key: str) -> PreviewOperation:
+    async def snapshot() -> str:
+        return await caption_revision(c, s, post)
+
+    return await admit(
+        c, s, owner, post.persona_id, key, {}, snapshot,
+        post_id=post.id, draft_revision=caption_draft_revision(post),
+    )
+
+
+async def admit(c: Container, s: AsyncSession, owner: int, persona: int, key: str, data: dict,
+                snapshot: Callable[[], Awaitable[str]], *, post_id: int | None = None,
+                draft_revision: str | None = None) -> PreviewOperation:
     now = c.clock()
     expires = key_expiry(key, now)
-    data = body.model_dump(mode="json")
     encoded = canonical(data)
     if len(encoded) > MAX_INPUT_BYTES:
         raise ValueError("Preview request is too large")
     fingerprint = digest(encoded)
     await lock(s, NS_PREVIEW_INPUT, 0)
     current = await s.get(PreviewOperation, key)
+    if current is None and (alias := await s.get(CaptionOperationAlias, key)) is not None:
+        current = await s.get(PreviewOperation, alias.operation_id)
     if current is not None:
-        if (current.owner_id, current.persona_id, current.fingerprint) != (owner, persona.id, fingerprint):
+        if (current.owner_id, current.post_id, current.fingerprint) != (owner, post_id, fingerprint):
+            raise PreviewConflict
+        if post_id is None and current.persona_id != persona:
             raise PreviewConflict
         return current
     if c.clock() >= expires - KEY_TTL + ACCEPT_WINDOW:
         raise ValueError("Preview request ID is too old for a new operation")
+    if post_id is not None:
+        prior = await s.scalar(select(PreviewOperation).where(
+            PreviewOperation.owner_id == owner, PreviewOperation.post_id == post_id,
+            PreviewOperation.draft_revision == draft_revision,
+        ))
+        if prior is not None:
+            if c.settings.preview_async_enabled:
+                aliases = await s.scalar(select(func.count()).select_from(CaptionOperationAlias).where(
+                    CaptionOperationAlias.operation_id == prior.id,
+                ))
+                if aliases < MAX_CAPTION_ALIASES:
+                    s.add(CaptionOperationAlias(id=key, operation_id=prior.id))
+                    await s.flush()
+            return prior
     if not c.settings.preview_async_enabled:
         raise PreviewDisabled
     open_jobs = select(PreviewOperation.id).join(Job, Job.id == PreviewOperation.job_id).where(
@@ -128,12 +192,11 @@ async def start(c: Container, s: AsyncSession, owner: int, persona: Persona,
     queue_open = await s.scalar(select(func.count()).select_from(open_jobs.subquery()))
     if queue_open >= MAX_QUEUE_OPEN:
         raise PreviewCapacity("queue")
-    service = c.conversation(s)
-    snapshot = await revision(service, persona, await service.strategy_for(persona.id))
+    source_revision = await snapshot()
     job = await JobRepo(s).enqueue(PREVIEW_REPLY, {"key": key}, now, max_attempts=1)
     current = PreviewOperation(
-        id=key, owner_id=owner, persona_id=persona.id, job_id=job.id,
-        fingerprint=fingerprint, revision=snapshot, expires_at=min(now + RESULT_TTL, expires),
+        id=key, owner_id=owner, persona_id=persona, post_id=post_id, draft_revision=draft_revision, job_id=job.id,
+        fingerprint=fingerprint, revision=source_revision, expires_at=min(now + RESULT_TTL, expires),
         key_expires_at=expires, input_cipher=c.box.encrypt_json(data),
     )
     s.add(current)
@@ -158,8 +221,13 @@ async def run(c: Container, s: AsyncSession, payload: dict) -> dict[str, str]:
     if row is None or row.expires_at <= c.clock():
         return {"reason": "expired"}
     user = await s.get(AdminUser, row.owner_id) if row.owner_id is not None else None
+    if not c.settings.preview_async_enabled or user is None or not user.is_active:
+        row.input_cipher = None
+        return {"reason": "unavailable"}
+    if row.post_id is not None:
+        return await run_caption(c, s, row)
     persona = await s.get(Persona, row.persona_id)
-    if not c.settings.preview_async_enabled or user is None or not user.is_active or persona is None:
+    if persona is None:
         row.input_cipher = None
         return {"reason": "unavailable"}
     service = c.conversation(s)
@@ -178,6 +246,25 @@ async def run(c: Container, s: AsyncSession, payload: dict) -> dict[str, str]:
     row.input_cipher = None
     if row.expires_at > c.clock():
         row.result_cipher = c.box.encrypt_json(result)
+    return {"reason": "finished"}
+
+
+async def run_caption(c: Container, s: AsyncSession, row: PreviewOperation) -> dict[str, str]:
+    row.input_cipher = None
+    post = await s.get(ContentPost, row.post_id)
+    if post is None:
+        return {"reason": "unavailable"}
+    service = c.content(s)
+    request = await service.caption_request(post)
+    if row.revision != await caption_revision(c, s, post, request):
+        return {"reason": "configuration_changed"}
+    token = private_preview.set(True)
+    try:
+        caption = await service.render_caption(request)
+    finally:
+        private_preview.reset(token)
+    if row.expires_at > c.clock():
+        row.result_cipher = c.box.encrypt_json({"caption": caption[:2200]})
     return {"reason": "finished"}
 
 

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, select
 
-from sim.adapters.db.models import AdminUser, Job, Persona, PreviewOperation, Strategy
+from sim.adapters.db.models import AdminUser, ContentPost, Job, Persona, PreviewOperation, Strategy
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.api.schemas import PreviewIn
@@ -79,6 +79,33 @@ async def preview_operation_checks(url: str) -> None:
             assert {row.job_id for row in rows} == ids
             await s.execute(delete(PreviewOperation).where(PreviewOperation.owner_id.in_(owners)))
             await s.execute(delete(Job).where(Job.id.in_(ids | {regular_id})))
+        async with transaction(c.factory) as s:
+            post = ContentPost(persona_id=persona_id, caption="Synthetic caption draft")
+            s.add(post)
+            await s.flush()
+            post_id = post.id
+
+        async def enqueue_caption(key: str) -> tuple[str, int]:
+            async with transaction(c.factory) as s:
+                source = await s.get(ContentPost, post_id)
+                row = await preview_operations.start_caption(c, s, owners[0], source, key)
+                return row.id, row.job_id
+
+        two_tabs = [f"{prefix}-{uuid4()}" for _ in range(2)]
+        first_tab, second_tab = await asyncio.gather(*(enqueue_caption(key) for key in two_tabs))
+        assert first_tab == second_tab
+        caption_id, caption_job = first_tab
+        async with transaction(c.factory) as s:
+            for key in two_tabs:
+                row = await preview_operations.scoped(s, owners[0], post_id, key, caption=True)
+                assert row.id == caption_id
+            (await s.get(Job, caption_job)).status = "failed"
+        late = f"{prefix}-{uuid4()}"
+        assert await enqueue_caption(late) == first_tab
+        async with transaction(c.factory) as s:
+            await s.execute(delete(PreviewOperation).where(PreviewOperation.id == caption_id))
+            await s.execute(delete(Job).where(Job.id == caption_job))
+            await s.execute(delete(ContentPost).where(ContentPost.id == post_id))
         print("PostgreSQL preview admission, concurrent caps and ordinary queue isolation PASS")
     finally:
         await c.aclose()

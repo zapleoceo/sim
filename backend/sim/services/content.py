@@ -122,19 +122,18 @@ class ContentService:
         else:
             post.status = ContentStatus.APPROVED
 
-    async def generate_caption(self, post: ContentPost) -> str:
+    async def caption_request(self, post: ContentPost) -> tuple[str | None, list[dict[str, Any]]]:
         persona = await self.personas.get(post.persona_id)
         if persona is None:
             raise ContentError("persona not found")
         from sim.services.app_settings import AppSettingsService  # local: it imports CAPTION_RULES
 
         cfg = await AppSettingsService(self.session).load()
-        result = await self.llm.chat(
-            caption_prompt(persona, post.kind.value, post.caption, cfg.caption_rules),
-            capability="chat:sales",
-            model=persona.model or None,
-            workflow="content",
-        )
+        return persona.model or None, caption_prompt(persona, post.kind.value, post.caption, cfg.caption_rules)
+
+    async def render_caption(self, request: tuple[str | None, list[dict[str, Any]]]) -> str:
+        model, messages = request
+        result = await self.llm.chat(messages, capability="chat:sales", model=model, workflow="content")
         return result.text.strip()
 
     async def publish(self, post_id: int) -> None:
