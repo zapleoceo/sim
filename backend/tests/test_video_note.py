@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
-from conftest import OPERATOR, OWNER, FakeConnector, FakePort, login
+from conftest import OPERATOR, OWNER, FakeConnector, FakePort, decision_json, login
 from sqlalchemy import select
 
 from sim.adapters.channels.capabilities import Capability
@@ -44,7 +44,14 @@ from sim.ports.video import VideoError, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import is_ai_video
 from sim.services.app_settings import BY_KEY, AppSettingsService
-from sim.services.media_decisions import QUEUED, SEND_FAILED, SENT, MediaDecision, MediaDecisionLog
+from sim.services.media_decisions import (
+    NEUTRAL_MEDIA_SCENE,
+    QUEUED,
+    SEND_FAILED,
+    SENT,
+    MediaDecision,
+    MediaDecisionLog,
+)
 from sim.services.send_receipts import SendUncertain
 from sim.services.video_note import (
     AI_VIDEO_PREFIX,
@@ -146,6 +153,23 @@ async def scene(container, world) -> Scene:
             dialogs.append(dialog.id)
     return Scene(connector.port, container.video, container.video_encoder, world.persona.id,
                  dialogs[0], dialogs[1])
+
+
+async def test_first_generic_video_note_queues_the_neutral_scene(container, scene, fake_llm):
+    await allow(container, OWNER_TG)
+    reference = await add_media(container, scene.persona_id, MediaKind.PHOTO, JPEG, "jpg")
+    async with transaction(container.factory) as s:
+        s.add(Message(dialog_id=scene.owner_dialog, direction=Direction.IN,
+                      author=Author.CLIENT, text="Пришли кружочек", external_id="synthetic-first"))
+    fake_llm.replies = [decision_json(reply="Хорошо", media={"kind": "video_note", "scene": "кухня"})]
+    async with transaction(container.factory) as s:
+        outcome = await container.conversation(s).run_reply(scene.owner_dialog)
+        assert outcome.status == "sent"
+        job = await s.scalar(select(Job).where(Job.kind == jobkinds.PERSONA_MEDIA))
+        assert job.payload["scene"] == NEUTRAL_MEDIA_SCENE
+        assert job.payload["reference_ids"] == [reference]
+        assert job.payload["chat_video_target"]["dialog_id"] == scene.owner_dialog
+    assert not scene.video.calls and not scene.port.notes
 
 
 def request_for(scene: Scene, prompt: str = PROMPT, **kw) -> VideoNoteRequest:

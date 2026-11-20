@@ -19,7 +19,7 @@ from sim.adapters.db.repositories.catalog import ChannelRepo, PersonaRepo, Strat
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
-from sim.domain.enums import Author, ClientStatus, Delivery, Direction, Stage
+from sim.domain.enums import Author, ClientStatus, Delivery, Direction, MediaKind, Stage
 from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
@@ -35,7 +35,11 @@ from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
-from sim.services.media_decisions import MediaDecision
+from sim.services.media_decisions import (
+    NEUTRAL_MEDIA_SCENE,
+    MediaDecision,
+    general_media_request_kind,
+)
 from sim.services.model_routing import routed_chat, selected_model
 from sim.services.outbound import OutboundService, cancel_queued_ai
 from sim.services.owner_accounts import is_owner_account
@@ -154,6 +158,11 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
         for is_client, text, verdict in items
         if verdict != BLOCKED
     ]
+
+
+def is_neutral_media_acknowledgement(text: str) -> bool:
+    """Only literal acknowledgements can be proven free of scene details."""
+    return text.strip().casefold() in {"хорошо", "хорошо.", "ок", "ок."}
 
 
 def decision_fields(decision: Decision) -> dict[str, Any]:
@@ -471,11 +480,23 @@ class ConversationService:
         # answer will be a voice note) while the model writes and the guard checks the reply.
         if not followup:
             await mark_read(port, dialog.external_thread_id, last.external_id)
+        neutral_media_kind = None
+        if (not followup and self.media_tool is not None and last.author is Author.CLIENT
+                and history == [Turn("user", last.text)]
+                and ctx.summary_until is None and not (ctx.history_note or ctx.summary or ctx.passport)):
+            requested = general_media_request_kind(last.text)
+            if requested is not None:
+                earlier = await self.session.scalar(select(Message.id).where(
+                    *self.messages.visible(dialog_id), Message.id < last.id,
+                ).limit(1))
+                if earlier is None:
+                    neutral_media_kind = requested
         action = RECORD_VOICE if will_speak(persona, followup, last) else TYPING
         async with showing(port, dialog.external_thread_id, action):
             draft = await self.draft_reply(
                 persona, strategy, history, ctx, workflow=workflow, dialog_id=dialog_id,
                 whole_history=True,
+                neutral_media_kind=neutral_media_kind,
             )
         # The model call took a while. From here on, hold the dialog lock (ingest takes it to
         # insert a client message) and re-read the world before anything is queued.
@@ -660,6 +681,7 @@ class ConversationService:
         guard_workflow: str = GUARD_WORKFLOW,
         dialog_id: int | None = None,
         whole_history: bool = False,
+        neutral_media_kind: MediaKind | None = None,
     ) -> Draft:
         """The same builder, model call and pre-send guard as production, without any dialog
         bookkeeping. `history` ends with the client's latest message."""
@@ -680,6 +702,11 @@ class ConversationService:
             decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id,
                                               recovery_key=key, model=selected_model(persona, history))
             guard: GuardOutcome | None = None
+            if (neutral_media_kind is not None and decision is not None and decision.media is not None
+                    and decision.media.send and decision.media.kind is neutral_media_kind
+                    and is_neutral_media_acknowledgement(decision.reply)
+                    and not (decision.handoff_to_operator or decision.refused or decision.stop_contact)):
+                decision = replace(decision, media=replace(decision.media, scene=NEUTRAL_MEDIA_SCENE))
             if decision is not None and decision.reply:
                 review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 guard = await self.review(

@@ -6,7 +6,7 @@ from __future__ import annotations
 import base64
 import itertools
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -24,8 +24,14 @@ from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.services import jobkinds
 from sim.services.ai_media import AI_LABEL, AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
 from sim.services.app_settings import BY_KEY, AppSettingsService
-from sim.services.conversation import decision_fields, history_turns
-from sim.services.media_decisions import QUEUED, REFUSED, MediaDecisionLog
+from sim.services.conversation import ConversationService, decision_fields, history_turns
+from sim.services.media_decisions import (
+    NEUTRAL_MEDIA_SCENE,
+    QUEUED,
+    REFUSED,
+    MediaDecisionLog,
+    general_media_request_kind,
+)
 from sim.services.outbound import media_caption
 from sim.services.persona_media_tool import (
     NO_MEDIA,
@@ -39,7 +45,7 @@ from sim.services.persona_media_tool import (
 )
 from sim.services.prompt import Decision, MediaAsk, parse_decision, parse_media
 from sim.worker.handlers import HANDLERS
-from tests.conftest import FakePort, decision_json, inbound
+from tests.conftest import FakePort, decision_json, guard_json, inbound
 from tests.media_image_fixtures import JPEG, JPEG_BLUE
 from tests.test_conversation import run_reply
 from tests.test_ingest import ingest
@@ -255,6 +261,88 @@ async def test_she_is_offered_a_photo_and_her_request_is_queued_after_the_text(c
     assert "media" in json.loads(fake_llm.guard_calls[-1][0][-1]["content"])["decision"]
     # no video note for a dialog that is not the allowlisted account
     assert "кружочек" not in context.split("приложить", 1)[1].split(".", 1)[0]
+
+
+@pytest.mark.parametrize("text", [
+    "Где ты?", "Что сейчас делаешь?", "Не присылай фото",
+    "Пришли фото на кухне", "Пришли кружочек на том фоне, который мы обсуждали",
+    "Она сказала: пришли фото", "Пришли фото или кружочек",
+])
+def test_general_media_request_does_not_infer_missing_context(text):
+    assert general_media_request_kind(text) is None
+
+
+@pytest.mark.parametrize(("text", "reply", "previous", "expected"), [
+    ("Пришли фото, пожалуйста!", "Хорошо", "none", NEUTRAL_MEDIA_SCENE),
+    ("Пришли фото на кухне", "Хорошо", "none", SCENE),
+    ("Пришли фото", "Я на кухне", "none", SCENE),
+    ("Пришли фото", "Хорошо", "batch", SCENE),
+    ("Пришли фото", "Хорошо", "completed", SCENE),
+    ("Пришли фото", "Хорошо", "trimmed", SCENE),
+])
+async def test_general_photo_preserves_conversation_context(
+    container, world, fake_llm, studio, monkeypatch, text, reply, previous, expected,
+):
+    async with transaction(container.factory) as s:
+        first = await s.scalar(select(Message).where(Message.direction == Direction.IN))
+        first.text = text if previous == "none" else "Я на кухне"
+    if previous == "completed":
+        fake_llm.replies = [decision_json(reply="Поняла")]
+        earlier = await run_reply(container)
+        async with transaction(container.factory) as s:
+            await container.outbound(s).deliver(earlier.message.id)
+    if previous != "none":
+        await say(container, world, text)
+    if previous == "trimmed":
+        load_memory = ConversationService.memory
+
+        async def trimmed_memory(self, *args, **kwargs):
+            recent, ctx = await load_memory(self, *args, **kwargs)
+            return recent[-1:], replace(ctx, history_note="История усечена")
+
+        monkeypatch.setattr(ConversationService, "memory", trimmed_memory)
+    fake_llm.replies = [decision_json(reply=reply, media=ASK)]
+    assert (await run_reply(container)).status == "sent"
+    reviewed = json.loads(fake_llm.guard_calls[-1][0][-1]["content"])["decision"]
+    assert reviewed["media"]["scene"] == expected
+    (job,) = await media_jobs(container)
+    assert job.payload["scene"] == expected
+
+
+async def test_guard_rewrite_requires_a_fresh_model_decision(container, fake_llm, studio):
+    async with transaction(container.factory) as s:
+        first = await s.scalar(select(Message).where(Message.direction == Direction.IN))
+        first.text = "Пришли фото"
+    fake_llm.replies = [
+        decision_json(reply="Хорошо", media=ASK),
+        decision_json(reply="Я на кухне", media=ASK),
+    ]
+    fake_llm.guard_replies = [guard_json("rewrite", fixed="Я на кухне"), guard_json()]
+    await run_reply(container)
+    reviewed = [json.loads(call[0][-1]["content"])["decision"]["media"]["scene"]
+                for call in fake_llm.guard_calls]
+    assert reviewed == [NEUTRAL_MEDIA_SCENE, SCENE]
+    (job,) = await media_jobs(container)
+    assert job.payload["scene"] == SCENE
+
+
+@pytest.mark.parametrize("disposition", ["decline", "later", "handoff", "guard"])
+async def test_generic_request_does_not_open_media_when_existing_control_stops_it(
+    container, world, fake_llm, studio, disposition,
+):
+    async with transaction(container.factory) as s:
+        first = await s.scalar(select(Message).where(Message.direction == Direction.IN))
+        first.text = "Пришли фото"
+    if disposition in {"decline", "later"}:
+        raw = decision_json(media={"kind": "photo", "decision": disposition, "reason": "Не сейчас"})
+    elif disposition == "handoff":
+        raw = decision_json(media=ASK, handoff_to_operator=True, handoff_reason="Нужен оператор")
+    else:
+        raw = decision_json(media=ASK)
+        fake_llm.guard_replies = [guard_json("block", ["неверно"])] * 2
+    fake_llm.replies = [raw, raw]
+    await run_reply(container)
+    assert not await media_jobs(container)
 
 
 async def test_no_media_is_queued_when_the_reply_ends_the_conversation(container, world, fake_llm, studio):
