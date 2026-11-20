@@ -124,6 +124,19 @@ def asked_kind(text: str) -> MediaKind | None:
     return None
 
 
+GENERAL_MEDIA_REQUEST = re.compile(
+    r"(?:пришли|скинь|отправь)\s+(?:мне\s+)?"
+    r"(фото|фотку|селфи|кружок|кружочек)(?:\s*[,.]?\s+пожалуйста)?[.!?]*"
+)
+NEUTRAL_MEDIA_SCENE = "нейтральный синтетический кадр с персонажем на простом фоне"
+
+
+def general_media_request_kind(text: str) -> MediaKind | None:
+    """Recognize only a bare request with no scene or reference to earlier context."""
+    match = GENERAL_MEDIA_REQUEST.fullmatch(" ".join(text.casefold().split()))
+    return asked_kind(match.group(1)) if match is not None else None
+
+
 def broker_refused(error: str) -> bool:
     """The Broker answered the request with a 4xx (no scope, model not allowed, quota)."""
     return bool(BROKER_REFUSAL.search(error))
