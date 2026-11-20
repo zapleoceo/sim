@@ -310,6 +310,8 @@ async def test_a_decision_to_send_is_one_record_that_follows_the_photo_to_the_cl
     assert record.warning == "" and "Исход: запущена генерация" in row.text
     (job,) = await media_jobs(container)
     assert job.payload["decision_id"] == row.id
+    assert record.reference_ids == tuple(job.payload["reference_ids"])
+    assert record.planned_at_utc.endswith("+00:00") and "Выбор референсов (UTC)" in row.text
     assert reply_detail(outcome)["media"]["outcome"] == QUEUED
 
     result = await run_media_job(container)

@@ -160,6 +160,8 @@ class MediaDecision:
     offered: tuple[str, ...] = ()    # the kinds that were on offer for this reply
     warning: str = ""
     detail: str = ""             # the error or refusal text of the outcome
+    planned_at_utc: str | None = None
+    reference_ids: tuple[int, ...] = ()
     media_message_id: int | None = None   # the generated photo or note in the dialog
 
     @property
@@ -193,6 +195,9 @@ class MediaDecision:
             f"Просили: {asked}",
             *decided,
             *([f"Сцена: {self.scene}"] if self.scene else []),
+            *([f"Выбор референсов (UTC): {self.planned_at_utc}",
+               f"Референсы из галереи: {', '.join(map(str, self.reference_ids))}"]
+              if self.planned_at_utc else []),
             f"Было доступно: {', '.join(KINDS.get(k, k) for k in self.offered) or 'ничего'}",
             f"Исход: {outcome}" + (f" ({self.detail})" if self.detail else ""),
         ]
@@ -248,7 +253,8 @@ def load(message: Message) -> MediaDecision | None:
         raw = json.loads(message.original_text or "")
         known = {f.name for f in fields(MediaDecision)}
         data = {key: value for key, value in raw.items() if key in known}
-        return MediaDecision(**{**data, "offered": tuple(data.get("offered") or ())})
+        return MediaDecision(**{**data, "offered": tuple(data.get("offered") or ()),
+                                "reference_ids": tuple(data.get("reference_ids") or ())})
     except (TypeError, ValueError, AttributeError):
         log.warning("message %s: unreadable media decision", message.id)
         return None

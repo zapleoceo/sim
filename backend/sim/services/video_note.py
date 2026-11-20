@@ -44,6 +44,7 @@ log = logging.getLogger(__name__)
 
 OWNER_SETTING = "video_note_owner_telegram_id"
 VIDEO_NOTE_WORKFLOW = "video-note"
+CHAT_AUDIO_VALIDATION = "chat-audio-v2"
 NOTE_FAILED = "[кружочек ИИ не создан]"
 ASPECT_RATIO = "9:16"                # portrait: the face stays inside the centre crop
 ENCODER_VERSION = 2                  # visible AI watermark; do not reuse unlabeled cached clips
@@ -181,7 +182,8 @@ class OwnerVideoNotes:
                 "dialog_id": plan.dialog.id}
 
     async def plan(
-        self, request: VideoNoteRequest, target: ChatVideoTarget | None = None,
+        self, request: VideoNoteRequest, target: ChatVideoTarget | None = None, *,
+        chat_reference: Reference | None = None,
     ) -> Plan:
         owner_id = await owner_telegram_id(self.session)
         if owner_id <= 0:
@@ -192,10 +194,12 @@ class OwnerVideoNotes:
             raise VideoNoteRefused("Персона не найдена")
         if target is not None:
             dialog = await self.chat_dialog(request.persona_id, target)
-            reference = await self.reference(request)
+            if chat_reference is None:
+                raise VideoNoteRefused("Нет проверенного референса для чатового кружочка")
+            reference = chat_reference
             # Manual cache entries can be silent, and chat media belongs to one exact route.
             identity = json.dumps(target.payload(), sort_keys=True)
-            key = hashlib.sha256(f"chat-audio-v1:{cache_key(request, reference)}:{identity}".encode())
+            key = hashlib.sha256(f"{CHAT_AUDIO_VALIDATION}:{cache_key(request, reference)}:{identity}".encode())
             return Plan(dialog, key.hexdigest(), reference)
         dialog = await self.owner_dialog(request.persona_id, owner_id)
         if dialog is None:
@@ -243,7 +247,7 @@ class OwnerVideoNotes:
     # ---- job (worker) --------------------------------------------------------------------
     async def run(
         self, payload: dict[str, Any], *, target: ChatVideoTarget | None = None,
-        decision_id: int | None = None,
+        decision_id: int | None = None, chat_reference: Reference | None = None,
     ) -> dict[str, Any]:
         """Cache hit: reuse the file. Miss: generate, encode, store. Then queue label + note.
 
@@ -251,7 +255,7 @@ class OwnerVideoNotes:
         reason is kept as a failed, never-sent message in the owner dialog."""
         request = VideoNoteRequest.from_payload(payload)
         try:
-            plan = await self.plan(request, target)    # the allowlist is re-read at run time
+            plan = await self.plan(request, target, chat_reference=chat_reference)    # the allowlist is re-read at run time
         except VideoNoteRefused as exc:
             log.warning("video note not made: %s", exc)
             return {"outcome": "refused", "error": str(exc)[:300]}
@@ -302,6 +306,7 @@ class OwnerVideoNotes:
         payload: dict[str, Any] = {"message_id": note.id, "final": target is None}
         if target is not None:
             payload["chat_video_target"] = target.payload()
+            payload["chat_audio_validation"] = CHAT_AUDIO_VALIDATION
             payload["media_decision_id"] = decision_id
         await self.jobs.enqueue(
             jobkinds.SEND, payload,

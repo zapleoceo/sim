@@ -39,12 +39,12 @@ from sim.services.persona_media_tool import (
 from sim.services.prompt import Decision, MediaAsk, parse_decision, parse_media
 from sim.worker.handlers import HANDLERS
 from tests.conftest import FakePort, decision_json, inbound
+from tests.media_image_fixtures import JPEG, JPEG_BLUE
 from tests.test_conversation import run_reply
 from tests.test_ingest import ingest
 
 MODEL = "codex-sub/gpt-6.1-sol"
 PNG = b"\x89PNG\r\n\x1a\n-generated"
-JPEG = b"\xff\xd8\xff\xe0-reference"
 SCENE = "я на кухне, варю кофе, в сером свитере"
 ASK = {"kind": "photo", "scene": SCENE}
 URL = "https://broker.test"
@@ -243,8 +243,11 @@ async def test_she_is_offered_a_photo_and_her_request_is_queued_after_the_text(c
     assert "МЕДИА: к этому ответу ты можешь приложить своё фото." in context and NO_MEDIA not in context
     assert outcome.status == "sent" and outcome.decision.media == MediaAsk(MediaKind.PHOTO, SCENE)
     (job,) = await media_jobs(container)
+    (reference,) = await rows(container, PersonaMedia)
     assert {**job.payload, "decision_id": 0} == {
-        "dialog_id": outcome.message.dialog_id, "kind": "photo", "scene": SCENE, "decision_id": 0}
+        "dialog_id": outcome.message.dialog_id, "kind": "photo", "scene": SCENE,
+        "decision_id": 0, "reference_ids": [reference.id],
+    }
     assert job.max_attempts == 1 and job.run_at > outcome.message.created_at
     assert "media" in json.loads(fake_llm.guard_calls[-1][0][-1]["content"])["decision"]
     # no video note for a dialog that is not the allowlisted account
@@ -320,6 +323,67 @@ async def test_the_photo_is_generated_from_her_gallery_and_sent_with_disclosure(
         await container.outbound(s).deliver(photo.id)
     assert port.photos == [("chat-1", PNG, AI_LABEL)]
     assert (await rows(container, Message))[-1].delivery is Delivery.SENT
+
+
+async def test_photo_generator_keeps_planned_reference_order(container, world, fake_llm, studio):
+    _, images = studio
+    preferred = await add_photo(container, world.persona.id, data=JPEG_BLUE, tags=["кофе"])
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    assert job.payload["reference_ids"][0] == preferred
+    assert (await run_media_job(container))["outcome"] == "queued"
+    assert images.calls[0]["references"] == [
+        ImageReference(JPEG_BLUE, "image/jpeg"), ImageReference(JPEG, "image/jpeg"),
+    ]
+
+
+@pytest.mark.parametrize("invalid", ["duplicate", "cardinality", "type", "foreign", "corrupt", "mime", "oversize"])
+async def test_invalid_planned_photo_fails_before_provider(container, fake_llm, studio, invalid):
+    _, images = studio
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    (reference_id,) = job.payload["reference_ids"]
+    payload = dict(job.payload)
+    if invalid in {"duplicate", "cardinality", "type"}:
+        payload["reference_ids"] = {
+            "duplicate": [reference_id, reference_id],
+            "cardinality": [reference_id, 1001, 1002, 1003],
+            "type": [True],
+        }[invalid]
+    else:
+        if invalid == "corrupt":
+            name = await container.media.save(b"\xff\xd8\xff\xe0broken", "jpg")
+        elif invalid == "mime":
+            name = await container.media.save(JPEG, "png")
+        elif invalid == "oversize":
+            name = await container.media.save(JPEG + bytes(4 * 1024 * 1024), "jpg")
+        async with transaction(container.factory) as s:
+            reference = await s.get(PersonaMedia, reference_id)
+            if invalid == "foreign":
+                persona = Persona(name="Synthetic other persona")
+                s.add(persona)
+                await s.flush()
+                reference.persona_id = persona.id
+            else:
+                reference.storage_name = name
+    async with transaction(container.factory) as s:
+        result = await HANDLERS[jobkinds.PERSONA_MEDIA].run(container, s, payload)
+    assert result["outcome"] == "refused"
+    assert not images.calls
+
+
+async def test_deleted_planned_photo_is_not_replaced_from_gallery(container, world, fake_llm, studio):
+    _, images = studio
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    (planned_id,) = job.payload["reference_ids"]
+    replacement = await add_photo(container, world.persona.id, data=JPEG_BLUE)
+    assert replacement != planned_id
+    async with transaction(container.factory) as s:
+        await s.delete(await s.get(PersonaMedia, planned_id))
+    result = await run_media_job(container)
+    assert result["outcome"] == "refused"
+    assert not images.calls
 
 
 async def test_the_same_request_takes_the_picture_from_the_cache(container, world, fake_llm, studio):

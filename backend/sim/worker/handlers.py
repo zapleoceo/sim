@@ -143,6 +143,7 @@ async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> No
         typing_s=float(payload.get("typing_s") or 0.0),
         chat_video_target=ChatVideoTarget.from_payload(binding) if binding is not None else None,
         media_decision_id=payload.get("media_decision_id"),
+        chat_audio_validation=payload.get("chat_audio_validation"),
     )
 
 
