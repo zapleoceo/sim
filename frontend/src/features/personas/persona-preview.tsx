@@ -1,5 +1,5 @@
 import { AlertCircle, FileText, Mic, Paperclip, RotateCcw, Send, Square } from 'lucide-react';
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { GuardBadge } from '@/components/guard-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,6 +66,7 @@ function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
  * Render with `key={personaId}` so another persona starts a clean chat.
  */
 export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }: { personaId: number; asyncEnabled?: boolean; ownerId?: number }) {
+  const modeHelpId = useId();
   const [mode, setMode] = useState<'voice' | 'queued'>('voice');
   const queued = mode === 'queued';
   const modeUnavailable = queued && !asyncEnabled;
@@ -117,23 +118,26 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
         </Button>
       </div>
       {(asyncEnabled || queued) && (
-        <label className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          Режим предпросмотра
-          <select
-            className="max-w-full rounded-md border bg-background px-2 py-1"
-            value={mode}
-            onChange={(e) => setMode(e.target.value === 'queued' ? 'queued' : 'voice')}
-            disabled={!idle || recorder.recording || chat.awaitingOperation || !!chat.failure}
-          >
-            <option value="voice">Обычный, с настройками озвучки</option>
-            <option value="queued" disabled={!asyncEnabled}>Через очередь, только текст</option>
-          </select>
+        <div className="space-y-2 text-sm">
+          <label className="flex flex-wrap items-center justify-between gap-2">
+            Режим предпросмотра
+            <select
+              aria-describedby={modeUnavailable ? modeHelpId : undefined}
+              className="max-w-full rounded-md border bg-background px-2 py-1"
+              value={mode}
+              onChange={(e) => setMode(e.target.value === 'queued' ? 'queued' : 'voice')}
+              disabled={!idle || recorder.recording || chat.awaitingOperation || !!chat.failure}
+            >
+              <option value="voice">Обычный, с настройками озвучки</option>
+              <option value="queued" disabled={!asyncEnabled}>Через очередь, только текст</option>
+            </select>
+          </label>
           {modeUnavailable && (
-            <span role="status" className="w-full text-muted-foreground">
+            <p id={modeHelpId} role="status" className="text-muted-foreground">
               Очередь отключена. Если переключатель недоступен, дождитесь статуса запроса или очистите чат. Затем выберите обычный режим.
-            </span>
+            </p>
           )}
-        </label>
+        </div>
       )}
       <fieldset disabled={!idle || recorder.recording} className="space-y-2 rounded-lg border p-3 text-sm">
         <legend className="px-1 font-medium">Этапы тестового ответа</legend>
