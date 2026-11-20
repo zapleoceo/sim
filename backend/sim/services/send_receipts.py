@@ -27,12 +27,13 @@ class SendReceipts:
     def __init__(self, factory: async_sessionmaker[AsyncSession], clock: Clock) -> None:
         self.factory, self.clock = factory, clock
 
-    async def previous(self, message_id: int, fingerprint: str) -> SendReceipt | None:
+    async def previous(self, message_id: int, fingerprint: str | None) -> SendReceipt | None:
+        """An intent without a verifiable route stays fenced, including a stored ACK."""
         async with self.factory() as session:
             intent = await session.get(OutboundSendIntent, message_id)
             if intent is None:
                 return None
-            if intent.fingerprint != fingerprint or intent.sent_at is None:
+            if fingerprint is None or intent.fingerprint != fingerprint or intent.sent_at is None:
                 raise SendUncertain(UNCERTAIN_SEND)
             return SendReceipt(intent.external_id, intent.sent_at)
 

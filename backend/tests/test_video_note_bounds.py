@@ -7,7 +7,12 @@ import pytest
 from test_video_note import ENCODER_MP4, PROBE
 
 from sim.adapters.audio import run_process
-from sim.adapters.video import VIDEO_NOTE_INPUT_LIMIT, VideoNoteEncoder
+from sim.adapters.video import (
+    CHAT_AUDIO_FRAME_SAMPLES,
+    VIDEO_NOTE_INPUT_LIMIT,
+    VideoNoteEncoder,
+    has_chat_audio_signal,
+)
 from sim.adapters.video_process import ENCODE_LIMIT
 from sim.ports.video import VideoError
 
@@ -78,3 +83,35 @@ async def test_real_synthetic_portrait_keeps_audio_and_round_format(tmp_path):
     code, pcm, _ = await run_process(("ffmpeg", "-v", "error", "-i", str(target),
                                      "-map", "0:a:0", "-f", "s16le", "pipe:1"), b"", 8)
     assert code == 0 and len(pcm) > 1000 and any(pcm)
+
+
+@pytest.mark.parametrize("silent", [True, False])
+async def test_real_chat_audio_rejects_silent_aac_but_accepts_quiet_signal_with_pause(tmp_path, silent):
+    source = tmp_path / "input.mp4"
+    audio = "anullsrc=r=48000:cl=mono" if silent else "sine=frequency=440:duration=0.25"
+    audio_filter = [] if silent else ["-af", "volume=0.02,adelay=200,apad"]
+    code, _, err = await run_process((
+        "ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
+        "color=c=blue:s=64x96:d=0.8", "-f", "lavfi", "-i", audio, *audio_filter,
+        "-c:v", "libx264", "-c:a", "aac", "-shortest", str(source),
+    ), b"", 15)
+    assert code == 0, err
+    encoder = VideoNoteEncoder()
+    clip = source.read_bytes()
+    if silent:
+        with pytest.raises(VideoError, match="не обнаружен звуковой сигнал"):
+            await encoder.to_video_note(clip, require_audio=True)
+        assert await encoder.to_video_note(clip)  # manual video retains its existing rules
+    else:
+        assert await encoder.to_video_note(clip, require_audio=True)
+
+
+def test_chat_pcm_needs_sustained_energy_and_allows_separated_quiet_frames():
+    frame = CHAT_AUDIO_FRAME_SAMPLES
+    silence = bytes(frame * 2)
+    quiet = b"\x08\x00" * frame
+    click = b"\xff\x7f" + silence[2:]
+    assert not has_chat_audio_signal(silence * 3)
+    assert not has_chat_audio_signal(silence + click + silence)
+    assert not has_chat_audio_signal(quiet + silence * 3)
+    assert has_chat_audio_signal(quiet + silence * 3 + quiet + silence)

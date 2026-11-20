@@ -26,6 +26,7 @@ from sim.adapters.db.models import (
     OutboundSendIntent,
     PersonaMedia,
 )
+from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.session import transaction
 from sim.adapters.llm.broker import BrokerLLM
 from sim.adapters.media import MediaStore
@@ -47,6 +48,7 @@ from sim.services.media_decisions import QUEUED, SEND_FAILED, SENT, MediaDecisio
 from sim.services.send_receipts import SendUncertain
 from sim.services.video_note import (
     AI_VIDEO_PREFIX,
+    CHAT_AUDIO_VALIDATION,
     OWNER_SETTING,
     VIDEO_NOTE_WORKFLOW,
     ChatVideoTarget,
@@ -57,6 +59,7 @@ from sim.services.video_note import (
     cache_name,
 )
 from sim.worker.handlers import HANDLERS
+from tests.media_image_fixtures import JPEG
 
 OWNER_TG = 169510539
 STRANGER_TG = 555000111
@@ -442,7 +445,7 @@ async def test_api_queues_the_note_for_the_allowlisted_account(api, container, s
     assert missing.status_code == 409
 
 
-@pytest.mark.parametrize("before_send", ["allowed", "paused", "missing", "revoked", "archived", "late_pause", "claim_pause", "claim_revoke"])
+@pytest.mark.parametrize("before_send", ["allowed", "paused", "missing", "revoked", "archived", "late_pause", "claim_pause", "claim_revoke", "legacy_audio"])
 async def test_chat_video_stays_on_origin_channel(container, scene, before_send, monkeypatch):
     connector = container.registry[ChannelKind.TELEGRAM_USER]
     original_build = connector.build_port
@@ -454,6 +457,7 @@ async def test_chat_video_stays_on_origin_channel(container, scene, before_send,
 
     monkeypatch.setattr(connector, "build_port", track_port)
     await allow(container, OWNER_TG)
+    reference = await add_media(container, scene.persona_id, MediaKind.PHOTO, JPEG, "jpg")
     async with transaction(container.factory) as s:
         original = await s.get(Dialog, scene.owner_dialog)
         channel = Channel(kind=ChannelKind.TELEGRAM_USER, persona_id=scene.persona_id,
@@ -471,6 +475,7 @@ async def test_chat_video_stays_on_origin_channel(container, scene, before_send,
         result = await HANDLERS[jobkinds.PERSONA_MEDIA].run(container, s, {
             "dialog_id": dialog.id, "kind": "video_note", "scene": "Synthetic",
             "chat_video_target": target.payload(), "decision_id": row.id,
+            "reference_ids": [reference],
         })
         message = await s.get(Message, result["message_id"])
         assert message.dialog_id == dialog.id != original.id
@@ -478,8 +483,13 @@ async def test_chat_video_stays_on_origin_channel(container, scene, before_send,
         assert job.payload["final"] is False
         assert job.payload["chat_video_target"] == target.payload()
         payload = dict(job.payload)
+        assert payload["chat_audio_validation"] == CHAT_AUDIO_VALIDATION
+        if before_send == "legacy_audio":
+            payload.pop("chat_audio_validation")
         name = message.media_url.removeprefix("/api/media/")
         assert scene.encoder.require_audio
+        assert scene.video.calls[0]["image"] == JPEG
+        assert scene.video.calls[0]["image_mime"] == "image/jpeg"
 
     if before_send == "missing":
         container.media.path(name).unlink()
@@ -505,7 +515,8 @@ async def test_chat_video_stays_on_origin_channel(container, scene, before_send,
 
             outbound.receipts.previous = pause_after_first_gate
             await outbound.deliver(payload["message_id"], chat_video_target=target,
-                                   media_decision_id=payload["media_decision_id"])
+                                   media_decision_id=payload["media_decision_id"],
+                                   chat_audio_validation=payload["chat_audio_validation"])
         elif before_send in {"claim_pause", "claim_revoke"}:
             outbound = container.outbound(s)
             original_claim = outbound.receipts.claim
@@ -521,20 +532,25 @@ async def test_chat_video_stays_on_origin_channel(container, scene, before_send,
 
             monkeypatch.setattr(outbound.receipts, "claim", change_after_claim)
             await outbound.deliver(payload["message_id"], chat_video_target=target,
-                                   media_decision_id=payload["media_decision_id"])
+                                   media_decision_id=payload["media_decision_id"],
+                                   chat_audio_validation=payload["chat_audio_validation"])
         else:
             await HANDLERS[jobkinds.SEND].run(container, s, payload)
         message = await s.get(Message, payload["message_id"])
         expected = {"allowed": Delivery.SENT, "paused": Delivery.CANCELLED,
                     "revoked": Delivery.CANCELLED, "missing": Delivery.FAILED,
                     "archived": Delivery.CANCELLED, "late_pause": Delivery.CANCELLED,
-                    "claim_pause": Delivery.CANCELLED, "claim_revoke": Delivery.CANCELLED}
+                    "claim_pause": Delivery.CANCELLED, "claim_revoke": Delivery.CANCELLED,
+                    "legacy_audio": Delivery.CANCELLED}
         assert message.delivery is expected[before_send]
         if before_send != "allowed":
             ((record, decision),) = await MediaDecisionLog(s).recent(target.dialog_id, 10)
             assert record.id == payload["media_decision_id"]
             assert decision.media_message_id == message.id
             assert decision.outcome == SEND_FAILED and decision.detail in message.error
+            if before_send == "legacy_audio":
+                assert "lacks current PCM validation" in decision.detail
+                assert not port_channels
             intent = await s.get(OutboundSendIntent, message.id)
             if before_send in {"claim_pause", "claim_revoke"}:
                 assert intent is not None and intent.sent_at is None and intent.external_id is None
@@ -585,9 +601,10 @@ async def test_legacy_chat_video_without_binding_is_cancelled_but_manual_still_s
     assert not scene.port.sent
 
 
-@pytest.mark.parametrize("intent_state", ["acked", "unknown", "mismatch"])
+@pytest.mark.parametrize("intent_state", ["acked", "unknown", "mismatch", "absent"])
+@pytest.mark.parametrize("route", ["unbound", "bound", "changed", "missing"])
 async def test_legacy_chat_video_reconciles_receipt_without_transport(
-    container, scene, monkeypatch, intent_state,
+    container, scene, monkeypatch, intent_state, route,
 ):
     await allow(container, OWNER_TG)
     result = await run_job(container, request_for(scene))
@@ -597,6 +614,7 @@ async def test_legacy_chat_video_reconciles_receipt_without_transport(
         message.original_text = "Synthetic scene"
         dialog = await s.get(Dialog, message.dialog_id)
         dialog.ai_paused = True
+        binding = ChatVideoTarget.from_dialog(dialog).payload()
         channel = await s.get(Channel, dialog.channel_id)
         fingerprint = hashlib.sha256(json.dumps({
             "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
@@ -615,18 +633,29 @@ async def test_legacy_chat_video_reconciles_receipt_without_transport(
 
     if intent_state == "mismatch":
         fingerprint = "0" * 64
-    await receipts.claim(message_id, fingerprint)
-    if intent_state != "unknown":
-        await receipts.acknowledge(message_id, fingerprint, "synthetic-ack")
+    if intent_state != "absent":
+        await receipts.claim(message_id, fingerprint)
+        if intent_state != "unknown":
+            await receipts.acknowledge(message_id, fingerprint, "synthetic-ack")
     await allow(container, 0)
 
     def no_transport(*_args, **_kwargs):
         pytest.fail("legacy receipt recovery must not build a transport")
 
     monkeypatch.setattr(FakeConnector, "build_port", no_transport)
+    if route == "missing":
+        async def no_dialog(self, _dialog_id):
+            return None
+
+        monkeypatch.setattr(DialogRepo, "get", no_dialog)
+    if route == "changed":
+        binding["channel_id"] += 1
+    recoverable = intent_state == "acked" and route in {"unbound", "bound"}
     async with transaction(container.factory) as s:
-        payload = {"message_id": message_id, "final": True}
-        if intent_state == "acked":
+        payload = {"message_id": message_id, "final": route == "unbound"}
+        if route != "unbound":
+            payload.update(chat_video_target=binding, media_decision_id=record_id)
+        if recoverable or intent_state == "absent":
             await HANDLERS[jobkinds.SEND].run(container, s, payload)
         else:
             with pytest.raises(SendUncertain):
@@ -634,12 +663,30 @@ async def test_legacy_chat_video_reconciles_receipt_without_transport(
         message = await s.get(Message, message_id)
         ((row, decision),) = await MediaDecisionLog(s).recent(message.dialog_id, 10)
         assert row.id == record_id
-        if intent_state == "acked":
+        if recoverable:
             assert message.delivery is Delivery.SENT and message.external_id == "synthetic-ack"
             assert decision.outcome == SENT
+        elif intent_state == "absent":
+            assert message.delivery is Delivery.CANCELLED and decision.outcome == SEND_FAILED
+            assert await s.get(OutboundSendIntent, message_id) is None
         else:
             assert message.delivery is Delivery.QUEUED and message.external_id is None
     assert not scene.port.notes and not scene.port.sent
+
+
+@pytest.mark.parametrize("multiple", [False, True])
+async def test_chat_video_requires_exactly_one_planned_persona_reference(container, scene, multiple):
+    await allow(container, OWNER_TG)
+    reference = await add_media(container, scene.persona_id, MediaKind.PHOTO, JPEG, "jpg")
+    async with transaction(container.factory) as s:
+        dialog = await s.get(Dialog, scene.owner_dialog)
+        result = await HANDLERS[jobkinds.PERSONA_MEDIA].run(container, s, {
+            "dialog_id": dialog.id, "kind": "video_note", "scene": "Synthetic",
+            "chat_video_target": ChatVideoTarget.from_dialog(dialog).payload(),
+            "reference_ids": [reference, reference + 1] if multiple else [],
+        })
+        assert result["outcome"] == "refused"
+        assert not scene.video.calls
 
 
 async def test_chat_video_checks_pause_again_after_generation(container, scene):
@@ -655,7 +702,10 @@ async def test_chat_video_checks_pause_again_after_generation(container, scene):
 
         notes = container.video_notes(s)
         notes.video = PausingVideo()
-        result = await notes.run(request_for(scene).payload(), target=ChatVideoTarget.from_dialog(dialog))
+        result = await notes.run(
+            request_for(scene).payload(), target=ChatVideoTarget.from_dialog(dialog),
+            chat_reference=Reference(JPEG, "image/jpeg"),
+        )
         assert result["outcome"] == "refused"
         assert await s.scalar(select(Job.id).where(Job.kind == jobkinds.SEND)) is None
 
@@ -681,7 +731,14 @@ async def test_encoder_crops_to_a_square_and_keeps_the_audio_track():
         assert await asyncio.to_thread(source.read_bytes) == ENCODER_MP4
         return 0, ENCODER_MP4, b""
 
-    assert await VideoNoteEncoder(runner, timeout_s=7).to_video_note(ENCODER_MP4, require_audio=True) == ENCODER_MP4
+    async def audio_runner(args, data, limit_s):
+        assert args[-3:] == ("-f", "s16le", "pipe:1")
+        assert args[args.index("-i") + 1].endswith("/out.mp4")
+        assert data == b"" and limit_s == 7
+        return 0, b"\x10\x00" * 320, b""
+
+    encoder = VideoNoteEncoder(runner, timeout_s=7, audio_runner=audio_runner)
+    assert await encoder.to_video_note(ENCODER_MP4, require_audio=True) == ENCODER_MP4
     args = seen["args"]
     assert seen["data"] == b"" and seen["limit_s"] == 7
     assert args == video_note_args(args[args.index("-i") + 1], args[-1])

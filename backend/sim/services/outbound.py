@@ -39,7 +39,12 @@ from sim.services.media_decisions import MediaDecisionLog
 from sim.services.persona_ambience import voice_ambience
 from sim.services.send_receipts import UNCERTAIN_SEND, SendReceipt, SendReceipts, SendUncertain
 from sim.services.tracing import Step, Tracer
-from sim.services.video_note import ChatVideoTarget, owner_allowed, owner_telegram_id
+from sim.services.video_note import (
+    CHAT_AUDIO_VALIDATION,
+    ChatVideoTarget,
+    owner_allowed,
+    owner_telegram_id,
+)
 from sim.services.voice import VOICE_NOTE, VoiceNote, VoiceRenderer
 
 log = logging.getLogger(__name__)
@@ -256,6 +261,7 @@ class OutboundService:
     async def deliver(
         self, message_id: int, *, final: bool = False, typing_s: float = 0.0,
         chat_video_target: ChatVideoTarget | None = None, media_decision_id: int | None = None,
+        chat_audio_validation: str | None = None,
     ) -> None:
         message = await self.messages.get(message_id)
         if message is None or message.delivery is Delivery.SENT:
@@ -263,18 +269,25 @@ class OutboundService:
         legacy_unbound = (chat_video_target is None and message.author is Author.AI
                           and message.media_kind == MediaKind.VIDEO_NOTE
                           and is_ai_video(message.media_url) and message.original_text is not None)
+        outdated_audio = chat_video_target is not None and chat_audio_validation != CHAT_AUDIO_VALIDATION
         dialog = await self.dialogs.get(message.dialog_id)
-        if dialog is None:
-            raise SendFailed("dialog not found")
-        if legacy_unbound:
-            channel = dialog.channel
-            previous = await self.receipts.previous(message.id, send_fingerprint(message, dialog, channel))
+        if legacy_unbound or outdated_audio:
+            fingerprint = None
+            if dialog is not None and (
+                chat_video_target is None or chat_video_target == ChatVideoTarget.from_dialog(dialog)
+            ):
+                fingerprint = send_fingerprint(message, dialog, dialog.channel)
+            previous = await self.receipts.previous(message.id, fingerprint)
             if previous is None:
-                await self.cancel_chat_video(message, "legacy chat video has no original route", media_decision_id)
-            else:
-                apply_receipt(message, channel, previous)
+                reason = ("chat video lacks current PCM validation" if outdated_audio
+                          else "legacy chat video has no original route")
+                await self.cancel_chat_video(message, reason, media_decision_id)
+            elif dialog is not None:
+                apply_receipt(message, dialog.channel, previous)
                 await self.close_media_decision(message, ok=True, record_id=media_decision_id)
             return
+        if dialog is None:
+            raise SendFailed("dialog not found")
         if chat_video_target is not None:
             reason = await self.chat_video_rejection(chat_video_target, dialog)
             if reason is not None:

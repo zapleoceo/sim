@@ -33,21 +33,24 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.adapters.audio import AudioError
 from sim.adapters.channels.capabilities import Capability
 from sim.adapters.db.models import Dialog, Message, Persona, PersonaMedia
 from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.repositories.persona_media import PersonaMediaRepo
 from sim.adapters.media import MediaStore
+from sim.adapters.video_process import run_video_process
 from sim.clock import Clock, utcnow
 from sim.domain.enums import ClientStatus, Delivery, Direction, MediaKind
 from sim.ports.image import ImageError, ImagePort, ImageReference
@@ -79,6 +82,7 @@ from sim.services.media_decisions import (
 )
 from sim.services.owner_accounts import is_owner_account
 from sim.services.persona_clock import WEEKDAYS, age_on, day_part, local_time
+from sim.services.persona_media import MediaRejected, checked_suffix
 from sim.services.persona_routine import doing_now
 from sim.services.prompt import MEDIA_LATER, Decision, MediaAsk, one_line
 from sim.services.video_note import (
@@ -87,6 +91,7 @@ from sim.services.video_note import (
     REFERENCE_MIMES,
     ChatVideoTarget,
     OwnerVideoNotes,
+    Reference,
     VideoNoteRequest,
     owner_allowed,
 )
@@ -199,6 +204,37 @@ def pick_references(rows: Sequence[PersonaMedia], scene: str, limit: int = MAX_R
     return sorted(rows, key=lambda row: (-mentioned(row), row.id))[:limit]
 
 
+REFERENCE_DEMUXERS = {"image/jpeg": "jpeg_pipe", "image/png": "png_pipe", "image/webp": "webp_pipe"}
+
+
+def planned_reference_ids(value: object, kind: MediaKind) -> list[int] | None:
+    limit = 1 if kind is MediaKind.VIDEO_NOTE else MAX_REFERENCES
+    if not isinstance(value, list) or not 1 <= len(value) <= limit:
+        return None
+    if any(type(item) is not int or not 0 < item <= 2**31 - 1 for item in value):
+        return None
+    return value if len(set(value)) == len(value) else None
+
+
+async def valid_reference_image(data: bytes, mime: str) -> bool:
+    """Check the declared MIME and decode one frame using the existing bounded subprocess."""
+    try:
+        checked_suffix(data, mime)
+        with tempfile.TemporaryDirectory(prefix="sim-reference-") as folder:
+            source = Path(folder) / "reference"
+            source.write_bytes(data)
+            code, frame, _ = await run_video_process((
+                "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-max_alloc", "16777216",
+                "-protocol_whitelist", "file,pipe", "-threads", "1", "-err_detect", "explode",
+                "-f", REFERENCE_DEMUXERS[mime], "-i", str(source), "-frames:v", "1",
+                "-filter_threads", "1", "-vf", "scale=8:8", "-pix_fmt", "gray",
+                "-threads", "1", "-f", "rawvideo", "pipe:1",
+            ), b"", 8)
+    except (AudioError, MediaRejected, OSError):
+        return False
+    return code == 0 and len(frame) == 64
+
+
 def photo_key(persona_id: int, prompt: str, model: str, references: Sequence[ImageReference]) -> str:
     """The hash of everything that changes the picture."""
     return hashlib.sha256(json.dumps({
@@ -236,12 +272,15 @@ class PersonaMediaTool:
         if await self.busy(dialog, gap):
             return Offer()
         can = getattr(port, "capabilities", frozenset())
+        photo = cfg.persona_photo_model and self.images is not None and Capability.SEND_PHOTO in can
+        video = (self.notes.video is not None and Capability.SEND_VIDEO_NOTE in can
+                 and owner_allowed(dialog, cfg.video_note_owner_telegram_id))
+        if not (photo or video) or not await self.references(persona.id):
+            return Offer()
         kinds = []
-        if (cfg.persona_photo_model and self.images is not None and Capability.SEND_PHOTO in can
-                and await self.references(persona.id)):
+        if photo:
             kinds.append(MediaKind.PHOTO)
-        if (self.notes.video is not None and Capability.SEND_VIDEO_NOTE in can
-                and owner_allowed(dialog, cfg.video_note_owner_telegram_id)):
+        if video:
             kinds.append(MediaKind.VIDEO_NOTE)
         return Offer(tuple(kinds))
 
@@ -270,16 +309,39 @@ class PersonaMediaTool:
         return [row for row in rows if self.reference_source(row) is not None]
 
     def reference_source(self, row: PersonaMedia) -> tuple[Path, str] | None:
-        """(file, mime) of a usable reference photo; the file is not read here."""
+        """(file, mime) of a candidate reference; unrelated bad files are skipped."""
         mime = REFERENCE_MIMES.get(row.storage_name.rsplit(".", 1)[-1].lower())
-        path = self.media.path(row.storage_name)
-        if mime is None or path is None or not 0 < path.stat().st_size <= MAX_REFERENCE_BYTES:
-            return None
-        return path, mime
+        try:
+            path = self.media.path(row.storage_name)
+            if mime is not None and path is not None and 0 < path.stat().st_size <= MAX_REFERENCE_BYTES:
+                return path, mime
+        except OSError:
+            pass
+        return None
 
-    def reference_files(self, rows: Sequence[PersonaMedia]) -> list[ImageReference]:
-        sources = (self.reference_source(row) for row in rows)
-        return [ImageReference(path.read_bytes(), mime) for path, mime in filter(None, sources)]
+    async def planned_references(self, persona_id: int, ids: list[int]) -> list[Reference] | None:
+        rows = await self.session.scalars(select(PersonaMedia).where(
+            PersonaMedia.id.in_(ids), PersonaMedia.persona_id == persona_id,
+            PersonaMedia.kind == MediaKind.PHOTO,
+        ))
+        by_id = {row.id: row for row in rows}
+        if len(by_id) != len(ids):
+            return None
+        references = []
+        for reference_id in ids:
+            source = self.reference_source(by_id[reference_id])
+            if source is None:
+                return None
+            path, mime = source
+            try:
+                with path.open("rb") as handle:
+                    data = handle.read(MAX_REFERENCE_BYTES + 1)
+            except OSError:
+                return None
+            if not 0 < len(data) <= MAX_REFERENCE_BYTES or not await valid_reference_image(data, mime):
+                return None
+            references.append(Reference(data, mime))
+        return references
 
     async def context(self, dialog: Dialog, persona: Persona, offer: Offer) -> str:
         """The media part of the reply's dynamic context: what she may attach, how she reports a
@@ -313,6 +375,16 @@ class PersonaMediaTool:
             outcome = ENDED
         else:
             outcome = QUEUED if kind in offer.kinds else UNAVAILABLE
+        reference_ids: tuple[int, ...] = ()
+        planned_at = None
+        if outcome == QUEUED:
+            limit = 1 if kind is MediaKind.VIDEO_NOTE else MAX_REFERENCES
+            references = pick_references(await self.references(persona.id), ask.scene, limit)
+            reference_ids = tuple(reference.id for reference in references)
+            if reference_ids:
+                planned_at = self.clock()
+            else:
+                outcome = UNAVAILABLE
         reason = ask.reason if ask is not None else ""
         # A refusal is about something she was asked for, even when the request was not recognised.
         requested = asked or (None if sends else kind)
@@ -327,10 +399,13 @@ class PersonaMediaTool:
             owner=owner_allowed(dialog, cfg.video_note_owner_telegram_id),
             offered=tuple(k.value for k in offer.kinds),
             warning=self.warning(ask, persona),
+            planned_at_utc=planned_at.replace(tzinfo=UTC).isoformat() if planned_at is not None else None,
+            reference_ids=reference_ids,
         )
         row = await self.decisions.add(dialog, record)
         if outcome == QUEUED:
             payload = {"dialog_id": dialog.id, "kind": ask.kind.value, "scene": ask.scene, "decision_id": row.id}
+            payload["reference_ids"] = list(reference_ids)
             if ask.kind is MediaKind.VIDEO_NOTE:
                 payload["chat_video_target"] = ChatVideoTarget.from_dialog(dialog).payload()
             await self.jobs.enqueue(
@@ -370,7 +445,12 @@ class PersonaMediaTool:
             return {"outcome": "skipped", "error": "the AI is paused or the client refused"}
         ask = MediaAsk(MediaKind(payload["kind"]), str(payload["scene"]))
         prompt = shot_prompt(persona, ask, self.clock())
-        rows = pick_references(await self.references(persona.id), ask.scene)
+        reference_ids = planned_reference_ids(payload.get("reference_ids"), ask.kind)
+        if reference_ids is None:
+            return {"outcome": "refused", "error": "invalid or missing planned persona reference IDs"}
+        references = await self.planned_references(persona.id, reference_ids)
+        if references is None:
+            return {"outcome": "refused", "error": "a planned persona reference is invalid or unavailable"}
         if ask.kind is MediaKind.VIDEO_NOTE:
             binding = payload.get("chat_video_target")
             if binding is None:
@@ -378,27 +458,31 @@ class PersonaMediaTool:
             target = ChatVideoTarget.from_payload(binding)
             if target != ChatVideoTarget.from_dialog(dialog):
                 return {"outcome": "refused", "error": "the original chat video recipient changed"}
-            return await self.video_note(persona, ask, prompt, rows, target, payload.get("decision_id"))
-        return await self.photo(dialog, persona, ask, prompt, rows)
+            return await self.video_note(
+                persona, ask, prompt, references[0], target, payload.get("decision_id"),
+            )
+        return await self.photo(dialog, persona, ask, prompt, [
+            ImageReference(reference.data, reference.mime) for reference in references
+        ])
 
     async def video_note(
-        self, persona: Persona, ask: MediaAsk, prompt: str, rows: list[PersonaMedia],
+        self, persona: Persona, ask: MediaAsk, prompt: str, reference: Reference,
         target: ChatVideoTarget, decision_id: int | None,
     ) -> dict[str, Any]:
         """Prepare a note on the exact allowlisted route that requested it."""
         result = await self.notes.run(VideoNoteRequest(
-            persona.id, prompt, NOTE_DURATION_S, NOTE_RESOLUTION, rows[0].id if rows else None,
-        ).payload(), target=target, decision_id=decision_id)
+            persona.id, prompt, NOTE_DURATION_S, NOTE_RESOLUTION,
+        ).payload(), target=target, decision_id=decision_id, chat_reference=reference)
         note = await self.session.get(Message, result["message_id"]) if "message_id" in result else None
         if note is not None:
             note.original_text = ask.scene
         return result
 
     async def photo(
-        self, dialog: Dialog, persona: Persona, ask: MediaAsk, prompt: str, rows: list[PersonaMedia],
+        self, dialog: Dialog, persona: Persona, ask: MediaAsk, prompt: str,
+        references: list[ImageReference],
     ) -> dict[str, Any]:
         cfg = await self.settings.load()
-        references = self.reference_files(rows)
         try:
             name, cached, model = await self.picture(persona, prompt, cfg, references)
         except ImageError as exc:
