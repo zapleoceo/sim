@@ -66,7 +66,10 @@ function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
  * Render with `key={personaId}` so another persona starts a clean chat.
  */
 export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }: { personaId: number; asyncEnabled?: boolean; ownerId?: number }) {
-  const chat = usePreviewChat(personaId, asyncEnabled, ownerId);
+  const [mode, setMode] = useState<'voice' | 'queued'>('voice');
+  const queued = mode === 'queued';
+  const modeUnavailable = queued && !asyncEnabled;
+  const chat = usePreviewChat(personaId, queued, ownerId);
   const recorder = useVoiceRecorder();
   const [sample, setSample] = useState<'photo' | 'circle' | null>(null);
   const [text, setText] = useState('');
@@ -81,13 +84,13 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
 
   const submit = (e: FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
-    if (chat.send(text)) setText('');
+    if (!modeUnavailable && chat.send(text)) setText('');
   };
 
   const attach = (e: ChangeEvent<HTMLInputElement>): void => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
+    if (!file || modeUnavailable) return;
     void chat.sendFile(file, file.name, { caption: text }).then((sent) => {
       if (sent) setText('');
     });
@@ -95,11 +98,12 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
 
   const toggleRecording = async (): Promise<void> => {
     if (!recorder.recording) {
+      if (modeUnavailable) return;
       await recorder.start();
       return;
     }
     const clip = await recorder.stop();
-    if (clip) void chat.sendFile(clip.blob, clip.filename, { voice: true });
+    if (clip && !modeUnavailable) void chat.sendFile(clip.blob, clip.filename, { voice: true });
   };
 
   return (
@@ -112,6 +116,25 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
           Очистить
         </Button>
       </div>
+      {(asyncEnabled || queued) && (
+        <label className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          Режим предпросмотра
+          <select
+            className="max-w-full rounded-md border bg-background px-2 py-1"
+            value={mode}
+            onChange={(e) => setMode(e.target.value === 'queued' ? 'queued' : 'voice')}
+            disabled={!idle || recorder.recording || chat.awaitingOperation || !!chat.failure}
+          >
+            <option value="voice">Обычный, с настройками озвучки</option>
+            <option value="queued" disabled={!asyncEnabled}>Через очередь, только текст</option>
+          </select>
+          {modeUnavailable && (
+            <span role="status" className="w-full text-muted-foreground">
+              Очередь отключена. Если переключатель недоступен, дождитесь статуса запроса или очистите чат. Затем выберите обычный режим.
+            </span>
+          )}
+        </label>
+      )}
       <fieldset disabled={!idle || recorder.recording} className="space-y-2 rounded-lg border p-3 text-sm">
         <legend className="px-1 font-medium">Этапы тестового ответа</legend>
         <p className="text-xs text-muted-foreground">
@@ -247,7 +270,7 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
           variant="outline"
           size="icon"
           className="size-10 flex-none"
-          disabled={!idle || recorder.recording || chat.awaitingOperation}
+          disabled={!idle || recorder.recording || chat.awaitingOperation || modeUnavailable}
           onClick={() => fileInput.current?.click()}
           aria-label="Прикрепить файл"
         >
@@ -268,14 +291,14 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
             variant={recorder.recording ? 'destructive' : 'outline'}
             size="icon"
             className="size-10 flex-none"
-            disabled={!idle || chat.awaitingOperation}
+            disabled={!idle || chat.awaitingOperation || (modeUnavailable && !recorder.recording)}
             onClick={() => void toggleRecording()}
             aria-label={recorder.recording ? 'Остановить и отправить' : 'Записать голосовое'}
           >
             {recorder.recording ? <Square /> : <Mic />}
           </Button>
         )}
-        <Button type="submit" size="icon" className="size-10 flex-none" disabled={!idle || recorder.recording || chat.awaitingOperation} aria-label="Отправить">
+        <Button type="submit" size="icon" className="size-10 flex-none" disabled={!idle || recorder.recording || chat.awaitingOperation || modeUnavailable} aria-label="Отправить">
           <Send />
         </Button>
       </form>

@@ -50,10 +50,31 @@ describe('PersonaPreview', () => {
     const log = fakeApi({
       [`GET ${path}`]: { status: 'complete', history: [], message: 'Привет', result: ok },
     });
-    render(<PersonaPreview personaId={1} asyncEnabled />);
+    render(<PersonaPreview personaId={1} />);
     expect(await screen.findByText(ok.reply)).toBeInTheDocument();
     expect(screen.getByText('Привет')).toBeInTheDocument();
     expect(log.map(({ method, path }) => [method, path])).toEqual([['GET', path]]);
+  });
+
+  it('keeps the existing voiced route by default when the queue is available', async () => {
+    const log = fakeApi({ 'POST /api/personas/1/preview': ok });
+    render(<PersonaPreview personaId={1} asyncEnabled />);
+    expect(screen.getByRole('combobox', { name: 'Режим предпросмотра' })).toHaveValue('voice');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'Привет{enter}');
+    expect(await screen.findByText(ok.reply)).toBeInTheDocument();
+    expect(log.map(({ method, path }) => [method, path])).toEqual([['POST', '/api/personas/1/preview']]);
+  });
+
+  it('asks for an explicit mode change if the queue is switched off', async () => {
+    const log = fakeApi({});
+    const view = render(<PersonaPreview personaId={1} asyncEnabled />);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Режим предпросмотра' }), 'queued');
+    view.rerender(<PersonaPreview personaId={1} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Очередь отключена');
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Режим предпросмотра' }), 'voice');
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled();
+    expect(log).toHaveLength(0);
   });
 
   it('sends the message with history on submit without a native page submit', async () => {
