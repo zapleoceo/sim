@@ -25,13 +25,14 @@ from sim.services import jobkinds
 from sim.services.ai_media import AI_LABEL, AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
 from sim.services.app_settings import BY_KEY, AppSettingsService
 from sim.services.conversation import decision_fields, history_turns
+from sim.services.media_decisions import QUEUED, REFUSED, MediaDecisionLog
 from sim.services.outbound import media_caption
 from sim.services.persona_media_tool import (
     NO_MEDIA,
     PHOTO_FAILED,
     PHOTO_WORKFLOW,
     Offer,
-    life_now,
+    ShotEnvironment,
     photo_key,
     pick_references,
     shot_prompt,
@@ -168,27 +169,28 @@ def marina(**fields) -> Persona:
 
 
 
-def test_life_now_is_her_local_weekday_day_part_and_routine():
-    # Monday 2 November 2026, 05:00 UTC = 07:00 in Kyiv: the morning run
-    assert life_now(marina(), datetime(2026, 11, 2, 5, 0)) == \
-        "понедельник, утро; по распорядку сейчас: пробежка вдоль реки"
-    assert life_now(marina(), datetime(2026, 11, 2, 12, 0)) == "понедельник, день; по распорядку сейчас: свободное время"
-    assert life_now(marina(routine=""), datetime(2026, 11, 2, 22, 30)).startswith("вторник, ночь")
+def test_shot_environment_uses_local_clock_without_location_or_routine():
+    morning = ShotEnvironment.capture(marina().timezone, datetime(2026, 11, 2, 5))
+    assert morning.payload() == {"at": "2026-11-02T05:00:00+00:00", "light": "утро"}
+    assert ShotEnvironment.parse(morning.payload()) == morning
+    assert ShotEnvironment.capture(marina().timezone, datetime(2026, 11, 2, 22, 30)).light == "ночь"
 
 
-def test_the_shot_prompt_is_her_scene_her_looks_and_her_life_now():
-    now = datetime(2026, 11, 2, 5, 0)
-    photo = shot_prompt(marina(), MediaAsk(MediaKind.PHOTO, SCENE), now)
+def test_the_shot_prompt_uses_saved_synthetic_lighting():
+    persona = marina()
+    now = datetime(2026, 11, 2, 5)
+    photo = shot_prompt(persona, MediaAsk(MediaKind.PHOTO, SCENE), ShotEnvironment.capture(persona.timezone, now))
     assert "любительское фото" in photo and f"Сцена: {SCENE}" in photo
     assert "женщина, возраст 45" in photo and "на приложенных фото" in photo
-    assert "понедельник, утро; по распорядку сейчас: пробежка вдоль реки" in photo
+    assert "условное освещение для синтетической сцены: утро" in photo
+    assert "пробежка" not in photo and "фактическое место и занятие не подтверждены" in photo
     assert "без обнажённости" in photo
-    # no minutes or dates: the same ask later in the same part of her day is the same prompt
-    assert photo == shot_prompt(marina(), MediaAsk(MediaKind.PHOTO, SCENE), now + timedelta(minutes=10))
-    note = shot_prompt(marina(), MediaAsk(MediaKind.VIDEO_NOTE, SCENE), now)
+    later = ShotEnvironment.capture(persona.timezone, now + timedelta(minutes=10))
+    assert photo == shot_prompt(persona, MediaAsk(MediaKind.PHOTO, SCENE), later)
+    note = shot_prompt(persona, MediaAsk(MediaKind.VIDEO_NOTE, SCENE), later)
     assert "кружочек" in note and note != photo
     assert "мужчина" in shot_prompt(Persona(name="Олег", gender="male", timezone="UTC", routine=""),
-                                    MediaAsk(MediaKind.PHOTO, SCENE), now)
+                                    MediaAsk(MediaKind.PHOTO, SCENE), later)
 
 
 def test_references_prefer_photos_tagged_like_the_scene_and_stay_stable():
@@ -244,7 +246,8 @@ async def test_she_is_offered_a_photo_and_her_request_is_queued_after_the_text(c
     assert outcome.status == "sent" and outcome.decision.media == MediaAsk(MediaKind.PHOTO, SCENE)
     (job,) = await media_jobs(container)
     (reference,) = await rows(container, PersonaMedia)
-    assert {**job.payload, "decision_id": 0} == {
+    assert ShotEnvironment.parse(job.payload["shot_environment"]) is not None
+    assert {k: v for k, v in {**job.payload, "decision_id": 0}.items() if k != "shot_environment"} == {
         "dialog_id": outcome.message.dialog_id, "kind": "photo", "scene": SCENE,
         "decision_id": 0, "reference_ids": [reference.id],
     }
@@ -311,7 +314,7 @@ async def test_the_photo_is_generated_from_her_gallery_and_sent_with_disclosure(
     (call,) = images.calls
     assert (call["model"], call["workflow"]) == (MODEL, PHOTO_WORKFLOW)
     assert call["references"] == [ImageReference(JPEG, "image/jpeg")]
-    assert f"Сцена: {SCENE}" in call["prompt"] and "по распорядку сейчас" in call["prompt"]
+    assert f"Сцена: {SCENE}" in call["prompt"] and "условное освещение" in call["prompt"]
 
     photo = (await rows(container, Message))[-1]
     assert result == {"outcome": "queued", "cached": False, "message_id": photo.id}
@@ -323,6 +326,86 @@ async def test_the_photo_is_generated_from_her_gallery_and_sent_with_disclosure(
         await container.outbound(s).deliver(photo.id)
     assert port.photos == [("chat-1", PNG, AI_LABEL)]
     assert (await rows(container, Message))[-1].delivery is Delivery.SENT
+
+
+async def test_delayed_worker_uses_planned_lighting_after_clock_and_routine_change(
+    container, world, fake_llm, studio,
+):
+    _, images = studio
+    container.clock = lambda: datetime(2026, 11, 2, 9)
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    light = job.payload["shot_environment"]["light"]
+    container.clock = lambda: datetime(2026, 11, 2, 22)
+    async with transaction(container.factory) as s:
+        persona = await s.get(Persona, world.persona.id)
+        persona.routine = "ежедневно 00:00-23:59 PRIVATE_ROUTINE_FIXTURE"
+        persona.timezone = "UTC"
+    assert (await run_media_job(container))["outcome"] == "queued"
+    assert f"условное освещение для синтетической сцены: {light}" in images.calls[0]["prompt"]
+    assert "PRIVATE_ROUTINE_FIXTURE" not in images.calls[0]["prompt"]
+
+
+@pytest.mark.parametrize("snapshot", [None, {"at": "2026-11-02T05:00:00", "light": "утро"},
+                                      {"at": "2026-11-02T05:00:00+00:00", "light": "произвольный текст"}])
+async def test_old_or_invalid_shot_environment_never_calls_provider(container, fake_llm, studio, snapshot):
+    _, images = studio
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    payload = dict(job.payload)
+    payload.pop("shot_environment")
+    if snapshot is not None:
+        payload["shot_environment"] = snapshot
+    async with transaction(container.factory) as s:
+        result = await HANDLERS[jobkinds.PERSONA_MEDIA].run(container, s, payload)
+        ((_, decision),) = await MediaDecisionLog(s).recent(payload["dialog_id"], 10)
+        assert decision.outcome == REFUSED and decision.detail == result["error"]
+    assert result["outcome"] == "refused"
+    assert not images.calls
+
+
+@pytest.mark.parametrize("change", ["none", "scene", "kind", "refs", "dialog", "delayed", "clock_drift", "wrong_stamp"])
+async def test_legacy_media_plan_is_recovered_only_from_matching_queued_decision(
+    container, fake_llm, studio, change,
+):
+    _, images = studio
+    planned = datetime(2026, 11, 2, 9)
+    container.clock = lambda: planned
+    await ask_for_a_photo(container, fake_llm)
+    (job,) = await media_jobs(container)
+    payload = dict(job.payload)
+    payload.pop("shot_environment")
+    async with transaction(container.factory) as s:
+        updates = {"planned_light": None}
+        if change == "clock_drift":
+            # A clock jump between storing the plan and writing the journal.
+            updates["planned_at_utc"] = (planned + timedelta(seconds=6)).isoformat() + "+00:00"
+        elif change == "wrong_stamp":
+            updates["planned_at_utc"] = "2026-11-02T09:00:00"
+        await MediaDecisionLog(s).update(payload["decision_id"], **updates)
+    if change == "delayed":
+        container.clock = lambda: planned + timedelta(hours=2)
+    if change in {"scene", "kind", "refs", "dialog"}:
+        payload.update({
+            "scene": {"scene": "another scene"},
+            "kind": {"kind": "video_note"},
+            "refs": {"reference_ids": [payload["reference_ids"][0] + 1]},
+            "dialog": {"dialog_id": payload["dialog_id"] + 1},
+        }[change])
+    async with transaction(container.factory) as s:
+        result = await HANDLERS[jobkinds.PERSONA_MEDIA].run(container, s, payload)
+        ((_, decision),) = await MediaDecisionLog(s).recent(job.payload["dialog_id"], 10)
+    if change in {"none", "delayed", "clock_drift"}:
+        assert result["outcome"] == "queued" and len(images.calls) == 1
+        assert "условное освещение для синтетической сцены: нейтральное" in images.calls[0]["prompt"]
+        assert decision.planned_light == "нейтральное"
+    else:
+        assert result["outcome"] == "refused" and not images.calls
+        assert decision.planned_light is None
+        if change == "wrong_stamp":
+            assert decision.outcome == REFUSED and decision.detail == result["error"]
+        else:
+            assert decision.outcome == QUEUED and not decision.detail
 
 
 async def test_photo_generator_keeps_planned_reference_order(container, world, fake_llm, studio):

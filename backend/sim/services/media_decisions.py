@@ -161,6 +161,7 @@ class MediaDecision:
     warning: str = ""
     detail: str = ""             # the error or refusal text of the outcome
     planned_at_utc: str | None = None
+    planned_light: str | None = None
     reference_ids: tuple[int, ...] = ()
     media_message_id: int | None = None   # the generated photo or note in the dialog
 
@@ -198,6 +199,7 @@ class MediaDecision:
             *([f"Выбор референсов (UTC): {self.planned_at_utc}",
                f"Референсы из галереи: {', '.join(map(str, self.reference_ids))}"]
               if self.planned_at_utc else []),
+            *([f"Освещение синтетического кадра: {self.planned_light}"] if self.planned_light else []),
             f"Было доступно: {', '.join(KINDS.get(k, k) for k in self.offered) or 'ничего'}",
             f"Исход: {outcome}" + (f" ({self.detail})" if self.detail else ""),
         ]
