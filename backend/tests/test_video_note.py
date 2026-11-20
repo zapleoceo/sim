@@ -562,7 +562,12 @@ async def test_legacy_chat_video_without_binding_is_cancelled_but_manual_still_s
         await s.flush()
         job = await s.scalar(select(Job).where(Job.dedup_key == jobkinds.send_key(message.id)))
         assert job.payload == {"message_id": message.id, "final": True}
-        await HANDLERS[jobkinds.SEND].run(container, s, job.payload)
+        payload = dict(job.payload)
+    # The worker sees committed state. Leaving the setup writer open blocks the
+    # independent receipt transaction on SQLite.
+    async with transaction(container.factory) as s:
+        await HANDLERS[jobkinds.SEND].run(container, s, payload)
+        message = await s.get(Message, payload["message_id"])
         assert message.delivery is (Delivery.SENT if original_text is None else Delivery.CANCELLED)
         if original_text is not None:
             assert await s.get(OutboundSendIntent, message.id) is None
