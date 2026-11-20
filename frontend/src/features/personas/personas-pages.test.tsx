@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EMPTY_PERSONA } from './persona-schema';
@@ -74,6 +75,35 @@ describe('personas pages', () => {
     expect(put?.headers['X-CSRF-Token']).toBe(CSRF);
     expect((put?.body as { name: string }).name).toBe('Марина Светлова');
     expect(await screen.findByText('Персонаж сохранён')).toBeInTheDocument();
+  });
+
+  it('uses only the queued preview after saving the persona', async () => {
+    const persona = { ...MARINA, preview_async_enabled: true };
+    const fixed = '1795171200000-9d80c89d-438e-4eef-8848-7bfb39a89af3';
+    const path = `/api/personas/1/preview-operations/${fixed}`;
+    const log = backend({
+      'GET /api/personas': { items: [persona] },
+      'PUT /api/personas/1': persona,
+      [`POST ${path}`]: reply(202, { id: fixed }),
+      [`GET ${path}`]: { status: 'complete', history: [], message: 'Привет',
+        result: { reply: 'Ответ из очереди', model: 'fake', latency_ms: 42 } },
+    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1795171200000);
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue('9d80c89d-438e-4eef-8848-7bfb39a89af3');
+    try {
+      await renderApp('/personas/1');
+      await userEvent.click(await screen.findByRole('button', { name: 'Сохранить персонажа' }));
+      expect((await screen.findAllByText('Персонаж сохранён')).length).toBeGreaterThan(0);
+      const mode = screen.getByRole('combobox', { name: 'Режим предпросмотра' });
+      expect(mode).toHaveValue('voice');
+      await userEvent.selectOptions(mode, 'queued');
+      await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'Привет{enter}');
+      expect(await screen.findByText('Ответ из очереди')).toBeInTheDocument();
+      expect(log.filter((entry) => entry.method === 'POST').map((entry) => entry.path)).toEqual([path]);
+    } finally {
+      clock.mockRestore();
+      uuid.mockRestore();
+    }
   });
 
   it('blocks saving an empty new persona and shows field errors', async () => {

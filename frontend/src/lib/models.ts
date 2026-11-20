@@ -36,6 +36,7 @@ export type Stage =
 export type ClientStatus = 'active' | 'paused' | 'no_response' | 'refused';
 
 export interface Persona {
+  preview_async_enabled?: boolean;
   id: number;
   name: string;
   /** День рождения (YYYY-MM-DD): возраст, знак зодиака и дни до праздника считает код. */

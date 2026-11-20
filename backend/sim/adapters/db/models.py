@@ -502,6 +502,23 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class PreviewOperation(Base):
+    """Private test-chat operation. Keep only its deduplication metadata after expiry."""
+
+    __tablename__ = "preview_operation"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("admin_user.id", ondelete="SET NULL"))
+    persona_id: Mapped[int] = mapped_column(Integer)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), unique=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    revision: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    key_expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    input_cipher: Mapped[str | None] = mapped_column(Text)
+    result_cipher: Mapped[str | None] = mapped_column(Text)
+
+
 class LlmCall(Base):
     __tablename__ = "llm_call"
 

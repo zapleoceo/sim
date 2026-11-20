@@ -7,10 +7,10 @@ from typing import Any
 
 from sqlalchemy import select, update
 
-from sim.adapters.db.locks import NS_DIALOG, lock
+from sim.adapters.db.locks import NS_DIALOG, NS_PREVIEW_CLAIM, lock, try_lock
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.base import Repository
-from sim.services.jobkinds import PERSONA_MEDIA, VIDEO_NOTE
+from sim.services.jobkinds import PERSONA_MEDIA, PREVIEW_REPLY, VIDEO_NOTE
 from sim.trace_context import current_trace_id
 
 BACKOFF_BASE_S = 30
@@ -124,7 +124,7 @@ class JobRepo(Repository[Job]):
         rows = (
             await self.session.scalars(
                 select(Job)
-                .where(due | stale, Job.id.not_in(exclude_ids))
+                .where(due | stale, Job.id.not_in(exclude_ids), Job.kind != PREVIEW_REPLY)
                 .order_by(Job.run_at, Job.id)
                 .limit(limit)
                 .with_for_update(skip_locked=True)
@@ -162,6 +162,32 @@ class JobRepo(Repository[Job]):
                 await self.session.refresh(job)
                 claimed.append(job)
         return claimed
+
+    async def quarantine_expired_previews(self, now: datetime) -> None:
+        stale = select(Job.id).where(
+            Job.kind == PREVIEW_REPLY, Job.status == "running", Job.locked_until < now,
+        ).limit(16).with_for_update(skip_locked=True)
+        await self.session.execute(update(Job).where(Job.id.in_(stale)).values(
+            status="failed", finished_at=now, locked_until=None, last_error="preview_outcome_unknown",
+        ))
+
+    async def claim_preview(self, now: datetime, lease_s: int) -> Job | None:
+        if not await try_lock(self.session, NS_PREVIEW_CLAIM, 0):
+            return None
+        await self.quarantine_expired_previews(now)
+        running = await self.session.scalar(select(Job.id).where(
+            Job.kind == PREVIEW_REPLY, Job.status == "running",
+        ).limit(1))
+        if running is not None:
+            return None
+        row = await self.session.scalar(select(Job).where(
+            Job.kind == PREVIEW_REPLY, Job.status == "pending", Job.run_at <= now,
+        ).order_by(Job.run_at, Job.id).limit(1).with_for_update(skip_locked=True))
+        if row is None:
+            return None
+        row.status, row.attempts = "running", row.attempts + 1
+        row.locked_until = now + timedelta(seconds=lease_s)
+        return row
 
     async def lock_attempt(self, job_id: int, claim_attempt: int) -> Job | None:
         """Own the execution transaction, not just the completion update.

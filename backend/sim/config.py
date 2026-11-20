@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # Fernet key or comma-separated list (first encrypts, all decrypt) for channel secrets.
     secret_key: str = ""
     session_ttl_h: int = 72
+    preview_async_enabled: bool = False
     cookie_secure: bool = True
     # Disabled until a separately approved OAuth rollout; exact values from ChatGPT management.
     mcp_oauth_enabled: bool = False

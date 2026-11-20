@@ -20,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parent
 sys.path.insert(0, str(BACKEND))
 from broker_reconciliation_smoke import broker_reconciliation_checks  # noqa: E402
+from preview_operation_smoke import preview_operation_checks  # noqa: E402
 from studio_media_smoke import (  # noqa: E402
     discard_synthetic_studio_drafts,
     discard_synthetic_studio_history,
@@ -239,6 +240,7 @@ def main():
     asyncio.run(content_mcp_concurrency(url))
     asyncio.run(mcp_oauth_concurrency(url))
     asyncio.run(studio_media_checks(url))
+    asyncio.run(preview_operation_checks(url))
     try:
         command.downgrade(cfg, "0037")
     except RuntimeError as exc:

@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
@@ -21,6 +22,7 @@ from sim.services.safe_payload import exchange_out, safe_payload
 from sim.services.tracing import Tracer
 
 log = logging.getLogger(__name__)
+private_preview: ContextVar[bool] = ContextVar("private_preview", default=False)
 
 
 def step_kind(workflow: str) -> str:
@@ -77,7 +79,8 @@ class AuditedLLM:
                 capability=capability,
                 model=model,
                 latency_ms=tracing.elapsed_ms(start),
-                error=str(safe_payload(str(exc))["content"])[:1000],
+                error=("preview_model_failed" if private_preview.get()
+                       else str(safe_payload(str(exc))["content"])[:1000]),
             )
             await self.record(call, started_at, exchange=exc.exchange)
             raise
@@ -119,7 +122,7 @@ class AuditedLLM:
                 detail={"model": call.model, "provider": call.provider, "tokens_in": call.tokens_in,
                         "tokens_out": call.tokens_out, "cost_usd": call.cost_usd,
                         "finish_reason": call.finish_reason,
-                        **({"broker_exchange": exchange_out(exchange)} if exchange is not None else {})},
+                        **({"broker_exchange": exchange_out(exchange)} if exchange is not None and not private_preview.get() else {})},
                 dialog_id=call.dialog_id,
                 llm_call_id=call.id,
             )

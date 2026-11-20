@@ -1,6 +1,11 @@
-import { useCallback, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { personasApi } from '@/lib/api/personas';
 import { errorDetail, errorMessage } from '@/lib/errors';
+import {
+  forgetPreview, newPreviewKey, pendingPreview, pollPreview, PreviewOperationError,
+  rememberPreview, TerminalPreviewError,
+} from './preview-operation';
+import type { CompletedPreview, PreviewInput } from './preview-operation';
 import type { GuardInfo, PreviewAttachment, PreviewContext, PreviewResponse, PreviewStageDiagnostics, PreviewStageOptions, PreviewTurn, PreviewVoice } from '@/lib/models';
 
 export interface PreviewMsg {
@@ -19,7 +24,7 @@ export interface PreviewMsg {
   failed?: boolean;
 }
 
-export interface PreviewFailure { text: string; history: PreviewTurn[]; error: string; voiceInput?: boolean }
+export interface PreviewFailure { text: string; history: PreviewTurn[]; error: string; voiceInput?: boolean; terminal?: boolean }
 
 export interface PreviewState {
   messages: PreviewMsg[];
@@ -35,7 +40,8 @@ export interface PreviewState {
 export type PreviewAction =
   | { type: 'send'; text: string; attachment?: PreviewAttachment }
   | { type: 'success'; reply: PreviewResponse }
-  | { type: 'fail'; text: string; history: PreviewTurn[]; error: string; voiceInput?: boolean }
+  | { type: 'restore'; completed: CompletedPreview }
+  | { type: 'fail'; text: string; history: PreviewTurn[]; error: string; voiceInput?: boolean; terminal?: boolean }
   | { type: 'retry' }
   | { type: 'upload' }
   | { type: 'upload-fail'; error: string }
@@ -95,12 +101,18 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
       return { ...state, messages: [...messages, replyMessage(action.reply)],
         context: action.reply.context ?? state.context, busy: false, failure: null };
     }
+    case 'restore': {
+      const { result, history, message } = action.completed;
+      return { ...state, busy: false, failure: null, context: result.context ?? state.context,
+        messages: [...history, { role: 'user', text: message }, replyMessage(result)] };
+    }
     case 'fail': {
       const messages = state.messages.map((m, i) =>
         i === state.messages.length - 1 && m.role === 'user' ? { ...m, failed: true } : m,
       );
       const failure: PreviewFailure = { text: action.text, history: action.history, error: action.error };
       if (action.voiceInput) failure.voiceInput = true;
+      if (action.terminal) failure.terminal = true;
       return { ...state, messages, busy: false, failure };
     }
     case 'retry':
@@ -122,29 +134,77 @@ export function isIdle(s: PreviewState): boolean {
 }
 
 /** Preview chat state for one persona: send text, a voice note or a file; retry; reset. */
-export function usePreviewChat(personaId: number) {
+export function usePreviewChat(personaId: number, asyncEnabled: boolean, ownerId: number) {
   const [state, dispatch] = useReducer(previewReducer, INITIAL_PREVIEW);
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  const operation = useRef<{ key: string; input?: PreviewInput } | null>(null);
+  const activePoll = useRef<AbortController | null>(null);
+
+  const check = useCallback(async (key: string, input?: PreviewInput, restoring = false) => {
+    activePoll.current?.abort();
+    const controller = new AbortController();
+    activePoll.current = controller;
+    const { signal } = controller;
+    try {
+      const complete = await pollPreview(personaId, key, signal, input);
+      if (signal.aborted) return;
+      forgetPreview(personaId, key, ownerId);
+      operation.current = null;
+      dispatch(restoring ? { type: 'restore', completed: complete } : { type: 'success', reply: complete.result });
+    } catch (e) {
+      if (signal.aborted) return;
+      const terminal = e instanceof TerminalPreviewError;
+      if (terminal) {
+        forgetPreview(personaId, key, ownerId);
+        operation.current = null;
+      }
+      dispatch({
+        type: 'fail', text: input?.message ?? '', history: input?.history ?? [],
+        error: e instanceof PreviewOperationError ? e.message : previewError(e),
+        voiceInput: input?.voice_input, terminal,
+      });
+    } finally {
+      if (activePoll.current === controller) activePoll.current = null;
+    }
+  }, [ownerId, personaId]);
+
+  useEffect(() => {
+    const key = pendingPreview(personaId, ownerId);
+    if (key) {
+      operation.current = { key };
+      dispatch({ type: 'retry' });
+      void check(key, undefined, true);
+    }
+    return () => activePoll.current?.abort();
+  }, [check, ownerId, personaId]);
+
   const run = useCallback(
     async (text: string, history: PreviewTurn[], voiceInput: boolean) => {
+      const { context, stages } = stateRef.current;
       try {
-        const { context, stages } = stateRef.current;
+        if (asyncEnabled) {
+          const key = newPreviewKey();
+          const input = { ...context, message: text, history, voice_input: voiceInput, stages };
+          rememberPreview(personaId, key, ownerId);
+          operation.current = { key, input };
+          await check(key, input);
+          return;
+        }
         const reply = await personasApi.preview(personaId, text, history, voiceInput, context, stages);
         dispatch({ type: 'success', reply });
       } catch (e) {
-        console.error('[preview]', e);
         dispatch({ type: 'fail', text, history, error: previewError(e), voiceInput });
       }
     },
-    [personaId],
+    [asyncEnabled, check, ownerId, personaId],
   );
 
   const send = useCallback(
     (raw: string): boolean => {
       const text = raw.trim();
-      if (!text || !isIdle(stateRef.current)) return false;
+      if (!text || activePoll.current || operation.current || !isIdle(stateRef.current)) return false;
       const history = historyOf(stateRef.current.messages);
       dispatch({ type: 'send', text });
       void run(text, history, false);
@@ -156,7 +216,7 @@ export function usePreviewChat(personaId: number) {
   /** A recorded voice note (`voice`) or an attached file: recognize it, then send its text. */
   const sendFile = useCallback(
     async (file: Blob, filename: string, opts: { voice?: boolean; caption?: string } = {}): Promise<boolean> => {
-      if (!isIdle(stateRef.current)) return false;
+      if (activePoll.current || operation.current || !isIdle(stateRef.current)) return false;
       dispatch({ type: 'upload' });
       let attachment: PreviewAttachment;
       try {
@@ -177,14 +237,19 @@ export function usePreviewChat(personaId: number) {
 
   const retry = useCallback(() => {
     const f = stateRef.current.failure;
-    if (!f || stateRef.current.busy) return;
+    if (!f || f.terminal || stateRef.current.busy) return;
     dispatch({ type: 'retry' });
-    void run(f.text, f.history, f.voiceInput ?? false);
-  }, [run]);
+    const current = operation.current;
+    if (current) void check(current.key, undefined, !current.input);
+    else void run(f.text, f.history, f.voiceInput ?? false);
+  }, [check, run]);
 
-  const reset = useCallback(() => dispatch({ type: 'reset' }), []);
+  const reset = useCallback(() => {
+    if (!isIdle(stateRef.current) || operation.current) return;
+    dispatch({ type: 'reset' });
+  }, []);
 
   const setStages = useCallback((stages: PreviewStageOptions) => dispatch({ type: 'stages', stages }), []);
 
-  return { ...state, send, sendFile, retry, reset, setStages };
+  return { ...state, send, sendFile, retry, reset, setStages, queued: asyncEnabled || operation.current !== null, awaitingOperation: operation.current !== null };
 }

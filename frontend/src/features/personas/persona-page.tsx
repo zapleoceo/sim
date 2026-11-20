@@ -8,6 +8,7 @@ import { BackLink, Page, PageHeader } from '@/components/page';
 import { Skeleton } from '@/components/ui/skeleton';
 import { personasApi } from '@/lib/api/personas';
 import { strategiesApi } from '@/lib/api/strategies';
+import { useAuth } from '@/lib/auth';
 import type { Persona, PersonaIn } from '@/lib/models';
 import { qk } from '@/lib/query';
 import { positiveInt, upsertById } from '@/lib/utils';
@@ -30,6 +31,7 @@ export function PersonaPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  const ownerId = useAuth().user?.id ?? 0;
 
   const personas = useQuery({ queryKey: qk.personas, queryFn: personasApi.list });
   const strategies = useQuery({ queryKey: qk.strategies, queryFn: strategiesApi.list });
@@ -110,7 +112,12 @@ export function PersonaPage() {
               </div>
               {persona && (
                 <div data-slot="persona-preview" className="min-w-0 rounded-xl border bg-card p-3 sm:p-5 xl:sticky xl:top-5">
-                  <PersonaPreview key={persona.id} personaId={persona.id} />
+                  <PersonaPreview
+                    key={`${ownerId}:${persona.id}`}
+                    ownerId={ownerId}
+                    personaId={persona.id}
+                    asyncEnabled={persona.preview_async_enabled}
+                  />
                 </div>
               )}
             </PersonaSections>

@@ -125,7 +125,7 @@ async def test_notes_resolve_at_send_time_not_queue_time(container, world, conne
 
 
 async def test_preview_uses_same_contextual_selection(container):
-    from sim.api.routers.catalog import preview_voice
+    from sim.services.preview_reply import preview_voice
 
     seen = []
 

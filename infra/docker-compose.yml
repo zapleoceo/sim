@@ -63,6 +63,7 @@ services:
     env_file: [.env]
     environment: &appenv
       SIM_ENV: prod
+      SIM_PREVIEW_ASYNC_ENABLED: "${SIM_PREVIEW_ASYNC_ENABLED:-true}"
       SIM_DATABASE_URL: postgresql+asyncpg://sim:${POSTGRES_PASSWORD}@postgres:5432/sim
       SIM_EVOLUTION_URL: http://evolution:8080
       SIM_EVOLUTION_WEBHOOK_BASE: http://api:8000

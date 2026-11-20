@@ -13,7 +13,7 @@ from sim.adapters.db.locks import NS_DIALOG, NS_SIM, lock, try_lock
 from sim.adapters.db.models import Message, SimMessage
 from sim.adapters.db.repositories.conversations import DialogRepo
 from sim.adapters.db.repositories.simulations import SimBranchRepo, SimMessageRepo
-from sim.services import jobkinds, media_decisions, tracing
+from sim.services import jobkinds, media_decisions, preview_operations, tracing
 from sim.services.conversation import AI_PAUSED, ReplyOutcome
 from sim.services.journal import HANDOFF, CommunicationJournal
 from sim.services.reengagement import ReengagementService
@@ -267,6 +267,7 @@ HANDLERS: dict[str, Handler] = {
     jobkinds.PASSPORT: Handler(run_passport),
     jobkinds.VIDEO_NOTE: Handler(run_video_note),
     jobkinds.PERSONA_MEDIA: Handler(run_persona_media),
+    jobkinds.PREVIEW_REPLY: Handler(preview_operations.run),
     jobkinds.CONTENT_PUBLISH: Handler(run_content_publish),
     jobkinds.SIM_REPLY: Handler(run_sim_reply, giveup_sim_reply),
 }
