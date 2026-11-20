@@ -16,6 +16,38 @@ from sim.services.studio_media import MediaRequest, StudioConflict, StudioMedia
 from tests.studio_fixtures import wav_bytes
 
 
+async def check_concurrent_video_admission(factory, box, owner_id):
+    class LostReceipt:
+        submits = 0
+
+        async def submit_video(self, _prompt):
+            self.submits += 1
+            raise TimeoutError("Synthetic lost submit acknowledgement")
+
+    fake = LostReceipt()
+    requests = [
+        MediaRequest(operation_id=uuid4(), kind="video", text="Synthetic")
+        for _ in range(2)
+    ]
+    outcomes = await asyncio.wait_for(asyncio.gather(*(
+        StudioMedia(factory, box, None, None, enabled=True, remote=fake).execute(owner_id, request)
+        for request in requests
+    ), return_exceptions=True), 5)
+    assert sum(isinstance(outcome, TimeoutError) for outcome in outcomes) == 1
+    assert sum(isinstance(outcome, StudioConflict) for outcome in outcomes) == 1
+    winner, loser = sorted(
+        zip(requests, outcomes, strict=True),
+        key=lambda item: not isinstance(item[1], TimeoutError),
+    )
+    restarted = StudioMedia(factory, box, None, None, enabled=True, remote=fake)
+    retained = await restarted.execute(owner_id, winner[0])
+    assert retained.status == "unknown" and retained.result_encrypted is None
+    assert await restarted.get(owner_id, str(loser[0].operation_id)) is None
+    retried = await asyncio.gather(restarted.execute(owner_id, loser[0]), return_exceptions=True)
+    assert isinstance(retried[0], StudioConflict)
+    assert fake.submits == 1
+
+
 async def studio_media_checks(url):
     engine = create_async_engine(url)
     factory = make_session_factory(engine)
@@ -75,6 +107,13 @@ async def studio_media_checks(url):
         assert (await restarted.execute(owner_id, second_request)).status == "unknown"
         assert fake.calls == 2
         print("PostgreSQL Studio committed intent, concurrent duplicate, restart and cancellation PASS")
+        async with transaction(factory) as session:
+            video_owner = AdminUser(role=Role.OWNER, display_name="Synthetic video owner")
+            session.add(video_owner)
+            await session.flush()
+            video_owner_id = video_owner.id
+        await check_concurrent_video_admission(factory, box, video_owner_id)
+        print("PostgreSQL Studio concurrent video admission and lost receipt PASS")
         drafts = StudioDrafts(factory, box)
         outcomes = await asyncio.gather(
             drafts.save(owner_id, "synthetic", 0, "first"),
