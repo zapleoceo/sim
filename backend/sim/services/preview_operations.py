@@ -26,6 +26,7 @@ from sim.adapters.db.models import (
 )
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.api.schemas import PreviewIn
+from sim.services import preview_speech
 from sim.services.jobkinds import PREVIEW_REPLY
 from sim.services.llm_audit import private_preview
 from sim.services.preview_reply import execute_preview
@@ -43,6 +44,7 @@ RESULT_TTL = timedelta(hours=1)
 CLOCK_SKEW = timedelta(minutes=5)
 ACCEPT_WINDOW = timedelta(minutes=2)
 MAX_INPUT_BYTES = 128 * 1024
+VOICE_ONLY = frozenset(("voice_id", "voice_mode", "voice_style", "voice_ambience"))
 # Bump when worker preview semantics change incompatibly.
 CONTRACT = 1
 
@@ -70,10 +72,12 @@ def digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-async def revision(service: ConversationService, persona: Persona, strategy: Strategy) -> str:
+async def revision(service: ConversationService, persona: Persona, strategy: Strategy,
+                   *, with_speech_plan: bool = False) -> str:
     return digest(canonical([
         CONTRACT,
-        {col.key: getattr(persona, col.key) for col in Persona.__table__.columns},
+        {col.key: getattr(persona, col.key) for col in Persona.__table__.columns
+         if not with_speech_plan or col.key not in VOICE_ONLY},
         {col.key: getattr(strategy, col.key) for col in strategy.__table__.columns},
         asdict(await service.config()),
     ]))
@@ -113,11 +117,15 @@ async def definitively_missing(s: AsyncSession, owner: int, resource: int, key: 
 
 async def start(c: Container, s: AsyncSession, owner: int, persona: Persona,
                 key: str, body: PreviewIn) -> PreviewOperation:
+    with_speech_plan = preview_speech.enabled(c)
+
     async def snapshot() -> str:
         service = c.conversation(s)
-        return await revision(service, persona, await service.strategy_for(persona.id))
+        return await revision(service, persona, await service.strategy_for(persona.id),
+                              with_speech_plan=with_speech_plan)
 
-    return await admit(c, s, owner, persona.id, key, body.model_dump(mode="json"), snapshot)
+    extra = {"speech_plan": preview_speech.voice_plan(c, persona, body.voice_input)} if with_speech_plan else {}
+    return await admit(c, s, owner, persona.id, key, body.model_dump(mode="json"), snapshot, extra=extra)
 
 
 def caption_draft_revision(post: ContentPost) -> str:
@@ -146,7 +154,7 @@ async def start_caption(c: Container, s: AsyncSession, owner: int,
 
 async def admit(c: Container, s: AsyncSession, owner: int, persona: int, key: str, data: dict,
                 snapshot: Callable[[], Awaitable[str]], *, post_id: int | None = None,
-                draft_revision: str | None = None) -> PreviewOperation:
+                draft_revision: str | None = None, extra: dict | None = None) -> PreviewOperation:
     now = c.clock()
     expires = key_expiry(key, now)
     encoded = canonical(data)
@@ -197,7 +205,7 @@ async def admit(c: Container, s: AsyncSession, owner: int, persona: int, key: st
     current = PreviewOperation(
         id=key, owner_id=owner, persona_id=persona, post_id=post_id, draft_revision=draft_revision, job_id=job.id,
         fingerprint=fingerprint, revision=source_revision, expires_at=min(now + RESULT_TTL, expires),
-        key_expires_at=expires, input_cipher=c.box.encrypt_json(data),
+        key_expires_at=expires, input_cipher=c.box.encrypt_json({**data, **(extra or {})}),
     )
     s.add(current)
     await s.flush()
@@ -232,15 +240,19 @@ async def run(c: Container, s: AsyncSession, payload: dict) -> dict[str, str]:
         return {"reason": "unavailable"}
     service = c.conversation(s)
     strategy = await service.strategy_for(persona.id)
-    if row.revision != await revision(service, persona, strategy):
+    input_data = c.box.decrypt_json(row.input_cipher)
+    plan = input_data.pop("speech_plan", None)
+    if row.revision != await revision(service, persona, strategy, with_speech_plan=plan is not None):
         row.input_cipher = None
         return {"reason": "configuration_changed"}
-    body = PreviewIn.model_validate(c.box.decrypt_json(row.input_cipher))
+    body = PreviewIn.model_validate(input_data)
     token = private_preview.set(True)
     try:
         result = await execute_preview(persona, body, c, service, text_only=True, strategy=strategy)
     finally:
         private_preview.reset(token)
+    if row.expires_at > c.clock() and plan is not None:
+        await preview_speech.stage(c, s, row, result["reply"], plan)
     result["recovered_history"] = [turn.model_dump(mode="json") for turn in body.history]
     result["recovered_message"] = body.message
     row.input_cipher = None
@@ -269,6 +281,7 @@ async def run_caption(c: Container, s: AsyncSession, row: PreviewOperation) -> d
 
 
 async def purge(s: AsyncSession, now: datetime, *, enabled: bool = True) -> None:
+    await preview_speech.expire(s, now)
     pending = select(Job.id).join(PreviewOperation, Job.id == PreviewOperation.job_id).where(
         Job.status == "pending",
     )

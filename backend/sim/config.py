@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     secret_key: str = ""
     session_ttl_h: int = 72
     preview_async_enabled: bool = False
+    preview_speech_jobs_enabled: bool = False
+    preview_attachment_queue_enabled: bool = False
     cookie_secure: bool = True
     # Disabled until a separately approved OAuth rollout; exact values from ChatGPT management.
     mcp_oauth_enabled: bool = False
@@ -88,6 +90,7 @@ class Settings(BaseSettings):
     media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)
     # Private subscription studio: explicit account binding, disabled by default.
     studio_owner_telegram_id: int = 0
+    studio_chat_queue_enabled: bool = False
     studio_photo_filename: str = ""
     studio_video_filename: str = ""
 

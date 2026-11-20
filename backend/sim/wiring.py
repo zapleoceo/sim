@@ -23,7 +23,9 @@ from sim.domain.enums import ChannelKind
 from sim.ports.image import ImagePort
 from sim.ports.live_voice import LiveVoicePort
 from sim.ports.llm import LLMPort
+from sim.ports.preview_asr import PreviewAsr
 from sim.ports.speech import SpeechPort
+from sim.ports.speech_jobs import SpeechJobs
 from sim.ports.video import VideoPort
 from sim.services.admin_bot import AdminBot
 from sim.services.admins import AdminService
@@ -95,6 +97,8 @@ class Container:
     clock: Clock = utcnow
     publisher: ContentPublisher | None = None
     admin_bot_transport: TelegramTransport | None = None   # tests inject a fake
+    preview_speech: SpeechJobs | None = None
+    preview_asr: PreviewAsr | None = None
     speech: SpeechPort | None = None                       # persona voice notes (Broker TTS)
     encoder: VoiceEncoder = field(default_factory=OggOpusEncoder)
     live_voice: LiveVoicePort | None = None                # persona phone calls (Broker /v1/live)
@@ -260,6 +264,8 @@ def build_container(settings: Settings, *, registry: Registry | None = None) -> 
         registry=registry if registry is not None else default_registry(),
         box=box,
         media=MediaStore(settings.media_dir),
+        preview_speech=broker.speech_jobs(),
+        preview_asr=broker.preview_asr() if settings.preview_attachment_queue_enabled else None,
         speech=broker,   # the same Broker client serves LLMPort, SpeechPort, VideoPort and ImagePort
         video=broker,
         image=broker,

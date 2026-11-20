@@ -1,5 +1,6 @@
+import { afterEach, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { fakeApi, reply } from '@/test/fake-api';
 import { PersonaPreview } from './persona-preview';
@@ -9,6 +10,8 @@ const defaultStages = { schedule: false, debounce: false, decision_context: true
 const initialContext = { stage: 'first_contact', status: 'active', needs: [], next_step: '' };
 
 const ok = { reply: 'Привет! Чем помочь?', model: 'fake-model', latency_ms: 42, decision: { stage: 'engaged' }, guard: null };
+
+afterEach(() => sessionStorage.clear());
 
 describe('PersonaPreview', () => {
   it('shows persona-scoped gallery photos and a bundled video circle without sending a reply', async () => {
@@ -75,6 +78,100 @@ describe('PersonaPreview', () => {
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Режим предпросмотра' }), 'voice');
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled();
     expect(log).toHaveLength(0);
+  });
+
+  it('shows restored text before the separately queued audio is ready', async () => {
+    const key = '1795171200000-9d80c89d-438e-4eef-8848-7bfb39a89af3';
+    const path = `/api/personas/1/preview-operations/${key}`;
+    const audio = `${path}/audio`;
+    rememberPreview(1, key);
+    let reads = 0;
+    const log = fakeApi({
+      [`GET ${path}`]: () => ({
+        status: 'complete', history: [], message: 'Привет',
+        result: { ...ok, voice: reads++ === 0
+          ? { status: 'pending', media_url: null, duration_s: null, error: null }
+          : { status: 'done', media_url: audio, duration_s: null, error: null } },
+      }),
+    });
+    render(<PersonaPreview personaId={1} asyncEnabled speechJobsReady />);
+    expect(await screen.findByText(ok.reply)).toBeVisible();
+    expect(screen.getByText('Готовим озвучку…')).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Режим предпросмотра' })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Голосовой ответ', {}, { timeout: 4000 })).toHaveAttribute('src', audio);
+    expect(screen.getAllByText(ok.reply)).toHaveLength(1);
+    expect(log.map(({ method }) => method)).toEqual(['GET', 'GET']);
+  });
+
+  it('allows the next message and attaches late audio to the original reply', async () => {
+    const firstKey = '1795171200000-9d80c89d-438e-4eef-8848-7bfb39a89af3';
+    const nextKey = '1795171200000-d7dd86f1-1943-4fcb-bc89-8c839db95995';
+    const firstPath = `/api/personas/1/preview-operations/${firstKey}`;
+    const nextPath = `/api/personas/1/preview-operations/${nextKey}`;
+    const audio = `${firstPath}/audio`;
+    rememberPreview(1, firstKey);
+    let finish: (value: object) => void = () => undefined;
+    const ready = new Promise<object>((resolve) => { finish = resolve; });
+    let reads = 0;
+    fakeApi({
+      [`GET ${firstPath}`]: () => reads++ === 0
+        ? { status: 'complete', history: [], message: 'Первый вопрос',
+          result: { ...ok, reply: 'Первый ответ',
+            voice: { status: 'pending', media_url: null, duration_s: null, error: null } } }
+        : ready,
+      [`POST ${nextPath}`]: reply(202, { id: nextKey }),
+      [`GET ${nextPath}`]: { status: 'complete', history: [], message: 'Второй вопрос',
+        result: { ...ok, reply: 'Второй ответ' } },
+    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1795171200000);
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue('d7dd86f1-1943-4fcb-bc89-8c839db95995');
+    try {
+      render(<PersonaPreview personaId={1} asyncEnabled speechJobsReady />);
+      const first = await screen.findByText('Первый ответ');
+      await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'Второй вопрос{enter}');
+      const next = await screen.findByText('Второй ответ');
+      finish({ status: 'complete', history: [], message: 'Первый вопрос',
+        result: { ...ok, voice: { status: 'done', media_url: audio, duration_s: null, error: null } } });
+      expect(await within(first.parentElement!).findByLabelText('Голосовой ответ', {}, { timeout: 4000 }))
+        .toHaveAttribute('src', audio);
+      expect(within(next.parentElement!).queryByLabelText('Голосовой ответ')).not.toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+      uuid.mockRestore();
+    }
+  });
+
+  it('restores a private attachment and sends it only through private preview', async () => {
+    const key = '1795171200000-9d80c89d-438e-4eef-8848-7bfb39a89af3';
+    const path = `/api/personas/1/preview/attachment-operations/${key}`;
+    const previewPath = `/api/personas/1/preview-operations/${key}`;
+    sessionStorage.setItem('sim.preview.attachment.0.1', key);
+    const log = fakeApi({
+      [`GET ${path}`]: { status: 'complete', result: {
+        kind: 'file', name: 'sample.txt', text: '[файл sample.txt] Пример', media_url: `${path}/file`,
+      } },
+      [`POST ${previewPath}`]: reply(202, { id: key }),
+      [`GET ${previewPath}`]: { status: 'complete', result: ok, history: [], message: 'Уточнение' },
+    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1795171200000);
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue('9d80c89d-438e-4eef-8848-7bfb39a89af3');
+    try {
+      render(<PersonaPreview personaId={1} attachmentQueueEnabled />);
+      expect(await screen.findByText('[файл sample.txt] Пример')).toBeVisible();
+      expect(log.map(({ method }) => method)).toEqual(['GET']);
+      await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'Уточнение');
+      await userEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+      await screen.findByText(ok.reply);
+      const outbound = log.find(({ method }) => method === 'POST');
+      expect(outbound?.path).toBe(previewPath);
+      expect(outbound?.body).toMatchObject({ message: 'Уточнение\n[файл sample.txt] Пример' });
+    } finally {
+      clock.mockRestore();
+      uuid.mockRestore();
+      sessionStorage.removeItem('sim.preview.attachment.0.1');
+      sessionStorage.removeItem('sim.preview.pending.0.1');
+      sessionStorage.removeItem('sim.preview.private-history.0.1');
+    }
   });
 
   it('sends the message with history on submit without a native page submit', async () => {
@@ -195,6 +292,32 @@ describe('PersonaPreview', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(log).toHaveLength(2);
     expect(log[1]?.body).toEqual({ message: 'привет', history: [], voice_input: false, ...initialContext, stages: defaultStages });
+  });
+
+  it('keeps private history off the legacy route even when retry prefers it', async () => {
+    const key = '1795171200000-d7dd86f1-1943-4fcb-bc89-8c839db95995';
+    const path = `/api/personas/1/preview-operations/${key}`;
+    const log = fakeApi({
+      'POST /api/personas/1/preview': reply(502),
+      [`POST ${path}`]: reply(202, { id: key }),
+      [`GET ${path}`]: { status: 'complete', history: [], message: 'Вопрос', result: ok },
+    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1795171200000);
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue('d7dd86f1-1943-4fcb-bc89-8c839db95995');
+    try {
+      render(<PersonaPreview personaId={1} />);
+      await userEvent.type(screen.getByRole('textbox', { name: 'Сообщение' }), 'Вопрос{Enter}');
+      const retry = await screen.findByRole('button', { name: 'Повторить' });
+      sessionStorage.setItem('sim.preview.private-history.0.1', '1');
+      await userEvent.click(retry);
+      expect(await screen.findByText(ok.reply)).toBeVisible();
+      expect(log.filter(({ method }) => method === 'POST').map(({ path: url }) => url))
+        .toEqual(['/api/personas/1/preview', path]);
+    } finally {
+      clock.mockRestore();
+      uuid.mockRestore();
+      sessionStorage.removeItem('sim.preview.private-history.0.1');
+    }
   });
 
   it('marks a blocked reply and clears the chat', async () => {

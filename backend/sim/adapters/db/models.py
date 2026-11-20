@@ -524,6 +524,37 @@ class PreviewOperation(Base):
     result_cipher: Mapped[str | None] = mapped_column(Text)
 
 
+class PreviewSpeech(Base):
+    __tablename__ = "preview_speech"
+
+    operation_id: Mapped[str] = mapped_column(
+        ForeignKey("preview_operation.id", ondelete="CASCADE"), primary_key=True,
+    )
+    broker_key: Mapped[str] = mapped_column(String(64), unique=True)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime)
+    broker_id: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16))
+    request_cipher: Mapped[str | None] = mapped_column(Text)
+    audio_cipher: Mapped[str | None] = mapped_column(Text)
+
+
+class PreviewAttachmentOperation(Base):
+    __tablename__ = "preview_attachment_operation"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("admin_user.id", ondelete="SET NULL"))
+    persona_id: Mapped[int] = mapped_column(Integer)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    key_expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    broker_id: Mapped[str | None] = mapped_column(String(128))
+    input_cipher: Mapped[str | None] = mapped_column(Text)
+    result_cipher: Mapped[str | None] = mapped_column(Text)
+
+
 class CaptionOperationAlias(Base):
     """Keep the client-submitted ID readable if admission returned a different ID."""
 

@@ -1,6 +1,9 @@
 """Job kinds and dedup keys shared by services (producers) and the worker (consumer)."""
 from __future__ import annotations
 
+PREVIEW_SPEECH = "preview_speech"
+PREVIEW_ATTACHMENT = "preview_attachment"
+STUDIO_CHAT = "studio_chat"
 PREVIEW_REPLY = "preview_reply"
 REPLY = "reply"
 SEND = "send"

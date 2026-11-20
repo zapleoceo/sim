@@ -1,12 +1,13 @@
 """Personas, strategies and the Broker model catalog."""
 from __future__ import annotations
 
+import base64
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy.exc import IntegrityError
 
-from sim.adapters.db.models import Job, Persona, Strategy
+from sim.adapters.db.models import Job, Persona, PreviewSpeech, Strategy
 from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
 from sim.api.deps import App, Authed, Db, Owner, authed, owner_only
 from sim.api.schemas import (
@@ -18,10 +19,10 @@ from sim.api.schemas import (
     strategy_out,
 )
 from sim.ports.llm import LLMError
-from sim.services import preview_operations
+from sim.services import preview_attachment_operations, preview_operations, preview_speech
 from sim.services.journal import CommunicationJournal, admin_who
 from sim.services.models import catalog_items
-from sim.services.preview_media import MAX_BYTES
+from sim.services.preview_media import MAX_BYTES, AttachmentError, suffix_of
 from sim.services.preview_reply import execute_preview
 from sim.services.prompt_versions import PromptVersions, VersionNotFound, restored_note
 from sim.wiring import Container
@@ -69,7 +70,12 @@ async def check_model_routes(c: App, body: PersonaIn, previous: Persona | None =
 
 
 def persona_with_preview(persona: Persona, c: Container) -> dict:
-    return {**persona_out(persona), "preview_async_enabled": c.settings.preview_async_enabled}
+    return {
+        **persona_out(persona),
+        "preview_async_enabled": c.settings.preview_async_enabled,
+        "preview_speech_jobs_ready": preview_speech.enabled(c),
+        "preview_attachments_async": preview_attachment_operations.enabled(c),
+    }
 
 
 @personas.get("")
@@ -166,6 +172,8 @@ async def preview_attachment(
     voice: Annotated[bool, Form()] = False,
 ):
     """A voice note recorded in the admin or an attached file → text the persona reads."""
+    if preview_attachment_operations.enabled(c):
+        raise HTTPException(409, "Обновите страницу для приватной очереди вложений")
     await persona_or_404(s, persona_id)
     data = await file.read(MAX_BYTES + 1)
     att = await c.preview_attachments().read(
@@ -174,8 +182,76 @@ async def preview_attachment(
     return {"kind": att.kind, "name": att.name, "text": att.text, "media_url": att.media_url}
 
 
+@personas.post("/{persona_id}/preview/attachment-operations/{key}", status_code=202)
+async def enqueue_attachment(
+    persona_id: int, key: str, c: App, s: Db, p: Authed,
+    file: Annotated[UploadFile, File()], voice: Annotated[bool, Form()] = False,
+):
+    await persona_or_404(s, persona_id)
+    try:
+        await preview_attachment_operations.start(
+            c, s, p.user.id, persona_id, key, await file.read(MAX_BYTES + 1),
+            file.filename or "file", file.content_type or "", voice,
+        )
+    except (AttachmentError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except preview_operations.PreviewDisabled as exc:
+        raise HTTPException(404, {"status": "queue_disabled"}) from exc
+    except preview_operations.PreviewCapacity as exc:
+        raise HTTPException(429, {"status": "queue_full", "scope": str(exc)}) from exc
+    except preview_operations.PreviewConflict as exc:
+        raise HTTPException(409, "Attachment request ID already used") from exc
+    return {"id": key}
+
+
+@personas.get("/{persona_id}/preview/attachment-operations/{key}")
+async def attachment_status(persona_id: int, key: str, c: App, s: Db, p: Authed,
+                            response: Response):
+    row = await preview_attachment_operations.scoped(s, p.user.id, persona_id, key)
+    response.headers["Cache-Control"] = "no-store"
+    if row is None:
+        if await preview_attachment_operations.definitively_missing(s, p.user.id, persona_id, key, c.clock()):
+            return {"status": "expired"}
+        row = await preview_attachment_operations.scoped(s, p.user.id, persona_id, key)
+        if row is None:
+            raise HTTPException(404, "Attachment not found", headers={"Cache-Control": "no-store"})
+    if row.expires_at <= c.clock():
+        return {"status": "expired"}
+    if row.status == "done" and row.result_cipher:
+        result = c.box.decrypt_json(row.result_cipher)
+        result["media_url"] = f"/api/personas/{persona_id}/preview/attachment-operations/{key}/file"
+        return {"status": "complete", "result": result}
+    if row.status in preview_attachment_operations.TERMINAL or row.deadline_at <= c.clock():
+        return {"status": "unavailable" if row.status == "cancelled" else "unknown"}
+    return {"status": "running"}
+
+
+ATTACHMENT_TYPES = {
+    "jpeg": "image/jpeg", "jpg": "image/jpeg", "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+    "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/ogg", "wav": "audio/wav", "mp3": "audio/mpeg",
+    "m4a": "audio/mp4", "webm": "audio/webm", "aac": "audio/aac", "flac": "audio/flac",
+}
+
+
+@personas.get("/{persona_id}/preview/attachment-operations/{key}/file")
+async def attachment_file(persona_id: int, key: str, c: App, s: Db, p: Authed):
+    row = await preview_attachment_operations.scoped(s, p.user.id, persona_id, key)
+    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+               "Content-Security-Policy": "default-src 'none'; sandbox"}
+    if row is None or row.expires_at <= c.clock() or row.status != "done" or not row.input_cipher:
+        raise HTTPException(404, "Attachment not found", headers=headers)
+    data = c.box.decrypt_json(row.input_cipher)
+    media_type = ATTACHMENT_TYPES.get(suffix_of(data["name"]), "application/octet-stream")
+    if row.kind == "file" or media_type == "application/octet-stream":
+        media_type = "application/octet-stream"
+        headers["Content-Disposition"] = "attachment"
+    return Response(base64.b64decode(data["file"], validate=True), media_type=media_type, headers=headers)
+
+
 @personas.post("/{persona_id}/preview")
 async def preview_persona(persona_id: int, body: PreviewIn, c: App, s: Db, _: Authed):
+    if preview_speech.enabled(c):
+        raise HTTPException(409, "Обновите страницу для автоматического предпросмотра")
     return await execute_preview(await persona_or_404(s, persona_id), body, c, c.conversation(s))
 
 
@@ -218,9 +294,32 @@ async def preview_operation_status(persona_id: int, key: str, c: App, s: Db, p: 
     if not row.result_cipher:
         return {"status": "unavailable"}
     result = c.box.decrypt_json(row.result_cipher)
+    speech = await s.get(PreviewSpeech, row.id)
+    if speech is not None:
+        status = speech.status
+        if status not in preview_speech.TERMINAL and speech.deadline_at <= c.clock():
+            status = "unknown"
+        voice = {"media_url": None, "duration_s": None, "error": None, "status": "pending"}
+        if status == "done" and speech.audio_cipher:
+            voice = {**voice, "status": "done",
+                     "media_url": f"/api/personas/{persona_id}/preview-operations/{row.id}/audio"}
+        elif status in preview_speech.TERMINAL:
+            voice = {**voice, "status": "error", "error": "Озвучка недоступна. Текст ответа сохранён."}
+        result["voice"] = voice
     history = result.pop("recovered_history", [])
     message = result.pop("recovered_message", "")
     return {"status": "complete", "result": result, "history": history, "message": message}
+
+
+@personas.get("/{persona_id}/preview-operations/{key}/audio")
+async def preview_operation_audio(persona_id: int, key: str, c: App, s: Db, p: Authed):
+    row = await preview_operations.scoped(s, p.user.id, persona_id, key)
+    speech = await s.get(PreviewSpeech, row.id) if row is not None else None
+    headers = {"Cache-Control": "no-store"}
+    if row is None or row.expires_at <= c.clock() or speech is None or speech.status != "done" or not speech.audio_cipher:
+        raise HTTPException(404, "Preview audio not found", headers=headers)
+    audio = base64.b64decode(c.box.decrypt_json(speech.audio_cipher)["ogg"], validate=True)
+    return Response(audio, media_type="audio/ogg", headers=headers)
 
 
 # ---- strategies ---------------------------------------------------------------------------
