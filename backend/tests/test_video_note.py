@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,7 +43,8 @@ from sim.ports.video import VideoError, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import is_ai_video
 from sim.services.app_settings import BY_KEY, AppSettingsService
-from sim.services.media_decisions import QUEUED, SEND_FAILED, MediaDecision, MediaDecisionLog
+from sim.services.media_decisions import QUEUED, SEND_FAILED, SENT, MediaDecision, MediaDecisionLog
+from sim.services.send_receipts import SendUncertain
 from sim.services.video_note import (
     AI_VIDEO_PREFIX,
     OWNER_SETTING,
@@ -581,6 +583,63 @@ async def test_legacy_chat_video_without_binding_is_cancelled_but_manual_still_s
             assert await s.get(OutboundSendIntent, message.id) is None
     assert len(scene.port.notes) == int(original_text is None)
     assert not scene.port.sent
+
+
+@pytest.mark.parametrize("intent_state", ["acked", "unknown", "mismatch"])
+async def test_legacy_chat_video_reconciles_receipt_without_transport(
+    container, scene, monkeypatch, intent_state,
+):
+    await allow(container, OWNER_TG)
+    result = await run_job(container, request_for(scene))
+    message_id = result["message_id"]
+    async with transaction(container.factory) as s:
+        message = await s.get(Message, message_id)
+        message.original_text = "Synthetic scene"
+        dialog = await s.get(Dialog, message.dialog_id)
+        dialog.ai_paused = True
+        channel = await s.get(Channel, dialog.channel_id)
+        fingerprint = hashlib.sha256(json.dumps({
+            "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
+            "thread": dialog.external_thread_id, "text": message.text,
+            "media_url": message.media_url, "voice": False,
+            "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
+        }, sort_keys=True).encode()).hexdigest()
+        journal = MediaDecisionLog(s)
+        record = await journal.add(dialog, MediaDecision(
+            requested=MediaKind.VIDEO_NOTE.value, kind=MediaKind.VIDEO_NOTE.value,
+            decision="send", outcome=QUEUED, scene="Synthetic scene", detail="Synthetic",
+        ))
+        await journal.generated(record.id, {"outcome": "queued", "message_id": message_id})
+        record_id = record.id
+        receipts = container.outbound(s).receipts
+
+    if intent_state == "mismatch":
+        fingerprint = "0" * 64
+    await receipts.claim(message_id, fingerprint)
+    if intent_state != "unknown":
+        await receipts.acknowledge(message_id, fingerprint, "synthetic-ack")
+    await allow(container, 0)
+
+    def no_transport(*_args, **_kwargs):
+        pytest.fail("legacy receipt recovery must not build a transport")
+
+    monkeypatch.setattr(FakeConnector, "build_port", no_transport)
+    async with transaction(container.factory) as s:
+        payload = {"message_id": message_id, "final": True}
+        if intent_state == "acked":
+            await HANDLERS[jobkinds.SEND].run(container, s, payload)
+        else:
+            with pytest.raises(SendUncertain):
+                await HANDLERS[jobkinds.SEND].run(container, s, payload)
+        message = await s.get(Message, message_id)
+        ((row, decision),) = await MediaDecisionLog(s).recent(message.dialog_id, 10)
+        assert row.id == record_id
+        if intent_state == "acked":
+            assert message.delivery is Delivery.SENT and message.external_id == "synthetic-ack"
+            assert decision.outcome == SENT
+        else:
+            assert message.delivery is Delivery.QUEUED and message.external_id is None
+    assert not scene.port.notes and not scene.port.sent
 
 
 async def test_chat_video_checks_pause_again_after_generation(container, scene):

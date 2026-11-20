@@ -92,6 +92,16 @@ def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
     }
 
 
+def send_fingerprint(message: Message, dialog: Dialog, channel: Channel) -> str:
+    return hashlib.sha256(json.dumps({
+        "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
+        "thread": dialog.external_thread_id, "text": message.text,
+        "media_url": message.media_url,
+        "voice": message.media_kind == VOICE_NOTE,
+        "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
+    }, sort_keys=True).encode()).hexdigest()
+
+
 def apply_receipt(message: Message, channel: Channel, receipt: SendReceipt) -> None:
     message.delivery, message.error = Delivery.SENT, None
     if receipt.external_id:
@@ -250,14 +260,21 @@ class OutboundService:
         message = await self.messages.get(message_id)
         if message is None or message.delivery is Delivery.SENT:
             return
-        if (chat_video_target is None and message.author is Author.AI
-                and message.media_kind == MediaKind.VIDEO_NOTE
-                and is_ai_video(message.media_url) and message.original_text is not None):
-            await self.cancel_chat_video(message, "legacy chat video has no original route", media_decision_id)
-            return
+        legacy_unbound = (chat_video_target is None and message.author is Author.AI
+                          and message.media_kind == MediaKind.VIDEO_NOTE
+                          and is_ai_video(message.media_url) and message.original_text is not None)
         dialog = await self.dialogs.get(message.dialog_id)
         if dialog is None:
             raise SendFailed("dialog not found")
+        if legacy_unbound:
+            channel = dialog.channel
+            previous = await self.receipts.previous(message.id, send_fingerprint(message, dialog, channel))
+            if previous is None:
+                await self.cancel_chat_video(message, "legacy chat video has no original route", media_decision_id)
+            else:
+                apply_receipt(message, channel, previous)
+                await self.close_media_decision(message, ok=True, record_id=media_decision_id)
+            return
         if chat_video_target is not None:
             reason = await self.chat_video_rejection(chat_video_target, dialog)
             if reason is not None:
@@ -269,13 +286,7 @@ class OutboundService:
             return
         channel = dialog.channel
         channel_session = channel.session_enc
-        fingerprint = hashlib.sha256(json.dumps({
-            "dialog_id": dialog.id, "channel_id": channel.id, "kind": channel.kind.value,
-            "thread": dialog.external_thread_id, "text": message.text,
-            "media_url": message.media_url,
-            "voice": message.media_kind == VOICE_NOTE,
-            "session_sha256": hashlib.sha256((channel.session_enc or "").encode()).hexdigest(),
-        }, sort_keys=True).encode()).hexdigest()
+        fingerprint = send_fingerprint(message, dialog, channel)
         previous = await self.receipts.previous(message.id, fingerprint)
         if previous is not None:
             apply_receipt(message, channel, previous)
