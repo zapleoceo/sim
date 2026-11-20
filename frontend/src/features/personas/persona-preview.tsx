@@ -28,6 +28,9 @@ function AttachmentView({ a }: { a: PreviewAttachment }) {
 }
 
 function VoiceView({ v }: { v: PreviewVoice }) {
+  if (v.status === 'pending') {
+    return <span role="status" className="text-[11px] text-muted-foreground">Готовим озвучку…</span>;
+  }
   if (v.media_url) {
     return <audio controls preload="metadata" src={v.media_url} className="h-9 max-w-full" aria-label="Голосовой ответ" />;
   }
@@ -65,12 +68,15 @@ function StageDiagnostics({ stages }: { stages: PreviewStageDiagnostics }) {
  * Errors are shown inline with «Повторить» (the old admin swallowed them).
  * Render with `key={personaId}` so another persona starts a clean chat.
  */
-export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }: { personaId: number; asyncEnabled?: boolean; ownerId?: number }) {
+export function PersonaPreview({
+  personaId, asyncEnabled = false, speechJobsReady = false, attachmentQueueEnabled = false, ownerId = 0,
+}: { personaId: number; asyncEnabled?: boolean; speechJobsReady?: boolean; attachmentQueueEnabled?: boolean; ownerId?: number }) {
   const modeHelpId = useId();
   const [mode, setMode] = useState<'voice' | 'queued'>('voice');
-  const queued = mode === 'queued';
-  const modeUnavailable = queued && !asyncEnabled;
-  const chat = usePreviewChat(personaId, queued, ownerId);
+  const automatic = asyncEnabled && speechJobsReady;
+  const queued = automatic || mode === 'queued';
+  const modeUnavailable = !automatic && queued && !asyncEnabled;
+  const chat = usePreviewChat(personaId, queued, ownerId, attachmentQueueEnabled);
   const recorder = useVoiceRecorder();
   const [sample, setSample] = useState<'photo' | 'circle' | null>(null);
   const [text, setText] = useState('');
@@ -117,7 +123,7 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
           Очистить
         </Button>
       </div>
-      {(asyncEnabled || queued) && (
+      {!automatic && (asyncEnabled || queued) && (
         <div className="space-y-2 text-sm">
           <label className="flex flex-wrap items-center justify-between gap-2">
             Режим предпросмотра
@@ -142,7 +148,7 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
       <fieldset disabled={!idle || recorder.recording} className="space-y-2 rounded-lg border p-3 text-sm">
         <legend className="px-1 font-medium">Этапы тестового ответа</legend>
         <p className="text-xs text-muted-foreground">
-          {chat.queued ? 'Тестовые ответы через очередь пока только текстовые.' : 'Только этот чат. Расчёты не задерживают ответ; ожидание самой модели остаётся.'}
+          {!automatic && chat.queued ? 'Тестовые ответы через очередь пока только текстовые.' : 'Только этот чат. Расчёты не задерживают ответ; ожидание самой модели остаётся.'}
           Отдельные агенты планирования здесь не запускаются.
         </p>
         {STAGE_SWITCHES.map(([key, label]) => (
@@ -259,6 +265,22 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
         )}
       </div>
 
+      {chat.attachmentQueue.waiting && <p role="status" className="text-sm">Готовим вложение…</p>}
+      {chat.attachmentQueue.error && (
+        <div className="space-y-1 text-sm">
+          <p role="alert">{chat.attachmentQueue.error}</p>
+          {chat.attachmentQueue.pending && <Button type="button" variant="outline"
+            onClick={chat.attachmentQueue.retry}>Проверить вложение</Button>}
+        </div>
+      )}
+      {chat.attachmentQueue.ready && (
+        <div className="rounded-lg border p-2 text-sm">
+          <AttachmentView a={chat.attachmentQueue.ready} />
+          <p>{chat.attachmentQueue.ready.text}</p>
+          <Button type="button" variant="ghost" onClick={chat.attachmentQueue.clear}>Убрать вложение</Button>
+        </div>
+      )}
+
       <form className="flex gap-2" onSubmit={submit}>
         <input
           ref={fileInput}
@@ -274,7 +296,7 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
           variant="outline"
           size="icon"
           className="size-10 flex-none"
-          disabled={!idle || recorder.recording || chat.awaitingOperation || modeUnavailable}
+          disabled={!idle || recorder.recording || chat.awaitingOperation || modeUnavailable || chat.attachmentQueue.pending}
           onClick={() => fileInput.current?.click()}
           aria-label="Прикрепить файл"
         >
@@ -295,14 +317,14 @@ export function PersonaPreview({ personaId, asyncEnabled = false, ownerId = 0 }:
             variant={recorder.recording ? 'destructive' : 'outline'}
             size="icon"
             className="size-10 flex-none"
-            disabled={!idle || chat.awaitingOperation || (modeUnavailable && !recorder.recording)}
+            disabled={!idle || chat.awaitingOperation || (modeUnavailable && !recorder.recording) || chat.attachmentQueue.pending}
             onClick={() => void toggleRecording()}
             aria-label={recorder.recording ? 'Остановить и отправить' : 'Записать голосовое'}
           >
             {recorder.recording ? <Square /> : <Mic />}
           </Button>
         )}
-        <Button type="submit" size="icon" className="size-10 flex-none" disabled={!idle || recorder.recording || chat.awaitingOperation || modeUnavailable} aria-label="Отправить">
+        <Button type="submit" size="icon" className="size-10 flex-none" disabled={!idle || recorder.recording || chat.awaitingOperation || modeUnavailable || (chat.attachmentQueue.pending && !chat.attachmentQueue.ready)} aria-label="Отправить">
           <Send />
         </Button>
       </form>

@@ -24,6 +24,8 @@ from typing import Any
 
 import httpx
 
+from sim.adapters.llm.preview_asr import BrokerPreviewAsr
+from sim.adapters.llm.speech_jobs import BrokerSpeechJobs
 from sim.ports.image import ImageError, ImageReference, ImageResult
 from sim.ports.llm import LLMError, LLMResult, LLMTerminalError
 from sim.ports.speech import SpeechError, SpeechResult
@@ -162,6 +164,12 @@ class BrokerLLM:
     @property
     def headers(self) -> dict[str, str]:
         return {"X-Project-Key": self.key}
+
+    def speech_jobs(self) -> BrokerSpeechJobs:
+        return BrokerSpeechJobs(self.url, self.key, lambda: self.client)
+
+    def preview_asr(self) -> BrokerPreviewAsr:
+        return BrokerPreviewAsr(self.url, self.key, lambda: self.client)
 
     def budget_for(self, model: str | None) -> float:
         return self.subscription_budget_s if is_subscription_model(model) else self.poll_budget_s

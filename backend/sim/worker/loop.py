@@ -16,7 +16,13 @@ from sim.adapters.db.session import transaction
 from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
-from sim.services import jobkinds, preview_operations, tracing
+from sim.services import (
+    jobkinds,
+    preview_attachment_operations,
+    preview_operations,
+    studio_chat,
+    tracing,
+)
 from sim.services.app_settings import trace_retention_days
 from sim.services.broker_requests import has_pending_broker_request
 from sim.services.conversation import ConversationError
@@ -72,6 +78,8 @@ class Worker:
         self.job_tasks: dict[int, asyncio.Task[None]] = {}
         self.purge_task: asyncio.Task[int] | None = None
         self.last_purge = float("-inf")
+        self.preview_speech_task: asyncio.Task[int] | None = None
+        self.preview_attachment_task: asyncio.Task[int] | None = None
         self.preview_cleanup_task: asyncio.Task[None] | None = None
         self.last_preview_cleanup = float("-inf")
         self.watch_task: asyncio.Task[int] | None = None
@@ -123,6 +131,36 @@ class Worker:
             log.exception("preview claim failed")
             return []
 
+    async def run_preview_speech_step(self) -> int:
+        if not self.c.settings.preview_speech_jobs_enabled:
+            return 0
+        try:
+            async with transaction(self.c.factory) as s:
+                job = await JobRepo(s).claim_preview_speech(self.c.clock(), lease_seconds(self.c.settings))
+                if job is None:
+                    return 0
+                claim = Claim(job.id, job.kind, dict(job.payload), job.attempts, job.trace_id, job.run_at)
+            await self.run_job(*claim)
+            return 1
+        except Exception:
+            log.exception("preview speech step failed")
+            return 0
+
+    async def run_preview_attachment(self) -> int:
+        if not self.c.settings.preview_attachment_queue_enabled:
+            return 0
+        try:
+            async with transaction(self.c.factory) as s:
+                job = await JobRepo(s).claim_preview_attachment(self.c.clock(), lease_seconds(self.c.settings))
+                if job is None:
+                    return 0
+                claim = Claim(job.id, job.kind, dict(job.payload), job.attempts, job.trace_id, job.run_at)
+            await self.run_job(*claim)
+            return 1
+        except Exception:
+            log.exception("preview attachment step failed")
+            return 0
+
     def reap_jobs(self) -> None:
         for job_id, task in list(self.job_tasks.items()):
             if task.done():
@@ -152,9 +190,11 @@ class Worker:
         snapshot = await self.claim_jobs(CLAIM_BATCH)
         if len(snapshot) < CLAIM_BATCH:
             snapshot.extend(await self.claim_preview())
-        if snapshot:
-            await asyncio.gather(*(self.run_job(*item) for item in snapshot))
-        return len(snapshot)
+        speech, attachments, *_ = await asyncio.gather(
+            self.run_preview_speech_step(), self.run_preview_attachment(),
+            *(self.run_job(*item) for item in snapshot),
+        )
+        return len(snapshot) + speech + attachments
 
     async def run_job(  # noqa: PLR0913
         self, job_id: int, kind: str, payload: dict, claim_attempt: int,
@@ -203,8 +243,9 @@ class Worker:
             except Exception as exc:  # any failure is retried with backoff
                 log.warning("job %s (%s) failed: %s", job_id, kind, type(exc).__name__)
                 error = f"{type(exc).__name__}: {exc}"
-        if error is not None and kind == jobkinds.PREVIEW_REPLY:
-            error, retry = "preview_outcome_unknown", False
+        if error is not None and kind in (jobkinds.PREVIEW_REPLY, jobkinds.STUDIO_CHAT):
+            error = "studio_chat_outcome_unknown" if kind == jobkinds.STUDIO_CHAT else "preview_outcome_unknown"
+            retry = False
         async with transaction(self.c.factory) as s:
             repo = JobRepo(s)
             if error is None:
@@ -342,6 +383,8 @@ class Worker:
                 now = self.c.clock()
                 await JobRepo(s).quarantine_expired_previews(now)
                 await preview_operations.purge(s, now, enabled=self.c.settings.preview_async_enabled)
+                await preview_attachment_operations.purge(s, now)
+                await studio_chat.purge(s, now)
         except Exception:
             log.exception("preview retention cleanup failed")
 
@@ -399,6 +442,12 @@ class Worker:
             while not self.stop.is_set():
                 try:
                     await self.dispatch()
+                    if (self.c.settings.preview_speech_jobs_enabled and
+                            (self.preview_speech_task is None or self.preview_speech_task.done())):
+                        self.preview_speech_task = asyncio.create_task(self.run_preview_speech_step())
+                    if (self.c.settings.preview_attachment_queue_enabled and
+                            (self.preview_attachment_task is None or self.preview_attachment_task.done())):
+                        self.preview_attachment_task = asyncio.create_task(self.run_preview_attachment())
                     self.maybe_start_poll(asyncio.get_running_loop().time())
                     self.maybe_start_purge(asyncio.get_running_loop().time())
                     self.maybe_start_preview_cleanup(asyncio.get_running_loop().time())
@@ -416,7 +465,10 @@ class Worker:
         finally:
             stop_task.cancel()
             await asyncio.gather(stop_task, return_exceptions=True)
-            purge = [t for t in (self.purge_task, self.preview_cleanup_task, self.watch_task, self.reengagement_task) if t is not None]
+            purge = [task for task in (
+                self.purge_task, self.preview_cleanup_task, self.preview_speech_task,
+                self.preview_attachment_task, self.watch_task, self.reengagement_task,
+            ) if task is not None]
             await asyncio.gather(*self.job_tasks.values(), *self.poll_tasks.values(), *purge,
                                  return_exceptions=True)
             self.reap_jobs()

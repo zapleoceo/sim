@@ -37,6 +37,8 @@ export type ClientStatus = 'active' | 'paused' | 'no_response' | 'refused';
 
 export interface Persona {
   preview_async_enabled?: boolean;
+  preview_speech_jobs_ready?: boolean;
+  preview_attachments_async?: boolean;
   id: number;
   name: string;
   /** День рождения (YYYY-MM-DD): возраст, знак зодиака и дни до праздника считает код. */
@@ -103,7 +105,7 @@ export interface GuardInfo {
   original_text: string | null;
 }
 /** The persona's voice note in the preview chat; `error` when synthesis failed (the text stays). */
-export interface PreviewVoice { media_url: string | null; duration_s: number | null; error: string | null }
+export interface PreviewVoice { status?: 'pending' | 'done' | 'error'; media_url: string | null; duration_s: number | null; error: string | null }
 export interface PreviewContext { stage: Stage; status: ClientStatus; needs: string[]; next_step: string }
 export interface PreviewStageOptions { schedule: boolean; debounce: boolean; decision_context: boolean }
 export interface PreviewStageDiagnostics {

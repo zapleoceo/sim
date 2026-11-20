@@ -25,7 +25,8 @@ QUIET_GETS = ("/api/activity/log", "/api/activity/traces", "/api/live", "/api/re
 def is_quiet(method: str, path: str) -> bool:
     return method in ("GET", "HEAD", "OPTIONS") and (
         path.startswith(QUIET_GETS)
-        or (path.startswith("/api/personas/") and "/preview-operations" in path)
+        or (path.startswith("/api/personas/") and ("/preview-operations" in path or "/attachment-operations/" in path))
+        or path.startswith("/api/studio/chat-operations/")
         or (path.startswith("/api/content/") and "/caption-operations/" in path)
     )
 
@@ -87,11 +88,19 @@ def install_request_tracing(app: FastAPI) -> None:
 async def read_body(request: Request) -> dict[str, Any]:
     """The body as the log keeps it. `request.body()` is cached by Starlette and replayed to the
     route by `call_next`; files, binary and oversized bodies are not read at all."""
+    path = request.url.path
+    container = getattr(request.app.state, "container", None)
+    if (container is not None and getattr(container.settings, "preview_speech_jobs_enabled", False)
+            and path.startswith("/api/personas/")
+            and (path.endswith("/preview") or path.endswith("/preview/attachment"))):
+        return {"omitted": request_body.NOT_KEPT}
     if request.url.path == "/api/studio/media" or request.url.path.startswith("/api/studio/media/"):
         return {"omitted": "Тело приватной медиаоперации не сохраняется"}
     if (request.url.path.startswith("/api/personas/")
-            and "/preview-operations/" in request.url.path) or (
+            and ("/preview-operations/" in request.url.path or "/attachment-operations/" in request.url.path)) or (
                 request.url.path.startswith("/api/content/") and "/caption-operations/" in request.url.path):
+        return {"omitted": request_body.NOT_KEPT}
+    if request.url.path.startswith("/api/studio/chat-operations/"):
         return {"omitted": request_body.NOT_KEPT}
     if request.url.path.startswith(request_body.PRIVATE_PREFIXES):
         return {"omitted": request_body.NOT_KEPT}

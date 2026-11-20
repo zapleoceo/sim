@@ -117,6 +117,8 @@ export function PersonaPage() {
                     ownerId={ownerId}
                     personaId={persona.id}
                     asyncEnabled={persona.preview_async_enabled}
+                    speechJobsReady={persona.preview_speech_jobs_ready}
+                    attachmentQueueEnabled={persona.preview_attachments_async}
                   />
                 </div>
               )}

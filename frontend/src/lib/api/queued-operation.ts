@@ -2,7 +2,7 @@ import { ApiError, http } from './http';
 
 type OperationStatus<T> = { status: 'pending' | 'running' | 'unknown' | 'expired' | 'unavailable' } | T;
 
-function wait(signal: AbortSignal): Promise<void> {
+export function waitForOperationPoll(signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
     const timer = window.setTimeout(() => {
@@ -69,11 +69,11 @@ async function pollOperation<T extends { status: 'complete' }>(
         if (rejection) throw new PreviewOperationError(rejection);
         if (Date.now() >= acceptanceDeadline)
           throw new PreviewOperationError('Постановка запроса не подтверждена. Можно проверить его снова.');
-        await wait(requestSignal);
+        await waitForOperationPoll(requestSignal);
         continue;
       }
       if (!(error instanceof ApiError) || (error.status !== 0 && error.status < 500)) throw error;
-      await wait(requestSignal);
+      await waitForOperationPoll(requestSignal);
       continue;
     }
     if (operation.status === 'complete') return operation;
@@ -83,7 +83,7 @@ async function pollOperation<T extends { status: 'complete' }>(
       throw new TerminalPreviewError('Срок хранения ответа истёк.');
     if (operation.status === 'unavailable')
       throw new TerminalPreviewError('Исходные данные изменились или очередь недоступна.');
-    await wait(requestSignal);
+    await waitForOperationPoll(requestSignal);
   }
   throw requestSignal.reason;
 }

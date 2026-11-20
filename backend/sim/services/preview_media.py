@@ -13,10 +13,11 @@ from typing import Any, Literal, Protocol
 
 from sim.adapters.media import MediaStore
 from sim.ports.llm import LLMError, LLMResult
+from sim.ports.preview_asr import MAX_ASR_UPLOAD_BYTES
 
 AttachmentKind = Literal["voice", "audio", "image", "file"]
 
-MAX_BYTES = 10 * 1024 * 1024
+MAX_BYTES = MAX_ASR_UPLOAD_BYTES
 TEXT_LIMIT = 8000
 VISION_WORKFLOW = "preview-vision"
 VISION_PROMPT = (

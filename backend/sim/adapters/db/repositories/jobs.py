@@ -7,10 +7,24 @@ from typing import Any
 
 from sqlalchemy import select, update
 
-from sim.adapters.db.locks import NS_DIALOG, NS_PREVIEW_CLAIM, lock, try_lock
+from sim.adapters.db.locks import (
+    NS_DIALOG,
+    NS_PREVIEW_ATTACHMENT_CLAIM,
+    NS_PREVIEW_CLAIM,
+    NS_PREVIEW_SPEECH_CLAIM,
+    lock,
+    try_lock,
+)
 from sim.adapters.db.models import Job
 from sim.adapters.db.repositories.base import Repository
-from sim.services.jobkinds import PERSONA_MEDIA, PREVIEW_REPLY, VIDEO_NOTE
+from sim.services.jobkinds import (
+    PERSONA_MEDIA,
+    PREVIEW_ATTACHMENT,
+    PREVIEW_REPLY,
+    PREVIEW_SPEECH,
+    STUDIO_CHAT,
+    VIDEO_NOTE,
+)
 from sim.trace_context import current_trace_id
 
 BACKOFF_BASE_S = 30
@@ -124,7 +138,7 @@ class JobRepo(Repository[Job]):
         rows = (
             await self.session.scalars(
                 select(Job)
-                .where(due | stale, Job.id.not_in(exclude_ids), Job.kind != PREVIEW_REPLY)
+                .where(due | stale, Job.id.not_in(exclude_ids), Job.kind.not_in((PREVIEW_REPLY, PREVIEW_SPEECH, PREVIEW_ATTACHMENT)))
                 .order_by(Job.run_at, Job.id)
                 .limit(limit)
                 .with_for_update(skip_locked=True)
@@ -136,12 +150,13 @@ class JobRepo(Repository[Job]):
             # Retain its identity/payload and quarantine only the expired execution;
             # never infer non-acceptance from the lack of a persisted provider ID.
             if (job.status == "running" and job.attempts > 0
-                    and job.kind in (PERSONA_MEDIA, VIDEO_NOTE)):
+                    and job.kind in (PERSONA_MEDIA, STUDIO_CHAT, VIDEO_NOTE)):
                 await self.session.execute(
                     update(Job)
                     .where(Job.id == job.id, Job.kind == job.kind, Job.attempts == job.attempts, stale)
                     .values(status="failed", finished_at=now, locked_until=None,
-                            last_error="media_generation_outcome_unknown: automatic replay blocked")
+                            last_error=("studio_chat_outcome_unknown" if job.kind == STUDIO_CHAT
+                                        else "media_generation_outcome_unknown: automatic replay blocked"))
                 )
                 continue
             res = await self.session.execute(
@@ -175,13 +190,35 @@ class JobRepo(Repository[Job]):
         if not await try_lock(self.session, NS_PREVIEW_CLAIM, 0):
             return None
         await self.quarantine_expired_previews(now)
-        running = await self.session.scalar(select(Job.id).where(
-            Job.kind == PREVIEW_REPLY, Job.status == "running",
-        ).limit(1))
-        if running is not None:
+        return await self.claim_preview_lane(PREVIEW_REPLY, now, lease_s)
+
+    async def claim_preview_speech(self, now: datetime, lease_s: int) -> Job | None:
+        if not await try_lock(self.session, NS_PREVIEW_SPEECH_CLAIM, 0):
             return None
+        return await self.claim_preview_lane(PREVIEW_SPEECH, now, lease_s, reclaim=True)
+
+    async def claim_preview_attachment(self, now: datetime, lease_s: int) -> Job | None:
+        if not await try_lock(self.session, NS_PREVIEW_ATTACHMENT_CLAIM, 0):
+            return None
+        return await self.claim_preview_lane(PREVIEW_ATTACHMENT, now, lease_s, reclaim=True)
+
+    async def claim_preview_lane(
+        self, kind: str, now: datetime, lease_s: int, *, reclaim: bool = False,
+    ) -> Job | None:
+        lane = Job.kind == kind
+        running = await self.session.scalar(select(Job.id).where(
+            lane, Job.status == "running",
+        ).order_by(Job.id).limit(1))
+        if running is not None:
+            if not reclaim:
+                return None
+            # A live handler can retain the row lock after lease expiry. In that case,
+            # keep the lane occupied instead of claiming a different operation.
+            eligible = (Job.id == running) & (Job.locked_until < now)
+        else:
+            eligible = (Job.status == "pending") & (Job.run_at <= now)
         row = await self.session.scalar(select(Job).where(
-            Job.kind == PREVIEW_REPLY, Job.status == "pending", Job.run_at <= now,
+            lane, eligible,
         ).order_by(Job.run_at, Job.id).limit(1).with_for_update(skip_locked=True))
         if row is None:
             return None

@@ -13,7 +13,7 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.api.schemas import PreviewIn
 from sim.config import Settings
-from sim.services import preview_operations
+from sim.services import jobkinds, preview_operations
 from sim.wiring import build_container
 
 
@@ -106,6 +106,32 @@ async def preview_operation_checks(url: str) -> None:
             await s.execute(delete(PreviewOperation).where(PreviewOperation.id == caption_id))
             await s.execute(delete(Job).where(Job.id == caption_job))
             await s.execute(delete(ContentPost).where(ContentPost.id == post_id))
+        async with transaction(c.factory) as s:
+            repo = JobRepo(s)
+            first_attachment = await repo.enqueue(jobkinds.PREVIEW_ATTACHMENT, {}, now)
+            second_attachment = await repo.enqueue(jobkinds.PREVIEW_ATTACHMENT, {}, now)
+            speech = await repo.enqueue(jobkinds.PREVIEW_SPEECH, {}, now)
+            speech_id = speech.id
+            text = await repo.enqueue(jobkinds.PREVIEW_REPLY, {}, now)
+            normal = await repo.enqueue("preview_smoke_normal", {}, now)
+            file_ids = {first_attachment.id, second_attachment.id}
+            text_id, normal_id = text.id, normal.id
+
+        async def claim_attachment() -> int | None:
+            async with transaction(c.factory) as s:
+                job = await JobRepo(s).claim_preview_attachment(now, 90)
+                return job.id if job else None
+
+        attachment_claims = await asyncio.gather(claim_attachment(), claim_attachment())
+        assert None in attachment_claims and any(item in file_ids for item in attachment_claims)
+        async with transaction(c.factory) as s:
+            assert (await JobRepo(s).claim_preview_speech(now, 90)).id == speech_id
+        assert await claim_preview() == text_id
+        async with transaction(c.factory) as s:
+            unrelated = tuple(await s.scalars(select(Job.id).where(Job.id != normal_id)))
+            ordinary = await JobRepo(s).claim(now, 90, exclude_ids=unrelated)
+            assert [job.id for job in ordinary] == [normal_id]
+            await s.execute(delete(Job).where(Job.id.in_(file_ids | {text_id, normal_id, speech_id})))
         print("PostgreSQL preview admission, concurrent caps and ordinary queue isolation PASS")
     finally:
         await c.aclose()

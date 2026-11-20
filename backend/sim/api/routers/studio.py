@@ -9,15 +9,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
+from sim.adapters.db.models import Job
 from sim.adapters.llm.broker import BrokerLLM
 from sim.adapters.studio_broker import StudioBroker
 from sim.api.deps import App, Db, Owner
 from sim.ports.llm import LLMError
 from sim.ports.speech import SpeechError
 from sim.ports.video import VideoError
+from sim.services import preview_operations, studio_chat
 from sim.services.app_settings import AppSettingsService, env_defaults
 from sim.services.media_routes import route_plan
 from sim.services.studio_drafts import DraftConflict, StudioDrafts
@@ -29,23 +31,6 @@ from sim.services.studio_media import (
 )
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
-
-
-class Turn(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=8000)
-
-    @field_validator("content")
-    @classmethod
-    def nonblank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Message must not be blank")
-        return value
-
-
-class ChatIn(BaseModel):
-    model: str = Field(min_length=1, max_length=120)
-    messages: list[Turn] = Field(min_length=1, max_length=24)
 
 
 def personal_owner(c: App, p: Owner) -> bool:
@@ -108,18 +93,6 @@ def asset(c: App, kind: str) -> Path | None:
     return path if path.is_file() else None
 
 
-async def subscription_models(c: App) -> list[str]:
-    rows = await c.llm.list_models()
-    return sorted({
-        str(row["id"]) for row in rows
-        if row.get("available") is True and row.get("tested") is True
-        and row.get("billing_type") == "subscription"
-        and (str(row.get("id", "")).startswith("claude-sub/claude-sonnet-")
-             or str(row.get("id", "")).startswith("codex-sub/gpt-")
-             and str(row.get("id", "")).endswith("-sol"))
-    })
-
-
 @router.get("")
 async def status(c: App, p: Owner, s: Db):
     personal = personal_owner(c, p)
@@ -129,7 +102,7 @@ async def status(c: App, p: Owner, s: Db):
         detail += " Personal subscription access is not configured for this account."
     else:
         try:
-            models = await subscription_models(c)
+            models = await studio_chat.subscription_models(c)
         except LLMError:
             detail += " Broker model catalog is unavailable."
         if not models:
@@ -232,26 +205,54 @@ async def get_asset(kind: Literal["photo", "video"], c: App, p: Owner):
 
 
 @router.post("/chat")
-async def chat(body: ChatIn, c: App, p: Owner):
+async def chat(body: studio_chat.ChatIn, c: App, p: Owner):
     if not personal_owner(c, p):
         raise HTTPException(403, "Personal owner subscription access required")
-    if body.messages[-1].role != "user":
-        raise HTTPException(422, "The final message must be from the user")
-    if sum(len(turn.content) for turn in body.messages) > 32000:
-        raise HTTPException(422, "Conversation exceeds the studio limit")
     try:
-        models = await subscription_models(c)
-        if body.model not in models:
-            raise HTTPException(409, "Selected subscription model is unavailable or unverified")
-        result = await c.llm.chat(
-            [{"role": "system", "content": (
-                "Ты виртуальный персонаж в личной творческой студии владельца. "
-                "Отвечай разговорно на языке пользователя или помогай писать промпты для медиа. "
-                "Не утверждай, что видел фото, создал медиа или выполнил действия. "
-                "К этому текстовому разговору не приложены изображения или видео."
-            )}, *[turn.model_dump() for turn in body.messages]],
-            capability="chat:fast", model=body.model, workflow="studio",
-        )
+        studio_chat.validate(body)
+        return await studio_chat.generate(c, body)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except studio_chat.StudioModelUnavailable as exc:
+        raise HTTPException(409, str(exc)) from exc
     except LLMError as exc:
         raise HTTPException(502, "Broker request failed; no fallback was attempted") from exc
-    return {"text": result.text, "model": result.model or body.model}
+
+
+@router.post("/chat-operations/{key}", status_code=202)
+async def enqueue_chat(key: str, body: studio_chat.ChatIn, c: App, s: Db, p: Owner):
+    try:
+        await studio_chat.start(c, s, p.user, key, body)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except preview_operations.PreviewDisabled as exc:
+        raise HTTPException(423, "Studio text queue disabled") from exc
+    except preview_operations.PreviewCapacity as exc:
+        raise HTTPException(429, {"status": "queue_full", "scope": str(exc)}) from exc
+    except preview_operations.PreviewConflict as exc:
+        raise HTTPException(409, "Studio operation ID already used") from exc
+    return {"id": key}
+
+
+@router.get("/chat-operations/{key}")
+async def chat_status(key: str, c: App, s: Db, p: Owner, response: Response):
+    headers = {"Cache-Control": "private, no-store"}
+    response.headers.update(headers)
+    scope = studio_chat.binding(c, p.user)
+    if scope is None:
+        raise HTTPException(403, "Personal owner subscription access required", headers=headers)
+    row = await s.get(studio_chat.StudioChatOperation, key)
+    if row is None or row.owner_id != p.user.id or row.binding != scope:
+        raise HTTPException(404, "Studio operation not found", headers=headers)
+    if row.expires_at <= c.clock():
+        return {"status": "expired"}
+    job = await s.get(Job, row.job_id)
+    if job is None or job.status in ("failed", "cancelled"):
+        return {"status": "unknown"}
+    if job.status != "done":
+        return {"status": job.status}
+    if not row.result_cipher:
+        return {"status": "unavailable"}
+    return {"status": "complete", "result": c.box.decrypt_json(row.result_cipher)}
