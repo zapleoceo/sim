@@ -506,10 +506,15 @@ class PreviewOperation(Base):
     """Private test-chat operation. Keep only its deduplication metadata after expiry."""
 
     __tablename__ = "preview_operation"
+    __table_args__ = (
+        Index("uq_preview_caption_revision", "owner_id", "post_id", "draft_revision", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("admin_user.id", ondelete="SET NULL"))
     persona_id: Mapped[int] = mapped_column(Integer)
+    post_id: Mapped[int | None] = mapped_column(Integer)
+    draft_revision: Mapped[str | None] = mapped_column(String(64))
     job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), unique=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
     revision: Mapped[str] = mapped_column(String(64))
@@ -517,6 +522,17 @@ class PreviewOperation(Base):
     key_expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     input_cipher: Mapped[str | None] = mapped_column(Text)
     result_cipher: Mapped[str | None] = mapped_column(Text)
+
+
+class CaptionOperationAlias(Base):
+    """Keep the client-submitted ID readable if admission returned a different ID."""
+
+    __tablename__ = "caption_operation_alias"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(
+        ForeignKey("preview_operation.id", ondelete="CASCADE"), index=True,
+    )
 
 
 class LlmCall(Base):

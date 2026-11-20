@@ -26,7 +26,7 @@ type Selection = ContentPost | 'new' | null;
 export function ContentPage() {
   const queryClient = useQueryClient();
   const isPhone = useIsPhone();
-  const { isOwner } = useAuth();
+  const { isOwner, user } = useAuth();
   const [selected, setSelected] = useState<Selection>(null);
   const [editorKey, setEditorKey] = useState(0);
   const [tab, setTab] = useState<ContentStatus>('draft');
@@ -60,7 +60,7 @@ export function ContentPage() {
 
   const editor = selected !== null && (
     <ContentEditor
-      key={editorKey}
+      key={`${user?.id ?? 0}:${editorKey}`}
       post={current}
       personas={personaList}
       igChannels={igChannels}

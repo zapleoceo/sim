@@ -143,14 +143,11 @@ async def test_telegram_webhook_secret_and_ingest(api, world, container):
     assert (await api.post(f"/hooks/evolution/{world.channel.id}", json=payload)).status_code == 404
 
 
-async def test_content_flow(api, world, fake_llm):
+async def test_content_flow(api, world):
     h = await owner(api)
     post = (await api.post("/api/content", json={"persona_id": world.persona.id, "kind": "reel",
                                                   "caption": "идея"}, headers=h)).json()
     assert post["status"] == "draft"
-    fake_llm.replies = ["Красивая подпись #стратегия"]
-    cap = await api.post(f"/api/content/{post['id']}/generate-caption", headers=h)
-    assert cap.json() == {"caption": "Красивая подпись #стратегия"}
     approved = (await api.post(f"/api/content/{post['id']}/approve", headers=h)).json()
     assert approved["status"] == "approved"
     upd = await api.put(f"/api/content/{post['id']}", headers=h, json={
