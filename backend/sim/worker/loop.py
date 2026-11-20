@@ -16,7 +16,13 @@ from sim.adapters.db.session import transaction
 from sim.config import Settings
 from sim.domain.enums import ChannelKind
 from sim.ports.channel import PollingChannelPort
-from sim.services import jobkinds, preview_attachment_operations, preview_operations, studio_chat, tracing
+from sim.services import (
+    jobkinds,
+    preview_attachment_operations,
+    preview_operations,
+    studio_chat,
+    tracing,
+)
 from sim.services.app_settings import trace_retention_days
 from sim.services.broker_requests import has_pending_broker_request
 from sim.services.conversation import ConversationError

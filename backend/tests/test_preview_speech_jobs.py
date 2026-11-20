@@ -17,7 +17,6 @@ from tests.conftest import OPERATOR, decision_json, login
 from tests.test_preview_operations import start
 from tests.test_voice import FakeEncoder
 
-
 RAW_PCM = b"\x34\x12\xfe\xff"
 PCM_MIME = "audio/L16;codec=pcm;rate=24000"
 WAV_BYTES = normalize_audio(RAW_PCM, PCM_MIME, "s16le")

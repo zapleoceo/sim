@@ -11,7 +11,13 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.locks import NS_PREVIEW_INPUT, lock
-from sim.adapters.db.models import AdminUser, BrokerRequest, Job, Persona, PreviewAttachmentOperation
+from sim.adapters.db.models import (
+    AdminUser,
+    BrokerRequest,
+    Job,
+    Persona,
+    PreviewAttachmentOperation,
+)
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.session import transaction
 from sim.ports.llm import LLMError
@@ -19,7 +25,13 @@ from sim.services import preview_operations, preview_speech
 from sim.services.job_execution import require_live_execution
 from sim.services.jobkinds import PREVIEW_ATTACHMENT
 from sim.services.llm_audit import private_preview
-from sim.services.preview_media import MAX_BYTES, TEXT_LIMIT, AttachmentError, classify, message_text
+from sim.services.preview_media import (
+    MAX_BYTES,
+    TEXT_LIMIT,
+    AttachmentError,
+    classify,
+    message_text,
+)
 
 if TYPE_CHECKING:
     from sim.wiring import Container
