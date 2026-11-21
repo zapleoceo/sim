@@ -11,6 +11,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { PassportSheet } from '@/features/leads/passport-summary';
 import { useInView } from '@/hooks/use-in-view';
 import { dayKey, dayLabel } from '@/lib/format';
 import { qk } from '@/lib/query';
@@ -101,18 +102,20 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <Link
-          to="/clients/$clientId"
+          to="/leads/$clientId"
           params={{ clientId: String(chat.client.id) }}
           className="truncate font-semibold hover:underline"
         >
           {name}
         </Link>
         <span className="truncate text-xs text-muted-foreground">
+          {chat.persona && <span className="font-medium text-foreground/80">отвечает {chat.persona.name} · </span>}
           {chat.client.username ? `@${chat.client.username}` : 'без username'}
           {!chat.client.ai_enabled && ' · ИИ выключен у клиента'}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <PassportSheet client={chat.client} />
         {chat.needs_operator && (
           <Button variant="outline" size="sm" onClick={() => done.mutate()} disabled={done.isPending}>
             <CheckCircle2 />

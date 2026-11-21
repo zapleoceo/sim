@@ -17,23 +17,21 @@ import { formatDateTime, formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { ClientDetail, ClientPatch } from '@/lib/types';
 import { clientName, positiveInt } from '@/lib/utils';
-import { clientsApi, useUpdateClient } from './api';
+import { leadsApi, useUpdateClient } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
-import { MemoryEditor } from './memory-editor';
+import { PassportEditor } from './passport-editor';
 
-const route = getRouteApi('/_app/clients/$clientId');
+const route = getRouteApi('/_app/leads/$clientId');
 
-interface ProfileValues { name: string; phone: string; timezone: string; notes: string }
+/** How the lead is shown in lists, phone, operator notes. What she knows about him is the passport. */
+interface ProfileValues { name: string; phone: string; notes: string }
 
-const toValues = (c: ClientDetail): ProfileValues => ({
-  name: c.name, phone: c.phone ?? '', timezone: c.timezone ?? '', notes: c.notes,
-});
+const toValues = (c: ClientDetail): ProfileValues => ({ name: c.name, phone: c.phone ?? '', notes: c.notes });
 
 export function profilePatch(values: ProfileValues, initial: ProfileValues): ClientPatch {
   const patch: ClientPatch = {};
   if (values.name !== initial.name) patch.name = values.name.trim();
   if (values.phone !== initial.phone) patch.phone = values.phone.trim() || null;
-  if (values.timezone !== initial.timezone) patch.timezone = values.timezone.trim() || null;
   if (values.notes !== initial.notes) patch.notes = values.notes;
   return patch;
 }
@@ -41,7 +39,7 @@ export function profilePatch(values: ProfileValues, initial: ProfileValues): Cli
 function ProfileForm({ client }: { client: ClientDetail }) {
   const form = useForm<ProfileValues>({ defaultValues: toValues(client) });
   const { register, handleSubmit, formState, reset } = form;
-  const update = useUpdateClient(client.id, () => 'Карточка клиента сохранена');
+  const update = useUpdateClient(client.id, () => 'Карточка лида сохранена');
   useUnsavedGuard(formState.isDirty);
 
   // A live update (e.g. the name changed elsewhere) refreshes the form unless it is being edited.
@@ -57,19 +55,16 @@ function ProfileForm({ client }: { client: ClientDetail }) {
         update.mutate(patch, { onSuccess: () => reset(values) });
       })}
     >
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field id="client-name" label="Имя">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id="client-name" label="Имя в списках" hint="Как лид подписан в дашборде.">
           <Input id="client-name" autoComplete="off" {...register('name')} />
         </Field>
         <Field id="client-phone" label="Телефон">
           <Input id="client-phone" type="tel" autoComplete="off" {...register('phone')} />
         </Field>
-        <Field id="client-tz" label="Часовой пояс" hint="Например Europe/Warsaw — агент знает его время.">
-          <Input id="client-tz" autoComplete="off" {...register('timezone')} />
-        </Field>
       </div>
-      <Field id="client-notes" label="Заметки" hint="Агент видит их в карточке клиента.">
-        <Textarea id="client-notes" className="max-h-80 min-h-24" {...register('notes')} />
+      <Field id="client-notes" label="Заметки оператора" hint="Агент видит их в карточке клиента.">
+        <Textarea id="client-notes" className="max-h-80 min-h-20" {...register('notes')} />
       </Field>
       <div className="flex justify-end">
         <Button type="submit" disabled={!formState.isDirty || update.isPending}>
@@ -81,8 +76,7 @@ function ProfileForm({ client }: { client: ClientDetail }) {
   );
 }
 
-function ClientCard({ client }: { client: ClientDetail }) {
-  const memory = useUpdateClient(client.id, () => 'Память обновлена');
+function LeadCard({ client }: { client: ClientDetail }) {
   const name = clientName(client);
   return (
     <>
@@ -91,9 +85,11 @@ function ClientCard({ client }: { client: ClientDetail }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="truncate text-lg font-semibold sm:text-2xl">{name}</h1>
           <p className="text-sm text-muted-foreground">
-            {[client.username && `@${client.username}`, client.last_seen_at && `был(а) ${formatDateTime(client.last_seen_at)}`]
-              .filter(Boolean)
-              .join(' · ') || 'нет данных'}
+            {[
+              client.username && `@${client.username}`,
+              client.persona && `лид персонажа ${client.persona.name}`,
+              client.last_seen_at && `был(а) ${formatDateTime(client.last_seen_at)}`,
+            ].filter(Boolean).join(' · ') || 'нет данных'}
           </p>
         </div>
         <ClientAiSwitch clientId={client.id} enabled={client.ai_enabled} name={name} withLabel />
@@ -101,67 +97,70 @@ function ClientCard({ client }: { client: ClientDetail }) {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="flex min-w-0 flex-col gap-4">
+          <Section
+            id="passport"
+            title="Паспорт"
+            description="Живая анкета человека. Паспортистка обновляет её после каждого ответа и звонка; поля, которые вы поправили, она не трогает."
+          >
+            <PassportEditor clientId={client.id} passport={client.passport} />
+          </Section>
+        </div>
+        <div className="flex min-w-0 flex-col gap-4">
           <Section id="profile" title="Профиль">
             <ProfileForm client={client} />
           </Section>
-          <Section id="memory" title="Память" description="Устойчивые факты о человеке. Агент видит их в каждом ответе.">
-            <MemoryEditor
-              memory={client.memory}
-              busy={memory.isPending}
-              onChange={(next) => memory.mutate({ memory: next })}
-            />
+          <Section id="chats" title="Чаты">
+            {client.chats.length === 0 ? (
+              <EmptyState icon={MessagesSquare} title="Чатов нет" className="py-4" />
+            ) : (
+              <ul className="flex flex-col divide-y">
+                {client.chats.map((chat) => (
+                  <li key={chat.id}>
+                    <Link
+                      to="/chats"
+                      search={{ id: chat.id }}
+                      className="flex items-center gap-3 rounded-md px-1 py-2.5 hover:bg-accent/60"
+                    >
+                      <MessagesSquare className="size-4 flex-none text-muted-foreground" />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-sm">{lastMessagePreview(chat.last_message)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {chat.persona ? `${chat.persona.name} · ` : ''}
+                          {formatShort(chat.last_message_at) || 'без сообщений'}
+                          {!chat.ai_enabled && ' · ИИ в чате выключен'}
+                        </span>
+                      </span>
+                      {chat.needs_operator && <AlertTriangle className="size-4 flex-none text-warning" aria-label="Нужен оператор" />}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         </div>
-        <Section id="chats" title="Чаты">
-          {client.chats.length === 0 ? (
-            <EmptyState icon={MessagesSquare} title="Чатов нет" className="py-4" />
-          ) : (
-            <ul className="flex flex-col divide-y">
-              {client.chats.map((chat) => (
-                <li key={chat.id}>
-                  <Link
-                    to="/chats"
-                    search={{ id: chat.id }}
-                    className="flex items-center gap-3 rounded-md px-1 py-2.5 hover:bg-accent/60"
-                  >
-                    <MessagesSquare className="size-4 flex-none text-muted-foreground" />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm">{lastMessagePreview(chat.last_message)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatShort(chat.last_message_at) || 'без сообщений'}
-                        {!chat.ai_enabled && ' · ИИ в чате выключен'}
-                      </span>
-                    </span>
-                    {chat.needs_operator && <AlertTriangle className="size-4 flex-none text-warning" aria-label="Нужен оператор" />}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
       </div>
     </>
   );
 }
 
-/** Client card: profile and notes, AI switch, memory, the client's chats. */
-export function ClientPage() {
+/** The lead card: passport, profile and notes, AI switch, the lead's chats. */
+export function LeadPage() {
   const { clientId } = route.useParams();
   const id = positiveInt(clientId) ?? 0;
-  const client = useQuery({ queryKey: qk.client(id), queryFn: () => clientsApi.get(id), enabled: id > 0 });
+  const client = useQuery({ queryKey: qk.client(id), queryFn: () => leadsApi.get(id), enabled: id > 0 });
 
   return (
-    <Page>
-      <BackLink to="/clients">Все клиенты</BackLink>
-      {id === 0 && <ErrorState title="Клиент не найден" />}
+    <Page width="wide" className="max-w-[1600px]">
+      <BackLink to="/leads">Все лиды</BackLink>
+      {id === 0 && <ErrorState title="Лид не найден" />}
       {id > 0 && client.isPending && (
         <div className="flex flex-col gap-4">
           <Skeleton className="h-12 w-64" />
           <Skeleton className="h-60 w-full rounded-xl" />
         </div>
       )}
-      {client.isError && <ErrorState title="Клиент не найден" onRetry={() => void client.refetch()} />}
-      {client.data && <ClientCard client={client.data} />}
+      {client.isError && <ErrorState title="Лид не найден" onRetry={() => void client.refetch()} />}
+      {client.data && <LeadCard client={client.data} />}
     </Page>
   );
 }

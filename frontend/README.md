@@ -1,6 +1,6 @@
 # Sim dashboard (React + Vite)
 
-Russian-language dashboard for Sim v2: three sections — Чаты, Персонаж, Клиенты.
+Russian-language dashboard for Sim v2: three sections — Чаты, Персонажи, Лиды.
 Structure, settings map and live updates: `docs/frontend.md`. API contract: `docs/api.md`.
 
 ```bash

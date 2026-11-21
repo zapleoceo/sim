@@ -8,16 +8,18 @@ import { formatDateTime } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { CanonFact } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
 
 function CanonRow({ item }: { item: CanonFact }) {
+  const personaId = usePersonaId();
   const queryClient = useQueryClient();
   const [text, setText] = useState<string | null>(null);
   const update = useMutation({
-    mutationFn: (patch: Partial<Pick<CanonFact, 'fact' | 'status'>>) => lifeApi.updateCanon(item.id, patch),
+    mutationFn: (patch: Partial<Pick<CanonFact, 'fact' | 'status'>>) => lifeApi.updateCanon(personaId, item.id, patch),
     onSuccess: async () => {
       setText(null);
-      await queryClient.invalidateQueries({ queryKey: qk.canon });
+      await queryClient.invalidateQueries({ queryKey: qk.canon(personaId) });
     },
   });
   const rejected = item.status === 'rejected';

@@ -1,74 +1,154 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import type { Client } from '@/lib/types';
+import type { Lead, Passport, PersonaRow } from '@/lib/types';
 import { fakeApi, reply } from '@/test/fake-api';
 import { renderWithApp } from '@/test/render';
-import { ClientsPage } from './clients-page';
-import { memoryOps } from './memory-editor';
-import { profilePatch } from './client-page';
+import { profilePatch } from './lead-page';
+import { LeadsPage } from './leads-page';
+import { PassportEditor } from './passport-editor';
+import { passportFormErrors, passportPatch, passportPreview, toPassportForm, unlockPatch } from './passport-logic';
 
-function client(patch: Partial<Client>): Client {
+function passport(patch: Partial<Passport> = {}): Passport {
   return {
-    id: 1, name: 'Дима', username: 'dima', phone: '+380501112233', timezone: 'Europe/Kyiv', notes: '', ai_enabled: true,
-    memory: [], created_at: '2026-11-01T10:00:00Z', last_seen_at: '2026-11-20T18:30:00Z', chats_count: 1, ...patch,
+    text: '', name: '', age: null, gender: '', city: '', country: '', timezone: '', occupation: '', stage: 'new',
+    temperature: 0, next_step: '', updated_at: null, locked_fields: [], ...patch,
   };
 }
 
-describe('ClientsPage', () => {
-  it('renders the full-width table with links to the client cards', async () => {
-    fakeApi({
-      'GET /api/clients': { items: [client({}), client({ id: 2, name: '', username: 'anna', phone: null, ai_enabled: false, chats_count: 3 })] },
-    });
-    await renderWithApp(<ClientsPage />);
+function lead(patch: Partial<Lead>): Lead {
+  return {
+    id: 1, persona_id: 1, name: 'Дима', username: 'dima', phone: '+380501112233', timezone: null, notes: '', ai_enabled: true,
+    passport: passport({ stage: 'warm', temperature: 60, city: 'Киев', age: 34 }), created_at: '2026-11-01T10:00:00Z',
+    last_seen_at: '2026-11-20T18:30:00Z', persona: { id: 1, name: 'Марина', avatar_media_id: null }, chats_count: 1,
+    messages_count: 12, ...patch,
+  };
+}
 
-    await screen.findByText('+380501112233');
-    const table = screen.getByRole('table');
+const PERSONAS: PersonaRow[] = [
+  { id: 1, name: 'Марина', avatar_media_id: null, is_active: true, ai_enabled: true, leads_count: 1, channels: [] },
+  { id: 2, name: 'Оля', avatar_media_id: null, is_active: true, ai_enabled: true, leads_count: 1, channels: [] },
+];
+
+describe('LeadsPage', () => {
+  it('renders the full-width table with persona, stage, city, age and messages', async () => {
+    fakeApi({
+      'GET /api/personas': { items: PERSONAS },
+      'GET /api/clients': {
+        items: [lead({}), lead({ id: 2, name: '', username: 'anna', ai_enabled: false, persona: { id: 2, name: 'Оля', avatar_media_id: null } })],
+      },
+    });
+    await renderWithApp(<LeadsPage />);
+
+    const table = await screen.findByRole('table');
+    await within(table).findByText('Киев');
     expect(within(table).getAllByRole('row')).toHaveLength(3); // header + 2
-    expect(within(table).getByRole('columnheader', { name: 'Последний контакт' })).toBeInTheDocument();
-    expect(within(table).getByRole('link', { name: /Дима/ })).toHaveAttribute('href', '/clients/1');
-    expect(within(table).getByRole('link', { name: /@anna/ })).toHaveAttribute('href', '/clients/2');
-    expect(screen.getByRole('switch', { name: 'ИИ отвечает клиенту Дима' })).toBeChecked();
+    for (const header of ['Персонаж', 'Стадия', 'Город', 'Возраст', 'Последний контакт', 'Сообщений']) {
+      expect(within(table).getByRole('columnheader', { name: header })).toBeInTheDocument();
+    }
+    expect(within(table).getByRole('link', { name: /Дима/ })).toHaveAttribute('href', '/leads/1');
+    expect(within(table).getByRole('link', { name: /@anna/ })).toHaveAttribute('href', '/leads/2');
+    expect(within(table).getAllByText('Тёплый')).toHaveLength(2);
+    expect(within(table).getByText('Оля')).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'ИИ отвечает клиенту @anna' })).not.toBeChecked();
+  });
+
+  it('filters by persona and stage and searches', async () => {
+    const log = fakeApi({ 'GET /api/personas': { items: PERSONAS }, 'GET /api/clients': { items: [] } });
+    await renderWithApp(<LeadsPage />);
+    expect(await screen.findByText('Лидов пока нет')).toBeInTheDocument();
+    await screen.findByRole('option', { name: 'Оля' });
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Персонаж' }), '2');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Стадия' }), 'hot');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Поиск лидов' }), 'ann');
+    await waitFor(() =>
+      expect(
+        log.some((r) => r.path === '/api/clients' && r.query.get('persona_id') === '2' && r.query.get('stage') === 'hot'
+          && r.query.get('q') === 'ann'),
+      ).toBe(true),
+    );
+    expect(await screen.findByText('Никого не нашли')).toBeInTheDocument();
   });
 
   it('toggles AI inline with PATCH {ai_enabled}', async () => {
     const log = fakeApi({
-      'GET /api/clients': { items: [client({ ai_enabled: false })] },
-      'PATCH /api/clients/1': client({ ai_enabled: true }),
+      'GET /api/personas': { items: PERSONAS },
+      'GET /api/clients': { items: [lead({ ai_enabled: false })] },
+      'PATCH /api/clients/1': lead({ ai_enabled: true }),
     });
-    await renderWithApp(<ClientsPage />);
+    await renderWithApp(<LeadsPage />);
     await userEvent.click(await screen.findByRole('switch', { name: 'ИИ отвечает клиенту Дима' }));
     await waitFor(() => expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ ai_enabled: true }));
   });
 
-  it('shows the empty state and the search query', async () => {
-    const log = fakeApi({ 'GET /api/clients': { items: [] } });
-    await renderWithApp(<ClientsPage />);
-    expect(await screen.findByText('Клиентов пока нет')).toBeInTheDocument();
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Поиск клиентов' }), 'ann');
-    await waitFor(() => expect(log.some((r) => r.query.get('q') === 'ann')).toBe(true));
-    expect(await screen.findByText('Никого не нашли')).toBeInTheDocument();
-  });
-
   it('shows an error state with retry', async () => {
-    fakeApi({ 'GET /api/clients': reply(500, { error: 'база недоступна' }) });
-    await renderWithApp(<ClientsPage />);
+    fakeApi({ 'GET /api/personas': { items: [] }, 'GET /api/clients': reply(500, { error: 'база недоступна' }) });
+    await renderWithApp(<LeadsPage />);
     expect(await screen.findByRole('button', { name: 'Повторить' })).toBeInTheDocument();
   });
 });
 
-describe('client card logic', () => {
-  it('memory add / edit / remove', () => {
-    const now = new Date('2026-11-21T00:00:00Z');
-    const one = memoryOps.add([], ' живёт в Варшаве ', now);
-    expect(one).toEqual([{ fact: 'живёт в Варшаве', event_id: null, at: '2026-11-21T00:00:00.000Z' }]);
-    expect(memoryOps.edit(one, 0, 'живёт в Кракове')[0]?.fact).toBe('живёт в Кракове');
-    expect(memoryOps.remove(one, 0)).toEqual([]);
+describe('PassportEditor', () => {
+  it('saves only the changed fields; the server locks them', async () => {
+    const log = fakeApi({ 'PATCH /api/clients/7': lead({ id: 7 }) });
+    await renderWithApp(<PassportEditor clientId={7} passport={passport({ city: 'Киев', text: 'Кто он: Дима' })} />);
+
+    const save = screen.getByRole('button', { name: 'Сохранить паспорт' });
+    expect(save).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText('Стадия'), 'hot');
+    const city = screen.getByLabelText('Город');
+    await userEvent.clear(city);
+    await userEvent.type(city, 'Львов');
+    await userEvent.click(save);
+
+    await waitFor(() => expect(log.filter((r) => r.method === 'PATCH')).toHaveLength(1));
+    expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ passport: { stage: 'hot', city: 'Львов' } });
+  });
+
+  it('shows locks and unlocks a field', async () => {
+    const log = fakeApi({ 'PATCH /api/clients/7': lead({ id: 7 }) });
+    await renderWithApp(<PassportEditor clientId={7} passport={passport({ stage: 'hot', locked_fields: ['stage', 'city'] })} />);
+    expect(screen.getByRole('button', { name: 'Снять замок: Город' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Снять замок: Стадия' }));
+    await waitFor(() => expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ passport: { locked_fields: ['city'] } }));
+  });
+
+  it('blocks invalid numbers before sending', async () => {
+    const log = fakeApi({});
+    await renderWithApp(<PassportEditor clientId={7} passport={passport()} />);
+    const temperature = screen.getByLabelText('Теплота');
+    await userEvent.clear(temperature);
+    await userEvent.type(temperature, '150');
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить паспорт' }));
+    expect(await screen.findByText(/Теплота — целое число от 0 до 100/)).toBeInTheDocument();
+    expect(log.filter((r) => r.method === 'PATCH')).toHaveLength(0);
+  });
+});
+
+describe('passport logic', () => {
+  it('patch converts types and skips unchanged fields', () => {
+    const initial = toPassportForm(passport({ age: 30, temperature: 10 }));
+    expect(passportPatch(initial, initial)).toEqual({});
+    expect(passportPatch({ ...initial, age: '', temperature: '55', next_step: ' позвать ' }, initial)).toEqual({
+      age: null, temperature: 55, next_step: 'позвать',
+    });
+    expect(unlockPatch(['stage', 'age'], 'age')).toEqual({ locked_fields: ['stage'] });
+  });
+
+  it('validates age, temperature and the time zone', () => {
+    const form = toPassportForm(passport());
+    expect(passportFormErrors(form)).toEqual([]);
+    expect(passportFormErrors({ ...form, age: '0', temperature: 'x', timezone: 'Kyiv' })).toHaveLength(3);
+    expect(passportFormErrors({ ...form, timezone: 'America/Argentina/Buenos_Aires' })).toEqual([]);
+  });
+
+  it('preview keeps the first lines', () => {
+    expect(passportPreview('a\n\nb\nc', 2)).toBe('a\nb\n…');
   });
 
   it('profile patch sends only changed fields, empty phone as null', () => {
-    const initial = { name: 'Дима', phone: '+380', timezone: '', notes: '' };
+    const initial = { name: 'Дима', phone: '+380', notes: '' };
     expect(profilePatch({ ...initial, phone: ' ', notes: 'любит кофе' }, initial)).toEqual({ phone: null, notes: 'любит кофе' });
   });
 });

@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import type { Arc, ArcStatus, CanonFact, DayEvent, DaysResponse, Items, PersonaDay, PersonaLife } from '@/lib/types';
+import { personaPath } from '../api';
 
 export interface ArcInput {
   title: string;
@@ -9,20 +10,24 @@ export interface ArcInput {
   ends_on?: string | null;
 }
 
-/** Her life on the dashboard (docs/api.md, «Жизнь персонажа»). */
+/** One persona's life on the dashboard (docs/api.md, «Жизнь персонажа»). */
 export const lifeApi = {
-  world: () => api.get<PersonaLife>('/persona/life'),
-  saveWorld: (life: PersonaLife) => api.put<PersonaLife>('/persona/life', life),
-  arcs: () => api.get<Items<Arc>>('/persona/arcs'),
-  createArc: (arc: ArcInput) => api.post<Arc>('/persona/arcs', arc),
-  updateArc: (id: number, patch: Partial<ArcInput>) => api.patch<Arc>(`/persona/arcs/${id}`, patch),
-  deleteArc: (id: number) => api.delete(`/persona/arcs/${id}`),
+  world: (id: number) => api.get<PersonaLife>(personaPath(id, '/life')),
+  saveWorld: (id: number, life: PersonaLife) => api.put<PersonaLife>(personaPath(id, '/life'), life),
+  arcs: (id: number) => api.get<Items<Arc>>(personaPath(id, '/arcs')),
+  createArc: (id: number, arc: ArcInput) => api.post<Arc>(personaPath(id, '/arcs'), arc),
+  updateArc: (id: number, arcId: number, patch: Partial<ArcInput>) =>
+    api.patch<Arc>(personaPath(id, `/arcs/${arcId}`), patch),
+  deleteArc: (id: number, arcId: number) => api.delete(personaPath(id, `/arcs/${arcId}`)),
   /** Yesterday … tomorrow of her local calendar, plus her today and minute of the day. */
-  days: () => api.get<DaysResponse>('/persona/days'),
-  saveDay: (day: string, events: DayEvent[]) => api.put<PersonaDay>(`/persona/days/${day}`, { events }),
-  planDay: (day: string) => api.post<{ queued: boolean; day: string }>(`/persona/days/${day}/plan`),
-  canon: () => api.get<Items<CanonFact>>('/persona/canon'),
-  updateCanon: (id: number, patch: Partial<Pick<CanonFact, 'fact' | 'status'>>) =>
-    api.patch<CanonFact>(`/persona/canon/${id}`, patch),
-  describeAppearance: () => api.post<{ text: string; references: number }>('/persona/appearance/describe'),
+  days: (id: number) => api.get<DaysResponse>(personaPath(id, '/days')),
+  saveDay: (id: number, day: string, events: DayEvent[]) =>
+    api.put<PersonaDay>(personaPath(id, `/days/${day}`), { events }),
+  planDay: (id: number, day: string) =>
+    api.post<{ queued: boolean; day: string }>(personaPath(id, `/days/${day}/plan`)),
+  canon: (id: number) => api.get<Items<CanonFact>>(personaPath(id, '/canon')),
+  updateCanon: (id: number, canonId: number, patch: Partial<Pick<CanonFact, 'fact' | 'status'>>) =>
+    api.patch<CanonFact>(personaPath(id, `/canon/${canonId}`), patch),
+  describeAppearance: (id: number) =>
+    api.post<{ text: string; references: number }>(personaPath(id, '/appearance/describe')),
 };

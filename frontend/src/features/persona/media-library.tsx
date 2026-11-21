@@ -16,6 +16,7 @@ import { qk } from '@/lib/query';
 import type { Media } from '@/lib/types';
 import { cn, splitTags } from '@/lib/utils';
 import { mediaApi, type MediaKindFilter, type MediaPatch, type MediaSourceFilter } from './api';
+import { usePersonaId } from './persona-scope';
 
 const SOURCES: { value: MediaSourceFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -55,7 +56,8 @@ function Segmented<T extends string>({ label, value, options, onChange }: {
 
 function useMediaInvalidate(): () => void {
   const queryClient = useQueryClient();
-  return () => void queryClient.invalidateQueries({ queryKey: qk.media });
+  const personaId = usePersonaId();
+  return () => void queryClient.invalidateQueries({ queryKey: qk.media(personaId) });
 }
 
 function useObjectUrl(file: File | null): string | null {
@@ -71,6 +73,7 @@ function useObjectUrl(file: File | null): string | null {
 
 /** Drag-drop or pick one photo/video, give it a caption and tags, mark it as an appearance reference. */
 function MediaUploader() {
+  const personaId = usePersonaId();
   const invalidate = useMediaInvalidate();
   const picker = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -87,7 +90,8 @@ function MediaUploader() {
     setIsReference(false);
   };
   const upload = useMutation({
-    mutationFn: () => mediaApi.upload({ file: file as File, caption: caption.trim(), tags: splitTags(tags), isReference }),
+    mutationFn: () =>
+      mediaApi.upload(personaId, { file: file as File, caption: caption.trim(), tags: splitTags(tags), isReference }),
     onSuccess: () => {
       toast.success('Файл добавлен в медиатеку');
       clear();
@@ -323,9 +327,13 @@ function MediaCard({ media }: { media: Media }) {
 
 /** Library and generated media of the persona: filter, upload, edit, delete. */
 export function MediaLibrarySection() {
+  const personaId = usePersonaId();
   const [source, setSource] = useState<MediaSourceFilter>('all');
   const [kind, setKind] = useState<MediaKindFilter>('all');
-  const media = useQuery({ queryKey: qk.mediaList(source, kind), queryFn: () => mediaApi.list(source, kind) });
+  const media = useQuery({
+    queryKey: qk.mediaList(personaId, source, kind),
+    queryFn: () => mediaApi.list(personaId, source, kind),
+  });
   // «Все» = медиатека + сгенерированные; присланное клиентами живёт в чатах.
   const items = (media.data?.items ?? []).filter((m) => m.source !== 'incoming' && (m.kind === 'photo' || m.kind === 'video'));
 

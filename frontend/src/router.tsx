@@ -4,7 +4,9 @@ import {
 } from '@tanstack/react-router';
 import { RouteError, RoutePending } from '@/components/route-states';
 import { session } from '@/features/auth/session';
+import { isStage } from '@/features/leads/passport-logic';
 import { AppShell } from '@/layouts/app-shell';
+import type { LeadStage } from '@/lib/types';
 import { positiveInt } from '@/lib/utils';
 
 export interface RouterContext { queryClient: QueryClient }
@@ -27,6 +29,14 @@ export function parseLoginSearch(s: Record<string, unknown>): LoginSearch {
 export function parseChatsSearch(s: Record<string, unknown>): ChatsSearch {
   const id = positiveInt(s.id);
   return id ? { id } : {};
+}
+
+/** `/leads?persona=2&stage=hot`: the filters a link may preselect. */
+export interface LeadsSearch { persona?: number; stage?: LeadStage }
+
+export function parseLeadsSearch(s: Record<string, unknown>): LeadsSearch {
+  const persona = positiveInt(s.persona);
+  return { ...(persona ? { persona } : {}), ...(isStage(s.stage) ? { stage: s.stage } : {}) };
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
@@ -68,22 +78,54 @@ const chatsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/features/chats/chats-page'), 'ChatsPage'),
 });
 
+const personasRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/personas',
+  component: lazyRouteComponent(() => import('@/features/persona/personas-page'), 'PersonasPage'),
+});
+
 const personaRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/persona',
+  path: '/personas/$personaId',
   component: lazyRouteComponent(() => import('@/features/persona/persona-page'), 'PersonaPage'),
 });
 
-const clientsRoute = createRoute({
+const leadsRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/clients',
-  component: lazyRouteComponent(() => import('@/features/clients/clients-page'), 'ClientsPage'),
+  path: '/leads',
+  validateSearch: parseLeadsSearch,
+  component: lazyRouteComponent(() => import('@/features/leads/leads-page'), 'LeadsPage'),
 });
 
-const clientRoute = createRoute({
+const leadRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/leads/$clientId',
+  component: lazyRouteComponent(() => import('@/features/leads/lead-page'), 'LeadPage'),
+});
+
+/** Old addresses of the single-persona dashboard keep working. */
+const oldPersonaRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/persona',
+  beforeLoad: () => {
+    throw redirect({ to: '/personas' });
+  },
+});
+
+const oldClientsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/clients',
+  beforeLoad: () => {
+    throw redirect({ to: '/leads', search: {} });
+  },
+});
+
+const oldClientRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/clients/$clientId',
-  component: lazyRouteComponent(() => import('@/features/clients/client-page'), 'ClientPage'),
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/leads/$clientId', params: { clientId: params.clientId } });
+  },
 });
 
 /** Unknown paths go to the chats (after the auth check). */
@@ -97,10 +139,13 @@ const fallbackRoute = createRoute({
 
 export const routeTree = rootRoute.addChildren([
   loginRoute,
-  appRoute.addChildren([indexRoute, chatsRoute, personaRoute, clientsRoute, clientRoute, fallbackRoute]),
+  appRoute.addChildren([
+    indexRoute, chatsRoute, personasRoute, personaRoute, leadsRoute, leadRoute, oldPersonaRoute, oldClientsRoute,
+    oldClientRoute, fallbackRoute,
+  ]),
 ]);
 
-const TITLES: Record<string, string> = { login: 'Вход', chats: 'Чаты', persona: 'Персонаж', clients: 'Клиенты' };
+const TITLES: Record<string, string> = { login: 'Вход', chats: 'Чаты', personas: 'Персонажи', leads: 'Лиды' };
 
 export function titleFor(pathname: string): string {
   const section = TITLES[pathname.split('/')[1] ?? ''];

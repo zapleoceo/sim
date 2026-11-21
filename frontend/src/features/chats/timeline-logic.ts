@@ -91,7 +91,7 @@ export function systemLine(item: TimelineItem): SystemLine | null {
     case 'client_updated':
       return { text: 'Карточка клиента обновлена', tone: 'muted' };
     case 'memory_updated':
-      return { text: 'Память и сводка обновлены', tone: 'muted' };
+      return { text: 'Сводка переписки обновлена', tone: 'muted' };
     default:
       return null;
   }

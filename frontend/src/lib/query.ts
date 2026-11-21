@@ -29,7 +29,7 @@ export function createQueryClient(): QueryClient {
 
 /**
  * Query keys in one place, so invalidation never drifts from the reads.
- * Prefix keys (`chats`, `clients`, `media`) invalidate every list and card under them.
+ * Prefix keys (`chats`, `clients`, `personas`) invalidate every list and card under them.
  */
 export const qk = {
   me: ['auth', 'me'] as const,
@@ -37,24 +37,29 @@ export const qk = {
 
   chats: ['chats'] as const,
   chatLists: ['chats', 'list'] as const,
-  chatList: (q: string) => ['chats', 'list', q] as const,
+  /** `personaId` 0 = every persona. */
+  chatList: (q: string, personaId = 0) => ['chats', 'list', q, personaId] as const,
   chat: (id: number) => ['chats', 'detail', id] as const,
   timeline: (chatId: number) => ['timeline', chatId] as const,
   replyRun: (id: number) => ['reply-run', id] as const,
 
-  persona: ['persona'] as const,
+  // Everything of one persona lives under ['personas', id], so `qk.personas` refreshes all.
+  personas: ['personas'] as const,
+  personaList: ['personas', 'list'] as const,
+  persona: (id: number) => ['personas', id] as const,
+  channels: (id: number) => ['personas', id, 'channels'] as const,
+  life: (id: number) => ['personas', id, 'life', 'world'] as const,
+  arcs: (id: number) => ['personas', id, 'life', 'arcs'] as const,
+  days: (id: number) => ['personas', id, 'life', 'days'] as const,
+  canon: (id: number) => ['personas', id, 'life', 'canon'] as const,
+  media: (id: number) => ['personas', id, 'media'] as const,
+  mediaList: (id: number, source: string, kind: string) => ['personas', id, 'media', source, kind] as const,
   models: ['models'] as const,
   voices: ['voices'] as const,
   instructions: ['instructions'] as const,
-  channels: ['channels'] as const,
-  life: ['life', 'world'] as const,
-  arcs: ['life', 'arcs'] as const,
-  days: ['life', 'days'] as const,
-  canon: ['life', 'canon'] as const,
-  media: ['media'] as const,
-  mediaList: (source: string, kind: string) => ['media', source, kind] as const,
 
   clients: ['clients'] as const,
-  clientList: (q: string) => ['clients', 'list', q] as const,
+  /** `personaId` 0 / `stage` '' = no filter. */
+  clientList: (q: string, personaId = 0, stage = '') => ['clients', 'list', q, personaId, stage] as const,
   client: (id: number) => ['clients', 'detail', id] as const,
 };

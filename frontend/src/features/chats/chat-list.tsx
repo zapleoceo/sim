@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { AlertTriangle, MessagesSquare, Search } from 'lucide-react';
 import { useState } from 'react';
@@ -6,7 +6,9 @@ import { Avatar } from '@/components/avatar';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { personaApi } from '@/features/persona/api';
 import { useDebounced } from '@/hooks/use-debounced';
 import { useInView } from '@/hooks/use-in-view';
 import { formatShort } from '@/lib/format';
@@ -16,7 +18,7 @@ import { clientName, cn } from '@/lib/utils';
 import { CHATS_PAGE, chatsApi } from './api';
 import { aiActive, lastMessagePreview } from './timeline-logic';
 
-function ChatListItem({ chat, active }: { chat: ChatRow; active: boolean }) {
+function ChatListItem({ chat, active, showPersona }: { chat: ChatRow; active: boolean; showPersona: boolean }) {
   const ai = aiActive(chat);
   const name = clientName(chat.client);
   return (
@@ -51,6 +53,12 @@ function ChatListItem({ chat, active }: { chat: ChatRow; active: boolean }) {
               {formatShort(chat.last_message_at)}
             </time>
           </span>
+          {showPersona && chat.persona && (
+            <span className="truncate text-[11px] text-muted-foreground">
+              <span className="sr-only">Отвечает </span>
+              {chat.persona.name}
+            </span>
+          )}
           <span className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{lastMessagePreview(chat.last_message)}</span>
             {chat.needs_operator && (
@@ -74,13 +82,20 @@ function ChatListItem({ chat, active }: { chat: ChatRow; active: boolean }) {
   );
 }
 
-/** Left pane: search + chats, newest activity first, more pages on scroll. */
+/**
+ * Left pane: search + persona filter + chats, newest activity first, more pages on scroll. Each
+ * row names the persona that answers in that chat (when there is more than one persona).
+ */
 export function ChatList({ activeId }: { activeId: number | null }) {
   const [search, setSearch] = useState('');
+  const [personaId, setPersonaId] = useState(0);
   const q = useDebounced(search.trim(), 300);
+  const personas = useQuery({ queryKey: qk.personaList, queryFn: personaApi.list, staleTime: 60_000 });
+  const personaRows = personas.data?.items ?? [];
+  const showPersona = personaRows.length > 1 && personaId === 0;
   const chats = useInfiniteQuery({
-    queryKey: qk.chatList(q),
-    queryFn: ({ pageParam }) => chatsApi.list(q, pageParam),
+    queryKey: qk.chatList(q, personaId),
+    queryFn: ({ pageParam }) => chatsApi.list(q, pageParam, personaId),
     initialPageParam: null as string | null,
     getNextPageParam: (last) =>
       last.items.length < CHATS_PAGE ? undefined : (last.items[last.items.length - 1]?.last_message_at ?? undefined),
@@ -103,6 +118,14 @@ export function ChatList({ activeId }: { activeId: number | null }) {
             className="pl-8"
           />
         </label>
+        {personaRows.length > 1 && (
+          <div className="mt-2">
+            <NativeSelect aria-label="Персонаж" value={String(personaId)} onChange={(e) => setPersonaId(Number(e.target.value) || 0)}>
+              <option value="0">Все персонажи</option>
+              {personaRows.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </NativeSelect>
+          </div>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
         {chats.isPending && (
@@ -128,7 +151,9 @@ export function ChatList({ activeId }: { activeId: number | null }) {
         )}
         {items.length > 0 && (
           <ul aria-label="Чаты" className="flex flex-col">
-            {items.map((chat) => <ChatListItem key={chat.id} chat={chat} active={chat.id === activeId} />)}
+            {items.map((chat) => (
+              <ChatListItem key={chat.id} chat={chat} active={chat.id === activeId} showPersona={showPersona} />
+            ))}
           </ul>
         )}
         {chats.hasNextPage && (

@@ -2,10 +2,11 @@ import type { BrokerModel, Persona } from '@/lib/types';
 
 export type ModelField =
   | 'model_reply' | 'model_guard' | 'model_vision' | 'model_transcribe' | 'model_memory'
-  | 'model_tts' | 'model_image' | 'model_video' | 'model_live' | 'model_life';
+  | 'model_tts' | 'model_image' | 'model_video' | 'model_live' | 'model_life' | 'model_passport';
 
 export type ModelPurpose =
-  | 'reply' | 'guard' | 'memory' | 'vision' | 'transcribe' | 'tts' | 'image' | 'video' | 'live' | 'life';
+  | 'reply' | 'guard' | 'memory' | 'vision' | 'transcribe' | 'tts' | 'image' | 'video' | 'live' | 'life'
+  | 'passport';
 
 export interface PurposeInfo {
   purpose: ModelPurpose;
@@ -20,7 +21,8 @@ export const MODEL_PURPOSES: readonly PurposeInfo[] = [
   { purpose: 'guard', field: 'model_guard', label: 'Проверка', hint: 'Дешёвая и быстрая: смотрит ответ перед отправкой.' },
   { purpose: 'vision', field: 'model_vision', label: 'Распознавание', hint: 'Описывает фото и видео клиента.' },
   { purpose: 'transcribe', field: 'model_transcribe', label: 'Расшифровка', hint: 'Голосовые в текст.' },
-  { purpose: 'memory', field: 'model_memory', label: 'Память', hint: 'Сжимает старую переписку, ведёт память о клиенте.' },
+  { purpose: 'memory', field: 'model_memory', label: 'Сводка', hint: 'Сжимает старую переписку в сводку.' },
+  { purpose: 'passport', field: 'model_passport', label: 'Паспорт клиента', hint: 'После каждого ответа и звонка обновляет паспорт клиента. Пусто — модель сводки.' },
   { purpose: 'tts', field: 'model_tts', label: 'Голос (TTS)', hint: 'Озвучивает голосовые ответы.' },
   { purpose: 'image', field: 'model_image', label: 'Фото', hint: 'Генерирует фото по референсам внешности.' },
   { purpose: 'video', field: 'model_video', label: 'Видео', hint: 'Генерирует видео.' },
@@ -40,6 +42,7 @@ export function matchesPurpose(model: BrokerModel, purpose: ModelPurpose): boole
     case 'guard':
     case 'memory':
     case 'life':
+    case 'passport':
       return has(input, 'text') && has(output, 'text');
     case 'vision':
       return has(input, 'image') || has(input, 'video');

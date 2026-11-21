@@ -70,30 +70,69 @@ export interface Media {
   file_name: string;
 }
 
-// --- clients ------------------------------------------------------------------------------------
+// --- leads (clients) and the passport (docs/leads.md) ------------------------------------------
 
-export interface MemoryFact {
-  fact: string;
-  event_id: number | null;
-  at: string | null;
+export type LeadStage = 'new' | 'acquainted' | 'interested' | 'warm' | 'hot' | 'client' | 'lost';
+
+/** Structured passport fields: the operator may edit (and so lock) each of them. */
+export type PassportField =
+  | 'name' | 'age' | 'gender' | 'city' | 'country' | 'timezone' | 'occupation' | 'stage' | 'temperature' | 'next_step';
+
+export interface Passport {
+  /** The living profile in Russian by sections. */
+  text: string;
+  name: string;
+  age: number | null;
+  gender: string;
+  city: string;
+  country: string;
+  timezone: string;
+  occupation: string;
+  stage: LeadStage;
+  temperature: number;
+  next_step: string;
+  updated_at: string | null;
+  locked_fields: PassportField[];
+}
+
+export type PassportPatch = Partial<Omit<Passport, 'updated_at'>>;
+
+export interface PersonaBrief {
+  id: number;
+  name: string;
+  avatar_media_id: number | null;
 }
 
 export interface Client {
   id: number;
+  /** The persona of the channel the client first wrote to. */
+  persona_id: number;
   name: string;
   username: string | null;
   phone: string | null;
   timezone: string | null;
   notes: string;
   ai_enabled: boolean;
-  memory: MemoryFact[];
+  passport: Passport;
   created_at: string;
   last_seen_at: string | null;
-  /** Number of chats; optional until the list endpoint returns it. */
-  chats_count?: number;
 }
 
-export type ClientPatch = Partial<Pick<Client, 'name' | 'phone' | 'notes' | 'timezone' | 'ai_enabled' | 'memory'>>;
+/** A row of «Лиды» (GET /clients). */
+export interface Lead extends Client {
+  persona: PersonaBrief | null;
+  chats_count: number;
+  messages_count: number;
+}
+
+export interface ClientPatch {
+  name?: string;
+  phone?: string | null;
+  notes?: string;
+  timezone?: string | null;
+  ai_enabled?: boolean;
+  passport?: PassportPatch;
+}
 
 // --- chats --------------------------------------------------------------------------------------
 
@@ -114,6 +153,8 @@ export interface LastMessage {
 export interface ChatRow {
   id: number;
   client: ChatRowClient;
+  /** The persona that answers in this chat (the persona of its channel). */
+  persona: PersonaBrief | null;
   ai_enabled: boolean;
   needs_operator: boolean;
   unread_count: number;
@@ -124,6 +165,7 @@ export interface ChatRow {
 export type ChatDetail = Omit<ChatRow, 'client'> & { client: Client };
 
 export interface ClientDetail extends Client {
+  persona: PersonaBrief | null;
   chats: ChatRow[];
 }
 
@@ -223,6 +265,9 @@ export interface Persona {
   model_video: string;
   model_live: string;
   model_life: string;
+  model_passport: string;
+  /** false = archived: answers nobody, plans no days, its Telegram accounts go offline. */
+  is_active: boolean;
   /** Exact look in English for image models (eyes, hair, face, build). */
   appearance: string;
   voice_ambience_enabled: boolean;
@@ -237,7 +282,23 @@ export interface Persona {
   reply_delay_s: number;
 }
 
-export type PersonaPatch = Partial<Omit<Persona, 'id'>>;
+export type PersonaPatch = Partial<Omit<Persona, 'id' | 'is_active'>>;
+
+/** A row of «Персонажи» (GET /personas). */
+export interface PersonaRow {
+  id: number;
+  name: string;
+  avatar_media_id: number | null;
+  is_active: boolean;
+  ai_enabled: boolean;
+  leads_count: number;
+  channels: Channel[];
+}
+
+/** What «Клонировать» may copy (docs/personas.md). */
+export type ClonePart =
+  | 'basics' | 'prompt' | 'models' | 'voice' | 'guard' | 'appearance' | 'world' | 'arcs' | 'media' | 'switches'
+  | 'canon';
 
 export interface BrokerModel {
   id: string;
@@ -352,10 +413,26 @@ export interface CanonFact {
 
 export interface Channel {
   id: number;
+  persona_id: number;
   kind: string;
   title: string;
   status: 'new' | 'connected' | 'error' | 'disabled' | string;
   account_label: string;
   last_error: string | null;
   last_activity_at: string | null;
+}
+
+/** One step of the QR login of a Telegram account (no secrets ever come back). */
+export type LoginStateName = 'qr' | 'password' | 'connected' | 'error' | 'none';
+
+export interface LoginView {
+  state: LoginStateName;
+  message: string;
+  /** SVG data URI of the QR code while `state` is `qr`. */
+  qr: string | null;
+}
+
+export interface LoginResponse {
+  channel: Channel;
+  login: LoginView;
 }

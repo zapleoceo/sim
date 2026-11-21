@@ -42,7 +42,7 @@ export interface PersonaEditorProps {
   children?: ReactNode;
 }
 
-/** All persona settings on one form with one Save button (PUT /persona with the changed fields). */
+/** All settings of one persona on one form with one Save button (PUT /personas/{id}, changed fields). */
 export function PersonaEditor({ persona, models, modelsError, voices, children }: PersonaEditorProps) {
   const queryClient = useQueryClient();
   const initial = useMemo(() => toFormValues(persona), [persona]);
@@ -55,16 +55,17 @@ export function PersonaEditor({ persona, models, modelsError, voices, children }
   const save = useMutation({
     // Diff against the form's own baseline: it moves to the saved values after every save.
     mutationFn: (values: PersonaFormValues) =>
-      personaApi.update(toPatch(values, (formState.defaultValues ?? initial) as PersonaFormValues)),
+      personaApi.update(persona.id, toPatch(values, (formState.defaultValues ?? initial) as PersonaFormValues)),
     onSuccess: (saved) => {
-      queryClient.setQueryData(qk.persona, saved);
+      queryClient.setQueryData(qk.persona(persona.id), saved);
+      void queryClient.invalidateQueries({ queryKey: qk.personaList });
       reset(toFormValues(saved));
       toast.success('Настройки персонажа сохранены');
     },
   });
 
   const describe = useMutation({
-    mutationFn: lifeApi.describeAppearance,
+    mutationFn: () => lifeApi.describeAppearance(persona.id),
     onSuccess: ({ text, references }) => {
       form.setValue('appearance', text, { shouldDirty: true });
       toast.success(`Описала по ${references} фото — проверьте и сохраните`);
