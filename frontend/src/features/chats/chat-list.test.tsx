@@ -56,7 +56,8 @@ describe('ChatList filters in the address', () => {
     expect(screen.getByRole('combobox', { name: 'Персонаж' })).toHaveValue('2');
     expect(screen.getByRole('searchbox', { name: 'Поиск по чатам' })).toHaveValue('anna');
     const list = await screen.findByRole('list', { name: 'Чаты' });
-    expect(within(list).getByRole('link')).toHaveAttribute('aria-current', 'true');
+    // The open chat is marked (the router's Link marks it as the current page).
+    expect(within(list).getByRole('link')).toHaveAttribute('aria-current');
     expect(log.some((r) => r.path === '/api/chats' && r.query.get('q') === 'anna' && r.query.get('persona_id') === '2')).toBe(true);
   });
 });

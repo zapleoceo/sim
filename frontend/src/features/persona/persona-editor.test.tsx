@@ -80,7 +80,7 @@ describe('PersonaEditor', () => {
       );
     }
     await renderWithApp(<Live />);
-    const prompt = await screen.findByLabelText('Промт');
+    const prompt = await screen.findByRole('textbox', { name: 'Промт' });
     await userEvent.click(screen.getByRole('button', { name: 'с сервера' }));
     expect(prompt).toHaveValue('Ты Марина. Новое.');
     expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
