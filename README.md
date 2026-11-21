@@ -11,7 +11,11 @@ local time, where she is); the guard receives them through `with_persona_facts`.
 approves only a clean `ok` (`approves`); it never rewrites text, so a saved message has an
 `original_text` only from older releases or media records. The silence sweep filters out
 refused clients, dialogs with follow-ups off and disconnected channels in SQL before it
-locks a dialog.
+locks a dialog. The Broker model catalog (`list_models`) is cached for 30 s per adapter, so
+the contact profile, media recognition, reserve routing, Studio and the health probe share
+one fetch. A reply builds its channel port once and reuses it for her media decision; the
+contact profile is read with the model that will answer (the identity model on an identity
+question).
 
 In the admin every query key lives in `qk` (`frontend/src/lib/query.ts`). The inbox
 shares `qk.channels` and `qk.simulation(id)` with the other pages, its flat test-chat
