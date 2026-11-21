@@ -39,6 +39,11 @@ key_tier, prompt, max_tokens}}`, только изменённое владел�
 `model_transcribe`, `model_memory`, `model_tts`, `model_image`, `model_video`, `model_live`,
 `model_life`, `model_passport` в `agents` (непустые значения — `{"model": …}` своего агента) и
 удалила их; откат возвращает колонки с моделями из `agents` (ключи, промты и лимиты теряются).
+Внимание (миграция `0006`, [attention.md](attention.md)): `attention` (JSONB, `{mode, pace,
+may_leave_read, after_missed_call, night_dnd}`; `{}` — всё по умолчанию: «Как живой человек»,
+темп 1, три переключателя включены; читает только `sim.domain.attention.attention_settings`),
+`attention_check_at` (когда её единственная ожидающая проверка телефона; `NULL` — проверки нет;
+пишут только `sim/services/attention/schedule.py`).
 Новый персонаж создаётся клонированием (`sim/services/persona_clone.py`).
 Кто использует: ответ и проверка (`reply.py`, `guard.py`), распознавание, генерация, память,
 `capabilities.py` (что можно в этом ходе).
@@ -91,7 +96,9 @@ next_step, updated_at, locked_fields}` ([leads.md](leads.md)), `last_seen_at`.
 ### `chat`
 Переписка клиента через канал: `persona_id` (= персонаж канала; он и отвечает в чате),
 `client_id`, `channel_id` (уникально `(channel_id, client_id)`), `peer_access_hash` (access hash
-клиента так, как его видит аккаунт этого чата; `0004`), `ai_enabled` (переключатель чата), `needs_operator` (ставится после
+клиента так, как его видит аккаунт этого чата; `0004`), `ai_enabled` (переключатель чата),
+`attention_instant` («Отвечать сразу» в этом чате, по умолчанию нет; `0006`,
+[attention.md](attention.md)), `needs_operator` (ставится после
 второго блока проверки; пока стоит, персонаж молчит), `unread_count`, `last_message_at`,
 `summary` и `summary_until_event_id` — сводка старой части ленты и граница: события с
 `id <= summary_until_event_id` описаны сводкой, после неё — идут в ленту дословно.
@@ -156,7 +163,8 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 (`docs/context.md`). Только дополняется. `chat_id`, `kind` (`message_in`, `message_out`,
 `message_edited`, `message_deleted`, `media_understood`, `send_failed`, `call`,
 `generation_started`, `generation_failed`, `guard_blocked`, `operator_needed`, `ai_toggled`,
-`operator_note`, `client_updated`, `memory_updated`), `in_context` (видит ли агент), ссылки
+`operator_note`, `client_updated`, `memory_updated`, `attention` — что она сделала с чатом на
+проверке телефона, `0006`), `in_context` (видит ли агент), ссылки
 `message_id`, `media_id`, `call_id`, `generation_id`, `reply_run_id`, `actor`
 (`client | persona | operator | guard | system`), `data` (мелкие факты для отображения: было/стало,
 причина блокировки, текст удалённого и т. п.).
@@ -165,8 +173,9 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 
 ### `llm_call`
 Каждый вызов Broker: `reply_run_id` (если в рамках хода), `chat_id`, `purpose` (`reply | guard |
-vision | transcribe | document | tts | image | video | live | memory | life | passport`; `life` —
-планировщик дня, `0003`; `passport` — паспортистка, `0004`; Портретист пишется как `vision` с
+vision | transcribe | document | tts | image | video | live | memory | life | passport |
+attention`; `life` — планировщик дня, `0003`; `passport` — паспортистка, `0004`; `attention` —
+агент Внимание, `0006`, без `chat_id`: он видит все чаты сразу; Портретист пишется как `vision` с
 `request.task = "appearance"`), `model`, `request`
 (без байтов: вместо файлов mime и размер; `key_tier` — уровень ключей агента, [agents.md](agents.md)),
 `response`, `tokens_in`, `tokens_out`, `cost_usd`,
