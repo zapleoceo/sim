@@ -1,8 +1,9 @@
 # SIM v2
 
-Один AI-персонаж (Марина) в личном Telegram-аккаунте: переписка текстом и голосом,
+AI-персонажи (первая — Марина), каждый в своём личном Telegram-аккаунте: переписка текстом и голосом,
 понимание фото, видео и файлов, фото и видео по референсам внешности, живые звонки.
-Все модели — через AI Broker.
+Новый персонаж — клонированием, аккаунт подключается из дашборда по QR. О каждом клиенте
+персонаж ведёт паспорт (лиды). Все модели — через AI Broker.
 
 ## Документы
 
@@ -11,6 +12,8 @@
 | [docs/spec-v2.md](docs/spec-v2.md) | ТЗ: что входит, критерий готовности, этапы |
 | [docs/context.md](docs/context.md) | Контекст агента и журнал событий |
 | [docs/reply.md](docs/reply.md) | Ход персонажа: план ответа, проверка, действия |
+| [docs/personas.md](docs/personas.md) | Несколько персонажей, «Клонировать», подключение Telegram по QR, архив |
+| [docs/leads.md](docs/leads.md) | Лиды, паспорт клиента, стадии, паспортистка, замки полей |
 | [docs/persona-life.md](docs/persona-life.md) | Жизнь персонажа: распорядок, план дня, истории, канон, занятость, сцена и непрерывность фото и звука |
 | [docs/database.md](docs/database.md) | Таблицы и кто их пишет |
 | [docs/api.md](docs/api.md) | HTTP API дашборда |
@@ -25,8 +28,8 @@
 
 | Процесс | Команда | Что делает |
 |---|---|---|
-| `api` | `uvicorn sim.apps.api:create_app --factory` | Дашборд и HTTP API (Litestar) |
-| `worker` | `python -m sim.apps.worker` | Ответы, распознавание, генерация, память (очередь `agent`) |
+| `api` | `uvicorn sim.apps.api:create_app --factory` | Дашборд и HTTP API (Litestar), вход в Telegram по QR |
+| `worker` | `python -m sim.apps.worker` | Ответы, распознавание, генерация, сводка, паспорт клиента (очередь `agent`) |
 | `telegram` | `python -m sim.apps.telegram` | Сессия Telegram, приём, отправка, звонки (очередь `telegram`) |
 
 Очередь задач — Procrastinate в той же PostgreSQL. Живые обновления дашборда идут через
@@ -41,13 +44,14 @@ backend/sim/
   ports.py    интерфейсы внешнего мира (Broker, Telegram, хранилище, ffmpeg, часы)
   db/         схема БД и сессии
   events.py   запись в журнал чата
-  services/   логика: inbox, понимание вложений, контекст, ответ, проверка, действия, память
+  services/   логика: inbox, понимание вложений, контекст, ответ, проверка, действия, сводка,
+              паспорт клиента, клонирование персонажа
   adapters/   Broker, ffmpeg, хранилище файлов
   telegram/   Telethon-аккаунт, отправка, «прочитано» и живые статусы (presence.py), звонки
   api/        Litestar
   tasks/      задачи Procrastinate
   apps/       точки входа процессов
-frontend/src  React-дашборд: Чаты, Персонаж, Клиенты
+frontend/src  React-дашборд: Чаты, Персонажи, Лиды
 ```
 
 Проверка — только CI (`.github/workflows/ci.yml`), см. [AGENTS.md](AGENTS.md).
