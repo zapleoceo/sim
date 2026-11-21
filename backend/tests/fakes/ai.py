@@ -116,7 +116,8 @@ class FakeVideoGen:
 
     async def generate_video(self, *, prompt: str, first_frame: tuple[bytes, str] | None,
                              model: str, duration_s: int = 5) -> MediaResult:
-        self.calls.append({"prompt": prompt, "first_frame": first_frame, "model": model})
+        self.calls.append({"prompt": prompt, "first_frame": first_frame, "model": model,
+                           "duration_s": duration_s})
         if self.error is not None:
             raise self.error
         return MediaResult(data=b"MP4:" + prompt.encode(), mime="video/mp4",
@@ -180,6 +181,7 @@ class FakeMediaTools:
 
     document: str | None = None
     duration_s: float | None = None
+    video_note_error: Exception | None = None
     calls: list[tuple[str, Any]] = field(default_factory=list)
 
     async def probe(self, data: bytes, mime: str) -> Probe:
@@ -206,6 +208,12 @@ class FakeMediaTools:
         self.calls.append(("image_for_model", mime))
         return data, "image/jpeg"
 
+    async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
+        self.calls.append(("to_video_note", len(mp4)))
+        if self.video_note_error is not None:
+            raise self.video_note_error
+        return b"ROUND:" + mp4, 8.0
+
 
 @dataclass
 class RecordingQueue:
@@ -227,6 +235,16 @@ class RecordingQueue:
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.calls.append(("refresh_memory", chat_id))
+
+    async def mark_read(self, message_id: int) -> None:
+        self.calls.append(("mark_read", message_id))
+
+    async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
+        self.calls.append(("chat_action", chat_id, action, seconds))
+
+    def actions(self) -> list[str]:
+        """The chat actions asked for, in order."""
+        return [call[2] for call in self.of("chat_action")]
 
     def of(self, kind: str) -> list[tuple[Any, ...]]:
         return [call for call in self.calls if call[0] == kind]

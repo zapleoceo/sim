@@ -3,7 +3,7 @@
   run_telegram_process(deps)
     -> stale calls closed -> ChannelRuntime (one client per account) with two hooks:
        Receiver (messages -> Inbox) and CallsAttacher (py-tgcalls -> CallService)
-    -> TelegramMessenger registered for the send tasks
+    -> TelegramMessenger and Presence (live chat statuses) registered for the tasks
     -> Procrastinate worker on queue `telegram`
     -> until SIGTERM / SIGINT: the worker finishes its current jobs, clients disconnect.
 
@@ -21,7 +21,7 @@ from sim.telegram.calls import CallsAttacher
 from sim.telegram.calls.service import CallService
 from sim.telegram.client import ChannelRuntime, Hook
 from sim.telegram.receiver import Receiver
-from sim.telegram.tasks import QUEUE, set_runtime
+from sim.telegram.tasks import QUEUE, get_presence, set_runtime
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +76,7 @@ async def serve(deps: Any, app: Any, stop: asyncio.Event,
     if closed:
         log.info("closed %s calls interrupted by the last stop", closed)
     set_runtime(runtime, min_interval_s=deps.settings.tg_min_send_interval_s)
+    presence = get_presence()
     await runtime.start()
     worker = asyncio.create_task(app.run_worker_async(
         queues=[QUEUE], concurrency=WORKER_CONCURRENCY, install_signal_handlers=False),
@@ -95,4 +96,5 @@ async def serve(deps: Any, app: Any, stop: asyncio.Event,
         results = await asyncio.gather(worker, return_exceptions=True)
         if isinstance(results[0], Exception):
             log.error("telegram worker stopped: %r", results[0])
+        await presence.close()            # stop re-sending chat statuses
         await runtime.stop()

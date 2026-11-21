@@ -79,6 +79,7 @@ class GenerationKind(StrEnum):
     PHOTO = "photo"
     VIDEO = "video"
     VOICE = "voice"
+    VIDEO_NOTE = "video_note"       # a round video message («кружок»), made like a video
 
 
 class GenerationStatus(StrEnum):

@@ -36,10 +36,14 @@ DOCUMENT_TEXT_LIMIT = 6_000
 
 PHOTO_PROMPT = ("Собеседник прислал это изображение в личной переписке. Опиши по-русски в 1–3 "
                 "предложениях, что на нём; если есть текст — перепиши его дословно.")
+# Gemini hears the soundtrack of a video, so the description also carries the speech verbatim:
+# the meaning survives even when the separate transcription of the clip fails.
 VIDEO_PROMPT = ("Собеседник прислал это видео в личной переписке. Опиши по-русски в 1–3 "
-                "предложениях, что происходит; если в кадре говорят — кратко о чём.")
+                "предложениях, что происходит. Если в видео говорят, перепиши речь дословно "
+                "после слов «Говорят:».")
 VIDEO_NOTE_PROMPT = ("Это видеосообщение («кружок») от собеседника. Опиши по-русски в 1–2 "
-                     "предложениях, что видно в кадре: где он, что делает, настроение.")
+                     "предложениях, что видно в кадре: где он, что делает, настроение. Затем "
+                     "дословно перепиши всё, что он говорит, после слов «Говорит:».")
 PDF_PROMPT = ("Собеседник прислал этот документ. Перескажи по-русски в 3–6 предложениях, что в "
               "нём; сохрани ключевые имена, даты, суммы и цифры.")
 
@@ -190,6 +194,8 @@ class Understanding:
                                        att.mime or "video/mp4")).strip()
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
+        if speech and "Говорит:" in seen:      # the transcript is the more exact copy of speech
+            seen = seen.split("Говорит:", 1)[0].strip()
         parts = [f"Видно: {seen}" if seen else "", f"Говорит: {speech}" if speech else ""]
         text = " ".join(part for part in parts if part)
         if not text:

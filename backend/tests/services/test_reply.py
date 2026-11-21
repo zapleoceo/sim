@@ -328,3 +328,105 @@ async def test_full_plan_photo_voice_and_generation(db: AsyncSession, deps: Deps
     assert len(generations) == 1 and generations[0].caption == "танец дома"
     assert fakes.tasks.of("generate") == [("generate", generations[0].id)]
     assert fakes.speech.calls[0]["voice"] == "Vindemiatrix"
+
+
+# --- read receipts and live statuses ---------------------------------------------------------
+
+
+async def test_turn_reads_the_chat_then_types(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                              clock: FixedClock) -> None:
+    chat = await make_chat(db, await make_persona(db))
+    await add_message(db, chat, "ты тут?", at=clock.now() - timedelta(seconds=90))
+    last, _ = await add_message(db, chat, "ау", at=clock.now() - timedelta(seconds=60))
+    fakes.llm.script("reply-model", plan_json(TEXT)).script("guard-model", ok_verdict())
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+
+    kinds = [call[0] for call in fakes.tasks.calls]
+    assert kinds[:2] == ["mark_read", "chat_action"]
+    assert fakes.tasks.of("mark_read") == [("mark_read", last.id)]
+    assert fakes.tasks.of("chat_action") == [("chat_action", chat.id, "typing", 40.0)]
+    assert kinds[-1] == "send"                      # the send ends «печатает»; no cancel
+
+
+async def test_silence_cancels_the_status(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                          clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock)
+    fakes.llm.script("reply-model", plan_json())
+    await ReplyService(deps).run(chat.id)
+    assert fakes.tasks.actions() == ["typing", "cancel"]
+
+
+async def test_a_blocked_turn_cancels_the_status(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                 clock: FixedClock) -> None:
+    blocked = await setup_chat(db, clock)
+    fakes.llm.always("reply-model", plan_json(TEXT))
+    fakes.llm.script("guard-model", block_verdict("нет"), block_verdict("нет"))
+    assert (await ReplyService(deps).run(blocked.id)).status == RunStatus.BLOCKED
+    assert fakes.tasks.actions() == ["typing", "cancel"]
+
+
+async def test_a_failed_turn_cancels_the_status(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                clock: FixedClock) -> None:
+    failing = await setup_chat(db, clock)
+    fakes.llm.script("reply-model", PortError("timeout", retryable=True))
+    with pytest.raises(PortError):
+        await ReplyService(deps).run(failing.id)
+    assert fakes.tasks.actions() == ["typing", "cancel"]
+
+
+async def test_ai_off_is_neither_read_nor_typed(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock)
+    chat.ai_enabled = False
+    await db.flush()
+    await ReplyService(deps).run(chat.id)
+    assert fakes.tasks.calls == []
+
+
+async def test_each_slow_action_shows_its_status_before_the_work(
+    db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock,
+) -> None:
+    chat = await setup_chat(db, clock)
+    fakes.llm.script("reply-model", plan_json(
+        {"type": "voice", "text": "приветик"},
+        {"type": "video_note", "generate": {"prompt": "машу рукой на кухне",
+                                            "caption": "привет с кухни", "tags": [],
+                                            "speech": "Дима, привет! Вот я на кухне."}},
+    ))
+    fakes.llm.script("guard-model", ok_verdict())
+    seen_by_tts: list[list[str]] = []
+    synthesize = fakes.speech.synthesize
+
+    async def tts_after_status(**kwargs: Any) -> Any:
+        seen_by_tts.append(fakes.tasks.actions())
+        return await synthesize(**kwargs)
+
+    fakes.speech.synthesize = tts_after_status  # type: ignore[method-assign]
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+
+    assert fakes.tasks.actions() == ["typing", "record_audio", "record_round"]
+    statuses = fakes.tasks.of("chat_action")
+    assert statuses[1][3] == 30.0 and statuses[2][3] == 400.0
+    # «записывает голосовое» is asked for before the TTS call is made.
+    assert seen_by_tts == [["typing", "record_audio"]]
+    assert len(fakes.tasks.of("send")) == 1
+    [generation] = await all_rows(db, select(Generation).where(Generation.chat_id == chat.id))
+    assert generation.speech == "Дима, привет! Вот я на кухне."
+    assert fakes.tasks.of("generate") == [("generate", generation.id)]
+
+
+async def test_a_video_note_without_speech_is_repaired(db: AsyncSession, deps: Deps,
+                                                       fakes: Fakes, clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock)
+    spec = {"prompt": "машу рукой", "caption": "привет", "tags": []}
+    fakes.llm.script("reply-model",
+                     plan_json({"type": "video_note", "generate": spec}),
+                     plan_json({"type": "video_note",
+                                "generate": {**spec, "speech": "Привет, Дима!"}}))
+    fakes.llm.script("guard-model", ok_verdict())
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+    repair = fakes.llm.calls_for("reply-model")[1]["messages"][-1].parts[0].text or ""
+    assert "generate.speech" in repair

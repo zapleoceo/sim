@@ -26,7 +26,7 @@ PostgreSQL 16. Модели — `backend/sim/db/models.py`, миграции Ale
 (проверка; пусто — используется `model_reply`), `model_vision` (фото/видео/PDF),
 `model_transcribe` (голосовые), `model_memory` (сводка и память; пусто — `model_reply`),
 `model_tts`, `model_image`, `model_video`, `model_live`; голос `voice_id` (из
-`sim/services/voices.py`) и `voice_style`.
+`sim/services/voices.py`) и `voice_style` — обычная манера речи в 2–4 словах («тепло, естественно, разговорно»), не описание: TTS получает её как подсказку и длинный текст начинает произносить.
 `guard_rules` — короткий список запретов для проверки. Переключатели `ai_enabled`,
 `voice_enabled`, `photo_enabled`, `video_enabled`, `calls_enabled`. `reply_delay_s` — сколько
 ждать пачку сообщений перед ответом.
@@ -100,10 +100,13 @@ JSON-план), `guard_verdicts` (`[{ok, reason, attempt}]`), `attempts` (ско
 `failed` — нет.
 
 ### `generation`
-Фото/видео, которое попросил персонаж: `persona_id`, `chat_id`, `reply_run_id`, `kind`,
-`prompt`, `caption`, `tags`, `ref_media_ids` (референсы внешности, до 8), `status`
+Фото, видео или кружок, которые попросил персонаж: `persona_id`, `chat_id`, `reply_run_id`,
+`kind` (`photo | video | voice | video_note`; `video_note` — круглое видеосообщение, миграция
+`0002`), `prompt`, `speech` (точные слова, которые она говорит в кадре; пусто — без речи;
+`0002`), `caption`, `tags`, `ref_media_ids` (референсы внешности, до 8), `status`
 (`queued | running | done | failed`), `model`, `result_media_id`, `broker_job_id`, `cost_usd`,
 `error`, `finished_at`. Создаёт обработчик действия, выполняет задача `agent.run_generation`.
+Результат кружка — `media_asset` вида `video` (квадрат 640×640), сообщение вида `video_note`.
 
 ### `call`
 Звонок (этап «Звонки»): `chat_id`, `direction`, `status` (`ringing | active | ended | missed |

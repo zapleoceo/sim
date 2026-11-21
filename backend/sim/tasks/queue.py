@@ -5,7 +5,8 @@ Ordering and de-duplication:
 - `lock = chat:<id>` on reply and memory jobs: one chat is processed strictly in order;
 - `queueing_lock` per chat for replies: while a reply is waiting to start, a new request is
   absorbed by it (the reply task re-checks the chat and waits for a burst when it starts);
-- `lock = send:<chat id>` keeps one chat's outgoing messages in order."""
+- `lock = send:<chat id>` keeps one chat's outgoing messages in order;
+- `lock = chat-action:<chat id>` applies one chat's status requests in order."""
 from __future__ import annotations
 
 import logging
@@ -24,6 +25,8 @@ UNDERSTAND_TASK = "agent.understand_media"
 GENERATE_TASK = "agent.run_generation"
 MEMORY_TASK = "agent.refresh_memory"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
+MARK_READ_TASK = "telegram:mark_read"
+CHAT_ACTION_TASK = "telegram:chat_action"
 
 
 def chat_lock(chat_id: int) -> str:
@@ -71,3 +74,14 @@ class ProcrastinateQueue:
     async def refresh_memory(self, chat_id: int) -> None:
         await self._defer(MEMORY_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
                           lock=chat_lock(chat_id), queueing_lock=f"memory:{chat_id}")
+
+    async def mark_read(self, message_id: int) -> None:
+        await self._defer(MARK_READ_TASK, queue=TELEGRAM_QUEUE, kwargs={"message_id": message_id},
+                          queueing_lock=f"mark-read:{message_id}")
+
+    async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
+        # No queueing lock: a `cancel` must never be absorbed by a waiting `typing`.
+        await self._defer(CHAT_ACTION_TASK, queue=TELEGRAM_QUEUE,
+                          kwargs={"chat_id": chat_id, "action": action,
+                                  "seconds": float(seconds)},
+                          lock=f"chat-action:{chat_id}")

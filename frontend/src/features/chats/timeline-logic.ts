@@ -35,7 +35,9 @@ export const CALL_STATUS_LABEL: Record<string, string> = {
   failed: 'сбой',
 };
 
-export const GENERATION_KIND_LABEL: Record<string, string> = { photo: 'фото', video: 'видео', voice: 'голосовое' };
+export const GENERATION_KIND_LABEL: Record<string, string> = {
+  photo: 'фото', video: 'видео', voice: 'голосовое', video_note: 'кружка',
+};
 
 export const GENERATION_STATUS_LABEL: Record<string, string> = {
   queued: 'в очереди',

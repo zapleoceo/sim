@@ -2,11 +2,14 @@
 without it these tests are skipped)."""
 from __future__ import annotations
 
+import asyncio
 import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
 
-from sim.adapters.media_tools import FfmpegMediaTools
+from sim.adapters.media_tools import FfmpegMediaTools, run_process
 from tests.adapters.helpers import png_bytes, wav_bytes
 
 pytestmark = pytest.mark.skipif(
@@ -49,3 +52,29 @@ async def test_large_image_is_shrunk_to_jpeg() -> None:
 async def test_small_png_is_sent_as_is() -> None:
     image = png_bytes(100, 50)
     assert await FfmpegMediaTools().image_for_model(image, "image/png") == (image, "image/png")
+
+
+async def mp4_clip(width: int, height: int, seconds: float, *, sound: bool) -> bytes:
+    """A tiny H.264 test pattern (with a sine tone when `sound`), made by ffmpeg itself."""
+    inputs = ["-f", "lavfi", "-i", f"testsrc=size={width}x{height}:rate=10:duration={seconds}"]
+    if sound:
+        inputs += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}"]
+    with tempfile.TemporaryDirectory(prefix="sim-test-") as tmp:
+        target = Path(tmp) / "clip.mp4"
+        result = await run_process(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *inputs,
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", *(["-c:a", "aac"] if sound else []),
+             "-shortest", str(target)], 60.0)
+        assert result.code == 0, result.stderr
+        return await asyncio.to_thread(target.read_bytes)
+
+
+@pytest.mark.parametrize("sound", [True, False])
+async def test_video_becomes_a_round_video_note(sound: bool) -> None:
+    media = FfmpegMediaTools()
+    note, duration = await media.to_video_note(await mp4_clip(320, 240, 1.0, sound=sound))
+    assert note[4:8] == b"ftyp"
+    assert note.find(b"moov") < note.find(b"mdat")          # faststart: playable at once
+    probe = await media.probe(note, "video/mp4")
+    assert (probe.mime, probe.width, probe.height) == ("video/mp4", 640, 640)
+    assert duration == pytest.approx(1.0, abs=0.25)

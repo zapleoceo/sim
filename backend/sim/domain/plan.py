@@ -22,6 +22,10 @@ class GenerateSpec(_Strict):
                          description="One line: what it is, saved to the media library.")
     tags: list[str] = Field(default_factory=list, max_length=12,
                             description="Short lowercase tags so it can be reused later.")
+    speech: str = Field(default="", max_length=400,
+                        description="Exact words she says on camera, in the chat language: 1–2 "
+                                    "short spoken sentences addressed to this person, "
+                                    "continuing the conversation.")
 
 
 class TextAction(_Strict):
@@ -32,6 +36,15 @@ class TextAction(_Strict):
 class VoiceAction(_Strict):
     type: Literal["voice"]
     text: str = Field(min_length=1, max_length=1500, description="What she says out loud.")
+    style: str = Field(default="", max_length=40,
+                       description="Mood of THIS voice message in 1-3 words, e.g. «весело», "
+                                   "«устало», «с улыбкой». Empty = her usual manner.")
+
+
+def tts_style(base: str, mood: str) -> str:
+    """The TTS delivery hint: the persona's usual manner plus this message's mood. Kept to a
+    few words: the TTS model reads a long description aloud or pauses (seen in production)."""
+    return ", ".join(part.strip() for part in (mood, base) if part.strip())[:80]
 
 
 class PhotoAction(_Strict):
@@ -50,7 +63,18 @@ class VideoAction(_Strict):
     caption: str = Field(default="", max_length=1000)
 
 
-Action = Annotated[TextAction | VoiceAction | PhotoAction | VideoAction,
+class VideoNoteAction(_Strict):
+    """A round video message («кружок»): a ready video from the catalog (`media_id`), cut to a
+    circle before sending, or a new one (`generate`). Telegram shows no text under a circle."""
+
+    type: Literal["video_note"]
+    media_id: int | None = None
+    generate: GenerateSpec | None = None
+
+
+MediaAction = PhotoAction | VideoAction | VideoNoteAction
+
+Action = Annotated[TextAction | VoiceAction | PhotoAction | VideoAction | VideoNoteAction,
                    Field(discriminator="type")]
 
 
@@ -67,13 +91,24 @@ class ReplyPlan(_Strict):
 
 
 def media_choice_errors(plan: ReplyPlan) -> list[str]:
-    """A photo/video action needs exactly one of `media_id` / `generate`."""
+    """A photo / video / video note action needs exactly one of `media_id` / `generate`."""
     errors = []
     for i, action in enumerate(plan.messages):
-        if isinstance(action, PhotoAction | VideoAction) and (
+        if isinstance(action, MediaAction) and (
             (action.media_id is None) == (action.generate is None)
         ):
             errors.append(f"messages[{i}]: give exactly one of media_id or generate")
+    return errors
+
+
+def speech_errors(plan: ReplyPlan) -> list[str]:
+    """A new video note is a spoken message: `generate.speech` must say what she says."""
+    errors = []
+    for i, action in enumerate(plan.messages):
+        if (isinstance(action, VideoNoteAction) and action.generate is not None
+                and not action.generate.speech.strip()):
+            errors.append(f"messages[{i}]: у нового кружка нужен generate.speech — точные "
+                          "слова, которые ты говоришь в камеру этому человеку")
     return errors
 
 

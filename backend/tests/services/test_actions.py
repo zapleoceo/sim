@@ -26,10 +26,24 @@ from sim.domain.enums import (
     MessageStatus,
     RunStatus,
 )
-from sim.domain.plan import GenerateSpec, PhotoAction, TextAction, VideoAction, VoiceAction
+from sim.domain.plan import (
+    GenerateSpec,
+    PhotoAction,
+    TextAction,
+    VideoAction,
+    VideoNoteAction,
+    VoiceAction,
+    tts_style,
+)
 from sim.ports import PortError
 from sim.services.actions import ActionContext, ApplyResult, handler_for
-from sim.services.actions.media import PhotoHandler, VideoHandler
+from sim.services.actions.media import (
+    PhotoHandler,
+    Rounded,
+    RoundFailed,
+    VideoHandler,
+    VideoNoteHandler,
+)
 from sim.services.actions.text import TextHandler
 from sim.services.actions.voice import Spoken, VoiceFailed, VoiceHandler
 from sim.services.deps import Deps
@@ -88,6 +102,20 @@ async def test_voice_handler_tts_to_ogg_to_library(db: AsyncSession, deps: Deps,
     assert fakes.storage.files[media.storage_key] == prepared.data
     calls = await all_rows(db, select(LlmCall).where(LlmCall.reply_run_id == ctx.reply_run_id))
     assert [c.purpose for c in calls] == [LlmPurpose.TTS]
+
+
+async def test_voice_mood_goes_before_the_usual_manner(db: AsyncSession, deps: Deps,
+                                                      fakes: Fakes) -> None:
+    _chat, ctx = await context(db, deps)
+    action = VoiceAction(type="voice", text="ой, ну ты даёшь", style="весело")
+    await VoiceHandler().prepare(action, ctx)
+    assert fakes.speech.calls[-1]["style"] == "весело, тепло, по-домашнему"
+
+
+def test_tts_style_is_short_and_skips_blanks() -> None:
+    assert tts_style("тепло", "") == "тепло"
+    assert tts_style("", " устало ") == "устало"
+    assert len(tts_style("а" * 60, "б" * 40)) == 80
 
 
 async def test_voice_failure_falls_back_to_text(db: AsyncSession, deps: Deps,
@@ -162,3 +190,85 @@ def test_registry_has_a_handler_per_action() -> None:
 
     with pytest.raises(LookupError):
         handler_for(Unknown())
+
+
+# --- video notes («кружок») and statuses -----------------------------------------------------
+
+NOTE_SPEC = GenerateSpec(prompt="машу рукой на кухне", caption="привет с кухни", tags=[],
+                         speech="Дима, привет! Как прошёл день?")
+
+
+async def test_video_note_from_the_catalog_is_cut_to_a_circle(db: AsyncSession, deps: Deps,
+                                                              fakes: Fakes) -> None:
+    chat, ctx = await context(db, deps)
+    clip = await make_media(db, chat.persona_id, kind=MediaKind.VIDEO, caption="у моря",
+                            tags=["море"], storage=fakes.storage, data=b"CLIP")
+    action = VideoNoteAction(type="video_note", media_id=clip.id)
+    handler = handler_for(action)
+    assert isinstance(handler, VideoNoteHandler) and handler.busy(action) is None
+
+    prepared = await handler.prepare(action, ctx)
+    assert isinstance(prepared, Rounded) and prepared.data == b"ROUND:CLIP"
+    result = ApplyResult()
+    await handler.apply(db, action, prepared, ctx, result)
+
+    [message] = await messages_of(db, chat)
+    assert (message.kind, message.text) == (MessageKind.VIDEO_NOTE, "")
+    note = await db.get(MediaAsset, message.media_id)
+    assert note is not None and note.id != clip.id
+    assert (note.kind, note.source, note.mime) == (MediaKind.VIDEO, MediaSource.GENERATED,
+                                                   "video/mp4")
+    assert note.caption == "у моря" and note.tags == ["море", "кружок"]
+    assert note.duration_s == 8.0
+    assert fakes.storage.files[note.storage_key] == b"ROUND:CLIP"
+    assert result.message_ids == [message.id]
+
+
+async def test_video_note_that_cannot_be_cut_goes_as_a_plain_video(db: AsyncSession,
+                                                                   deps: Deps,
+                                                                   fakes: Fakes) -> None:
+    chat, ctx = await context(db, deps)
+    clip = await make_media(db, chat.persona_id, kind=MediaKind.VIDEO, storage=fakes.storage)
+    fakes.tools.video_note_error = PortError("ffmpeg exited 1")
+    action = VideoNoteAction(type="video_note", media_id=clip.id)
+    handler = VideoNoteHandler()
+
+    prepared = await handler.prepare(action, ctx)
+    assert prepared == RoundFailed("ffmpeg exited 1")
+    result = ApplyResult()
+    await handler.apply(db, action, prepared, ctx, result)
+
+    [message] = await messages_of(db, chat)
+    assert (message.kind, message.media_id) == (MessageKind.VIDEO, clip.id)
+    assert "кружок не получился" in result.notes[0]
+
+
+async def test_video_note_generate_starts_a_spoken_generation(db: AsyncSession,
+                                                              deps: Deps) -> None:
+    chat, ctx = await context(db, deps)
+    action = VideoNoteAction(type="video_note", generate=NOTE_SPEC)
+    handler = VideoNoteHandler()
+    assert await handler.prepare(action, ctx) is None
+    result = ApplyResult()
+    await handler.apply(db, action, None, ctx, result)
+
+    assert await messages_of(db, chat) == []           # no announcing text, only the status
+    [generation] = await all_rows(db, select(Generation).where(Generation.chat_id == chat.id))
+    assert generation.kind == GenerationKind.VIDEO_NOTE and generation.model == "video-model"
+    assert generation.speech == "Дима, привет! Как прошёл день?"
+    assert result.generation_ids == [generation.id]
+
+
+def test_each_handler_names_the_status_of_its_slow_work() -> None:
+    def busy(action: BaseModel) -> tuple[str, float] | None:
+        status = handler_for(action).busy(action)
+        return None if status is None else (status.action.value, status.seconds)
+
+    assert busy(TextAction(type="text", text="a")) is None
+    assert busy(VoiceAction(type="voice", text="a")) == ("record_audio", 30.0)
+    assert busy(PhotoAction(type="photo", media_id=1)) is None
+    assert busy(PhotoAction(type="photo", generate=SPEC)) == ("upload_photo", 120.0)
+    assert busy(VideoAction(type="video", generate=SPEC)) == ("upload_video", 400.0)
+    assert busy(VideoNoteAction(type="video_note", generate=NOTE_SPEC)) == ("record_round",
+                                                                            400.0)
+    assert busy(VideoNoteAction(type="video_note", media_id=1)) is None

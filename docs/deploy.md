@@ -34,7 +34,7 @@
 
 | Ветка | Где | Что |
 |---|---|---|
-| `sim` | `backend/migrations/versions` (`0001_initial`, …) | Наша схема, ровно `sim/db/models.py` |
+| `sim` | `backend/migrations/versions` (`0001_initial`, `0002_video_note_generation`, …) | Наша схема, ровно `sim/db/models.py` |
 | `procrastinate` | пакет `procrastinate.contrib.alembic` | Таблицы очереди; так рекомендует Procrastinate 3.12 |
 
 - Применять обе: `alembic upgrade heads` (во множественном числе, голов две).

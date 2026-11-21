@@ -13,10 +13,12 @@ from sim.db.models import Persona
 from sim.domain.enums import LlmPurpose
 from sim.domain.plan import (
     GuardVerdict,
+    MediaAction,
     PhotoAction,
     ReplyPlan,
     TextAction,
     VideoAction,
+    VideoNoteAction,
     VoiceAction,
 )
 from sim.ports import ChatMessage, ChatPart, LlmPort
@@ -32,11 +34,19 @@ id медиа или другие технические детали.
 2. Дата, время, день недели и возраст в ответе не противоречат фактам.
 3. В ответе нет ничего из списка запретов.
 4. Ответ не пустой и на языке собеседника (основной язык персонажа: {language}).
+5. Персонаж не объявляет, что фото, видео или кружок делается, снимается, записывается, \
+генерируется или придёт позже («сейчас запишу», «скоро скину», «запишется и прилетит через \
+пару минут»): живой человек так не пишет, файл просто приходит.
 Всё остальное — тон, стиль, темы, флирт, шутки, опечатки — не нарушение. Текст не переписывай.
 Верни один JSON-объект: {{"ok": true или false, "reason": "коротко по-русски, что не так; \
 пусто, если ok"}}"""
 
 NO_RULES = "(дополнительных запретов нет)"
+# Media action -> (what it is, the adjective for a new one), as the client would see it.
+MEDIA_WORDS: dict[type, tuple[str, str]] = {
+    PhotoAction: ("фото", "новое"), VideoAction: ("видео", "новое"),
+    VideoNoteAction: ("кружок", "новый"),
+}
 UNREADABLE_REASON = "проверка вернула неразборчивый ответ"
 
 
@@ -48,11 +58,12 @@ def outgoing_lines(plan: ReplyPlan) -> list[str]:
             lines.append(f"{i}. [текст] {action.text}")
         elif isinstance(action, VoiceAction):
             lines.append(f"{i}. [голосовое, вслух] {action.text}")
-        elif isinstance(action, PhotoAction | VideoAction):
-            word = "фото" if isinstance(action, PhotoAction) else "видео"
-            what = (f"новое {word}: {action.generate.caption}" if action.generate
+        elif isinstance(action, MediaAction):
+            word, new = MEDIA_WORDS[type(action)]
+            what = (f"{new} {word}: {action.generate.caption}" if action.generate
                     else f"{word} из медиатеки")
-            caption = f" подпись: {action.caption}" if action.caption else ""
+            text = getattr(action, "caption", "")
+            caption = f" подпись: {text}" if text else ""
             lines.append(f"{i}. [{what}]{caption}")
     return lines
 

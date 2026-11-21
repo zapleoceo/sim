@@ -24,6 +24,7 @@ from sim.telegram.tasks import (
     acknowledge,
     action_seconds,
     deliver,
+    request_presence,
     retry_delay,
 )
 from tests.fakes.telegram import (
@@ -171,3 +172,74 @@ def test_action_seconds_are_bounded():
     assert action_seconds(OutboundMessage(peer=peer, kind="text", text="x" * 1000)) == 6.0
     assert action_seconds(OutboundMessage(peer=peer, kind="voice", duration_s=2.5)) == 2.5
     assert action_seconds(OutboundMessage(peer=peer, kind="photo")) == 1.0
+
+
+class RecordingPresence:
+    """Presence stand-in: what was asked and which sent messages it was told about."""
+
+    def __init__(self) -> None:
+        self.shown: list[tuple[int, int, str, str, float]] = []
+        self.sent_kinds: list[tuple[int, str]] = []
+
+    async def show(self, chat_id: int, channel_id: int, peer: Peer, action: str,
+                   seconds: float) -> None:
+        self.shown.append((chat_id, channel_id, peer.external_id, action, seconds))
+
+    def sent(self, chat_id: int, kind: str) -> None:
+        self.sent_kinds.append((chat_id, kind))
+
+
+async def test_a_delivered_message_is_reported_to_the_presence(db, sessions, clock):
+    world = await seed_world(db)
+    message = await outgoing(db, world)
+    presence = RecordingPresence()
+    result = await deliver(message.id, sessions=sessions, storage=FakeStorage(), clock=clock,
+                           messenger=FakeMessenger(), outbox=FakeOutbox(), final_attempt=False,
+                           sleep=RecordingSleep(), presence=presence)  # type: ignore[arg-type]
+    assert result == "sent"
+    assert presence.sent_kinds == [(world.chat.id, "text")]
+
+
+async def test_a_failed_message_leaves_the_presence_alone(db, sessions, clock):
+    world = await seed_world(db)
+    message = await outgoing(db, world)
+    presence = RecordingPresence()
+    result = await deliver(message.id, sessions=sessions, storage=FakeStorage(), clock=clock,
+                           messenger=FakeMessenger(error=PortError("blocked")),
+                           outbox=FakeOutbox(), final_attempt=False, sleep=RecordingSleep(),
+                           presence=presence)  # type: ignore[arg-type]
+    assert result == "failed" and presence.sent_kinds == []
+
+
+async def test_chat_action_resolves_the_chat_and_shows_the_status(db, sessions):
+    world = await seed_world(db)
+    presence = RecordingPresence()
+    assert await request_presence(world.chat.id, "record_round", 400.0, sessions=sessions,
+                                  presence=presence)  # type: ignore[arg-type]
+    assert presence.shown == [(world.chat.id, world.channel.id, "1001", "record_round", 400.0)]
+
+
+async def test_chat_action_ignores_unknown_actions_and_chats(db, sessions):
+    world = await seed_world(db)
+    presence = RecordingPresence()
+    assert not await request_presence(world.chat.id, "dance", 5.0, sessions=sessions,
+                                      presence=presence)  # type: ignore[arg-type]
+    assert not await request_presence(999_999, "typing", 5.0, sessions=sessions,
+                                      presence=presence)  # type: ignore[arg-type]
+    assert presence.shown == []
+
+
+async def test_video_note_shows_recording_a_circle(db, sessions, clock):
+    world = await seed_world(db)
+    asset = MediaAsset(persona_id=world.persona.id, source=MediaSource.GENERATED,
+                       kind=MediaKind.VIDEO, storage_key="note/1", mime="video/mp4",
+                       sha256="0" * 64, duration_s=4.0)
+    db.add(asset)
+    await db.flush()
+    message = await outgoing(db, world, kind=MessageKind.VIDEO_NOTE, text="", media_id=asset.id)
+    result, messenger, _, sleep = await run(message, sessions, clock,
+                                            storage=FakeStorage({"note/1": b"MP4"}))
+    assert result == "sent"
+    assert messenger.sent[0][1].kind == "video_note"
+    assert {action for _, action in messenger.actions} == {"record_round"}
+    assert sum(sleep.calls) == pytest.approx(4.0)

@@ -4,17 +4,22 @@ Telethon sessions).
 `send_message(message_id)` delivers one pending outgoing `message` row:
   load message + chat + the client's Telegram identity + media bytes
   -> show "typing" / "recording a voice" for a believable time (1-6 s, by length)
-  -> send -> `outbox.mark_sent` (or `mark_failed`) in one transaction.
+  -> send -> `outbox.mark_sent` (or `mark_failed`) in one transaction
+  -> the chat's live status stops if this message is what the persona was busy with.
 A transient error (FloodWait, network, account reconnecting) is retried by Procrastinate:
 FloodWait after the seconds Telegram asked for, the rest with a growing pause. A permanent error,
 or a transient one on the last attempt, marks the message failed (a `send_failed` event).
 
 `mark_read(message_id)` marks the chat read up to an incoming message (best effort).
 
+`chat_action(chat_id, action, seconds)` shows a live status («печатает», «записывает кружок»...)
+for up to `seconds` through `Presence` (sim/telegram/presence.py); `cancel` stops it.
+
 Wiring: the integrator registers `blueprint` with `app.add_tasks_from(blueprint,
-namespace=NAMESPACE)`, so the task names are `telegram:send_message` / `telegram:mark_read`
-(`SEND_TASK`, `MARK_READ_TASK`). Deps come from `sim.services.deps.get_deps()`; the messenger from
-`set_runtime` called by the telegram process."""
+namespace=NAMESPACE)`, so the task names are `telegram:send_message` / `telegram:mark_read` /
+`telegram:chat_action` (`SEND_TASK`, `MARK_READ_TASK`, `CHAT_ACTION_TASK`). Deps come from
+`sim.services.deps.get_deps()`; the messenger and the presence from `set_runtime` called by the
+telegram process."""
 from __future__ import annotations
 
 import asyncio
@@ -32,8 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sim.db.models import Chat, ClientIdentity, MediaAsset, Message
 from sim.db.session import transaction
 from sim.domain.enums import ChannelKind, Direction, MessageKind, MessageStatus
+from sim.domain.presence import ChatAction, chat_action_for
 from sim.ports import ClockPort, MediaStoragePort, MessengerPort, OutboundMessage, Peer, PortError
 from sim.telegram.messenger import FloodWait, TelegramMessenger
+from sim.telegram.presence import Presence
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +48,8 @@ QUEUE = "telegram"
 NAMESPACE = "telegram"
 SEND_TASK = f"{NAMESPACE}:send_message"
 MARK_READ_TASK = f"{NAMESPACE}:mark_read"
+CHAT_ACTION_TASK = f"{NAMESPACE}:chat_action"
+CHAT_ACTIONS = frozenset(action.value for action in ChatAction)
 
 MAX_RETRIES = 5                     # attempts after the first one
 RETRY_BASE_S = 5.0
@@ -66,6 +75,7 @@ def set_runtime(runtime: Any, messenger: MessengerPort | None = None, *,
     _registry["runtime"] = runtime
     _registry["messenger"] = messenger or TelegramMessenger(runtime,
                                                             min_interval_s=min_interval_s)
+    _registry["presence"] = Presence(_registry["messenger"])
     return _registry["messenger"]
 
 
@@ -74,6 +84,13 @@ def get_messenger() -> MessengerPort:
     if messenger is None:
         raise PortError("telegram runtime is not running in this process", retryable=True)
     return messenger
+
+
+def get_presence() -> Presence:
+    presence = _registry.get("presence")
+    if presence is None:
+        raise PortError("telegram runtime is not running in this process", retryable=True)
+    return presence
 
 
 # --- retries ---------------------------------------------------------------------------------
@@ -107,11 +124,7 @@ class Outbox(Protocol):
 class Delivery:
     channel_id: int
     outbound: OutboundMessage
-
-
-def chat_action_for(kind: str) -> str:
-    return {"text": "typing", "voice": "record_audio", "video_note": "record_round",
-            "photo": "upload_photo", "video": "upload_video"}.get(kind, "upload_document")
+    chat_id: int = 0
 
 
 def action_seconds(outbound: OutboundMessage) -> float:
@@ -135,24 +148,34 @@ async def peer_of(session: AsyncSession, chat: Chat) -> Peer:
     return Peer(external_id=identity.external_id, access_hash=identity.access_hash)
 
 
+async def chat_address(session: AsyncSession, chat_id: int) -> tuple[int, Peer] | None:
+    """(account channel id, the client's peer) of a chat; None when the chat is gone. Raises
+    PortError when the client has no Telegram identity."""
+    chat = await session.get(Chat, chat_id)
+    if chat is None:
+        return None
+    return chat.channel_id, await peer_of(session, chat)
+
+
 async def load_delivery(session: AsyncSession, message: Message,
                         storage: MediaStoragePort) -> Delivery:
-    chat = await session.get(Chat, message.chat_id)
-    if chat is None:
+    address = await chat_address(session, message.chat_id)
+    if address is None:
         raise PortError("the chat is gone")
-    peer = await peer_of(session, chat)
+    channel_id, peer = address
     kind = MessageKind(message.kind).value
     if kind == MessageKind.STICKER.value:
         kind = MessageKind.FILE.value
     if kind == MessageKind.TEXT.value:
-        return Delivery(chat.channel_id, OutboundMessage(peer=peer, kind=kind, text=message.text))
+        return Delivery(channel_id, OutboundMessage(peer=peer, kind=kind, text=message.text),
+                        message.chat_id)
     asset = await session.get(MediaAsset, message.media_id) if message.media_id else None
     if asset is None:
         raise PortError(f"{kind} message has no media")
     data = await storage.get(asset.storage_key)
-    return Delivery(chat.channel_id, OutboundMessage(
+    return Delivery(channel_id, OutboundMessage(
         peer=peer, kind=kind, text=message.text, data=data, mime=asset.mime,
-        file_name=asset.file_name, duration_s=asset.duration_s))
+        file_name=asset.file_name, duration_s=asset.duration_s), message.chat_id)
 
 
 async def show_action(messenger: MessengerPort, delivery: Delivery, sleep: Sleep) -> None:
@@ -168,7 +191,7 @@ async def show_action(messenger: MessengerPort, delivery: Delivery, sleep: Sleep
 async def deliver(
     message_id: int, *, sessions: async_sessionmaker[AsyncSession], storage: MediaStoragePort,
     clock: ClockPort, messenger: MessengerPort, outbox: Outbox, final_attempt: bool,
-    sleep: Sleep = asyncio.sleep,
+    sleep: Sleep = asyncio.sleep, presence: Presence | None = None,
 ) -> str:
     """Sends one message. Returns `sent`, `failed` or `skipped` (not pending any more);
     raises a retryable PortError when Procrastinate should try again."""
@@ -191,6 +214,8 @@ async def deliver(
         message = await session.get(Message, message_id)
         if message is not None:
             await outbox.mark_sent(session, message, external_id, clock.now())
+    if presence is not None:
+        presence.sent(delivery.chat_id, delivery.outbound.kind)
     return "sent"
 
 
@@ -209,12 +234,28 @@ async def acknowledge(message_id: int, *, sessions: async_sessionmaker[AsyncSess
         message = await session.get(Message, message_id)
         if message is None or message.direction != Direction.IN or not message.external_id:
             return False
-        chat = await session.get(Chat, message.chat_id)
-        if chat is None:
+        address = await chat_address(session, message.chat_id)
+        if address is None:
             return False
-        peer = await peer_of(session, chat)
-        channel_id, external_id = chat.channel_id, message.external_id
+        external_id = message.external_id
+    channel_id, peer = address
     await messenger.mark_read(channel_id, peer, external_id)
+    return True
+
+
+async def request_presence(chat_id: int, action: str, seconds: float, *,
+                           sessions: async_sessionmaker[AsyncSession],
+                           presence: Presence) -> bool:
+    """Shows (or cancels) the chat's live status. False for an unknown action or chat."""
+    if action not in CHAT_ACTIONS:
+        log.warning("chat %s: unknown chat action %r", chat_id, action)
+        return False
+    async with transaction(sessions) as session:
+        address = await chat_address(session, chat_id)
+    if address is None:
+        return False
+    channel_id, peer = address
+    await presence.show(chat_id, channel_id, peer, action, seconds)
     return True
 
 
@@ -240,6 +281,7 @@ async def send_message(context: JobContext, message_id: int) -> None:
     await deliver(
         message_id, sessions=deps.sessions, storage=deps.storage, clock=deps.clock,
         messenger=get_messenger(), outbox=_outbox(), final_attempt=attempts >= MAX_RETRIES,
+        presence=get_presence(),
     )
 
 
@@ -249,3 +291,12 @@ async def mark_read(message_id: int) -> None:
         await acknowledge(message_id, sessions=_deps().sessions, messenger=get_messenger())
     except PortError as exc:
         log.info("message %s: mark read skipped: %s", message_id, exc)
+
+
+@blueprint.task(name="chat_action", queue=QUEUE)
+async def chat_action(chat_id: int, action: str, seconds: float) -> None:
+    try:
+        await request_presence(chat_id, action, seconds, sessions=_deps().sessions,
+                               presence=get_presence())
+    except PortError as exc:
+        log.info("chat %s: chat action skipped: %s", chat_id, exc)

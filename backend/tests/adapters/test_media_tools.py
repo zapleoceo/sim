@@ -16,6 +16,7 @@ from sim.adapters.media_tools import (
     OGG_OPUS_ARGS,
     PCM16K_ARGS,
     TRUNCATED_MARK,
+    VIDEO_NOTE_ARGS,
     FfmpegMediaTools,
     ProcessResult,
     decode_text,
@@ -309,3 +310,20 @@ async def test_run_process_timeout_is_retryable() -> None:
     with pytest.raises(PortError, match="timed out") as info:
         await run_process([sys.executable, "-c", "import time; time.sleep(30)"], 0.5)
     assert info.value.retryable is True
+
+
+async def test_to_video_note_command_and_duration() -> None:
+    runner = FakeRunner(output=b"\x00\x00\x00\x18ftypisom", probe={"format": {"duration": "7.96"}})
+    note, duration = await tools(runner).to_video_note(b"\x00\x00\x00\x18ftypisomCLIP")
+    assert note == b"\x00\x00\x00\x18ftypisom"
+    assert duration == pytest.approx(7.96)
+    command = runner.calls[0]
+    assert command[-1].endswith("out.mp4")
+    assert tuple(command[-1 - len(VIDEO_NOTE_ARGS):-1]) == VIDEO_NOTE_ARGS
+    assert "crop='min(iw,ih)':'min(iw,ih)',scale=640:640" in command[command.index("-vf") + 1]
+    assert [call[0] for call in runner.calls] == ["ffmpeg", "ffprobe"]
+
+
+async def test_to_video_note_refuses_an_empty_clip() -> None:
+    with pytest.raises(PortError, match="empty video"):
+        await tools(FakeRunner()).to_video_note(b"")

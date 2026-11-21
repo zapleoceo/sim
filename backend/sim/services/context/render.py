@@ -36,6 +36,7 @@ NOT_UNDERSTOOD = {
     MediaKind.FILE: "не удалось прочитать",
 }
 GENERATION_LABELS = {GenerationKind.PHOTO: "фото", GenerationKind.VIDEO: "видео",
+                     GenerationKind.VIDEO_NOTE: "кружок",
                      GenerationKind.VOICE: "голосовое"}
 CALL_DIRECTIONS = {CallDirection.IN: "входящий", CallDirection.OUT: "исходящий"}
 

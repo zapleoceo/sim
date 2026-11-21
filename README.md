@@ -35,13 +35,13 @@
 
 ```
 backend/sim/
-  domain/     перечисления, схема плана ответа
+  domain/     перечисления, схема плана ответа, статусы в чате (presence.py)
   ports.py    интерфейсы внешнего мира (Broker, Telegram, хранилище, ffmpeg, часы)
   db/         схема БД и сессии
   events.py   запись в журнал чата
   services/   логика: inbox, понимание вложений, контекст, ответ, проверка, действия, память
   adapters/   Broker, ffmpeg, хранилище файлов
-  telegram/   Telethon-аккаунт, отправка, звонки
+  telegram/   Telethon-аккаунт, отправка, «прочитано» и живые статусы (presence.py), звонки
   api/        Litestar
   tasks/      задачи Procrastinate
   apps/       точки входа процессов

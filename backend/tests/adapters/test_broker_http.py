@@ -6,11 +6,15 @@ import pytest
 import respx
 
 from sim.adapters.broker.http import (
+    FAST_POLL_S,
+    FAST_POLL_WINDOW_S,
+    MAX_POLL_SLEEP_S,
     POLL_MAX_ERRORS,
     BrokerHttp,
     BrokerHttpError,
     decode_b64,
     is_subscription_model,
+    poll_sleep,
     usage_of,
 )
 from sim.config import Settings
@@ -27,8 +31,8 @@ async def test_submit_polls_until_done(http: BrokerHttp, broker: respx.MockRoute
                                 params={"capability": "chat:smart"})
     assert outcome.job_id == "7"
     assert outcome.data["text"] == "hi"
-    assert fake_time.sleeps == [2, 5]
-    assert outcome.latency_ms == 7000
+    assert fake_time.sleeps == [1, 1]          # fast polling while a reply is likely ready
+    assert outcome.latency_ms == 2000
     assert poll.call_count == 2
     request = post.calls.last.request
     assert request.headers["X-Project-Key"] == PROJECT_KEY
@@ -38,9 +42,20 @@ async def test_submit_polls_until_done(http: BrokerHttp, broker: respx.MockRoute
 async def test_poll_sleep_is_capped(http: BrokerHttp, broker: respx.MockRouter,
                                     fake_time: FakeTime) -> None:
     broker.post("/v1/jobs").mock(return_value=submitted())
-    broker.get("/v1/jobs/7").mock(side_effect=[pending(poll_after_s=60), done()])
+    fast_polls = int(FAST_POLL_WINDOW_S / FAST_POLL_S)
+    broker.get("/v1/jobs/7").mock(
+        side_effect=[pending(poll_after_s=60)] * fast_polls + [done()])
     await http.submit("/v1/jobs", {}, what="chat", budget_s=600)
-    assert fake_time.sleeps == [2, 15]
+    assert fake_time.sleeps[:fast_polls] == [FAST_POLL_S] * fast_polls
+    assert fake_time.sleeps[fast_polls] == MAX_POLL_SLEEP_S
+
+
+@pytest.mark.parametrize(("suggested", "elapsed", "expected"), [
+    (5.0, 0.0, FAST_POLL_S), (0.5, 10.0, 0.5),
+    (5.0, FAST_POLL_WINDOW_S, 5.0), (60.0, FAST_POLL_WINDOW_S + 1, MAX_POLL_SLEEP_S),
+])
+def test_poll_sleep(suggested: float, elapsed: float, expected: float) -> None:
+    assert poll_sleep(suggested, elapsed) == expected
 
 
 async def test_done_replay_needs_no_poll(http: BrokerHttp, broker: respx.MockRouter) -> None:
@@ -93,7 +108,7 @@ async def test_budget_runs_out_retryable(http: BrokerHttp, broker: respx.MockRou
     with pytest.raises(PortError, match="still pending after 30s") as info:
         await http.submit("/v1/jobs", {}, what="chat", budget_s=30)
     assert info.value.retryable is True
-    assert poll.call_count == 4          # t = 2, 12, 22, 32 s
+    assert poll.call_count == 30         # fast polling: t = 1, 2, ..., 30 s
     assert fake_time.now - 1000.0 >= 30
 
 

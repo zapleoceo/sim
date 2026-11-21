@@ -78,6 +78,9 @@ class FakeTools:
     async def image_for_model(self, data: bytes, mime: str) -> tuple[bytes, str]:
         return data, mime
 
+    async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
+        return mp4, 1.0
+
 
 class RecordingTasks:
     """Records every task the API defers, with whether a DB transaction was still open."""
@@ -103,6 +106,12 @@ class RecordingTasks:
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.record("refresh_memory", chat_id)
+
+    async def mark_read(self, message_id: int) -> None:
+        self.record("mark_read", message_id)
+
+    async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
+        self.record("chat_action", chat_id, action, seconds)
 
 
 @dataclass

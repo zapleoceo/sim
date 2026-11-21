@@ -15,6 +15,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from sim.domain.presence import ChatAction
 from sim.ports import OutboundMessage, Peer, PortError
 from sim.telegram.peers import input_peer
 
@@ -24,17 +25,19 @@ TEXT_LIMIT = 4096
 CAPTION_LIMIT = 1024
 PERMANENT_RPC_CODES = frozenset({400, 401, 403, 406})
 
-# Chat actions the send task shows; values are Telethon `SendMessage*Action` class names.
-CHAT_ACTIONS = {
-    "typing": "SendMessageTypingAction",
-    "record_audio": "SendMessageRecordAudioAction",
-    "record_round": "SendMessageRecordRoundAction",
-    "upload_photo": "SendMessageUploadPhotoAction",
-    "upload_video": "SendMessageUploadVideoAction",
-    "upload_document": "SendMessageUploadDocumentAction",
-    "cancel": "SendMessageCancelAction",
+# Every chat action SIM shows (sim/domain/presence.py) -> Telethon `SendMessage*Action` class.
+CHAT_ACTIONS: dict[str, str] = {
+    ChatAction.TYPING: "SendMessageTypingAction",
+    ChatAction.RECORD_AUDIO: "SendMessageRecordAudioAction",
+    ChatAction.RECORD_ROUND: "SendMessageRecordRoundAction",
+    ChatAction.UPLOAD_PHOTO: "SendMessageUploadPhotoAction",
+    ChatAction.UPLOAD_VIDEO: "SendMessageUploadVideoAction",
+    ChatAction.UPLOAD_DOCUMENT: "SendMessageUploadDocumentAction",
+    ChatAction.CANCEL: "SendMessageCancelAction",
 }
-_UPLOAD_ACTIONS = frozenset({"upload_photo", "upload_video", "upload_document"})
+_UPLOAD_ACTIONS = frozenset({ChatAction.UPLOAD_PHOTO, ChatAction.UPLOAD_VIDEO,
+                             ChatAction.UPLOAD_DOCUMENT})
+VIDEO_NOTE_SIDE = 640           # sim.adapters.media_tools cuts round videos to this square
 
 DEFAULT_NAMES = {"photo": "photo.jpg", "video": "video.mp4", "voice": "voice.ogg",
                  "video_note": "video_note.mp4", "file": "file.bin"}
@@ -186,7 +189,14 @@ class TelegramMessenger:
                 entity, file, voice_note=True, caption=caption,
                 attributes=[types.DocumentAttributeAudio(duration=duration, voice=True)])
         if message.kind == "video_note":
-            return await client.send_file(entity, file, video_note=True)
+            # A true round message: the flag plus an explicit round video attribute, so Telegram
+            # never shows it as an ordinary square video.
+            duration = max(1, round(message.duration_s or 1))
+            return await client.send_file(
+                entity, file, video_note=True,
+                attributes=[types.DocumentAttributeVideo(
+                    duration=duration, w=VIDEO_NOTE_SIDE, h=VIDEO_NOTE_SIDE,
+                    round_message=True)])
         if message.kind == "video":
             return await client.send_file(entity, file, caption=caption, supports_streaming=True)
         if message.kind == "photo":

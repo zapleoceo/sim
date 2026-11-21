@@ -37,7 +37,7 @@ async def test_api_model_with_schema(http: BrokerHttp, broker: respx.MockRouter)
     assert (result.usage.tokens_in, result.usage.tokens_out) == (120, 8)
     assert result.usage.cost_usd == pytest.approx(0.0004)
     assert result.usage.job_id == "7"
-    assert result.usage.latency_ms == 2000
+    assert result.usage.latency_ms == 1000     # one fast poll after submit
     assert "files" not in result.raw
     assert result.raw["finish_reason"] == "stop"
 
@@ -60,11 +60,11 @@ async def test_subscription_model_gets_no_limits(http: BrokerHttp, broker: respx
 async def test_subscription_model_uses_media_budget(http: BrokerHttp,
                                                     broker: respx.MockRouter) -> None:
     broker.post("/v1/jobs").mock(return_value=submitted())
-    answers = [*(pending(poll_after_s=15) for _ in range(8)), done(text="late")]
+    answers = [*(pending(poll_after_s=15) for _ in range(70)), done(text="late")]
     poll = broker.get("/v1/jobs/7").mock(side_effect=answers)
     result = await BrokerLlm(http).chat(model="claude-sub/x", messages=MESSAGES)
-    assert result.text == "late"           # 2 + 8 * 15 s is past the 60 s chat budget
-    assert poll.call_count == 9
+    assert result.text == "late"           # 70 one-second polls are past the 60 s chat budget
+    assert poll.call_count == 71
 
 
 async def test_attachments_go_to_vision(http: BrokerHttp, broker: respx.MockRouter) -> None:
