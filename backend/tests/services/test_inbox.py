@@ -67,6 +67,36 @@ async def test_first_contact_creates_client_with_ai_off(db: AsyncSession, deps: 
     assert fakes.tasks.calls == []          # AI is off for a new client
 
 
+async def test_a_client_of_one_persona_writing_to_another(db: AsyncSession, deps: Deps,
+                                                         fakes: Fakes,
+                                                         clock: FixedClock) -> None:
+    """The client stays the first persona's lead; the new chat is answered by the persona of
+    the channel he wrote to — never by «the first persona»."""
+    marina_channel = await channel(db)
+    olya = await make_persona(db, name="Оля", reply_delay_s=3)
+    olya_channel = await make_channel(db, olya)
+    inbox = Inbox(deps)
+    await inbox.ingest(inbound(marina_channel.id, clock, external_id="1"))
+    [client] = await all_rows(db, select(Client))
+    client.ai_enabled = True
+    await db.flush()
+
+    await inbox.ingest(inbound(olya_channel.id, clock, external_id="2"))
+
+    assert client.persona_id == marina_channel.persona_id
+    chats = {c.channel_id: c for c in await all_rows(db, select(Chat))}
+    assert chats[olya_channel.id].persona_id == olya.id
+    assert chats[marina_channel.id].persona_id == marina_channel.persona_id
+    assert chats[olya_channel.id].client_id == client.id
+    assert chats[olya_channel.id].peer_access_hash == "hash-1"   # her account's view of him
+    # Оля's own pause decides when she answers.
+    assert fakes.tasks.calls == [("reply", chats[olya_channel.id].id, 3.0)]
+    olya.is_active = False                              # archived: stored, not answered
+    await db.flush()
+    await inbox.ingest(inbound(olya_channel.id, clock, external_id="3"))
+    assert len(fakes.tasks.calls) == 1
+
+
 async def test_ingest_is_idempotent(db: AsyncSession, deps: Deps, clock: FixedClock) -> None:
     ch = await channel(db)
     inbox = Inbox(deps)

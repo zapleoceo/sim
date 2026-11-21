@@ -9,6 +9,7 @@ import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { qk } from '@/lib/query';
 import type { DayEvent, PersonaDay } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
 import { busyLabel, currentEventIndex, dayErrors, dayTitle, newDayEvent, sameJson } from './life-logic';
 import { RowsEditor, type Column } from './rows-editor';
@@ -61,6 +62,7 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
   onPlanned: () => void;
 }) {
   const queryClient = useQueryClient();
+  const personaId = usePersonaId();
   const [editing, setEditing] = useState<DayEvent[] | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const events = day?.events ?? [];
@@ -69,17 +71,17 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
   const current = nowMinute === null ? -1 : currentEventIndex(events, nowMinute);
 
   const plan = useMutation({
-    mutationFn: () => lifeApi.planDay(date),
+    mutationFn: () => lifeApi.planDay(personaId, date),
     onSuccess: () => {
       toast.success('Планирую день — он обновится через минуту');
       onPlanned();
     },
   });
   const save = useMutation({
-    mutationFn: (next: DayEvent[]) => lifeApi.saveDay(date, next),
+    mutationFn: (next: DayEvent[]) => lifeApi.saveDay(personaId, date, next),
     onSuccess: async () => {
       setEditing(null);
-      await queryClient.invalidateQueries({ queryKey: qk.days });
+      await queryClient.invalidateQueries({ queryKey: qk.days(personaId) });
       toast.success('День сохранён');
     },
   });

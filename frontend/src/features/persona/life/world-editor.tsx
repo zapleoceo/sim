@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { qk } from '@/lib/query';
 import type { Hobby, LifePerson, PersonaLife, Place, RoutineSlot } from '@/lib/types';
+import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
 import { newHobby, newPerson, newPlace, newRoutineSlot, sameJson, worldErrors } from './life-logic';
 import { RowsEditor, type Column } from './rows-editor';
@@ -42,6 +43,7 @@ const PLACE_COLUMNS: Column<Place>[] = [
 /** Распорядок, Люди, Увлечения, Места: one document (`persona.life`), one Save. */
 export function WorldEditor({ life }: { life: PersonaLife }) {
   const queryClient = useQueryClient();
+  const personaId = usePersonaId();
   const [baseline, setBaseline] = useState(life);
   const [draft, setDraft] = useState(life);
   const [errors, setErrors] = useState<string[]>([]);
@@ -49,9 +51,9 @@ export function WorldEditor({ life }: { life: PersonaLife }) {
   useUnsavedGuard(dirty);
 
   const save = useMutation({
-    mutationFn: lifeApi.saveWorld,
+    mutationFn: (next: PersonaLife) => lifeApi.saveWorld(personaId, next),
     onSuccess: (saved) => {
-      queryClient.setQueryData(qk.life, saved);
+      queryClient.setQueryData(qk.life(personaId), saved);
       setBaseline(saved);
       setDraft(saved);
       toast.success('Мир персонажа сохранён');

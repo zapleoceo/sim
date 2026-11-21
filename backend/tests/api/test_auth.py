@@ -165,7 +165,8 @@ async def test_too_many_failed_logins_is_429(client: ApiClient, clock: FixedCloc
 
 
 async def test_api_requires_login(client: ApiClient, world: World) -> None:
-    for path in ("/api/auth/me", "/api/chats", f"/api/chats/{world.chat_id}", "/api/persona"):
+    for path in ("/api/auth/me", "/api/chats", f"/api/chats/{world.chat_id}", "/api/personas",
+                 f"/api/personas/{world.persona_id}/channels"):
         response = await client.get(path)
         assert response.status_code == 401, path
         assert "error" in response.json()

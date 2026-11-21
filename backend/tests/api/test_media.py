@@ -7,14 +7,22 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api.files import RangeNotSatisfiable, parse_range
-from sim.db.models import MediaAsset
-from sim.domain.enums import MediaKind, MediaSource
+from sim.db.models import MediaAsset, Message, Persona
+from sim.domain.enums import (
+    Author,
+    Direction,
+    MediaKind,
+    MediaSource,
+    MessageKind,
+    MessageStatus,
+)
 from tests.api.fakes import PNG, FakeDeps
-from tests.api.helpers import ApiClient, World
+from tests.api.helpers import ApiClient, World, pp
 
 
-async def upload(api: ApiClient, **form: str) -> dict[str, Any]:
-    response = await api.post("/api/media", files={"file": ("me.png", PNG, "image/png")},
+async def upload(api: ApiClient, world: World, **form: str) -> dict[str, Any]:
+    response = await api.post(pp(world, "/media"),
+                              files={"file": ("me.png", PNG, "image/png")},
                               data={"caption": "у окна", "tags": "селфи, Утро,,",
                                     "is_reference": "true", **form})
     assert response.status_code == 201, response.text
@@ -22,12 +30,17 @@ async def upload(api: ApiClient, **form: str) -> dict[str, Any]:
     return body
 
 
-async def add_incoming(db: AsyncSession, deps: FakeDeps) -> int:
+async def add_incoming(db: AsyncSession, deps: FakeDeps, world: World) -> int:
+    """A file the client sent into the world's chat (incoming media have no persona)."""
     key = await deps.storage.put(b"%PDF-1.4", mime="application/pdf", prefix="incoming")
     media = MediaAsset(source=MediaSource.INCOMING, kind=MediaKind.FILE, storage_key=key,
                        mime="application/pdf", file_name="договор.pdf", size_bytes=8,
                        sha256="0" * 64)
     db.add(media)
+    await db.flush()
+    db.add(Message(chat_id=world.chat_id, direction=Direction.IN, author=Author.CLIENT,
+                   kind=MessageKind.FILE, text="", media_id=media.id,
+                   status=MessageStatus.RECEIVED))
     await db.commit()
     return media.id
 
@@ -45,7 +58,7 @@ def test_parse_range() -> None:
 
 
 async def test_upload_to_library(api: ApiClient, world: World, deps: FakeDeps) -> None:
-    media = await upload(api)
+    media = await upload(api, world)
     assert (media["kind"], media["source"], media["mime"]) == ("photo", "library", "image/png")
     assert media["is_reference"] is True
     assert media["caption"] == "у окна"
@@ -55,30 +68,46 @@ async def test_upload_to_library(api: ApiClient, world: World, deps: FakeDeps) -
 
 
 async def test_upload_rejects_non_media_and_missing_file(api: ApiClient, world: World) -> None:
-    pdf = await api.post("/api/media", files={"file": ("a.pdf", b"%PDF", "application/pdf")})
+    pdf = await api.post(pp(world, "/media"),
+                         files={"file": ("a.pdf", b"%PDF", "application/pdf")})
     assert pdf.status_code == 400
     assert "error" in pdf.json()
-    empty = await api.post("/api/media", data={"caption": "x"},
+    empty = await api.post(pp(world, "/media"), data={"caption": "x"},
                            files={"other": ("a.png", PNG, "image/png")})
     assert empty.status_code == 400
 
 
 async def test_list_media_filters(api: ApiClient, world: World, db: AsyncSession,
                                   deps: FakeDeps) -> None:
-    media = await upload(api)
-    incoming_id = await add_incoming(db, deps)
-    default = [m["id"] for m in (await api.get("/api/media")).json()["items"]]
+    media = await upload(api, world)
+    incoming_id = await add_incoming(db, deps, world)
+    default = [m["id"] for m in (await api.get(pp(world, "/media"))).json()["items"]]
     assert default == [media["id"]]
-    library = (await api.get("/api/media", params={"source": "library", "kind": "photo"}))
+    library = await api.get(pp(world, "/media"), params={"source": "library", "kind": "photo"})
     assert [m["id"] for m in library.json()["items"]] == [media["id"]]
-    videos = await api.get("/api/media", params={"kind": "video"})
+    videos = await api.get(pp(world, "/media"), params={"kind": "video"})
     assert videos.json()["items"] == []
-    incoming = await api.get("/api/media", params={"source": "incoming"})
+    incoming = await api.get(pp(world, "/media"), params={"source": "incoming"})
     assert [m["id"] for m in incoming.json()["items"]] == [incoming_id]
 
 
+async def test_each_persona_lists_only_her_media(api: ApiClient, world: World,
+                                                 db: AsyncSession, deps: FakeDeps) -> None:
+    media = await upload(api, world)
+    await add_incoming(db, deps, world)
+    other = Persona(name="Оля")
+    db.add(other)
+    await db.commit()
+    mine = await api.get(f"/api/personas/{other.id}/media")
+    assert mine.status_code == 200 and mine.json()["items"] == []
+    theirs = await api.get(f"/api/personas/{other.id}/media", params={"source": "incoming"})
+    assert theirs.json()["items"] == []
+    assert media["id"] not in [m["id"] for m in mine.json()["items"]]
+    assert (await api.get("/api/personas/999999/media")).status_code == 404
+
+
 async def test_edit_media(api: ApiClient, world: World) -> None:
-    media = await upload(api)
+    media = await upload(api, world)
     response = await api.patch(f"/api/media/{media['id']}",
                                json={"caption": "новая", "tags": ["Дом"], "is_reference": False})
     assert response.status_code == 200
@@ -90,7 +119,7 @@ async def test_edit_media(api: ApiClient, world: World) -> None:
 
 
 async def test_delete_media(api: ApiClient, world: World, deps: FakeDeps) -> None:
-    media = await upload(api)
+    media = await upload(api, world)
     assert (await api.delete(f"/api/media/{media['id']}")).status_code == 204
     assert deps.storage.files == {}
     assert (await api.get(f"/api/media/{media['id']}/file")).status_code == 404
@@ -98,7 +127,7 @@ async def test_delete_media(api: ApiClient, world: World, deps: FakeDeps) -> Non
 
 
 async def test_file_streaming_with_range(api: ApiClient, world: World) -> None:
-    media = await upload(api)
+    media = await upload(api, world)
     url = media["url"]
     whole = await api.get(url)
     assert whole.status_code == 200
@@ -118,7 +147,7 @@ async def test_file_streaming_with_range(api: ApiClient, world: World) -> None:
 
 async def test_non_media_file_is_a_download(api: ApiClient, world: World, db: AsyncSession,
                                             deps: FakeDeps) -> None:
-    media_id = await add_incoming(db, deps)
+    media_id = await add_incoming(db, deps, world)
     response = await api.get(f"/api/media/{media_id}/file")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/octet-stream")
@@ -127,5 +156,5 @@ async def test_non_media_file_is_a_download(api: ApiClient, world: World, db: As
 
 async def test_file_needs_login(client: ApiClient, world: World, db: AsyncSession,
                                 deps: FakeDeps) -> None:
-    media_id = await add_incoming(db, deps)
+    media_id = await add_incoming(db, deps, world)
     assert (await client.get(f"/api/media/{media_id}/file")).status_code == 401

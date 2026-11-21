@@ -145,7 +145,9 @@ async def peer_of(session: AsyncSession, chat: Chat) -> Peer:
         .order_by(ClientIdentity.id).limit(1))).first()
     if identity is None:
         raise PortError("the client has no Telegram identity")
-    return Peer(external_id=identity.external_id, access_hash=identity.access_hash)
+    # The hash is per account: the chat's own one first (the identity keeps the last seen).
+    return Peer(external_id=identity.external_id,
+                access_hash=chat.peer_access_hash or identity.access_hash)
 
 
 async def chat_address(session: AsyncSession, chat_id: int) -> tuple[int, Peer] | None:

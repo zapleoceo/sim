@@ -5,6 +5,7 @@ import type { Arc, CanonFact, DayEvent, DaysResponse, PersonaLife } from '@/lib/
 import { fakeApi, type FakeRequest } from '@/test/fake-api';
 import { renderWithApp } from '@/test/render';
 import { contextBlocks } from '@/features/chats/reply-run-sheet';
+import { PersonaIdProvider } from '../persona-scope';
 import { LifeSection } from './life-section';
 import { newDayEvent } from './life-logic';
 
@@ -46,18 +47,18 @@ const CANON: CanonFact = {
 
 function backend(extra: Record<string, (req: FakeRequest) => unknown> = {}): FakeRequest[] {
   return fakeApi({
-    'GET /api/persona/life': LIFE,
-    'GET /api/persona/days': DAYS,
-    'GET /api/persona/arcs': { items: [ARC] },
-    'GET /api/persona/canon': { items: [CANON] },
+    'GET /api/personas/1/life': LIFE,
+    'GET /api/personas/1/days': DAYS,
+    'GET /api/personas/1/arcs': { items: [ARC] },
+    'GET /api/personas/1/canon': { items: [CANON] },
     ...extra,
   });
 }
 
 describe('LifeSection', () => {
   it('shows today with the current event and re-plans tomorrow', async () => {
-    const log = backend({ 'POST /api/persona/days/2026-11-22/plan': () => ({ queued: true, day: '2026-11-22' }) });
-    await renderWithApp(<LifeSection />);
+    const log = backend({ 'POST /api/personas/1/days/2026-11-22/plan': () => ({ queued: true, day: '2026-11-22' }) });
+    await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
 
     const today = await screen.findByRole('region', { name: /Сегодня: суббота, 21 ноября/ });
     const current = within(today).getByText('ужин и сериал').closest('li');
@@ -72,8 +73,8 @@ describe('LifeSection', () => {
   });
 
   it('edits a day by hand and checks overlaps first', async () => {
-    const log = backend({ 'PUT /api/persona/days/2026-11-21': (req) => ({ ...DAYS.items[0], ...(req.body as object), source: 'edited' }) });
-    await renderWithApp(<LifeSection />);
+    const log = backend({ 'PUT /api/personas/1/days/2026-11-21': (req) => ({ ...DAYS.items[0], ...(req.body as object), source: 'edited' }) });
+    await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
     const today = await screen.findByRole('region', { name: /Сегодня/ });
     await userEvent.click(within(today).getByRole('button', { name: 'Изменить' }));
 
@@ -92,8 +93,8 @@ describe('LifeSection', () => {
   });
 
   it('saves the world with one button', async () => {
-    const log = backend({ 'PUT /api/persona/life': (req) => req.body });
-    await renderWithApp(<LifeSection />);
+    const log = backend({ 'PUT /api/personas/1/life': (req) => req.body });
+    await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
     await userEvent.click(await screen.findByRole('tab', { name: 'Мир' }));
 
     const save = await screen.findByRole('button', { name: 'Сохранить мир' });
@@ -115,10 +116,10 @@ describe('LifeSection', () => {
 
   it('adds a story arc and rejects a canon fact', async () => {
     const log = backend({
-      'POST /api/persona/arcs': (req) => ({ ...ARC, id: 4, ...(req.body as object) }),
-      'PATCH /api/persona/canon/7': (req) => ({ ...CANON, ...(req.body as object) }),
+      'POST /api/personas/1/arcs': (req) => ({ ...ARC, id: 4, ...(req.body as object) }),
+      'PATCH /api/personas/1/canon/7': (req) => ({ ...CANON, ...(req.body as object) }),
     });
-    await renderWithApp(<LifeSection />);
+    await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
     expect(await screen.findByDisplayValue('Ремонт в ванной')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Новая история'), 'Поездка в Грузию');
     await userEvent.click(screen.getByRole('button', { name: 'Добавить историю' }));

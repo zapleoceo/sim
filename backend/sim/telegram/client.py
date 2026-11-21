@@ -21,7 +21,7 @@ from urllib.parse import unquote, urlsplit
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sim.db.models import Channel
+from sim.db.models import Channel, Persona
 from sim.db.session import transaction
 from sim.domain.enums import ChannelKind, ChannelStatus
 from sim.ports import PortError
@@ -148,6 +148,7 @@ class ChannelRuntime:
         self.backoff_s = tuple(backoff_s)
         self.clients: dict[int, Any] = {}
         self.tasks: dict[int, asyncio.Task[None]] = {}
+        self.tokens: dict[int, str | None] = {}         # credentials each supervisor runs with
         self.stopping = False
 
     # --- lifecycle -----------------------------------------------------------------------
@@ -155,25 +156,46 @@ class ChannelRuntime:
     async def start(self) -> list[int]:
         """Starts a supervisor per channel; returns the channel ids it started.
 
-        Safe to call again (the process does it every minute): it picks up channels added or
-        re-enabled since. A supervisor that gave up on a dead session left the channel in
-        `error`; it is restarted only after a fresh login moves the channel out of `error`, so
-        a dead session is not hammered."""
+        Safe to call again (the process does it every minute): it picks up channels added,
+        re-enabled or logged in since (of every active persona, so N personas work alike). A
+        supervisor that gave up on a dead session left the channel in `error`; it is restarted
+        only after a fresh login moves the channel out of `error`, so a dead session is not
+        hammered. A channel that was disabled, lost its credentials or whose persona was
+        archived is stopped; one logged in again (new credentials) is restarted with them."""
         async with transaction(self.sessions) as session:
             rows = (await session.execute(
-                select(Channel.id, Channel.status)
+                select(Channel.id, Channel.status, Channel.credentials_enc)
+                .join(Persona, Persona.id == Channel.persona_id)
                 .where(Channel.kind == ChannelKind.TELEGRAM_USER,
-                       Channel.status != ChannelStatus.DISABLED)
+                       Channel.status != ChannelStatus.DISABLED,
+                       Channel.credentials_enc.is_not(None),
+                       Persona.is_active.is_(True))
                 .order_by(Channel.id))).all()
+        wanted = {channel_id: token for channel_id, _, token in rows}
+        for channel_id in [cid for cid in self.tasks if cid not in wanted]:
+            await self.stop_channel(channel_id)
         started: list[int] = []
-        for channel_id, status in rows:
+        for channel_id, status, token in rows:
             task = self.tasks.get(channel_id)
+            if task is not None and not task.done() and self.tokens.get(channel_id) != token:
+                await self.stop_channel(channel_id)     # a new login: serve the new account
+                task = None
             if task is not None and (not task.done() or status == ChannelStatus.ERROR):
                 continue
+            self.tokens[channel_id] = token
             self.tasks[channel_id] = asyncio.create_task(
                 self.supervise(channel_id), name=f"telegram-channel-{channel_id}")
             started.append(channel_id)
         return started
+
+    async def stop_channel(self, channel_id: int) -> None:
+        """Stop one supervisor; its client disconnects (`serve` cleans up on cancel)."""
+        task = self.tasks.pop(channel_id, None)
+        self.tokens.pop(channel_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        log.info("telegram channel %s stopped", channel_id)
 
     async def stop(self) -> None:
         self.stopping = True

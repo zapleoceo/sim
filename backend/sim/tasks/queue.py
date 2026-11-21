@@ -7,6 +7,8 @@ Ordering and de-duplication:
   absorbed by it (the reply task re-checks the chat and waits for a burst when it starts);
 - `lock = send:<chat id>` keeps one chat's outgoing messages in order;
 - `queueing_lock = life:<persona>:<day>`: one waiting plan per day of the persona's life;
+- `lock` and `queueing_lock = passport:<chat id>`: a burst of turns makes one passport update,
+  and one chat's updates never overlap;
 - `lock = chat-action:<chat id>` applies one chat's status requests in order."""
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ REPLY_TASK = "agent.reply_chat"
 UNDERSTAND_TASK = "agent.understand_media"
 GENERATE_TASK = "agent.run_generation"
 MEMORY_TASK = "agent.refresh_memory"
+PASSPORT_TASK = "agent.update_passport"
 PLAN_DAY_TASK = "agent.plan_day"
 LIFE_TICK_TASK = "agent.life_tick"     # periodic: which days need a plan
 LIFE_TICK_CRON = "*/30 * * * *"
@@ -78,6 +81,11 @@ class ProcrastinateQueue:
     async def refresh_memory(self, chat_id: int) -> None:
         await self._defer(MEMORY_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
                           lock=chat_lock(chat_id), queueing_lock=f"memory:{chat_id}")
+
+    async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
+        await self._defer(PASSPORT_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
+                          lock=f"passport:{chat_id}", queueing_lock=f"passport:{chat_id}",
+                          delay_s=delay_s)
 
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
         await self._defer(PLAN_DAY_TASK, queue=AGENT_QUEUE,

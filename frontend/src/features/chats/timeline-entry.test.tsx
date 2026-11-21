@@ -138,7 +138,7 @@ describe('systemLine', () => {
     expect(systemLine(item({ kind: 'ai_toggled', data: { enabled: false } }))?.text).toBe('ИИ выключен в этом чате');
     expect(systemLine(item({ kind: 'ai_toggled', data: { enabled: true } }))?.text).toBe('ИИ включён в этом чате');
     expect(systemLine(item({ kind: 'operator_note', data: { text: 'не звать на встречу' } }))?.text).toBe('Заметка оператора: не звать на встречу');
-    expect(systemLine(item({ kind: 'memory_updated' }))?.text).toBe('Память и сводка обновлены');
+    expect(systemLine(item({ kind: 'memory_updated' }))?.text).toBe('Сводка переписки обновлена');
     expect(systemLine(item({ kind: 'message_out' }))).toBeNull();
   });
 });

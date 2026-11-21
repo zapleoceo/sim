@@ -33,11 +33,11 @@ async def get_or_404[M: Base](session: AsyncSession, model: type[M], row_id: int
     return row
 
 
-async def current_persona(session: AsyncSession) -> Persona:
-    """The persona (there is one for now)."""
-    persona = await session.scalar(select(Persona).order_by(Persona.id).limit(1))
+async def persona_or_404(session: AsyncSession, persona_id: int) -> Persona:
+    """The persona of a `/personas/{id}/…` path (archived ones too: the owner may edit them)."""
+    persona = await session.get(Persona, persona_id)
     if persona is None:
-        raise NotFoundException(detail="Персонаж ещё не создан")
+        raise NotFoundException(detail=f"Персонаж не найден: {persona_id}")
     return persona
 
 
@@ -69,8 +69,11 @@ async def last_messages(session: AsyncSession, chat_ids: Sequence[int]) -> dict[
 
 
 async def chat_rows(session: AsyncSession, pairs: Sequence[tuple[Chat, Client]]) -> list[Json]:
+    """Chat rows with the last message and the persona that answers in each chat."""
     last = await last_messages(session, [chat.id for chat, _ in pairs])
-    return [views.chat_row(chat, client, last.get(chat.id)) for chat, client in pairs]
+    personas = await by_ids(session, Persona, (chat.persona_id for chat, _ in pairs))
+    return [views.chat_row(chat, client, last.get(chat.id), personas.get(chat.persona_id))
+            for chat, client in pairs]
 
 
 async def chat_row(session: AsyncSession, chat: Chat) -> Json:

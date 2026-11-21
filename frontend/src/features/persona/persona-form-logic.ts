@@ -29,6 +29,7 @@ export const personaSchema = z.object({
   model_video: text,
   model_live: text,
   model_life: text,
+  model_passport: text,
   appearance: text,
   voice_id: text,
   voice_style: text,
@@ -66,6 +67,7 @@ export function toFormValues(p: Persona): PersonaFormValues {
     model_video: p.model_video,
     model_live: p.model_live,
     model_life: p.model_life,
+    model_passport: p.model_passport,
     appearance: p.appearance,
     voice_id: p.voice_id,
     voice_style: p.voice_style,
@@ -80,7 +82,7 @@ export function toFormValues(p: Persona): PersonaFormValues {
   };
 }
 
-/** Only the changed fields, converted back to API types (PUT /persona is a partial update). */
+/** Only the changed fields, converted back to API types (PUT /personas/{id} is a partial update). */
 export function toPatch(values: PersonaFormValues, initial: PersonaFormValues): PersonaPatch {
   const patch: Record<string, unknown> = {};
   for (const key of Object.keys(values) as PersonaFormField[]) {

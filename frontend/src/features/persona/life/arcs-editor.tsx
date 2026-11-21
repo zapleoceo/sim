@@ -9,6 +9,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { qk } from '@/lib/query';
 import type { Arc, ArcStatus } from '@/lib/types';
+import { usePersonaId } from '../persona-scope';
 import { lifeApi, type ArcInput } from './life-api';
 import { sameJson } from './life-logic';
 
@@ -27,16 +28,17 @@ function ArcCard({ arc }: { arc: Arc }) {
   const confirm = useConfirm();
   const [draft, setDraft] = useState(() => editable(arc));
   const dirty = !sameJson(draft, editable(arc));
-  const refresh = () => queryClient.invalidateQueries({ queryKey: qk.arcs });
+  const personaId = usePersonaId();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: qk.arcs(personaId) });
   const save = useMutation({
-    mutationFn: () => lifeApi.updateArc(arc.id, draft),
+    mutationFn: () => lifeApi.updateArc(personaId, arc.id, draft),
     onSuccess: async (saved) => {
       setDraft(editable(saved));
       await refresh();
       toast.success('История сохранена');
     },
   });
-  const remove = useMutation({ mutationFn: () => lifeApi.deleteArc(arc.id), onSuccess: refresh });
+  const remove = useMutation({ mutationFn: () => lifeApi.deleteArc(personaId, arc.id), onSuccess: refresh });
   const id = `arc-${arc.id}`;
   return (
     <li className="flex flex-col gap-2 rounded-lg border p-3">
@@ -74,15 +76,16 @@ function ArcCard({ arc }: { arc: Arc }) {
 
 /** Story arcs: what slowly happens in her life (the planner moves their stage). */
 export function ArcsEditor({ arcs }: { arcs: readonly Arc[] }) {
+  const personaId = usePersonaId();
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
   const create = useMutation({
-    mutationFn: () => lifeApi.createArc({ title: title.trim(), summary: summary.trim(), stage: '' }),
+    mutationFn: () => lifeApi.createArc(personaId, { title: title.trim(), summary: summary.trim(), stage: '' }),
     onSuccess: async () => {
       setTitle('');
       setSummary('');
-      await queryClient.invalidateQueries({ queryKey: qk.arcs });
+      await queryClient.invalidateQueries({ queryKey: qk.arcs(personaId) });
       toast.success('История добавлена');
     },
   });

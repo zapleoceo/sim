@@ -5,14 +5,17 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from litestar.testing import AsyncTestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api.app import create_app
 from sim.clock import FixedClock
 from sim.config import Settings
+from sim.telegram.login import TelegramLogins
 from tests.api.fakes import FakeDeps
 from tests.api.helpers import BOT_TOKEN, ApiClient, World, login, make_admin, seed_world
+from tests.fakes.telegram import LoginClientFactory
 
 
 @pytest.fixture
@@ -30,6 +33,7 @@ def settings(static_dir: Path) -> Settings:
         _env_file=None, env="test", tg_login_bot_token=BOT_TOKEN,
         tg_login_bot_username="@sim_login_bot", superadmin_telegram_ids="",
         cookie_secure=False, static_dir=str(static_dir), session_ttl_h=72,
+        secret_key=Fernet.generate_key().decode(),
     )
 
 
@@ -39,8 +43,20 @@ def deps(db: AsyncSession, clock: FixedClock, settings: Settings) -> FakeDeps:
 
 
 @pytest.fixture
-async def client(deps: FakeDeps) -> AsyncIterator[ApiClient]:
-    async with AsyncTestClient(app=create_app(deps)) as test_client:  # type: ignore[arg-type]
+def login_factory() -> LoginClientFactory:
+    """Fake Telethon clients for the QR login of a Telegram account."""
+    return LoginClientFactory()
+
+
+@pytest.fixture
+def logins(login_factory: LoginClientFactory) -> TelegramLogins:
+    return TelegramLogins(login_factory, qr_image=lambda url: f"svg:{url}")
+
+
+@pytest.fixture
+async def client(deps: FakeDeps, logins: TelegramLogins) -> AsyncIterator[ApiClient]:
+    app = create_app(deps, logins=logins)  # type: ignore[arg-type]
+    async with AsyncTestClient(app=app) as test_client:
         yield test_client
 
 

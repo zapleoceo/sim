@@ -20,7 +20,7 @@ PostgreSQL 16. Модели — `backend/sim/db/models.py`, миграции Ale
 ## Персонаж и каналы
 
 ### `persona`
-Персонаж (пока один — Марина): `name` (уникальное), `gender`, `language`, `timezone`,
+Персонаж (их может быть несколько, [personas.md](personas.md)): `name` (уникальное), `gender`, `language`, `timezone`,
 `birth_date`, `avatar_media_id`, единый `prompt`.
 Модели Broker по назначению (`""` — не выбрана): `model_reply` (ответы), `model_guard`
 (проверка; пусто — используется `model_reply`), `model_vision` (фото/видео/PDF),
@@ -34,6 +34,10 @@ PostgreSQL 16. Модели — `backend/sim/db/models.py`, миграции Ale
 люди, увлечения, места по схеме `sim/domain/life.PersonaLife`), `model_life` (планировщик дня;
 пусто — дни не планируются), `appearance` (точное описание внешности по-английски для фото и
 видео), `voice_ambience_enabled` (фон сцены в голосовых, по умолчанию да).
+Миграция `0004` ([personas.md](personas.md), [leads.md](leads.md)): `model_passport`
+(паспортистка; пусто — `model_memory`, затем `model_reply`), `is_active` (по умолчанию да;
+`false` — архив: никому не отвечает, дни не планируются, аккаунты Telegram отключаются).
+Новый персонаж создаётся клонированием (`sim/services/persona_clone.py`).
 Кто использует: ответ и проверка (`reply.py`, `guard.py`), распознавание, генерация, память,
 `capabilities.py` (что можно в этом ходе).
 
@@ -58,26 +62,34 @@ PostgreSQL 16. Модели — `backend/sim/db/models.py`, миграции Ale
 Аккаунт мессенджера, через который говорит персонаж: `persona_id`, `kind` (`telegram_user`),
 `title`, `status` (`new | connected | error | disabled`), `account_id`, `account_label`,
 `credentials_enc` (Fernet: api_id, api_hash, сессия, прокси), `last_error`,
-`last_activity_at`. Входящие сообщения приходят с `channel_id` (`Inbox`).
+`last_activity_at`. Входящие сообщения приходят с `channel_id` (`Inbox`). `credentials_enc`
+пишет вход по QR из дашборда (`sim/api/routes/channels.py`); процесс `telegram` берёт каналы
+активных персонажей с учётными данными и статусом не `disabled`.
 
 ## Люди и чаты
 
 ### `client`
-Собеседник: `persona_id`, `name`, `username`, `phone`, `timezone` (если известен — в фактах
-время у клиента), `notes` (заметки оператора, агент их видит), `ai_enabled` (**по умолчанию
-выключен**: новый клиент сохраняется, но персонаж ему не отвечает), `memory` — устойчивые
-факты `[{"fact", "event_id", "at"}]`, `last_seen_at`.
-`Inbox` создаёт клиента при первом контакте и обновляет `last_seen_at`; ход персонажа
-добавляет факты `remember`; шаг памяти чистит и объединяет их; оператор правит в карточке.
+Собеседник (лид): `persona_id` (персонаж канала, куда он написал впервые), `name`, `username`,
+`phone`, `timezone` (старое поле профиля; часовой пояс теперь в паспорте), `notes` (заметки
+оператора, агент их видит), `ai_enabled` (**по умолчанию выключен**: новый клиент
+сохраняется, но персонаж ему не отвечает), `passport` (JSONB, миграция `0004`, `{}` — пусто):
+`{text, name, age, gender, city, country, timezone, occupation, stage, temperature,
+next_step, updated_at, locked_fields}` ([leads.md](leads.md)), `last_seen_at`.
+`Inbox` создаёт клиента при первом контакте и обновляет `last_seen_at`; паспорт пишут
+паспортистка (`sim/services/passport.py`) и оператор (`PATCH /clients/{id}`, поля блокируются).
+`memory` удалена в `0004`, её факты перенесены в текст паспорта.
 
 ### `client_identity`
 Идентификатор клиента в мессенджере: `client_id`, `channel_kind`, `external_id`,
-`access_hash`. Уникально `(channel_kind, external_id)` — один человек в двух мессенджерах может
-быть одним клиентом. `Inbox.resolve_chat` ищет клиента по этой таблице.
+`access_hash` (последний увиденный; у каждого аккаунта он свой — для отправки берётся
+`chat.peer_access_hash`). Уникально `(channel_kind, external_id)` — один человек в двух
+мессенджерах или у двух персонажей остаётся одним клиентом. `Inbox.resolve_chat` ищет
+клиента по этой таблице.
 
 ### `chat`
-Переписка клиента через канал: `persona_id`, `client_id`, `channel_id` (уникально
-`(channel_id, client_id)`), `ai_enabled` (переключатель чата), `needs_operator` (ставится после
+Переписка клиента через канал: `persona_id` (= персонаж канала; он и отвечает в чате),
+`client_id`, `channel_id` (уникально `(channel_id, client_id)`), `peer_access_hash` (access hash
+клиента так, как его видит аккаунт этого чата; `0004`), `ai_enabled` (переключатель чата), `needs_operator` (ставится после
 второго блока проверки; пока стоит, персонаж молчит), `unread_count`, `last_message_at`,
 `summary` и `summary_until_event_id` — сводка старой части ленты и граница: события с
 `id <= summary_until_event_id` описаны сводкой, после неё — идут в ленту дословно.
@@ -151,8 +163,8 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 
 ### `llm_call`
 Каждый вызов Broker: `reply_run_id` (если в рамках хода), `chat_id`, `purpose` (`reply | guard |
-vision | transcribe | document | tts | image | video | live | memory | life`; `life` —
-планировщик дня, `0003`), `model`, `request`
+vision | transcribe | document | tts | image | video | live | memory | life | passport`; `life` —
+планировщик дня, `0003`; `passport` — паспортистка, `0004`), `model`, `request`
 (без байтов: вместо файлов mime и размер), `response`, `tokens_in`, `tokens_out`, `cost_usd`,
 `latency_ms`, `error`. Пишет `sim/services/llm_log.logged_call` в отдельной короткой транзакции.
 В дашборде — под каждым ответом персонажа («что ушло в модель и что вернулось»).

@@ -98,7 +98,8 @@ class AuthSession(Base):
 
 
 class Persona(Base):
-    """The AI character. One for now; every owned row carries `persona_id` for later."""
+    """An AI character. There may be many (docs/personas.md); every owned row carries
+    `persona_id`, and a chat is always answered by the persona of its channel."""
 
     __tablename__ = "persona"
 
@@ -141,6 +142,11 @@ class Persona(Base):
     # Voice notes get the background sound of her current scene.
     voice_ambience_enabled: Mapped[bool] = mapped_column(Boolean, default=True,
                                                          server_default=text("true"))
+    # The client passport writer (docs/leads.md); "" = model_memory, then model_reply.
+    model_passport: Mapped[str] = mapped_column(String(160), default="",
+                                                server_default=text("''"))
+    # Archived (False): never answers, plans no days, its Telegram accounts go offline.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
 
 
 class Channel(Base):
@@ -213,8 +219,9 @@ class PersonaCanon(Base):
 
 
 class Client(Base):
-    """A person the persona talks to. `memory` is what the agent knows about them
-    (docs/context.md)."""
+    """A person the persona talks to (a lead). `passport` is what the agent knows about them
+    (docs/leads.md, docs/context.md). The client belongs to the persona of the channel they
+    first wrote to; every chat is answered by the persona of its own channel."""
 
     __tablename__ = "client"
 
@@ -227,9 +234,10 @@ class Client(Base):
     notes: Mapped[str] = mapped_column(Text, default="")            # operator's notes, agent sees
     # Off by default: a new client is stored but the persona does not answer until enabled.
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Durable facts about the person: [{"fact": str, "event_id": int|None, "at": iso}], kept by
-    # the memory step and editable by the operator.
-    memory: Mapped[list[dict[str, Any]]] = jsonb_list()
+    # The living profile: {text, name, age, gender, city, country, timezone, occupation, stage,
+    # temperature, next_step, updated_at, locked_fields} (sim/domain/passport.Passport). Written
+    # by the passport task and the operator; fields the operator edited are locked for the model.
+    passport: Mapped[dict[str, Any]] = jsonb_dict()
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True)
 
     identities: Mapped[list[ClientIdentity]] = relationship(
@@ -262,6 +270,9 @@ class Chat(Base):
                                            index=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("channel.id", ondelete="CASCADE"),
                                             index=True)
+    # Telegram's access hash of the client as THIS chat's account sees it (it differs between
+    # accounts, so with many personas it lives on the chat, not on the identity).
+    peer_access_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)

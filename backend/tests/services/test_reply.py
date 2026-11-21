@@ -257,21 +257,50 @@ async def test_newer_client_message_discards_the_stale_answer(
     assert (await runs(db, chat))[0].status == RunStatus.SKIPPED
 
 
-async def test_remember_adds_facts_without_duplicates(db: AsyncSession, deps: Deps,
-                                                      fakes: Fakes, clock: FixedClock) -> None:
+async def test_a_sent_turn_queues_the_passport_and_keeps_remember_in_the_plan(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
     chat = await setup_chat(db, clock)
-    client = await db.get(Client, chat.client_id)
-    assert client is not None
-    client.memory = [{"fact": "Живёт в Киеве", "event_id": None, "at": "2026-11-01T00:00:00"}]
-    await db.flush()
-    fakes.llm.script("reply-model",
-                     plan_json(TEXT, remember=["живёт в Киеве.", "Работает врачом"]))
+    fakes.llm.script("reply-model", plan_json(TEXT, remember=["Работает врачом"]))
     fakes.llm.script("guard-model", ok_verdict())
 
-    await ReplyService(deps).run(chat.id)
+    result = await ReplyService(deps).run(chat.id)
 
-    facts = [item["fact"] for item in (await fresh(db, client)).memory]
-    assert facts == ["Живёт в Киеве", "Работает врачом"]
+    assert result.status == RunStatus.SENT
+    # The passport writer reads `remember` from the plan (docs/leads.md), coalesced by delay.
+    assert fakes.tasks.of("update_passport") == [("update_passport", chat.id, 5.0)]
+    [run] = await runs(db, chat)
+    assert run.plan["remember"] == [{"fact": "Работает врачом"}]
+    client = await db.get(Client, chat.client_id)
+    assert client is not None and (await fresh(db, client)).passport == {}
+
+
+async def test_each_chat_is_answered_by_its_own_persona(db: AsyncSession, deps: Deps,
+                                                        fakes: Fakes,
+                                                        clock: FixedClock) -> None:
+    marina = await make_persona(db)
+    olya = await make_persona(db, name="Оля", prompt="Ты Оля.", model_reply="olya-model")
+    first = await make_chat(db, marina)
+    second = await make_chat(db, olya, name="Петя")
+    for chat in (first, second):
+        await add_message(db, chat, "привет", at=clock.now() - timedelta(seconds=60))
+    fakes.llm.script("reply-model", plan_json(TEXT)).script("olya-model", plan_json(TEXT))
+    fakes.llm.always("guard-model", ok_verdict())
+
+    assert (await ReplyService(deps).run(second.id)).status == RunStatus.SENT
+    assert (await ReplyService(deps).run(first.id)).status == RunStatus.SENT
+
+    [olya_call] = fakes.llm.calls_for("olya-model")
+    assert (olya_call["messages"][0].parts[0].text or "").startswith("Ты Оля.")
+    [marina_call] = fakes.llm.calls_for("reply-model")
+    assert (marina_call["messages"][0].parts[0].text or "").startswith("Ты Марина")
+
+
+async def test_an_archived_persona_does_not_answer(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                   clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock, is_active=False)
+    result = await ReplyService(deps).run(chat.id)
+    assert result.status is None and result.reason == "AI is off"
+    assert fakes.llm.calls == [] and fakes.tasks.calls == []
 
 
 async def test_empty_plan_is_silence_without_a_guard_call(db: AsyncSession, deps: Deps,

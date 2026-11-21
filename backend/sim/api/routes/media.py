@@ -1,4 +1,5 @@
-"""`/api/media/*`: the persona's media library and authenticated file streaming."""
+"""`/api/personas/{id}/media` (a persona's media library: list, upload) and `/api/media/{id}`
+(edit, delete, authenticated file streaming: a media id is global)."""
 from __future__ import annotations
 
 from typing import Any
@@ -11,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.api import views
 from sim.api.context import ApiContext
 from sim.api.files import file_response
-from sim.api.queries import current_persona, get_or_404
+from sim.api.queries import get_or_404, persona_or_404
 from sim.api.schemas import MediaPatchIn, sent_fields
 from sim.api.uploads import read_upload, upload_mime
-from sim.db.models import MediaAsset
+from sim.db.models import Chat, MediaAsset, Message
 from sim.domain.enums import MediaKind, MediaSource
 from sim.services.media_library import add_media, delete_media, update_media
 
@@ -28,27 +29,33 @@ def split_tags(value: str) -> list[str]:
     return [tag.strip() for tag in value.split(",") if tag.strip()]
 
 
-@get("/media")
-async def list_media(db: AsyncSession, source: MediaSource | None = None,
+@get("/personas/{persona_id:int}/media")
+async def list_media(persona_id: int, db: AsyncSession, source: MediaSource | None = None,
                      kind: MediaKind | None = None) -> Json:
-    """Library and generated media by default; client attachments only when asked for."""
+    """This persona's library and generated media by default; client attachments (they have
+    no persona) of her chats only when asked for."""
+    await persona_or_404(db, persona_id)
     stmt = select(MediaAsset)
-    if source is None:
-        stmt = stmt.where(MediaAsset.source.in_((MediaSource.LIBRARY, MediaSource.GENERATED)))
+    if source == MediaSource.INCOMING:
+        her_chats = select(Message.media_id).join(Chat, Chat.id == Message.chat_id).where(
+            Chat.persona_id == persona_id, Message.media_id.is_not(None))
+        stmt = stmt.where(MediaAsset.source == source, MediaAsset.id.in_(her_chats))
     else:
-        stmt = stmt.where(MediaAsset.source == source)
+        sources = (source,) if source is not None else (MediaSource.LIBRARY,
+                                                         MediaSource.GENERATED)
+        stmt = stmt.where(MediaAsset.persona_id == persona_id, MediaAsset.source.in_(sources))
     if kind is not None:
         stmt = stmt.where(MediaAsset.kind == kind)
     rows = await db.scalars(stmt.order_by(MediaAsset.id.desc()).limit(LIBRARY_LIMIT))
     return {"items": [views.media_view(m) for m in rows]}
 
 
-@post("/media", status_code=201)
-async def upload_media(request: Request[Any, Any, Any], ctx: ApiContext,
+@post("/personas/{persona_id:int}/media", status_code=201)
+async def upload_media(persona_id: int, request: Request[Any, Any, Any], ctx: ApiContext,
                        db: AsyncSession) -> Json:
     """Multipart `file`, `caption`, `tags` (comma-separated), `is_reference`. Photos and
     videos only: the library is what the persona sends and generates from."""
-    persona = await current_persona(db)
+    persona = await persona_or_404(db, persona_id)
     form = await request.form()
     upload, data = await read_upload(form)
     mime = upload_mime(upload)

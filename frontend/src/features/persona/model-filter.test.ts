@@ -20,8 +20,8 @@ const CATALOG: BrokerModel[] = [
 const fit = (purpose: ModelPurpose): string[] => CATALOG.filter((m) => matchesPurpose(m, purpose)).map((m) => m.id);
 
 describe('matchesPurpose', () => {
-  it('text → text for replies, guard, memory and the life planner', () => {
-    for (const p of ['reply', 'guard', 'memory', 'life'] as const) {
+  it('text → text for replies, guard, summary, passport and the life planner', () => {
+    for (const p of ['reply', 'guard', 'memory', 'passport', 'life'] as const) {
       expect(fit(p)).toEqual(['gpt-text', 'gemini-vision', 'weird-live']);
     }
   });
@@ -51,7 +51,7 @@ describe('matchesPurpose', () => {
 
   it('covers every persona model field', () => {
     expect(MODEL_PURPOSES.map((p) => p.field)).toEqual([
-      'model_reply', 'model_guard', 'model_vision', 'model_transcribe', 'model_memory',
+      'model_reply', 'model_guard', 'model_vision', 'model_transcribe', 'model_memory', 'model_passport',
       'model_tts', 'model_image', 'model_video', 'model_live', 'model_life',
     ]);
   });

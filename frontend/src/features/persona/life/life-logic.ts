@@ -86,7 +86,7 @@ export const newDayEvent = (): DayEvent => ({
 
 export const EMPTY_LIFE: PersonaLife = { routine: [], people: [], hobbies: [], places: [] };
 
-/** What would make PUT /persona/life fail, in Russian, before sending it. */
+/** What would make PUT /personas/{id}/life fail, in Russian, before sending it. */
 export function worldErrors(life: PersonaLife): string[] {
   const errors: string[] = [];
   life.routine.forEach((slot, i) => {

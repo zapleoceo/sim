@@ -28,6 +28,7 @@ from sim.domain.enums import (
     GenerationStatus,
     MediaKind,
 )
+from sim.domain.passport import passport_lines, passport_of
 from sim.ports import ChatMessage, ChatPart, ClockPort
 from sim.services.capabilities import Capabilities, capabilities_of
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
@@ -130,14 +131,14 @@ def client_card(client: Client) -> str:
         lines.append(f"Часовой пояс: {client.timezone}")
     if client.notes.strip():
         lines.append(f"Заметки оператора: {client.notes.strip()}")
-    memory = [str(item.get("fact", "")).strip() for item in client.memory or []]
-    memory = [fact for fact in memory if fact]
-    if memory:
-        lines.append("Что ты о нём знаешь:")
-        lines.extend(f"- {fact}" for fact in memory)
-    else:
-        lines.append("Что ты о нём знаешь: пока ничего.")
+    lines.extend(passport_lines(passport_of(client.passport)))
     return "\n".join(lines)
+
+
+def client_timezone(client: Client) -> str | None:
+    """The client's time zone: the passport's (the operator edits it there, the writer finds it
+    out), else the old profile field `client.timezone`."""
+    return passport_of(client.passport).timezone or client.timezone or None
 
 
 def catalog_text(available: Iterable[MediaAsset], sent: Iterable[tuple[MediaAsset, datetime]],
@@ -255,7 +256,8 @@ class ContextBuilder:
         )).scalars()
         return FactsInput(
             now=self.clock.now(), persona_tz=persona.timezone, birth_date=persona.birth_date,
-            client_tz=client.timezone, first_contact_at=incoming[1], last_client_at=incoming[2],
+            client_tz=client_timezone(client), first_contact_at=incoming[1],
+            last_client_at=incoming[2],
             last_persona_at=outgoing[2], messages_count=incoming[0] + outgoing[0],
             calls_count=calls[0], active_call=active_call,
             generations=tuple(f"{GENERATION_LABELS.get(g.kind, 'медиа')} «{one_line(g.caption)}»"

@@ -1,32 +1,44 @@
-"""`/api/persona`, `/api/persona/appearance/describe`, `/api/models`, `/api/voices`,
-`/api/instructions`, `/api/channels`: the persona page (her life: routes/life.py). Model ids
-are checked against the Broker catalog only when it can be read and is not empty; a model the
-catalog lists as unavailable (or with unknown availability) still saves, because availability
-changes and must never block the owner from saving the page."""
+"""`/api/personas*`: the list of personas, one persona's settings, archive, «Клонировать»,
+«Описать по референсам», and the shared catalogs `/api/models`, `/api/voices`,
+`/api/instructions` (docs/api.md, docs/personas.md). Her life: routes/life.py, her channels:
+routes/channels.py, her media library: routes/media.py.
+
+Model ids are checked against the Broker catalog only when it can be read and is not empty; a
+model the catalog lists as unavailable (or with unknown availability) still saves, because
+availability changes and must never block the owner from saving the page."""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from litestar import get, post, put
+from litestar import get, patch, post, put
 from litestar.exceptions import ClientException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api import views
 from sim.api.context import ApiContext
-from sim.api.queries import current_persona
-from sim.api.schemas import PERSONA_MODEL_FIELDS, PersonaPatchIn, check_timezone, sent_fields
-from sim.db.models import Channel, MediaAsset
+from sim.api.queries import persona_or_404
+from sim.api.schemas import (
+    PERSONA_MODEL_FIELDS,
+    CloneIn,
+    PersonaPatchIn,
+    PersonaStateIn,
+    check_timezone,
+    sent_fields,
+)
+from sim.db.models import Channel, Client, MediaAsset, Persona
 from sim.ports import LlmPort
 from sim.services.appearance import describe_appearance
 from sim.services.context.instructions import FORMAT_RULES
 from sim.services.generation import reference_ids
+from sim.services.persona_clone import PersonaNameTaken, clone_persona
 from sim.services.voices import GEMINI_VOICES
 
 logger = logging.getLogger(__name__)
 
 Json = dict[str, Any]
+NAME_TAKEN = "Персонаж с таким именем уже есть"
 
 
 async def unknown_models(llm: LlmPort, wanted: set[str]) -> set[str]:
@@ -45,20 +57,43 @@ async def unknown_models(llm: LlmPort, wanted: set[str]) -> set[str]:
     return wanted - {model.id for model in catalog}
 
 
-@get("/persona")
-async def get_persona(db: AsyncSession) -> Json:
-    return views.persona_view(await current_persona(db))
+@get("/personas")
+async def list_personas(db: AsyncSession) -> Json:
+    """Active personas first, then archived; each with its leads count and channels."""
+    personas = list(await db.scalars(
+        select(Persona).order_by(Persona.is_active.desc(), Persona.id)))
+    leads = dict((await db.execute(
+        select(Client.persona_id, func.count(Client.id)).group_by(Client.persona_id))).all())
+    channels: dict[int, list[Channel]] = {}
+    for channel in await db.scalars(select(Channel).order_by(Channel.id)):
+        channels.setdefault(channel.persona_id, []).append(channel)
+    return {"items": [views.persona_row(p, leads=leads.get(p.id, 0),
+                                        channels=channels.get(p.id, []))
+                      for p in personas]}
 
 
-@put("/persona")
-async def update_persona(data: PersonaPatchIn, ctx: ApiContext, db: AsyncSession) -> Json:
-    persona = await current_persona(db)
+@get("/personas/{persona_id:int}")
+async def get_persona(persona_id: int, db: AsyncSession) -> Json:
+    return views.persona_view(await persona_or_404(db, persona_id))
+
+
+@put("/personas/{persona_id:int}")
+async def update_persona(persona_id: int, data: PersonaPatchIn, ctx: ApiContext,
+                         db: AsyncSession) -> Json:
+    persona = await persona_or_404(db, persona_id)
     changes = {f: v for f, v in sent_fields(data).items() if getattr(persona, f) != v}
     if "timezone" in changes:
         check_timezone(changes["timezone"])
-    if changes.get("avatar_media_id") is not None and (
-            await db.get(MediaAsset, changes["avatar_media_id"]) is None):
-        raise ClientException(detail="Аватар: файл не найден в медиатеке")
+    if "name" in changes:
+        changes["name"] = " ".join(changes["name"].split())
+        taken = await db.scalar(select(Persona.id).where(Persona.name == changes["name"],
+                                                         Persona.id != persona.id))
+        if not changes["name"] or taken is not None:
+            raise ClientException(detail=NAME_TAKEN if taken else "Имя не может быть пустым")
+    if changes.get("avatar_media_id") is not None:
+        avatar = await db.get(MediaAsset, changes["avatar_media_id"])
+        if avatar is None or avatar.persona_id != persona.id:
+            raise ClientException(detail="Аватар: файл не найден в медиатеке персонажа")
     # Only changed ids are checked: a model that left the catalog must not block other edits.
     wanted = {changes[f] for f in PERSONA_MODEL_FIELDS if changes.get(f)}
     if missing := await unknown_models(ctx.deps.llm, wanted):
@@ -70,11 +105,35 @@ async def update_persona(data: PersonaPatchIn, ctx: ApiContext, db: AsyncSession
     return views.persona_view(persona)
 
 
-@post("/persona/appearance/describe", status_code=200)
-async def describe_persona_appearance(ctx: ApiContext, db: AsyncSession) -> Json:
+@patch("/personas/{persona_id:int}")
+async def set_persona_state(persona_id: int, data: PersonaStateIn, db: AsyncSession) -> Json:
+    """Archive instead of delete: an archived persona answers nobody, plans no days and its
+    Telegram accounts go offline at the telegram process's next refresh (≤ 60 s)."""
+    persona = await persona_or_404(db, persona_id)
+    persona.is_active = data.is_active
+    await db.flush()
+    return views.persona_view(persona)
+
+
+@post("/personas/{persona_id:int}/clone", status_code=201)
+async def clone(persona_id: int, data: CloneIn, ctx: ApiContext, db: AsyncSession) -> Json:
+    await persona_or_404(db, persona_id)
+    name = " ".join(data.name.split())
+    if not name:
+        raise ClientException(detail="Укажите имя нового персонажа")
+    try:
+        persona = await clone_persona(db, ctx.deps.storage, persona_id, name, data.parts)
+    except PersonaNameTaken as exc:
+        raise ClientException(detail=NAME_TAKEN) from exc
+    return views.persona_view(persona)
+
+
+@post("/personas/{persona_id:int}/appearance/describe", status_code=200)
+async def describe_persona_appearance(persona_id: int, ctx: ApiContext,
+                                      db: AsyncSession) -> Json:
     """The vision model describes her by the reference photos; nothing is saved — the owner
     edits the text and saves it with the form (`appearance`)."""
-    persona = await current_persona(db)
+    persona = await persona_or_404(db, persona_id)
     if not persona.model_vision:
         raise ClientException(detail="Не выбрана модель распознавания")
     ids = await reference_ids(db, persona.id)
@@ -113,11 +172,5 @@ async def get_instructions() -> Json:
     return {"text": FORMAT_RULES}
 
 
-@get("/channels")
-async def list_channels(db: AsyncSession) -> Json:
-    channels = await db.scalars(select(Channel).order_by(Channel.id))
-    return {"items": [views.channel_view(c) for c in channels]}
-
-
-ROUTES = [get_persona, update_persona, describe_persona_appearance, list_models, list_voices,
-          get_instructions, list_channels]
+ROUTES = [list_personas, get_persona, update_persona, set_persona_state, clone,
+          describe_persona_appearance, list_models, list_voices, get_instructions]

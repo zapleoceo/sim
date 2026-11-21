@@ -3,7 +3,10 @@ client message here: it is stored once (idempotent by chat + direction + externa
 attachment goes to the media library, a `message_in` event is written and, after commit, the
 attachment is queued for understanding and the chat for a reply (when AI is on everywhere).
 
-First contact creates the client (AI off by default, spec §3.2), the identity and the chat."""
+First contact creates the client (AI off by default, spec §3.2), the identity and the chat. The
+chat belongs to the persona of the channel the message came through (`channel.persona_id`);
+a client who first wrote to another persona keeps his client row but gets a separate chat,
+answered by this channel's persona (docs/personas.md)."""
 from __future__ import annotations
 
 import logging
@@ -27,6 +30,7 @@ from sim.events import append_event
 from sim.ports import InboundAttachment, InboundMessage, Peer
 from sim.services.deps import Deps
 from sim.services.media_library import add_media, kind_from_mime
+from sim.services.turn_state import ai_allowed
 
 log = logging.getLogger(__name__)
 
@@ -125,8 +129,7 @@ class Inbox:
         persona = await session.get(Persona, chat.persona_id)
         if client is not None:
             client.last_seen_at = now
-        answer = bool(persona and client and persona.ai_enabled and client.ai_enabled
-                      and chat.ai_enabled)
+        answer = ai_allowed(persona, client, chat)
         media_to_understand = None
         if media is not None and media.understanding == UnderstandingStatus.PENDING:
             media_to_understand = media.id
@@ -178,9 +181,11 @@ class Inbox:
         if chat is None:
             chat = Chat(persona_id=channel.persona_id, client_id=client.id,
                         channel_id=channel.id, ai_enabled=True, needs_operator=False,
-                        unread_count=0)
+                        unread_count=0, peer_access_hash=peer.access_hash)
             session.add(chat)
             await session.flush()
+        elif peer.access_hash and chat.peer_access_hash != peer.access_hash:
+            chat.peer_access_hash = peer.access_hash    # this account's view of the client
         return chat
 
     async def edited(self, channel_id: int, peer: Peer, external_id: str, text: str) -> None:

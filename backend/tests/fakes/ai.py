@@ -240,6 +240,9 @@ class RecordingQueue:
     async def refresh_memory(self, chat_id: int) -> None:
         self.calls.append(("refresh_memory", chat_id))
 
+    async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
+        self.calls.append(("update_passport", chat_id, delay_s))
+
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
         self.calls.append(("plan_day", persona_id, day, force))
 

@@ -12,7 +12,7 @@ const PERSONA: Persona = {
   id: 1, name: 'Марина', gender: 'female', language: 'ru', timezone: 'Europe/Kyiv', birth_date: '1998-04-02',
   avatar_media_id: null, prompt: 'Ты Марина.', model_reply: 'gpt-text', model_guard: 'gpt-text', model_vision: '',
   model_transcribe: '', model_memory: '', model_tts: '', model_image: '', model_video: 'retired-video', model_live: '',
-  model_life: '', appearance: '', voice_ambience_enabled: true,
+  model_life: '', model_passport: '', is_active: true, appearance: '', voice_ambience_enabled: true,
   voice_id: 'Vindemiatrix', voice_style: '', guard_rules: '', ai_enabled: true, voice_enabled: true, photo_enabled: true,
   video_enabled: true, calls_enabled: false, reply_delay_s: 8,
 };
@@ -37,7 +37,7 @@ describe('PersonaEditor', () => {
   it('tracks unsaved changes and saves only the changed fields', async () => {
     setCsrfToken('csrf-1');
     const log = fakeApi({
-      'PUT /api/persona': (req: FakeRequest) => ({ ...PERSONA, ...(req.body as object) }),
+      'PUT /api/personas/1': (req: FakeRequest) => ({ ...PERSONA, ...(req.body as object) }),
     });
     await renderWithApp(<PersonaEditor persona={PERSONA} models={MODELS} voices={[{ id: 'Vindemiatrix', label: 'Vindemiatrix' }]} />);
 

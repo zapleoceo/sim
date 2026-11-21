@@ -13,11 +13,11 @@ import { cn } from '@/lib/utils';
 
 export interface NavItem { path: NonNullable<LinkProps['to']>; label: string; icon: LucideIcon }
 
-/** The whole dashboard: exactly three sections. */
+/** The whole dashboard: exactly three sections (docs/frontend.md). */
 export const NAV: readonly NavItem[] = [
   { path: '/chats', label: 'Чаты', icon: MessagesSquare },
-  { path: '/persona', label: 'Персонаж', icon: Smile },
-  { path: '/clients', label: 'Клиенты', icon: Users },
+  { path: '/personas', label: 'Персонажи', icon: Smile },
+  { path: '/leads', label: 'Лиды', icon: Users },
 ];
 
 export function isActivePath(pathname: string, path: string): boolean {

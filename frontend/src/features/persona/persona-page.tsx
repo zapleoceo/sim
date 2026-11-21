@@ -1,14 +1,30 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getRouteApi, useNavigate } from '@tanstack/react-router';
+import { Archive, ArchiveRestore, Copy } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { Avatar } from '@/components/avatar';
+import { useConfirm } from '@/components/confirm';
 import { ErrorState } from '@/components/empty-state';
-import { Page, PageHeader } from '@/components/page';
+import { BackLink, Page } from '@/components/page';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api';
 import { qk } from '@/lib/query';
+import type { Persona } from '@/lib/types';
+import { positiveInt } from '@/lib/utils';
 import { personaApi } from './api';
+import { ChannelSection } from './channel-section';
+import { CloneDialog } from './clone-dialog';
 import { LifeSection } from './life/life-section';
 import { MediaLibrarySection } from './media-library';
 import { PersonaEditor } from './persona-editor';
-import { ChannelSection, FormatRulesSection } from './readonly-sections';
+import { PersonaIdProvider } from './persona-scope';
+import { avatarUrl } from './personas-page';
+import { FormatRulesSection } from './readonly-sections';
+
+const route = getRouteApi('/_app/personas/$personaId');
 
 const TOC: { id: string; label: string }[] = [
   { id: 'basics', label: 'Основное' },
@@ -24,50 +40,118 @@ const TOC: { id: string; label: string }[] = [
   { id: 'media', label: 'Медиатека' },
 ];
 
-/** «Персонаж»: every persona setting on one page, plus the media library. */
+/** Name, archive state and the two persona-wide actions: «Клонировать» and archive / restore. */
+function PersonaHeader({ persona }: { persona: Persona }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const [cloning, setCloning] = useState(false);
+  const archive = useMutation({
+    mutationFn: (isActive: boolean) => personaApi.setActive(persona.id, isActive),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(qk.persona(saved.id), saved);
+      void queryClient.invalidateQueries({ queryKey: qk.personaList });
+      toast.success(saved.is_active ? 'Персонаж снова работает' : 'Персонаж в архиве: никому не отвечает');
+    },
+  });
+  return (
+    <header className="flex flex-wrap items-center gap-3">
+      <Avatar name={persona.name} url={avatarUrl(persona.avatar_media_id)} size={44} />
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <h1 className="truncate text-lg font-semibold sm:text-2xl">{persona.name}</h1>
+        {!persona.is_active && <Badge variant="muted">в архиве</Badge>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => setCloning(true)}>
+          <Copy />
+          Клонировать
+        </Button>
+        {persona.is_active ? (
+          <Button
+            variant="ghost-destructive"
+            size="sm"
+            disabled={archive.isPending}
+            onClick={async () => {
+              const ok = await confirm({
+                title: `Убрать «${persona.name}» в архив?`,
+                message: 'Она перестанет отвечать всем клиентам, а её Telegram выйдет из сети. Ничего не удаляется — вернуть можно в любой момент.',
+                confirmLabel: 'В архив',
+                danger: true,
+              });
+              if (ok) archive.mutate(false);
+            }}
+          >
+            <Archive />
+            В архив
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" disabled={archive.isPending} onClick={() => archive.mutate(true)}>
+            <ArchiveRestore />
+            Вернуть из архива
+          </Button>
+        )}
+      </div>
+      <CloneDialog
+        source={persona}
+        open={cloning}
+        onOpenChange={setCloning}
+        onCloned={(clone) => void navigate({ to: '/personas/$personaId', params: { personaId: String(clone.id) } })}
+      />
+    </header>
+  );
+}
+
+/** One persona: every setting on one page, her life, channel and media library. */
 export function PersonaPage() {
-  const persona = useQuery({ queryKey: qk.persona, queryFn: personaApi.get });
+  const { personaId } = route.useParams();
+  const id = positiveInt(personaId) ?? 0;
+  const persona = useQuery({ queryKey: qk.persona(id), queryFn: () => personaApi.get(id), enabled: id > 0 });
   const models = useQuery({ queryKey: qk.models, queryFn: personaApi.models, staleTime: 5 * 60_000 });
   const voices = useQuery({ queryKey: qk.voices, queryFn: personaApi.voices, staleTime: Infinity });
 
   return (
     <Page width="wide" className="max-w-[1400px] pb-0 sm:pb-0">
-      <PageHeader title={persona.data?.name ? `Персонаж: ${persona.data.name}` : 'Персонаж'} />
-      <div className="grid gap-6 xl:grid-cols-[180px_minmax(0,1fr)]">
-        <nav aria-label="Разделы страницы" className="hidden xl:block">
-          <ul className="sticky top-6 flex flex-col gap-0.5 text-sm">
-            {TOC.map((t) => (
-              <li key={t.id}>
-                <a href={`#${t.id}`} className="block rounded-md px-2.5 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">
-                  {t.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <div className="flex min-w-0 flex-col gap-4">
-          {persona.isPending && (
-            <div className="flex flex-col gap-4">
-              <Skeleton className="h-48 w-full rounded-xl" />
-              <Skeleton className="h-72 w-full rounded-xl" />
-            </div>
-          )}
-          {persona.isError && <ErrorState title="Персонаж не загрузился" onRetry={() => void persona.refetch()} />}
-          {persona.data && (
-            <PersonaEditor
-              persona={persona.data}
-              models={models.data?.items ?? []}
-              modelsError={models.isError ? `Каталог моделей недоступен: ${errorMessage(models.error)}` : undefined}
-              voices={voices.data?.items ?? []}
-            >
-              <LifeSection />
-              <FormatRulesSection />
-              <ChannelSection />
-              <MediaLibrarySection />
-            </PersonaEditor>
-          )}
+      <BackLink to="/personas">Все персонажи</BackLink>
+      {id === 0 && <ErrorState title="Персонаж не найден" />}
+      {persona.isError && <ErrorState title="Персонаж не загрузился" onRetry={() => void persona.refetch()} />}
+      {id > 0 && persona.isPending && (
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-12 w-64" />
+          <Skeleton className="h-48 w-full rounded-xl" />
         </div>
-      </div>
+      )}
+      {persona.data && (
+        // `key`: drafts of one persona never leak into another's page.
+        <PersonaIdProvider id={persona.data.id} key={persona.data.id}>
+          <PersonaHeader persona={persona.data} />
+          <div className="grid gap-6 xl:grid-cols-[180px_minmax(0,1fr)]">
+            <nav aria-label="Разделы страницы" className="hidden xl:block">
+              <ul className="sticky top-6 flex flex-col gap-0.5 text-sm">
+                {TOC.map((t) => (
+                  <li key={t.id}>
+                    <a href={`#${t.id}`} className="block rounded-md px-2.5 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">
+                      {t.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            <div className="flex min-w-0 flex-col gap-4">
+              <PersonaEditor
+                persona={persona.data}
+                models={models.data?.items ?? []}
+                modelsError={models.isError ? `Каталог моделей недоступен: ${errorMessage(models.error)}` : undefined}
+                voices={voices.data?.items ?? []}
+              >
+                <LifeSection />
+                <FormatRulesSection />
+                <ChannelSection />
+                <MediaLibrarySection />
+              </PersonaEditor>
+            </div>
+          </div>
+        </PersonaIdProvider>
+      )}
     </Page>
   );
 }

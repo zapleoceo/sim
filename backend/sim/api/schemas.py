@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from litestar.exceptions import ClientException
 from msgspec import UNSET, Meta, Struct, UnsetType
 
+from sim.domain.enums import ClonePart, LeadStage
+
 Text4k = Annotated[str, Meta(min_length=1, max_length=4000)]
 ModelId = Annotated[str, Meta(max_length=160)]
 Tags = Annotated[list[Annotated[str, Meta(max_length=64)]], Meta(max_length=30)]
@@ -30,10 +32,26 @@ class MediaPatchIn(Struct):
     is_reference: bool | UnsetType = UNSET
 
 
-class MemoryItemIn(Struct):
-    fact: Annotated[str, Meta(min_length=1, max_length=500)]
-    event_id: int | None = None
-    at: str | None = None
+Short = Annotated[str, Meta(max_length=300)]
+
+
+class PassportPatchIn(Struct):
+    """The operator's edit of a client passport (docs/leads.md). Every structured field sent
+    is locked for the passport writer; `locked_fields` replaces the lock list (to unlock)."""
+
+    text: Annotated[str, Meta(max_length=12_000)] | UnsetType = UNSET
+    name: Short | UnsetType = UNSET
+    age: Annotated[int, Meta(ge=1, le=119)] | UnsetType | None = UNSET
+    gender: Short | UnsetType = UNSET
+    city: Short | UnsetType = UNSET
+    country: Short | UnsetType = UNSET
+    timezone: Annotated[str, Meta(max_length=64)] | UnsetType = UNSET
+    occupation: Short | UnsetType = UNSET
+    stage: LeadStage | UnsetType = UNSET
+    temperature: Annotated[int, Meta(ge=0, le=100)] | UnsetType = UNSET
+    next_step: Short | UnsetType = UNSET
+    locked_fields: Annotated[list[Annotated[str, Meta(max_length=32)]],
+                             Meta(max_length=20)] | UnsetType = UNSET
 
 
 class ClientPatchIn(Struct):
@@ -42,7 +60,30 @@ class ClientPatchIn(Struct):
     notes: Annotated[str, Meta(max_length=20_000)] | UnsetType = UNSET
     timezone: Annotated[str, Meta(max_length=64)] | UnsetType | None = UNSET
     ai_enabled: bool | UnsetType = UNSET
-    memory: Annotated[list[MemoryItemIn], Meta(max_length=500)] | UnsetType = UNSET
+    passport: PassportPatchIn | UnsetType = UNSET
+
+
+class PersonaStateIn(Struct):
+    """`PATCH /personas/{id}`: archive (false) or bring back (true)."""
+
+    is_active: bool
+
+
+class CloneIn(Struct):
+    name: Annotated[str, Meta(min_length=1, max_length=120)]
+    parts: Annotated[list[ClonePart], Meta(max_length=20)]
+
+
+class TelegramLoginIn(Struct):
+    """api_id / api_hash from my.telegram.org and an optional proxy. Never logged."""
+
+    api_id: Annotated[int, Meta(ge=1, le=2_147_483_647)]
+    api_hash: Annotated[str, Meta(min_length=8, max_length=64)]
+    proxy: Annotated[str, Meta(max_length=300)] = ""
+
+
+class PasswordIn(Struct):
+    password: Annotated[str, Meta(min_length=1, max_length=256)]
 
 
 class PersonaPatchIn(Struct):
@@ -66,6 +107,7 @@ class PersonaPatchIn(Struct):
     model_video: ModelId | UnsetType = UNSET
     model_live: ModelId | UnsetType = UNSET
     model_life: ModelId | UnsetType = UNSET
+    model_passport: ModelId | UnsetType = UNSET
     appearance: Annotated[str, Meta(max_length=4000)] | UnsetType = UNSET
     voice_ambience_enabled: bool | UnsetType = UNSET
     voice_id: Annotated[str, Meta(max_length=64)] | UnsetType = UNSET

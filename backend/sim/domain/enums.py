@@ -115,6 +115,7 @@ class LlmPurpose(StrEnum):
     LIVE = "live"
     MEMORY = "memory"
     LIFE = "life"           # the daily planner of the persona's life (docs/persona-life.md)
+    PASSPORT = "passport"   # the client passport writer, «паспортистка» (docs/leads.md)
 
 
 class ArcStatus(StrEnum):
@@ -139,6 +140,36 @@ class CanonStatus(StrEnum):
     REJECTED = "rejected"   # rejected by the owner: hidden from the agent, never added again
 
 
+class LeadStage(StrEnum):
+    """Where a client is on the way to the offer (`client.passport.stage`, docs/leads.md).
+    Kept inside JSONB, so a new value needs no migration."""
+
+    NEW = "new"                     # just started talking
+    ACQUAINTED = "acquainted"       # got to know each other
+    INTERESTED = "interested"       # showed interest in the offer
+    WARM = "warm"                   # trusts her, talks willingly
+    HOT = "hot"                     # ready for the next step
+    CLIENT = "client"               # became a client
+    LOST = "lost"                   # went silent or refused
+
+
+class ClonePart(StrEnum):
+    """What «Клонировать» copies from one persona to a new one (docs/personas.md). One copier
+    per part in sim/services/persona_clone.py."""
+
+    BASICS = "basics"               # gender, language, time zone, birth date
+    PROMPT = "prompt"
+    MODELS = "models"               # every model_* field
+    VOICE = "voice"                 # voice, manner of speech, background in voice notes
+    GUARD = "guard"                 # the guard's rules
+    APPEARANCE = "appearance"
+    WORLD = "world"                 # routine, people, hobbies, places (`persona.life`)
+    ARCS = "arcs"                   # story arcs
+    MEDIA = "media"                 # library photos and videos, files copied
+    SWITCHES = "switches"           # AI / voice / photo / video / calls, reply delay
+    CANON = "canon"                 # facts she invented about herself
+
+
 class EventKind(StrEnum):
     """Everything that happens in a chat. One table (`chat_event`) is both the dashboard journal
     and the only source the context builder reads (docs/context.md)."""
@@ -157,4 +188,4 @@ class EventKind(StrEnum):
     AI_TOGGLED = "ai_toggled"
     OPERATOR_NOTE = "operator_note"         # a note for the agent typed by the operator
     CLIENT_UPDATED = "client_updated"       # profile fields changed (name, phone, notes)
-    MEMORY_UPDATED = "memory_updated"       # client memory / chat summary refreshed
+    MEMORY_UPDATED = "memory_updated"       # the chat summary was refreshed

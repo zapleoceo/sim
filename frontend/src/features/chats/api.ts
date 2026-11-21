@@ -5,8 +5,9 @@ export const CHATS_PAGE = 50;
 export const TIMELINE_PAGE = 50;
 
 export const chatsApi = {
-  list: (q: string, before?: string | null) =>
-    api.get<Items<ChatRow>>('/chats', { params: { q, limit: CHATS_PAGE, before } }),
+  /** `personaId` 0 = the chats of every persona. */
+  list: (q: string, before?: string | null, personaId = 0) =>
+    api.get<Items<ChatRow>>('/chats', { params: { q, limit: CHATS_PAGE, before, persona_id: personaId || null } }),
   get: (id: number) => api.get<ChatDetail>(`/chats/${id}`),
   /** Newest first; `beforeId` pages back in time. */
   timeline: (id: number, beforeId?: number | null) =>

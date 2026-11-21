@@ -23,6 +23,7 @@ from sim.db.models import (
     ReplyRun,
 )
 from sim.domain.enums import EventKind
+from sim.domain.passport import passport_of, stored
 
 Json = dict[str, Any]
 
@@ -99,18 +100,27 @@ def client_brief(client: Client) -> Json:
             "ai_enabled": client.ai_enabled}
 
 
+def persona_brief(persona: Persona | None) -> Json | None:
+    return None if persona is None else {"id": persona.id, "name": persona.name,
+                                         "avatar_media_id": persona.avatar_media_id}
+
+
 def client_view(client: Client) -> Json:
+    """`passport` is always the full shape (defaults for what is unknown)."""
     return {
-        "id": client.id, "name": client.name, "username": client.username,
-        "phone": client.phone, "timezone": client.timezone, "notes": client.notes,
-        "ai_enabled": client.ai_enabled, "memory": list(client.memory or []),
+        "id": client.id, "persona_id": client.persona_id, "name": client.name,
+        "username": client.username, "phone": client.phone, "timezone": client.timezone,
+        "notes": client.notes, "ai_enabled": client.ai_enabled,
+        "passport": stored(passport_of(client.passport)),
         "created_at": client.created_at, "last_seen_at": client.last_seen_at,
     }
 
 
-def chat_row(chat: Chat, client: Client, last: Message | None) -> Json:
+def chat_row(chat: Chat, client: Client, last: Message | None,
+             persona: Persona | None = None) -> Json:
     return {
-        "id": chat.id, "client": client_brief(client), "ai_enabled": chat.ai_enabled,
+        "id": chat.id, "client": client_brief(client), "persona": persona_brief(persona),
+        "ai_enabled": chat.ai_enabled,
         "needs_operator": chat.needs_operator, "unread_count": chat.unread_count,
         "last_message_at": chat.last_message_at,
         "last_message": None if last is None else {
@@ -138,8 +148,18 @@ def reply_run_view(run: ReplyRun, llm_calls: list[LlmCall]) -> Json:
 
 
 def persona_view(persona: Persona) -> Json:
-    """All columns of `persona` except the audit timestamps."""
-    return {"id": persona.id, **{f: getattr(persona, f) for f in PERSONA_FIELDS}}
+    """All columns of `persona` except the audit timestamps and `life` (its own path)."""
+    return {"id": persona.id, "is_active": persona.is_active,
+            **{f: getattr(persona, f) for f in PERSONA_FIELDS}}
+
+
+def persona_row(persona: Persona, *, leads: int, channels: list[Channel]) -> Json:
+    """One row of «Персонажи»: who, AI on/off, how many leads, the channels' state."""
+    return {
+        "id": persona.id, "name": persona.name, "avatar_media_id": persona.avatar_media_id,
+        "is_active": persona.is_active, "ai_enabled": persona.ai_enabled, "leads_count": leads,
+        "channels": [channel_view(c) for c in channels],
+    }
 
 
 def arc_view(arc: PersonaArc) -> Json:
@@ -162,7 +182,8 @@ def canon_view(item: PersonaCanon) -> Json:
 def channel_view(channel: Channel) -> Json:
     """Never includes `credentials_enc`."""
     return {
-        "id": channel.id, "kind": channel.kind, "title": channel.title,
-        "status": channel.status, "account_label": channel.account_label,
+        "id": channel.id, "persona_id": channel.persona_id, "kind": channel.kind,
+        "title": channel.title, "status": channel.status,
+        "account_label": channel.account_label,
         "last_error": channel.last_error, "last_activity_at": channel.last_activity_at,
     }

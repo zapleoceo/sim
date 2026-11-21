@@ -70,6 +70,11 @@ class World:
     event_id: int
 
 
+def pp(world: World, path: str = "") -> str:
+    """`/api/personas/<world persona><path>`: every persona-scoped route."""
+    return f"/api/personas/{world.persona_id}{path}"
+
+
 async def seed_world(db: AsyncSession, clock: FixedClock) -> World:
     persona = Persona(name="Марина", prompt="Ты Марина.", model_reply="google/reply")
     db.add(persona)

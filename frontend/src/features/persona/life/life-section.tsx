@@ -8,6 +8,7 @@ import { qk } from '@/lib/query';
 import { ArcsEditor } from './arcs-editor';
 import { CanonList } from './canon-list';
 import { DayCard } from './day-timeline';
+import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
 import { addDays } from './life-logic';
 import { WorldEditor } from './world-editor';
@@ -20,12 +21,13 @@ function Loading({ query }: { query: { isPending: boolean; isError: boolean; ref
   return query.isPending ? <Skeleton className="h-32 w-full" /> : null;
 }
 
-/** «День Марины»: today and tomorrow; after «Спланировать заново» the days are re-read for a while. */
+/** Her day: today and tomorrow; after «Спланировать заново» the days are re-read for a while. */
 function DaysTab() {
+  const personaId = usePersonaId();
   const [pollUntil, setPollUntil] = useState(0);
   const days = useQuery({
-    queryKey: qk.days,
-    queryFn: lifeApi.days,
+    queryKey: qk.days(personaId),
+    queryFn: () => lifeApi.days(personaId),
     refetchInterval: () => (Date.now() < pollUntil ? PLAN_POLL_MS : false),
   });
   if (!days.data) return <Loading query={days} />;
@@ -43,9 +45,10 @@ function DaysTab() {
 
 /** «Жизнь»: her world, story arcs, her day and canon (docs/persona-life.md). */
 export function LifeSection() {
-  const world = useQuery({ queryKey: qk.life, queryFn: lifeApi.world });
-  const arcs = useQuery({ queryKey: qk.arcs, queryFn: lifeApi.arcs });
-  const canon = useQuery({ queryKey: qk.canon, queryFn: lifeApi.canon });
+  const personaId = usePersonaId();
+  const world = useQuery({ queryKey: qk.life(personaId), queryFn: () => lifeApi.world(personaId) });
+  const arcs = useQuery({ queryKey: qk.arcs(personaId), queryFn: () => lifeApi.arcs(personaId) });
+  const canon = useQuery({ queryKey: qk.canon(personaId), queryFn: () => lifeApi.canon(personaId) });
   return (
     <Section
       id="life"
