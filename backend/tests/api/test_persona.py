@@ -1,11 +1,11 @@
-"""Persona page: persona read/update with model checks, models, voices, instructions, channels."""
+"""Persona page: persona read/update, the models and voices catalogs, archive, clone. The agents
+(models, key tiers, prompts) are in test_agents.py."""
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Persona
 from sim.ports import ModelInfo
-from sim.services.context.instructions import FORMAT_RULES
 from sim.services.voices import GEMINI_VOICES as VOICES
 from tests.api.fakes import FakeDeps
 from tests.api.helpers import ApiClient, World, pp
@@ -22,9 +22,11 @@ async def test_get_persona(api: ApiClient, world: World) -> None:
     body = response.json()
     assert body["id"] == world.persona_id
     assert body["name"] == "Марина"
-    assert body["model_reply"] == "google/reply"
     assert body["reply_delay_s"] == 8
     assert "created_at" not in body and "updated_at" not in body
+    # Agents and the guard's rules have their own path (/agents).
+    assert not any(key.startswith("model_") for key in body)
+    assert "agents" not in body and "guard_rules" not in body
 
 
 async def test_persona_404_when_unknown(api: ApiClient) -> None:
@@ -37,7 +39,8 @@ async def test_persona_404_when_unknown(api: ApiClient) -> None:
 async def test_update_persona_partial(api: ApiClient, world: World, db: AsyncSession) -> None:
     response = await api.put(pp(world), json={
         "prompt": "Новый промт", "birth_date": "2001-05-17", "timezone": "Europe/Kyiv",
-        "photo_enabled": False, "id": 12345, "created_at": "ignored"})
+        "photo_enabled": False, "id": 12345, "created_at": "ignored",
+        "model_reply": "ignored/now", "guard_rules": "ignored here"})
     assert response.status_code == 200, response.text
     body = response.json()
     assert (body["prompt"], body["birth_date"], body["photo_enabled"]) == (
@@ -45,6 +48,8 @@ async def test_update_persona_partial(api: ApiClient, world: World, db: AsyncSes
     assert body["name"] == "Марина"
     persona = await db.get(Persona, world.persona_id)
     assert persona is not None and persona.prompt == "Новый промт"
+    assert persona.guard_rules == ""
+    assert persona.agents["reply"] == {"model": "google/reply"}
 
 
 async def test_update_persona_rejects_bad_values(api: ApiClient, world: World) -> None:
@@ -53,37 +58,6 @@ async def test_update_persona_rejects_bad_values(api: ApiClient, world: World) -
         response = await api.put(pp(world), json=payload)
         assert response.status_code == 400, payload
         assert "error" in response.json()
-
-
-async def test_model_ids_are_checked_against_a_readable_catalog(api: ApiClient, world: World,
-                                                                deps: FakeDeps) -> None:
-    deps.llm.models = [model("google/reply"), model("google/guard", available=False)]
-    unknown = await api.put(pp(world), json={"model_guard": "nobody/model"})
-    assert unknown.status_code == 400
-    assert "nobody/model" in unknown.json()["error"]
-    # A listed model saves even when the catalog says it is unavailable right now.
-    unavailable = await api.put(pp(world), json={"model_guard": "google/guard"})
-    assert unavailable.status_code == 200
-    assert unavailable.json()["model_guard"] == "google/guard"
-    # Clearing a model is always allowed.
-    assert (await api.put(pp(world), json={"model_guard": ""})).status_code == 200
-
-
-async def test_unchanged_model_missing_from_catalog_does_not_block(api: ApiClient, world: World,
-                                                                   deps: FakeDeps) -> None:
-    deps.llm.models = [model("google/other")]
-    response = await api.put(pp(world), json={"model_reply": "google/reply",
-                                                   "prompt": "ещё"})
-    assert response.status_code == 200
-
-
-async def test_models_saved_unchecked_when_catalog_is_empty_or_down(
-        api: ApiClient, world: World, deps: FakeDeps) -> None:
-    assert (await api.put(pp(world), json={"model_tts": "a/tts"})).status_code == 200
-    deps.llm.fail = True
-    response = await api.put(pp(world), json={"model_image": "b/image"})
-    assert response.status_code == 200
-    assert response.json()["model_image"] == "b/image"
 
 
 async def test_models_list(api: ApiClient, deps: FakeDeps) -> None:
@@ -102,12 +76,10 @@ async def test_models_list_when_broker_is_down_is_502(api: ApiClient, deps: Fake
     assert response.json() == {"error": "Broker недоступен"}
 
 
-async def test_voices_and_instructions(api: ApiClient) -> None:
+async def test_voices(api: ApiClient) -> None:
     voices = await api.get("/api/voices")
     assert voices.status_code == 200
     assert len(voices.json()["items"]) == len(VOICES) > 0
-    instructions = await api.get("/api/instructions")
-    assert instructions.json() == {"text": FORMAT_RULES}
 
 
 async def test_personas_list_with_leads_and_channels(api: ApiClient, world: World,
@@ -148,21 +120,25 @@ async def test_rename_must_stay_unique(api: ApiClient, world: World, db: AsyncSe
 
 async def test_clone_copies_the_chosen_parts(api: ApiClient, world: World,
                                              db: AsyncSession) -> None:
-    await api.put(pp(world), json={"prompt": "Ты Марина.", "guard_rules": "без фамилий",
-                                   "language": "uk"})
+    await api.put(pp(world), json={"prompt": "Ты Марина.", "language": "uk"})
+    await api.put(pp(world, "/agents"), json={
+        "agents": {"guard": {"key_tier": "free"}}, "guard_rules": "без фамилий"})
     response = await api.post(pp(world, "/clone"), json={
-        "name": "Оля", "parts": ["prompt", "models"]})
+        "name": "Оля", "parts": ["prompt", "agents"]})
     assert response.status_code == 201, response.text
     clone = response.json()
     assert clone["name"] == "Оля" and clone["id"] != world.persona_id
-    assert (clone["prompt"], clone["model_reply"]) == ("Ты Марина.", "google/reply")
-    assert (clone["guard_rules"], clone["language"]) == ("", "ru")      # not ticked
+    assert (clone["prompt"], clone["language"]) == ("Ты Марина.", "ru")   # basics not ticked
     assert clone["is_active"] is True
+    agents = (await api.get(f"/api/personas/{clone['id']}/agents")).json()
+    assert agents["agents"]["reply"]["model"] == "google/reply"
+    assert agents["agents"]["guard"]["key_tier"] == "free"
+    assert agents["guard_rules"] == ""                                  # «guard» not ticked
     channels = await api.get(f"/api/personas/{clone['id']}/channels")
     assert channels.json()["items"] == []                               # never copied
     again = await api.post(pp(world, "/clone"), json={"name": "Оля", "parts": []})
     assert again.status_code == 400 and "уже есть" in again.json()["error"]
-    bad = await api.post(pp(world, "/clone"), json={"name": "Катя", "parts": ["chats"]})
+    bad = await api.post(pp(world, "/clone"), json={"name": "Катя", "parts": ["models"]})
     assert bad.status_code == 400
     blank = await api.post(pp(world, "/clone"), json={"name": "  ", "parts": []})
     assert blank.status_code == 400

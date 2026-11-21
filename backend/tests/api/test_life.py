@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import LlmCall, MediaAsset, Persona, PersonaCanon, PersonaDay
+from sim.domain.agent_prompts import APPEARANCE_PROMPT
 from sim.domain.enums import CanonStatus, LlmPurpose, MediaKind, MediaSource
 from tests.api.fakes import PNG, FakeDeps
 from tests.api.helpers import ApiClient, World, pp
@@ -80,9 +81,10 @@ async def test_days_edit_and_list(api: ApiClient, world: World, db: AsyncSession
 async def test_plan_now_needs_the_life_model_and_queues_a_task(api: ApiClient, world: World,
                                                                deps: FakeDeps) -> None:
     refused = await api.post(pp(world, "/days/2026-11-22/plan"))
-    assert refused.status_code == 400 and "Жизнь" in refused.json()["error"]
-    assert (await api.put(pp(world), json={"model_life": "google/life"})).json()[
-        "model_life"] == "google/life"
+    assert refused.status_code == 400 and "Планировщик" in refused.json()["error"]
+    saved = await api.put(pp(world, "/agents"),
+                          json={"agents": {"life": {"model": "google/life"}}})
+    assert saved.json()["agents"]["life"]["effective_model"] == "google/life"
     queued = await api.post(pp(world, "/days/2026-11-22/plan"))
     assert queued.status_code == 202 and queued.json() == {"queued": True, "day": "2026-11-22"}
     assert [c[:2] for c in deps.tasks.calls if c[0] == "plan_day"] == [
@@ -110,7 +112,7 @@ async def test_canon_list_edit_and_reject(api: ApiClient, world: World,
 
 async def test_persona_has_life_fields(api: ApiClient, world: World) -> None:
     body = (await api.get(pp(world))).json()
-    assert body["model_life"] == "" and body["appearance"] == ""
+    assert body["appearance"] == ""
     assert body["voice_ambience_enabled"] is True
     saved = (await api.put(pp(world), json={
         "appearance": "green eyes", "voice_ambience_enabled": False})).json()
@@ -132,7 +134,8 @@ async def test_describe_appearance_by_the_references(api: ApiClient, world: Worl
     assert no_model.status_code == 400
     persona = await db.get(Persona, world.persona_id)
     assert persona is not None
-    persona.model_vision = "google/vision"
+    # «Портретист» has no model of its own: it looks with the vision model.
+    persona.agents = {**persona.agents, "vision": {"model": "google/vision"}}
     await db.commit()
     no_refs = await api.post(pp(world, "/appearance/describe"))
     assert no_refs.status_code == 400 and "референс" in no_refs.json()["error"]
@@ -147,6 +150,8 @@ async def test_describe_appearance_by_the_references(api: ApiClient, world: Worl
     [chat] = deps.llm.chats
     parts = chat["messages"][0].parts
     assert chat["model"] == "google/vision" and parts[1].data == PNG
+    assert parts[0].text == APPEARANCE_PROMPT
+    assert (chat["max_tokens"], chat["key_tier"]) == (800, "auto")
     [log] = (await db.scalars(select(LlmCall).where(LlmCall.purpose == LlmPurpose.VISION)))
-    assert log.request["task"] == "appearance"
+    assert log.request["task"] == "appearance" and log.request["key_tier"] == "auto"
     assert (await db.get(Persona, world.persona_id)).appearance == ""  # type: ignore[union-attr]

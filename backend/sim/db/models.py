@@ -112,19 +112,9 @@ class Persona(Base):
         ForeignKey("media_asset.id", ondelete="SET NULL", use_alter=True), nullable=True)
     # The owner's single prompt: who she is, character, style, prohibitions.
     prompt: Mapped[str] = mapped_column(Text, default="")
-    # One Broker model id per purpose, chosen on the persona page ("" = not configured).
-    model_reply: Mapped[str] = mapped_column(String(160), default="")
-    model_guard: Mapped[str] = mapped_column(String(160), default="")
-    model_vision: Mapped[str] = mapped_column(String(160), default="")
-    model_transcribe: Mapped[str] = mapped_column(String(160), default="")
-    model_memory: Mapped[str] = mapped_column(String(160), default="")
-    model_tts: Mapped[str] = mapped_column(String(160), default="")
-    model_image: Mapped[str] = mapped_column(String(160), default="")
-    model_video: Mapped[str] = mapped_column(String(160), default="")
-    model_live: Mapped[str] = mapped_column(String(160), default="")
     voice_id: Mapped[str] = mapped_column(String(64), default="")       # Gemini prebuilt voice
     voice_style: Mapped[str] = mapped_column(Text, default="")          # TTS delivery hint
-    # Short list of what the guard must never let through, one rule per line.
+    # Short list of what the guard («Охранник») must never let through, one rule per line.
     guard_rules: Mapped[str] = mapped_column(Text, default="")
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     voice_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -135,16 +125,14 @@ class Persona(Base):
     reply_delay_s: Mapped[int] = mapped_column(Integer, default=8)
     # Her static world: routine, people, hobbies, places (sim/domain/life.PersonaLife).
     life: Mapped[dict[str, Any]] = jsonb_dict()
-    # The daily planner of her life (docs/persona-life.md); "" = days are not planned.
-    model_life: Mapped[str] = mapped_column(String(160), default="", server_default=text("''"))
     # Exact look in English for image models: eyes, hair, face, skin, build, make-up.
     appearance: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
     # Voice notes get the background sound of her current scene.
     voice_ambience_enabled: Mapped[bool] = mapped_column(Boolean, default=True,
                                                          server_default=text("true"))
-    # The client passport writer (docs/leads.md); "" = model_memory, then model_reply.
-    model_passport: Mapped[str] = mapped_column(String(160), default="",
-                                                server_default=text("''"))
+    # Her internal agents (docs/agents.md): {agent_key: {model, key_tier, prompt, max_tokens}},
+    # only what the owner changed; read through sim.domain.agents.agent_config.
+    agents: Mapped[dict[str, Any]] = jsonb_dict()
     # Archived (False): never answers, plans no days, its Telegram accounts go offline.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
 

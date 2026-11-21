@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, Generation, MediaAsset, Persona
 from sim.db.session import transaction
+from sim.domain.agents import AgentConfig, AgentKey, agent_config
 from sim.domain.enums import (
     Author,
     EventKind,
@@ -92,7 +93,7 @@ async def continuity_ids(session: AsyncSession, persona_id: int, scene: SceneCar
 async def start_generation(session: AsyncSession, *, persona: Persona, chat_id: int | None,
                            reply_run_id: int | None, kind: GenerationKind,
                            spec: GenerateSpec) -> Generation:
-    model = persona.model_video if kind in VIDEO_KINDS else persona.model_image
+    model = agent_config(persona, AgentKey.VIDEO if kind in VIDEO_KINDS else AgentKey.IMAGE).model
     generation = Generation(
         persona_id=persona.id, chat_id=chat_id, reply_run_id=reply_run_id, kind=kind,
         prompt=spec.prompt, speech=spec.speech.strip() if kind in VIDEO_KINDS else "",
@@ -125,8 +126,8 @@ class _Job:
     video_prompt: str
     caption: str
     tags: list[str]
-    model_image: str
-    model_video: str
+    image_agent: AgentConfig        # «Фотограф»
+    video_agent: AgentConfig        # «Видеограф»
     references: list[tuple[bytes, str]]
 
 
@@ -207,7 +208,8 @@ class GenerationService:
                     language=persona.language or "",
                     round_note=generation.kind == GenerationKind.VIDEO_NOTE, **prompt_args),
                 caption=generation.caption, tags=list(generation.tags or []),
-                model_image=persona.model_image, model_video=persona.model_video,
+                image_agent=agent_config(persona, AgentKey.IMAGE),
+                video_agent=agent_config(persona, AgentKey.VIDEO),
                 references=refs,
             )
 
@@ -223,27 +225,30 @@ class GenerationService:
         return refs
 
     async def _image(self, job: _Job) -> MediaResult:
+        agent = job.image_agent
         return await logged_call(
-            self.deps.sessions, purpose=LlmPurpose.IMAGE, model=job.model_image,
+            self.deps.sessions, purpose=LlmPurpose.IMAGE, model=agent.model,
             request={"prompt": job.image_prompt, "references": len(job.references),
                      "generation_id": job.id},
             call=lambda: self.deps.image_gen.generate_image(
-                prompt=job.image_prompt, references=job.references, model=job.model_image),
-            chat_id=job.chat_id, reply_run_id=job.reply_run_id,
+                prompt=job.image_prompt, references=job.references, model=agent.model,
+                key_tier=agent.key_tier),
+            chat_id=job.chat_id, reply_run_id=job.reply_run_id, key_tier=agent.key_tier,
         )
 
     async def _video(self, job: _Job, first_frame: MediaResult) -> MediaResult:
         round_note = job.kind == GenerationKind.VIDEO_NOTE
         prompt = job.video_prompt
         duration = VIDEO_NOTE_GEN_S if round_note else VIDEO_GEN_S
+        agent = job.video_agent
         return await logged_call(
-            self.deps.sessions, purpose=LlmPurpose.VIDEO, model=job.model_video,
+            self.deps.sessions, purpose=LlmPurpose.VIDEO, model=agent.model,
             request={"prompt": prompt, "first_frame": first_frame.mime, "duration_s": duration,
                      "generation_id": job.id},
             call=lambda: self.deps.video_gen.generate_video(
                 prompt=prompt, first_frame=(first_frame.data, first_frame.mime),
-                model=job.model_video, duration_s=duration),
-            chat_id=job.chat_id, reply_run_id=job.reply_run_id,
+                model=agent.model, duration_s=duration, key_tier=agent.key_tier),
+            chat_id=job.chat_id, reply_run_id=job.reply_run_id, key_tier=agent.key_tier,
         )
 
     async def _store(self, session: AsyncSession, job: _Job, result: MediaResult,

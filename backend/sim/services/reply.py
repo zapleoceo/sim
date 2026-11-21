@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, Client, Persona, ReplyRun
 from sim.db.session import transaction
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import EventKind, LlmPurpose, RunStatus
 from sim.domain.plan import ReplyPlan
 from sim.domain.presence import THINKING
@@ -54,7 +55,6 @@ UNDERSTANDING_WAIT_S = 90.0     # longest wait for attachments before answering 
 UNDERSTANDING_POLL_S = 5.0
 DEBOUNCE_SLACK_S = 0.5
 PLAN_ROUNDS = 2                 # first answer + one retry after a guard block
-REPLY_MAX_TOKENS = 4096
 PLAN_SCHEMA = ReplyPlan.model_json_schema()
 
 REPAIR_NOTE = ("Ответ не подошёл: {errors}. Верни исправленный JSON-план строго по схеме, "
@@ -175,7 +175,7 @@ class ReplyService:
             run = ReplyRun(chat_id=chat_id, status=RunStatus.RUNNING,
                            trigger_event_id=waiting.last_in_event_id, attempts=0)
             session.add(run)
-            if not persona.model_reply:
+            if not agent_config(persona, AgentKey.REPLY).model:
                 run.status = RunStatus.FAILED
                 run.error = "не выбрана модель ответов"
                 run.finished_at = now
@@ -204,7 +204,7 @@ class ReplyService:
     async def _unplanned_today(session: AsyncSession, persona: Persona,
                                now: datetime) -> date | None:
         """Today's local date when the planner is on and today has no plan yet."""
-        if not persona.model_life:
+        if not agent_config(persona, AgentKey.LIFE).model:
             return None
         today = to_local(now, persona.timezone).date()
         rows = await load_days(session, persona.id, today, today)
@@ -251,14 +251,14 @@ class ReplyService:
         return validated_plan(raw, catalog=turn.ctx.catalog, caps=turn.ctx.capabilities)
 
     async def _call_model(self, turn: _Turn, messages: list[ChatMessage]) -> str:
-        model = turn.persona.model_reply
+        cfg = agent_config(turn.persona, AgentKey.REPLY)
         result = await logged_call(
-            self.deps.sessions, purpose=LlmPurpose.REPLY, model=model,
+            self.deps.sessions, purpose=LlmPurpose.REPLY, model=cfg.model,
             request={"messages": describe_messages(messages), "json_schema": "ReplyPlan"},
-            call=lambda: self.deps.llm.chat(model=model, messages=messages,
-                                            json_schema=PLAN_SCHEMA,
-                                            max_tokens=REPLY_MAX_TOKENS, label="reply"),
-            chat_id=turn.chat_id, reply_run_id=turn.run_id,
+            call=lambda: self.deps.llm.chat(model=cfg.model, messages=messages,
+                                            json_schema=PLAN_SCHEMA, max_tokens=cfg.max_tokens,
+                                            label="reply", key_tier=cfg.key_tier),
+            chat_id=turn.chat_id, reply_run_id=turn.run_id, key_tier=cfg.key_tier,
         )
         return result.text
 

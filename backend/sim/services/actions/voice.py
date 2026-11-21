@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Persona
 from sim.db.session import transaction
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import Author, LlmPurpose, MediaKind, MediaSource, MessageKind
 from sim.domain.plan import VoiceAction, tts_style
 from sim.domain.presence import Busy, busy_with
@@ -68,15 +69,16 @@ class VoiceHandler(ActionHandler):
     async def prepare(self, action: Any, ctx: ActionContext) -> Spoken | VoiceFailed:
         deps, persona = ctx.deps, ctx.persona
         style = tts_style(persona.voice_style, action.style)
+        tts = agent_config(persona, AgentKey.TTS)
         try:
             audio = await logged_call(
-                deps.sessions, purpose=LlmPurpose.TTS, model=persona.model_tts,
+                deps.sessions, purpose=LlmPurpose.TTS, model=tts.model,
                 request={"text": action.text, "voice": persona.voice_id,
                          "style": style},
                 call=lambda: deps.speech.synthesize(text=action.text, voice=persona.voice_id,
-                                                    style=style,
-                                                    model=persona.model_tts),
-                chat_id=ctx.chat_id, reply_run_id=ctx.reply_run_id,
+                                                    style=style, model=tts.model,
+                                                    key_tier=tts.key_tier),
+                chat_id=ctx.chat_id, reply_run_id=ctx.reply_run_id, key_tier=tts.key_tier,
             )
             background = await voice_background(deps, persona)
             if background is None:

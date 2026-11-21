@@ -18,6 +18,7 @@ from sim.api.context import ApiContext
 from sim.api.queries import persona_or_404
 from sim.api.schemas import ArcIn, ArcPatchIn, CanonPatchIn, sent_fields
 from sim.db.models import Persona, PersonaArc, PersonaCanon, PersonaDay
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import ArcStatus, CanonStatus, DaySource
 from sim.domain.life import DAY_MAX_EVENTS, DayEvent, PersonaLife, day_errors
 from sim.services.context.facts import to_local
@@ -164,8 +165,8 @@ async def update_day(persona_id: int, day: date, data: dict[str, Any],
 async def plan_day(persona_id: int, day: date, ctx: ApiContext, db: AsyncSession) -> Json:
     """Re-plan this day with the daily planner (a task; the page re-reads the day)."""
     persona = await persona_or_404(db, persona_id)
-    if not persona.model_life:
-        raise ClientException(detail="Не выбрана модель «Жизнь (план дня)»")
+    if not agent_config(persona, AgentKey.LIFE).model:
+        raise ClientException(detail="Планировщик выключен: выберите ему модель в «Агентах»")
     await ctx.deps.tasks.plan_day(persona.id, day.isoformat(), True)
     return {"queued": True, "day": day}
 

@@ -2,12 +2,15 @@
 
 | attachment                 | how                                                      |
 |----------------------------|----------------------------------------------------------|
-| photo, sticker             | vision model, 1-3 sentences in Russian                   |
-| video                      | vision model with the video inline                       |
-| voice, audio               | transcriber                                              |
-| video note («кружок»)      | transcriber + vision model                               |
-| PDF                        | vision model with the PDF inline, fallback: plain text   |
+| photo, sticker             | «Зрение», section [Фото]: 1-3 sentences in Russian       |
+| video                      | «Зрение», section [Видео], the video inline              |
+| voice, audio               | «Слух» (transcriber)                                     |
+| video note («кружок»)      | «Слух» + «Зрение», section [Кружок]                      |
+| PDF                        | «Зрение», section [PDF], fallback: plain text            |
 | other files (docx, txt...) | plain text extracted by MediaToolsPort                   |
+
+The agents (docs/agents.md) come from `agent_config`: model, key tier, max_tokens and the
+vision prompt (one text, four sections; a missing section is its default).
 
 The result goes to `media_asset.description` (`understanding=done`) or the error to
 `understanding_error` (`failed`); a `media_understood` event is written either way. Every
@@ -23,6 +26,14 @@ from sqlalchemy import select
 
 from sim.db.models import Chat, MediaAsset, Message, Persona
 from sim.db.session import transaction
+from sim.domain.agent_prompts import (
+    VISION_PDF,
+    VISION_PHOTO,
+    VISION_VIDEO,
+    VISION_VIDEO_NOTE,
+    vision_sections,
+)
+from sim.domain.agents import AgentConfig, AgentKey, agent_config
 from sim.domain.enums import EventKind, LlmPurpose, MediaKind, MessageKind, UnderstandingStatus
 from sim.events import append_event
 from sim.ports import ChatMessage, ChatPart, PortError
@@ -33,19 +44,6 @@ log = logging.getLogger(__name__)
 
 PDF_MIME = "application/pdf"
 DOCUMENT_TEXT_LIMIT = 6_000
-
-PHOTO_PROMPT = ("Собеседник прислал это изображение в личной переписке. Опиши по-русски в 1–3 "
-                "предложениях, что на нём; если есть текст — перепиши его дословно.")
-# Gemini hears the soundtrack of a video, so the description also carries the speech verbatim:
-# the meaning survives even when the separate transcription of the clip fails.
-VIDEO_PROMPT = ("Собеседник прислал это видео в личной переписке. Опиши по-русски в 1–3 "
-                "предложениях, что происходит. Если в видео говорят, перепиши речь дословно "
-                "после слов «Говорят:».")
-VIDEO_NOTE_PROMPT = ("Это видеосообщение («кружок») от собеседника. Опиши по-русски в 1–2 "
-                     "предложениях, что видно в кадре: где он, что делает, настроение. Затем "
-                     "дословно перепиши всё, что он говорит, после слов «Говорит:».")
-PDF_PROMPT = ("Собеседник прислал этот документ. Перескажи по-русски в 3–6 предложениях, что в "
-              "нём; сохрани ключевые имена, даты, суммы и цифры.")
 
 
 class UnderstandingError(Exception):
@@ -62,8 +60,11 @@ class Attachment:
     mime: str
     file_name: str
     data: bytes
-    model_vision: str
-    model_transcribe: str
+    vision: AgentConfig             # «Зрение»: its prompt holds one section per kind
+    hearing: AgentConfig            # «Слух»
+
+    def prompt(self, section: str) -> str:
+        return vision_sections(self.vision.prompt)[section]
 
 
 Strategy = Callable[["Understanding", Attachment], Awaitable[str]]
@@ -121,8 +122,9 @@ class Understanding:
             return Attachment(
                 media_id=media.id, chat_id=message.chat_id, message_id=message.id,
                 message_kind=message.kind, kind=media.kind, mime=media.mime,
-                file_name=media.file_name, data=data, model_vision=persona.model_vision,
-                model_transcribe=persona.model_transcribe,
+                file_name=media.file_name, data=data,
+                vision=agent_config(persona, AgentKey.VISION),
+                hearing=agent_config(persona, AgentKey.TRANSCRIBE),
             )
 
     async def _save(self, attachment: Attachment, text: str | None, error: str | None) -> None:
@@ -145,41 +147,45 @@ class Understanding:
 
     # --- strategies -----------------------------------------------------------------------
 
-    async def _vision(self, att: Attachment, prompt: str, data: bytes, mime: str,
+    async def _vision(self, att: Attachment, section: str, data: bytes, mime: str,
                       purpose: LlmPurpose = LlmPurpose.VISION) -> str:
-        if not att.model_vision:
+        vision = att.vision
+        if not vision.model:
             raise UnderstandingError("не выбрана модель распознавания")
-        messages = [ChatMessage(role="user", parts=[ChatPart(text=prompt),
+        messages = [ChatMessage(role="user", parts=[ChatPart(text=att.prompt(section)),
                                                     ChatPart(data=data, mime=mime)])]
         result = await logged_call(
-            self.deps.sessions, purpose=purpose, model=att.model_vision,
+            self.deps.sessions, purpose=purpose, model=vision.model,
             request={"messages": describe_messages(messages), "media_id": att.media_id},
-            call=lambda: self.deps.llm.chat(model=att.model_vision, messages=messages,
-                                            max_tokens=800, label="understand"),
-            chat_id=att.chat_id,
+            call=lambda: self.deps.llm.chat(model=vision.model, messages=messages,
+                                            max_tokens=vision.max_tokens, label="understand",
+                                            key_tier=vision.key_tier),
+            chat_id=att.chat_id, key_tier=vision.key_tier,
         )
         return result.text
 
     async def _transcribe(self, att: Attachment) -> str:
-        if not att.model_transcribe:
+        hearing = att.hearing
+        if not hearing.model:
             raise UnderstandingError("не выбрана модель расшифровки")
         name = att.file_name or ("voice.ogg" if att.kind == MediaKind.AUDIO else "video.mp4")
         result = await logged_call(
-            self.deps.sessions, purpose=LlmPurpose.TRANSCRIBE, model=att.model_transcribe,
+            self.deps.sessions, purpose=LlmPurpose.TRANSCRIBE, model=hearing.model,
             request={"file_name": name, "mime": att.mime, "size_bytes": len(att.data),
                      "media_id": att.media_id},
             call=lambda: self.deps.transcriber.transcribe(audio=att.data, filename=name,
-                                                          model=att.model_transcribe),
-            chat_id=att.chat_id,
+                                                          model=hearing.model,
+                                                          key_tier=hearing.key_tier),
+            chat_id=att.chat_id, key_tier=hearing.key_tier,
         )
         return result.text
 
     async def _image(self, att: Attachment) -> str:
         data, mime = await self.deps.tools.image_for_model(att.data, att.mime)
-        return await self._vision(att, PHOTO_PROMPT, data, mime)
+        return await self._vision(att, VISION_PHOTO, data, mime)
 
     async def _video(self, att: Attachment) -> str:
-        return await self._vision(att, VIDEO_PROMPT, att.data, att.mime or "video/mp4")
+        return await self._vision(att, VISION_VIDEO, att.data, att.mime or "video/mp4")
 
     async def _video_note(self, att: Attachment) -> str:
         speech = ""
@@ -190,7 +196,7 @@ class Understanding:
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
         try:
-            seen = (await self._vision(att, VIDEO_NOTE_PROMPT, att.data,
+            seen = (await self._vision(att, VISION_VIDEO_NOTE, att.data,
                                        att.mime or "video/mp4")).strip()
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
@@ -204,7 +210,7 @@ class Understanding:
 
     async def _pdf(self, att: Attachment) -> str:
         try:
-            text = await self._vision(att, PDF_PROMPT, att.data, PDF_MIME,
+            text = await self._vision(att, VISION_PDF, att.data, PDF_MIME,
                                       purpose=LlmPurpose.DOCUMENT)
             if text.strip():
                 return text

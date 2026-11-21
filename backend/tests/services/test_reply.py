@@ -96,7 +96,11 @@ async def test_text_reply_passes_the_guard_and_is_queued(db: AsyncSession, deps:
     calls = await all_rows(db, select(LlmCall).where(LlmCall.reply_run_id == run.id)
                            .order_by(LlmCall.id))
     assert [c.purpose for c in calls] == [LlmPurpose.REPLY, LlmPurpose.GUARD]
+    # Both agents of the answer run on paid keys by default; the tier is in the journal.
+    assert [c.request["key_tier"] for c in calls] == ["paid", "paid"]
     first = fakes.llm.calls_for("reply-model")[0]
+    assert (first["key_tier"], first["max_tokens"]) == ("paid", 4096)
+    assert fakes.llm.calls_for("guard-model")[0]["max_tokens"] == 400
     assert "Ты Марина" in (first["messages"][0].parts[0].text or "")
     assert first["json_schema"] == ReplyPlan.model_json_schema()
     assert "Твой ход" in (first["messages"][1].parts[0].text or "")
@@ -278,7 +282,8 @@ async def test_each_chat_is_answered_by_its_own_persona(db: AsyncSession, deps: 
                                                         fakes: Fakes,
                                                         clock: FixedClock) -> None:
     marina = await make_persona(db)
-    olya = await make_persona(db, name="Оля", prompt="Ты Оля.", model_reply="olya-model")
+    olya = await make_persona(db, name="Оля", prompt="Ты Оля.",
+                              models={"reply": "olya-model"})
     first = await make_chat(db, marina)
     second = await make_chat(db, olya, name="Петя")
     for chat in (first, second):

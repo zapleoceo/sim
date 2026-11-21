@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import json
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 
@@ -34,21 +35,29 @@ from sim.domain.enums import (
 
 _seq = itertools.count(1)
 
-PERSONA_MODELS: dict[str, Any] = {
-    "model_reply": "reply-model", "model_guard": "guard-model", "model_vision": "vision-model",
-    "model_transcribe": "stt-model", "model_memory": "memory-model", "model_tts": "tts-model",
-    "model_image": "image-model", "model_video": "video-model", "model_live": "live-model",
-    "voice_id": "Vindemiatrix", "voice_style": "тепло, по-домашнему",
+# Agent key -> model (sim/domain/agents.py). The daily planner is off unless a test turns it on.
+PERSONA_MODELS: dict[str, str] = {
+    "reply": "reply-model", "guard": "guard-model", "vision": "vision-model",
+    "transcribe": "stt-model", "memory": "memory-model", "tts": "tts-model",
+    "image": "image-model", "video": "video-model", "live": "live-model", "life": "",
 }
 
 
-async def make_persona(db: AsyncSession, **overrides: Any) -> Persona:
+def agents_of(models: Mapping[str, str]) -> dict[str, Any]:
+    """`persona.agents` with only these models chosen."""
+    return {key: {"model": model} for key, model in models.items()}
+
+
+async def make_persona(db: AsyncSession, *, models: Mapping[str, str] | None = None,
+                       **overrides: Any) -> Persona:
+    """`models` changes some agents' models over `PERSONA_MODELS`."""
     fields: dict[str, Any] = {
         "name": "Марина", "gender": "female", "language": "ru", "timezone": "Europe/Kyiv",
         "birth_date": date(2001, 3, 3), "prompt": "Ты Марина, тебе нравится болтать.",
         "guard_rules": "Не называть фамилию.", "ai_enabled": True, "voice_enabled": True,
         "photo_enabled": True, "video_enabled": True, "calls_enabled": True,
-        "reply_delay_s": 8, **PERSONA_MODELS,
+        "reply_delay_s": 8, "voice_id": "Vindemiatrix", "voice_style": "тепло, по-домашнему",
+        "agents": agents_of({**PERSONA_MODELS, **(models or {})}),
     }
     fields.update(overrides)
     persona = Persona(**fields)

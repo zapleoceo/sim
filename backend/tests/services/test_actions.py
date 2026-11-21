@@ -91,7 +91,8 @@ async def test_voice_handler_tts_to_ogg_to_library(db: AsyncSession, deps: Deps,
     await handler.apply(db, action, prepared, ctx, result)
 
     assert fakes.speech.calls == [{"text": "приветик, ну как ты?", "voice": "Vindemiatrix",
-                                   "style": "тепло, по-домашнему", "model": "tts-model"}]
+                                   "style": "тепло, по-домашнему", "model": "tts-model",
+                                   "key_tier": "paid"}]
     [message] = await messages_of(db, chat)
     assert message.kind == MessageKind.VOICE and message.text == ""
     media = await db.get(MediaAsset, message.media_id)

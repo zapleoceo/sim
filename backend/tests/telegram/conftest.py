@@ -21,10 +21,11 @@ class World:
 
 
 async def seed_world(db: AsyncSession, *, client_ai: bool = True, chat_ai: bool = True,
-                     persona_calls: bool = True, model_live: str = "gemini-live",
+                     persona_calls: bool = True, live_model: str = "gemini-live",
                      channel_status: ChannelStatus = ChannelStatus.CONNECTED,
                      credentials: str | None = "token") -> World:
-    persona = Persona(name="Марина", model_live=model_live, calls_enabled=persona_calls,
+    persona = Persona(name="Марина", agents={"live": {"model": live_model}},
+                      calls_enabled=persona_calls,
                       ai_enabled=True)
     db.add(persona)
     await db.flush()

@@ -76,7 +76,9 @@ def pp(world: World, path: str = "") -> str:
 
 
 async def seed_world(db: AsyncSession, clock: FixedClock) -> World:
-    persona = Persona(name="Марина", prompt="Ты Марина.", model_reply="google/reply")
+    # The daily planner is off, so a test turns it on (or plans days) only when it wants to.
+    persona = Persona(name="Марина", prompt="Ты Марина.",
+                      agents={"reply": {"model": "google/reply"}, "life": {"model": ""}})
     db.add(persona)
     await db.flush()
     channel = Channel(persona_id=persona.id, kind=ChannelKind.TELEGRAM_USER, title="Марина",

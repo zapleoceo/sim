@@ -1,4 +1,4 @@
-"""What the persona may do this turn, from her switches and the models chosen for her. The same
+"""What the persona may do this turn, from her switches and her agents' models. The same
 flags are shown to the reply model (facts) and enforced on its plan (plan_check)."""
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from sim.db.models import Persona
+from sim.domain.agents import AgentKey, agent_config
 
 
 @dataclass(frozen=True)
@@ -23,10 +24,12 @@ class Capabilities:
 def capabilities_of(persona: Persona) -> Capabilities:
     photo = bool(persona.photo_enabled)
     video = bool(persona.video_enabled)
+    tts, image, clip = (agent_config(persona, key).model
+                        for key in (AgentKey.TTS, AgentKey.IMAGE, AgentKey.VIDEO))
     return Capabilities(
-        voice=bool(persona.voice_enabled and persona.voice_id and persona.model_tts),
+        voice=bool(persona.voice_enabled and persona.voice_id and tts),
         photo=photo,
-        photo_generate=photo and bool(persona.model_image),
+        photo_generate=photo and bool(image),
         video=video,
-        video_generate=video and bool(persona.model_video and persona.model_image),
+        video_generate=video and bool(clip and image),
     )

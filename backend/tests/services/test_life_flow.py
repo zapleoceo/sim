@@ -58,7 +58,8 @@ SUNDAY = SATURDAY + timedelta(days=1)
 
 
 async def life_persona(db: AsyncSession, **overrides: Any) -> Persona:
-    fields: dict[str, Any] = {"timezone": TZ, "life": SEED["life"], "model_life": LIFE_MODEL}
+    fields: dict[str, Any] = {"timezone": TZ, "life": SEED["life"],
+                             "models": {"life": LIFE_MODEL}}
     return await make_persona(db, **{**fields, **overrides})
 
 
@@ -101,7 +102,12 @@ async def test_planner_plans_a_day_moves_an_arc_and_sums_up_yesterday(
     prompt = call["messages"][1].parts[0].text
     assert "воскресенье, 22 ноября 2026, осень." in prompt
     assert "# ТВОЙ РАСПОРЯДОК" in prompt and f"- {arc.id}: Ремонт в ванной" in prompt
-    assert "## пятница, 20 ноября 2026" in prompt and "outfit" in prompt
+    assert "## пятница, 20 ноября 2026" in prompt
+    # The planner's prompt (registry default) is the system message, placeholders filled.
+    system = call["messages"][0].parts[0].text or ""
+    assert "Марина" in system and "outfit" in system and "{" + "ambience}" not in system
+    assert "2–3 предложения от третьего лица" in system and "20 ноября" in system
+    assert (call["max_tokens"], call["key_tier"]) == (6000, "auto")
     assert call["json_schema"]["title"] == "DayPlan"
     [row] = await all_rows(db, select(PersonaDay).where(PersonaDay.day == SUNDAY))
     assert len(row.events) == 7 and row.source == DaySource.MODEL and row.model == LIFE_MODEL
@@ -231,7 +237,7 @@ async def test_reply_stores_new_canon_without_duplicates_and_asks_for_todays_pla
 async def test_reply_waits_while_she_is_asleep(db: AsyncSession, deps: Deps, fakes: Fakes,
                                                clock: FixedClock) -> None:
     clock.at = utc(SUNDAY, "02:00")
-    persona = await life_persona(db, model_life="")
+    persona = await life_persona(db, models={"life": ""})
     chat = await make_chat(db, persona)
     await add_message(db, chat, "спишь?", at=clock.now() - timedelta(seconds=30))
 
@@ -246,7 +252,7 @@ async def test_reply_waits_while_she_is_asleep(db: AsyncSession, deps: Deps, fak
 
 async def test_a_missed_call_is_answered_by_text_when_she_is_free(
         db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
-    persona = await life_persona(db, model_life="")
+    persona = await life_persona(db, models={"life": ""})
     chat = await make_chat(db, persona)
     await add_event(db, chat, EventKind.CALL, at=clock.now() - timedelta(minutes=5),
                     data={"status": "missed", "life_busy": "away"})
