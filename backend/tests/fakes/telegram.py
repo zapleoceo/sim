@@ -23,14 +23,20 @@ from sim.telegram.calls.backend import CallGone
 
 
 class _Ctx:
-    def __init__(self, session: AsyncSession) -> None:
+    """One use of the shared test session. Uses are serialized: concurrent tasks (two channels
+    starting side by side) would otherwise begin two transactions on the same session, which
+    a real pool of connections never does."""
+
+    def __init__(self, session: AsyncSession, lock: asyncio.Lock) -> None:
         self.session = session
+        self.lock = lock
 
     async def __aenter__(self) -> AsyncSession:
+        await self.lock.acquire()
         return self.session
 
     async def __aexit__(self, *exc: object) -> None:
-        return None
+        self.lock.release()
 
 
 class TestSessions:
@@ -41,9 +47,10 @@ class TestSessions:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+        self.lock = asyncio.Lock()
 
     def __call__(self) -> _Ctx:
-        return _Ctx(self.session)
+        return _Ctx(self.session, self.lock)
 
 
 # --- Telethon objects ------------------------------------------------------------------------
