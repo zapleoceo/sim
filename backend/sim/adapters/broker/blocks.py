@@ -77,14 +77,39 @@ def schema_name(label: str) -> str:
     return name or DEFAULT_SCHEMA_NAME
 
 
+def inline_refs(schema: Any) -> Any:
+    """The same JSON Schema without `$ref` / `$defs`: every local reference is replaced by its
+    definition, and pydantic's `discriminator` mapping (it points into `$defs`) is dropped —
+    `oneOf` / `anyOf` stay. Subscription models in the Broker reject schemas with references."""
+    defs = schema.get("$defs", {}) if isinstance(schema, dict) else {}
+
+    def walk(node: Any, seen: tuple[str, ...]) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref.rsplit("/", 1)[-1]
+                if name in seen:
+                    raise ValueError(f"recursive schema reference: {name}")
+                return walk(defs[name], (*seen, name))
+            return {key: walk(value, seen) for key, value in node.items()
+                    if key not in ("$defs", "discriminator")}
+        if isinstance(node, list):
+            return [walk(value, seen) for value in node]
+        return node
+
+    return walk(schema, ())
+
+
 def response_format(json_schema: dict[str, Any], label: str = "") -> dict[str, Any]:
     """`json_schema` is either a bare JSON Schema or the full OpenAI `json_schema` object
-    (`{"name", "strict", "schema"}`); both become the Broker's strict `response_format`."""
+    (`{"name", "strict", "schema"}`); both become the Broker's strict `response_format`, with
+    references inlined so every model (subscription ones too) accepts it."""
     if isinstance(json_schema.get("schema"), dict):
         spec = {"name": schema_name(str(json_schema.get("name") or label)), "strict": True,
                 **{k: v for k, v in json_schema.items() if k != "name"}}
+        spec["schema"] = inline_refs(spec["schema"])
     else:
-        spec = {"name": schema_name(label), "strict": True, "schema": json_schema}
+        spec = {"name": schema_name(label), "strict": True, "schema": inline_refs(json_schema)}
     return {"type": "json_schema", "json_schema": spec}
 
 

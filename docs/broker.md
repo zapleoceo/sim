@@ -111,6 +111,11 @@ SIM, а не создают давку у Broker и лимитов провай�
 время от отправки до готовности, id задания; `raw` — тело ответа без больших полей
 (`files`, base64 медиа).
 
+Схема ответа (`response_format`) уходит в Broker без ссылок: `blocks.inline_refs` раскрывает
+`$ref`/`$defs` на месте и убирает `discriminator` (pydantic), `oneOf` остаётся. Подписочные
+модели (`claude-sub/*`, `codex-sub/*`) схемы со ссылками отклоняют (`unsupported_for_subscription_model:
+json_schema references`), остальным раскрытая схема не мешает.
+
 ## 4. Каталог моделей (`list_models`)
 
 `GET /v1/models` → `ModelInfo`: `input_modalities` из `modalities`, `output_modalities`,
