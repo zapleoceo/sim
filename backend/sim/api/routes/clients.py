@@ -101,7 +101,8 @@ async def update_client(client_id: int, data: ClientPatchIn, ctx: ApiContext, db
                                    data={"enabled": client.ai_enabled, "scope": "client"})
     await db.flush()
     # Switching the AI on answers what arrived while it was off (services/ai_switch).
-    waiting = await plan_wakes(db, ctx.deps, chat_ids) if changes.get("ai_enabled") is True         else []
+    switched_on = changes.get("ai_enabled") is True
+    waiting = await plan_wakes(db, ctx.deps, chat_ids) if switched_on else []
     view = views.client_view(client)
     await db.commit()
     await wake(ctx.deps, waiting)
