@@ -33,8 +33,10 @@ async def enqueue_message(
     return message
 
 
-async def mark_sent(session: AsyncSession, message: Message, external_id: str,
+async def mark_sent(session: AsyncSession, message: Message, external_id: str | None,
                     at: datetime) -> None:
+    """`external_id` is None when the messenger did not say it (a retry of a message an earlier
+    attempt already delivered)."""
     message.status = MessageStatus.SENT
     message.external_id = external_id
     message.sent_at = at

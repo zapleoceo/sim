@@ -90,9 +90,34 @@ def understandable(attachment: InboundAttachment) -> bool:
     return mime.startswith(UNDERSTANDABLE_PREFIXES)
 
 
+async def known_ids(session: AsyncSession, channel_id: int, peer_external_id: str,
+                    external_ids: list[str]) -> set[str]:
+    """Which of these incoming message ids of this person on this channel are already stored
+    (the same key `_store` dedupes by: the chat of channel + identity, direction in)."""
+    if not external_ids:
+        return set()
+    rows = await session.scalars(
+        select(Message.external_id)
+        .join(Chat, Chat.id == Message.chat_id)
+        .join(Channel, Channel.id == Chat.channel_id)
+        .join(ClientIdentity, (ClientIdentity.client_id == Chat.client_id)
+              & (ClientIdentity.channel_kind == Channel.kind))
+        .where(Chat.channel_id == channel_id,
+               ClientIdentity.external_id == peer_external_id,
+               Message.direction == Direction.IN,
+               Message.external_id.in_(external_ids)))
+    return {external_id for external_id in rows if external_id is not None}
+
+
 class Inbox:
     def __init__(self, deps: Deps) -> None:
         self.deps = deps
+
+    async def known(self, channel_id: int, peer: Peer, external_ids: list[str]) -> set[str]:
+        """The ids of these messages from `peer` the inbox already has: the catch-up skips them
+        before downloading anything."""
+        async with transaction(self.deps.sessions) as session:
+            return await known_ids(session, channel_id, peer.external_id, external_ids)
 
     async def ingest(self, msg: InboundMessage) -> int | None:
         """Store one client message. Returns the new message id, or None for a duplicate."""

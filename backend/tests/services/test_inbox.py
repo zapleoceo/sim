@@ -108,6 +108,39 @@ async def test_ingest_is_idempotent(db: AsyncSession, deps: Deps, clock: FixedCl
     assert len(await all_rows(db, select(Client))) == 1
 
 
+async def test_known_ids_are_the_stored_incoming_ids_of_this_person_and_channel(
+        db: AsyncSession, deps: Deps, clock: FixedClock) -> None:
+    """What the Telegram catch-up skips before downloading: only this person's incoming
+    messages on this channel count (not another person's, not another account's)."""
+    ch = await channel(db)
+    other_channel = await make_channel(db, await make_persona(db, name="Оля"))
+    other_person = Peer(external_id="999", name="Петя")
+    inbox = Inbox(deps)
+    await inbox.ingest(inbound(ch.id, clock, external_id="1"))
+    await inbox.ingest(inbound(ch.id, clock, external_id="2"))
+    await inbox.ingest(InboundMessage(channel_id=ch.id, peer=other_person, external_id="3",
+                                      text="я", sent_at=clock.now()))
+    await inbox.ingest(inbound(other_channel.id, clock, external_id="4"))
+    chat = await the_chat_of(db, ch.id, PEER)
+    db.add(Message(chat_id=chat.id, direction=Direction.OUT, author=Author.PERSONA,
+                   kind=MessageKind.TEXT, text="ответ", status=MessageStatus.SENT,
+                   external_id="5"))
+    await db.flush()
+
+    asked = ["1", "2", "3", "4", "5", "6"]
+    assert await inbox.known(ch.id, PEER, asked) == {"1", "2"}
+    assert await inbox.known(ch.id, other_person, asked) == {"3"}
+    assert await inbox.known(other_channel.id, PEER, asked) == {"4"}
+    assert await inbox.known(ch.id, PEER, []) == set()
+
+
+async def the_chat_of(db: AsyncSession, channel_id: int, peer: Peer) -> Chat:
+    identity = (await db.scalars(select(ClientIdentity).where(
+        ClientIdentity.external_id == peer.external_id))).one()
+    return (await db.scalars(select(Chat).where(Chat.channel_id == channel_id,
+                                                Chat.client_id == identity.client_id))).one()
+
+
 async def test_her_phone_check_is_queued_when_ai_is_on(db: AsyncSession, deps: Deps,
                                                        fakes: Fakes, clock: FixedClock) -> None:
     """She is a living person by default: not a reply, but a look at her phone soon

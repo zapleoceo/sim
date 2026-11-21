@@ -17,7 +17,7 @@ from sim.domain.enums import (
     MessageStatus,
 )
 from sim.ports import OutboundMessage, Peer, PortError
-from sim.telegram.messenger import FloodWait
+from sim.telegram.messenger import FloodWait, TelegramMessenger
 from sim.telegram.tasks import (
     MAX_RETRIES,
     SendRetry,
@@ -30,7 +30,9 @@ from sim.telegram.tasks import (
 from tests.fakes.telegram import (
     FakeMessenger,
     FakeOutbox,
+    FakeRuntime,
     FakeStorage,
+    FakeTelethonClient,
     RecordingSleep,
     TestSessions,
 )
@@ -67,7 +69,7 @@ async def test_text_is_typed_then_sent_and_marked_sent(db, sessions, clock):
     [(channel_id, outbound)] = messenger.sent
     assert channel_id == world.channel.id
     assert outbound == OutboundMessage(peer=Peer(external_id="1001", access_hash="555"),
-                                       kind="text", text="привет, как ты?")
+                                       kind="text", text="привет, как ты?", key=message.id)
     assert {action for _, action in messenger.actions} == {"typing"}
     assert 1.0 <= sum(sleep.calls) <= 6.0
     assert outbox.sent == [(message.id, "900", clock.now())]
@@ -143,6 +145,31 @@ async def test_a_message_that_is_not_pending_is_skipped(db, sessions, clock):
     message = await outgoing(db, world, status=MessageStatus.SENT)
     result, messenger, outbox, _ = await run(message, sessions, clock)
     assert result == "skipped" and messenger.sent == [] and outbox.sent == []
+
+
+async def test_a_retry_after_a_lost_answer_reaches_the_lead_once(db, sessions, clock):
+    """The first attempt reached Telegram but its answer timed out; the retry carries the same
+    random_id, Telegram refuses it as a duplicate and the message is marked sent (no id)."""
+    world = await seed_world(db)
+    message = await outgoing(db, world)
+    client = FakeTelethonClient()
+    client.connected = True
+    client.lost_answers = 1
+    messenger = TelegramMessenger(FakeRuntime(client), min_interval_s=0, sleep=RecordingSleep())
+    outbox = FakeOutbox()
+
+    async def attempt(final: bool) -> str:
+        return await deliver(message.id, sessions=sessions, storage=FakeStorage(), clock=clock,
+                             messenger=messenger, outbox=outbox, final_attempt=final,
+                             sleep=RecordingSleep())
+
+    with pytest.raises(PortError) as info:
+        await attempt(False)
+    assert info.value.retryable and message.status == MessageStatus.PENDING
+    assert await attempt(True) == "sent"
+    assert len(client.sent) == 1
+    assert outbox.sent == [(message.id, None, clock.now())]
+    assert message.status == MessageStatus.SENT and message.external_id is None
 
 
 async def test_mark_read_uses_the_incoming_message_id(db, sessions):

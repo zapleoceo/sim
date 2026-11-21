@@ -4,7 +4,12 @@ Every send of one account is serialized and spaced by `tg_min_send_interval_s` (
 not fire messages faster than that). Telegram errors become `PortError`:
 - FloodWait / slow mode -> `FloodWait` (retryable, with the seconds Telegram asked to wait);
 - 400 / 401 / 403 / 406 (bad peer, blocked by the user, privacy, bad media) -> permanent;
-- anything else (server errors, timeouts, a dropped connection) -> retryable."""
+- anything else (server errors, timeouts, a dropped connection) -> retryable.
+
+A retryable error may come after Telegram already took the message (a timeout on the answer),
+so every send is idempotent: it carries a `random_id` derived from our message id
+(`OutboundMessage.key`, sim/telegram/sending.py) and a retry Telegram recognizes as a duplicate
+counts as sent."""
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +23,7 @@ from typing import Any, Protocol
 from sim.domain.presence import ChatAction
 from sim.ports import OutboundMessage, Peer, PortError
 from sim.telegram.peers import input_peer
+from sim.telegram.sending import invoke, media_request, new_message, random_id, text_request
 
 log = logging.getLogger(__name__)
 
@@ -104,13 +110,45 @@ def chat_action(action: str) -> Any:
     return cls(progress=0) if action in _UPLOAD_ACTIONS else cls()
 
 
-def warn_if_not_round(sent: Any) -> None:
-    """Telethon's Message.video_note is set only when Telegram stored a round video message;
-    anything else (an ordinary video with a seek bar) is logged so it never goes unnoticed."""
-    first = sent[0] if isinstance(sent, list) and sent else sent
-    if getattr(first, "video_note", None) is None:
-        log.warning("telegram: video note %s was not delivered as a round message",
-                    getattr(first, "id", "?"))
+def media_options(message: OutboundMessage) -> dict[str, Any]:
+    """What `send_file` is given for each kind: a voice note with its duration, a true round
+    message (the flag plus an explicit round video attribute, so Telegram never shows it as an
+    ordinary square video), a streamable video, a photo, a document."""
+    from telethon import types
+
+    duration = max(1, round(message.duration_s or 1))
+    if message.kind == "voice":
+        return {"voice_note": True,
+                "attributes": [types.DocumentAttributeAudio(duration=duration, voice=True)]}
+    if message.kind == "video_note":
+        return {"video_note": True,
+                "attributes": [types.DocumentAttributeVideo(
+                    duration=duration, w=VIDEO_NOTE_SIDE, h=VIDEO_NOTE_SIDE,
+                    round_message=True)]}
+    if message.kind == "video":
+        return {"supports_streaming": True}
+    if message.kind == "photo":
+        return {}
+    return {"force_document": True}
+
+
+def caption_of(message: OutboundMessage) -> str:
+    return "" if message.kind == "video_note" else message.text[:CAPTION_LIMIT]
+
+
+def is_round(message: Any) -> bool:
+    document = getattr(getattr(message, "media", None), "document", None)
+    return any(getattr(attr, "round_message", False)
+               for attr in getattr(document, "attributes", None) or [])
+
+
+def warn_if_not_round(result: Any) -> None:
+    """A video note Telegram stored as anything but a round message (an ordinary video with a
+    seek bar) is logged so it never goes unnoticed. Nothing to check when the answer carries no
+    message (a duplicate retry)."""
+    message = new_message(result)
+    if message is not None and not is_round(message):
+        log.warning("telegram: video note %s was not delivered as a round message", message.id)
 
 
 class TelegramMessenger:
@@ -128,17 +166,19 @@ class TelegramMessenger:
 
     # --- MessengerPort -------------------------------------------------------------------
 
-    async def send(self, channel_id: int, message: OutboundMessage) -> str:
-        """Returns the Telegram message id. A long text goes in several messages; the id is the
-        first one's, and a failure after the first part is logged, not raised (a retry would
-        duplicate what was delivered)."""
+    async def send(self, channel_id: int, message: OutboundMessage) -> str | None:
+        """Returns the Telegram message id, or None when Telegram did not say it (a retry of a
+        message an earlier attempt delivered). A long text goes in several messages; the id is
+        the first one's, and a failure after the first part is logged, not raised."""
         client, entity = await self.address(channel_id, message.peer)
         if message.kind == "text":
-            return await self.send_text(channel_id, client, entity, message.text)
+            return await self.send_text(channel_id, client, entity, message)
         if not message.data:
             raise PortError(f"{message.kind} has no file to send")
-        sent = await self.throttled(channel_id, lambda: self.send_media(client, entity, message))
-        return str(int(sent.id))
+        rid = random_id(channel_id, message.key)
+        sent_id = await self.throttled(
+            channel_id, lambda: self.send_media(client, entity, message, rid))
+        return None if sent_id is None else str(sent_id)
 
     async def set_typing(self, channel_id: int, peer: Peer, action: str) -> None:
         """Best effort: a chat action that fails never fails the send."""
@@ -170,49 +210,39 @@ class TelegramMessenger:
         except Exception as exc:
             raise to_port_error(exc) from exc
 
-    async def send_text(self, channel_id: int, client: Any, entity: Any, text: str) -> str:
-        first: str | None = None
-        for index, part in enumerate(chunks(text)):
+    async def send_text(self, channel_id: int, client: Any, entity: Any,
+                        message: OutboundMessage) -> str | None:
+        """Every part has its own stable random id, so a retry re-sends only what is missing."""
+        first: int | None = None
+        for index, part in enumerate(chunks(message.text)):
+            rid = random_id(channel_id, message.key, index)
+
+            async def send(part: str = part, rid: int = rid) -> int | None:
+                request = await text_request(client, entity, part, rid)
+                return (await invoke(client, request))[0]
+
             try:
-                sent = await self.throttled(
-                    channel_id, lambda part=part: client.send_message(entity, part))
+                sent_id = await self.throttled(channel_id, send)
             except PortError:
                 if index == 0:
                     raise
                 log.warning("telegram partial delivery: text part %d failed", index + 1)
                 break
-            first = first or str(int(sent.id))
-        assert first is not None
-        return first
+            if index == 0:
+                first = sent_id
+        return None if first is None else str(first)
 
     @staticmethod
-    async def send_media(client: Any, entity: Any, message: OutboundMessage) -> Any:
-        from telethon import types
-
+    async def send_media(client: Any, entity: Any, message: OutboundMessage,
+                         rid: int) -> int | None:
         file = io.BytesIO(message.data or b"")
         file.name = file_name(message)
-        caption = message.text[:CAPTION_LIMIT]
-        if message.kind == "voice":
-            duration = max(1, round(message.duration_s or 1))
-            return await client.send_file(
-                entity, file, voice_note=True, caption=caption,
-                attributes=[types.DocumentAttributeAudio(duration=duration, voice=True)])
+        request = await media_request(client, entity, file, caption_of(message), rid,
+                                      **media_options(message))
+        sent_id, result = await invoke(client, request)
         if message.kind == "video_note":
-            # A true round message: the flag plus an explicit round video attribute, so Telegram
-            # never shows it as an ordinary square video.
-            duration = max(1, round(message.duration_s or 1))
-            sent = await client.send_file(
-                entity, file, video_note=True,
-                attributes=[types.DocumentAttributeVideo(
-                    duration=duration, w=VIDEO_NOTE_SIDE, h=VIDEO_NOTE_SIDE,
-                    round_message=True)])
-            warn_if_not_round(sent)
-            return sent
-        if message.kind == "video":
-            return await client.send_file(entity, file, caption=caption, supports_streaming=True)
-        if message.kind == "photo":
-            return await client.send_file(entity, file, caption=caption)
-        return await client.send_file(entity, file, caption=caption, force_document=True)
+            warn_if_not_round(result)
+        return sent_id
 
     async def throttled(self, channel_id: int, send: Callable[[], Awaitable[Any]]) -> Any:
         """At most one send per account per `min_interval_s`, serialized; errors mapped."""
@@ -229,15 +259,4 @@ class TelegramMessenger:
                 raise to_port_error(exc) from exc
             finally:
                 self.last_send[channel_id] = self.mono()
-        return result if self.is_message(result) else self.first_of(result)
-
-    @staticmethod
-    def is_message(result: Any) -> bool:
-        return getattr(result, "id", None) is not None
-
-    @staticmethod
-    def first_of(result: Any) -> Any:
-        """send_file may return a list (album); the first message identifies the send."""
-        if isinstance(result, list) and result:
-            return result[0]
-        raise PortError("telegram returned no message")
+        return result
