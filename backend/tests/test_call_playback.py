@@ -188,7 +188,8 @@ async def test_interrupt_during_review_discards_old_audio_without_waiting():
     assert not playback.turns[-1].released
 
 
-async def test_next_turn_review_waits_for_playback_and_includes_approved_history():
+@pytest.mark.parametrize("tail", [b"", b"\x02\x00"])
+async def test_next_turn_review_waits_for_playback_and_includes_approved_history(tail):
     first_checked = asyncio.Event()
     clock = [NOW]
     seen = []
@@ -200,13 +201,22 @@ async def test_next_turn_review_waits_for_playback_and_includes_approved_history
 
     out, trace = output()
     playback = CallPlayback(review, clock=lambda: clock[0])
-    session = FakeSession([*speech_events(PCM), *speech_events(PCM)], end_after_events=True)
+    session = FakeSession([*speech_events(PCM + tail), *speech_events(PCM)], end_after_events=True)
     task = asyncio.create_task(playback.run(session, out, 24000, trace))
     await first_checked.wait()
-    assert len(seen) == 1 and len(out) == len(PCM)
+    assert len(seen) == 1
     clock[0] += timedelta(seconds=10)
-    assert out.pop_frame() == PCM
-    playback.acknowledge(playback.playing, len(PCM))
+    first_turn = playback.playing
+    assert first_turn is not None
+    frame = out.pop_frame()
+    assert frame == PCM
+    playback.acknowledge(first_turn, len(frame))
+    if tail:
+        assert not first_turn.delivered
+        frame = out.pop_frame()
+        assert frame == tail.ljust(len(PCM), b"\x00")
+        playback.acknowledge(first_turn, len(frame))
+    assert first_turn.delivered and len(out) == 0
     await asyncio.wait_for(task, timeout=1)
     assert len(seen) == 2 and seen[1][0] == clock[0]
     assert any(t.role == "assistant" for t in seen[1][1])
