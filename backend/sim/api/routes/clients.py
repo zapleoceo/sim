@@ -19,6 +19,7 @@ from sim.db.models import Chat, Client, Message, Persona
 from sim.domain.enums import EventKind, LeadStage
 from sim.domain.passport import apply_edit, passport_of, stored
 from sim.events import append_event
+from sim.services.ai_switch import plan_wakes, wake
 
 Json = dict[str, Any]
 CLIENTS_LIMIT = 1000
@@ -87,6 +88,7 @@ async def update_client(client_id: int, data: ClientPatchIn, ctx: ApiContext, db
     for field, value in changes.items():
         setattr(client, field, value)
     profile_fields = sorted(f for f in changes if f != "ai_enabled")
+    chat_ids: list[int] = []
     if changes:
         chat_ids = list(await db.scalars(select(Chat.id).where(Chat.client_id == client.id)))
         for chat_id in chat_ids:
@@ -98,7 +100,12 @@ async def update_client(client_id: int, data: ClientPatchIn, ctx: ApiContext, db
                                    actor=admin.actor,
                                    data={"enabled": client.ai_enabled, "scope": "client"})
     await db.flush()
-    return views.client_view(client)
+    # Switching the AI on answers what arrived while it was off (services/ai_switch).
+    waiting = await plan_wakes(db, ctx.deps, chat_ids) if changes.get("ai_enabled") is True         else []
+    view = views.client_view(client)
+    await db.commit()
+    await wake(ctx.deps, waiting)
+    return view
 
 
 ROUTES = [list_clients, get_client, update_client]

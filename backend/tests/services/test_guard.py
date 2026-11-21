@@ -24,8 +24,8 @@ def test_outgoing_lines_show_what_the_client_gets() -> None:
     assert outgoing_lines(PLAN) == [
         "1. [текст] привет",
         "2. [голосовое, вслух] как ты?",
-        "3. [фото из медиатеки] подпись: это я",
-        "4. [новое видео: танцую дома]",
+        "3. [фото] подпись: это я",
+        "4. [видео]",
     ]
 
 
@@ -56,7 +56,21 @@ def test_video_notes_are_shown_to_the_guard() -> None:
         {"type": "video_note", "generate": {"prompt": "машу рукой", "caption": "привет",
                                             "speech": "Привет, Дима!"}},
     ]})
-    assert outgoing_lines(plan) == ["1. [кружок из медиатеки]", "2. [новый кружок: привет]"]
+    assert outgoing_lines(plan) == [
+        "1. [кружок]", "2. [кружок] в кадре говорит вслух: Привет, Дима!"]
+
+
+def test_the_generation_task_never_reaches_the_guard() -> None:
+    plan = ReplyPlan.model_validate({"messages": [
+        {"type": "text", "text": "Привет, Max! Драники жарю)"},
+        {"type": "video_note", "generate": {
+            "prompt": "улыбается на кухне", "caption": "Приветствие для Max с кухни",
+            "tags": ["кружок", "кухня"], "speech": "Привет, Max! Драники жарю."}},
+    ]})
+    text = "
+".join(outgoing_lines(plan))
+    assert "Приветствие" not in text and "кухня" not in text
+    assert "[кружок] в кадре говорит вслух: Привет, Max! Драники жарю." in text
 
 
 def test_guard_blocks_announcing_that_media_is_being_made() -> None:
