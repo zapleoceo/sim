@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from litestar.exceptions import ClientException
 from msgspec import UNSET, Meta, Struct, UnsetType
 
+from sim.domain.agents import MAX_MAX_TOKENS, MAX_PROMPT_CHARS, MIN_MAX_TOKENS
 from sim.domain.enums import ClonePart, LeadStage
 
 Text4k = Annotated[str, Meta(min_length=1, max_length=4000)]
@@ -87,7 +88,8 @@ class PasswordIn(Struct):
 
 
 class PersonaPatchIn(Struct):
-    """Every editable column of `persona`. Unknown keys (id, timestamps) are ignored, so the
+    """Every editable column of `persona` except her agents and the guard's rule list (both
+    on `PUT /personas/{id}/agents`). Unknown keys (id, timestamps) are ignored, so the
     dashboard may send back the whole object it received."""
 
     name: Annotated[str, Meta(min_length=1, max_length=120)] | UnsetType = UNSET
@@ -97,22 +99,10 @@ class PersonaPatchIn(Struct):
     birth_date: date | UnsetType | None = UNSET
     avatar_media_id: int | UnsetType | None = UNSET
     prompt: Annotated[str, Meta(max_length=200_000)] | UnsetType = UNSET
-    model_reply: ModelId | UnsetType = UNSET
-    model_guard: ModelId | UnsetType = UNSET
-    model_vision: ModelId | UnsetType = UNSET
-    model_transcribe: ModelId | UnsetType = UNSET
-    model_memory: ModelId | UnsetType = UNSET
-    model_tts: ModelId | UnsetType = UNSET
-    model_image: ModelId | UnsetType = UNSET
-    model_video: ModelId | UnsetType = UNSET
-    model_live: ModelId | UnsetType = UNSET
-    model_life: ModelId | UnsetType = UNSET
-    model_passport: ModelId | UnsetType = UNSET
     appearance: Annotated[str, Meta(max_length=4000)] | UnsetType = UNSET
     voice_ambience_enabled: bool | UnsetType = UNSET
     voice_id: Annotated[str, Meta(max_length=64)] | UnsetType = UNSET
     voice_style: Annotated[str, Meta(max_length=4000)] | UnsetType = UNSET
-    guard_rules: Annotated[str, Meta(max_length=20_000)] | UnsetType = UNSET
     ai_enabled: bool | UnsetType = UNSET
     voice_enabled: bool | UnsetType = UNSET
     photo_enabled: bool | UnsetType = UNSET
@@ -149,9 +139,26 @@ class CanonPatchIn(Struct):
     status: Literal["active", "rejected"] | UnsetType = UNSET
 
 
+class AgentIn(Struct, forbid_unknown_fields=True):
+    """One agent's settings (docs/agents.md). `model` null = the registry default, "" = not
+    used; `key_tier` null = the default tier; an empty `prompt` = the default prompt;
+    `max_tokens` null = the default limit."""
+
+    model: ModelId | None = None
+    key_tier: Literal["auto", "paid", "free"] | None = None
+    prompt: Annotated[str, Meta(max_length=MAX_PROMPT_CHARS)] = ""
+    max_tokens: Annotated[int, Meta(ge=MIN_MAX_TOKENS, le=MAX_MAX_TOKENS)] | None = None
+
+
+class AgentsIn(Struct):
+    """`PUT /personas/{id}/agents`: the agents sent replace their stored settings (the others
+    stay); `guard_rules` is the guard's rule list, edited on its card."""
+
+    agents: Annotated[dict[str, AgentIn], Meta(max_length=32)]
+    guard_rules: Annotated[str, Meta(max_length=20_000)] | UnsetType = UNSET
+
+
 PERSONA_FIELDS: tuple[str, ...] = PersonaPatchIn.__struct_fields__
-PERSONA_MODEL_FIELDS: tuple[str, ...] = tuple(
-    f for f in PERSONA_FIELDS if f.startswith("model_"))
 
 
 def sent_fields(data: Struct) -> dict[str, Any]:

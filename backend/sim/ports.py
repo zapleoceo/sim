@@ -62,16 +62,22 @@ class ChatResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+# `key_tier` of every model call: "auto" (the Broker decides; not sent), "paid" or "free" keys
+# (sim.domain.agents.KeyTier, docs/agents.md). Subscription models ignore it.
+AUTO_TIER = "auto"
+
+
 class LlmPort(Protocol):
     async def chat(self, *, model: str, messages: Sequence[ChatMessage],
                    json_schema: dict[str, Any] | None = None, max_tokens: int = 4096,
-                   label: str = "") -> ChatResult: ...
+                   label: str = "", key_tier: str = AUTO_TIER) -> ChatResult: ...
 
     async def list_models(self) -> list[ModelInfo]: ...
 
 
 class TranscriberPort(Protocol):
-    async def transcribe(self, *, audio: bytes, filename: str, model: str = "") -> ChatResult: ...
+    async def transcribe(self, *, audio: bytes, filename: str, model: str = "",
+                         key_tier: str = AUTO_TIER) -> ChatResult: ...
 
 
 @dataclass(frozen=True)
@@ -83,7 +89,8 @@ class AudioResult:
 
 
 class SpeechPort(Protocol):
-    async def synthesize(self, *, text: str, voice: str, style: str, model: str) -> AudioResult: ...
+    async def synthesize(self, *, text: str, voice: str, style: str, model: str,
+                         key_tier: str = AUTO_TIER) -> AudioResult: ...
 
 
 @dataclass(frozen=True)
@@ -95,12 +102,13 @@ class MediaResult:
 
 class ImageGenPort(Protocol):
     async def generate_image(self, *, prompt: str, references: Sequence[tuple[bytes, str]],
-                             model: str) -> MediaResult: ...
+                             model: str, key_tier: str = AUTO_TIER) -> MediaResult: ...
 
 
 class VideoGenPort(Protocol):
     async def generate_video(self, *, prompt: str, first_frame: tuple[bytes, str] | None,
-                             model: str, duration_s: int = 5) -> MediaResult: ...
+                             model: str, duration_s: int = 5,
+                             key_tier: str = AUTO_TIER) -> MediaResult: ...
 
 
 # --- live voice (calls) ----------------------------------------------------------------------
@@ -124,7 +132,8 @@ class LiveSession(Protocol):
 
 class LivePort(Protocol):
     async def open(self, *, model: str, system: str, voice: str, language: str,
-                   greeting: str, max_seconds: int) -> LiveSession: ...
+                   greeting: str, max_seconds: int,
+                   key_tier: str = AUTO_TIER) -> LiveSession: ...
 
 
 # --- messenger -------------------------------------------------------------------------------

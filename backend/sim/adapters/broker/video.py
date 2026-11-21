@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from sim.adapters.broker.http import BrokerHttp, decode_b64, encode_b64, usage_of
-from sim.ports import MediaResult, PortError
+from sim.adapters.broker.tier import with_tier
+from sim.ports import AUTO_TIER, MediaResult, PortError
 
 VIDEO_PATH = "/v1/video/jobs"
 FIRST_FRAME_MIMES = frozenset({"image/jpeg", "image/png", "image/webp"})
@@ -18,7 +19,7 @@ DEFAULT_WORKFLOW = "sim-video"
 
 def video_job_body(*, prompt: str, first_frame: tuple[bytes, str] | None, model: str,
                    duration_s: int, aspect_ratio: str, resolution: str,
-                   workflow: str) -> dict[str, Any]:
+                   workflow: str, key_tier: str = AUTO_TIER) -> dict[str, Any]:
     if not prompt.strip():
         raise PortError("video: empty prompt")
     body: dict[str, Any] = {
@@ -39,7 +40,7 @@ def video_job_body(*, prompt: str, first_frame: tuple[bytes, str] | None, model:
             raise PortError("video: first frame is larger than 4 MB")
         body["image_base64"] = encode_b64(data)
         body["image_mime"] = kind
-    return body
+    return with_tier(body, key_tier, model)
 
 
 class BrokerVideoGen:
@@ -51,10 +52,12 @@ class BrokerVideoGen:
         self.workflow = workflow
 
     async def generate_video(self, *, prompt: str, first_frame: tuple[bytes, str] | None,
-                             model: str, duration_s: int = 5) -> MediaResult:
+                             model: str, duration_s: int = 5,
+                             key_tier: str = AUTO_TIER) -> MediaResult:
         body = video_job_body(prompt=prompt, first_frame=first_frame, model=model,
                               duration_s=duration_s, aspect_ratio=self.aspect_ratio,
-                              resolution=self.resolution, workflow=self.workflow)
+                              resolution=self.resolution, workflow=self.workflow,
+                              key_tier=key_tier)
         outcome = await self.http.submit(VIDEO_PATH, body, what="video",
                                          budget_s=self.http.media_budget_s)
         clip = decode_b64(outcome.data.get("video_base64"), what="video")

@@ -159,7 +159,7 @@ class ClonePart(StrEnum):
 
     BASICS = "basics"               # gender, language, time zone, birth date
     PROMPT = "prompt"
-    MODELS = "models"               # every model_* field
+    AGENTS = "agents"               # every agent: model, key tier, prompt, max_tokens
     VOICE = "voice"                 # voice, manner of speech, background in voice notes
     GUARD = "guard"                 # the guard's rules
     APPEARANCE = "appearance"

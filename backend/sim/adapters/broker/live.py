@@ -1,6 +1,7 @@
 """LivePort over the Broker WebSocket `/v1/live` (Gemini Live). One socket is one call:
 
-  -> {"type": "start", model, voice, system, language, greeting, max_seconds, workflow}
+  -> {"type": "start", model, voice, system, language, greeting, max_seconds, workflow,
+      key_tier (only "paid" / "free")}
   <- {"type": "ready", input_rate_hz: 16000, output_rate_hz: 24000, max_seconds}
   -> binary 16 kHz mono s16le PCM ... {"type": "end"}
   <- binary 24 kHz PCM, {"type": "transcript", role, text}, {"type": "interrupted"} ...
@@ -20,7 +21,8 @@ from typing import Any
 from websockets.asyncio.client import connect as ws_connect
 
 from sim.adapters.broker.http import USER_AGENT, BrokerHttp, as_int
-from sim.ports import LiveEvent, PortError
+from sim.adapters.broker.tier import with_tier
+from sim.ports import AUTO_TIER, LiveEvent, PortError
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ async def websocket_connect(url: str, headers: dict[str, str]) -> Any:  # pragma
 
 
 def start_message(*, model: str, system: str, voice: str, language: str, greeting: str,
-                  max_seconds: int, workflow: str) -> dict[str, Any]:
+                  max_seconds: int, workflow: str, key_tier: str = AUTO_TIER) -> dict[str, Any]:
     message: dict[str, Any] = {"type": "start", "system": system, "workflow": workflow}
     for name, value in (("model", model), ("voice", voice), ("language", language),
                         ("greeting", greeting)):
@@ -59,7 +61,7 @@ def start_message(*, model: str, system: str, voice: str, language: str, greetin
             message[name] = value
     if max_seconds > 0:
         message["max_seconds"] = int(max_seconds)
-    return message
+    return with_tier(message, key_tier, model)
 
 
 def parse_message(raw: Any) -> dict[str, Any] | None:
@@ -188,10 +190,11 @@ class BrokerLive:
         return cls(http.base_url, http.project_key, **kwargs)
 
     async def open(self, *, model: str, system: str, voice: str, language: str,
-                   greeting: str, max_seconds: int) -> BrokerLiveSession:
+                   greeting: str, max_seconds: int,
+                   key_tier: str = AUTO_TIER) -> BrokerLiveSession:
         start = start_message(model=model, system=system, voice=voice, language=language,
                               greeting=greeting, max_seconds=max_seconds,
-                              workflow=self.workflow)
+                              workflow=self.workflow, key_tier=key_tier)
         try:
             ws = await self.connect(self.url, {"X-Project-Key": self.project_key})
         except Exception as exc:

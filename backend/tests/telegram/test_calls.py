@@ -81,7 +81,7 @@ async def test_an_answered_call_is_bridged_transcribed_and_recorded(db, sessions
     assert call.log == ["answer", "hangup"]
     assert live.opened == [{"model": "gemini-live", "system": "Ты Марина.",
                             "voice": "Vindemiatrix", "language": "ru", "greeting": "Алло?",
-                            "max_seconds": 30}]
+                            "max_seconds": 30, "key_tier": "paid"}]
     assert context.chats == [world.chat.id]
     assert session.audio_in and all(len(chunk) >= 1280 for chunk in session.audio_in)
     assert session.finished.is_set()
@@ -104,7 +104,7 @@ async def test_an_answered_call_is_bridged_transcribed_and_recorded(db, sessions
 @pytest.mark.parametrize(("seed", "config", "reason"), [
     ({}, {"calls_enabled": False}, "calls are disabled"),
     ({"persona_calls": False}, {}, "persona calls are off"),
-    ({"model_live": ""}, {}, "no live model"),
+    ({"live_model": ""}, {}, "no live model"),
     ({"client_ai": False}, {}, "AI is off for this client"),
     ({"chat_ai": False}, {}, "AI is off in this chat"),
 ])
@@ -231,26 +231,29 @@ async def test_calls_left_open_by_a_restart_are_closed_as_failed(db, sessions, c
     assert event.data["status"] == "failed"
 
 
+LIVE = {"live": {"model": "m"}}         # persona.agents with the call agent's model
+
+
 def test_refuse_reason_order():
     persona = SimpleNamespace(id=1, is_active=True, ai_enabled=True, calls_enabled=True,
-                              model_live="m")
+                              agents=LIVE)
     client = SimpleNamespace(ai_enabled=True)
     chat = SimpleNamespace(ai_enabled=True, persona_id=1)
     off = "persona AI is off (or the persona is archived)"
     assert refuse_reason(calls_enabled=True, persona=persona, client=client, chat=chat) is None
     assert refuse_reason(calls_enabled=True, persona=SimpleNamespace(
-        id=1, is_active=True, ai_enabled=False, calls_enabled=True, model_live="m"),
+        id=1, is_active=True, ai_enabled=False, calls_enabled=True, agents=LIVE),
         client=client, chat=chat) == off
     archived = SimpleNamespace(id=1, is_active=False, ai_enabled=True, calls_enabled=True,
-                               model_live="m")
+                               agents=LIVE)
     assert refuse_reason(calls_enabled=True, persona=archived, client=client, chat=chat) == off
     other = SimpleNamespace(id=2, is_active=True, ai_enabled=True, calls_enabled=True,
-                            model_live="m")
+                            agents=LIVE)
     assert refuse_reason(calls_enabled=True, persona=other, client=client, chat=chat) == off
     assert refuse_reason(calls_enabled=True, persona=persona, client=None,
                          chat=chat) == "AI is off for this client"
 
 
 def test_fake_context_matches_the_shared_contract():
-    fields = {"system", "greeting", "language", "voice", "model", "max_seconds"}
+    fields = {"system", "greeting", "language", "voice", "model", "max_seconds", "key_tier"}
     assert set(vars(FakeCallContext())) == fields

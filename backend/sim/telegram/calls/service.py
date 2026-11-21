@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sim.config import Settings
 from sim.db.models import Call, Chat, Client, Persona
 from sim.db.session import transaction
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import CallDirection, CallStatus, EventKind
 from sim.domain.life import BusyLevel
 from sim.events import append_event
@@ -93,7 +94,7 @@ def refuse_reason(*, calls_enabled: bool, persona: Persona | None, client: Clien
         return "persona AI is off (or the persona is archived)"
     if not persona.calls_enabled:
         return "persona calls are off"
-    if not persona.model_live:
+    if not agent_config(persona, AgentKey.LIVE).model:
         return "no live model chosen for the persona"
     if client is None or not client.ai_enabled:
         return "AI is off for this client"
@@ -165,7 +166,7 @@ class CallService:
         try:
             session = await self.live.open(
                 model=ctx.model, system=ctx.system, voice=ctx.voice, language=ctx.language,
-                greeting=ctx.greeting, max_seconds=max_seconds)
+                greeting=ctx.greeting, max_seconds=max_seconds, key_tier=ctx.key_tier)
         except Exception as exc:
             await call.decline()
             return await self.close(ring, CallStatus.FAILED, error=f"live: {short(exc)}")

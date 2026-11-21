@@ -5,13 +5,13 @@ import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Section } from '@/components/field';
+import { Segmented } from '@/components/segmented';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import { tabTriggerClass, tabsListClass } from '@/components/ui/tabs';
 import { qk } from '@/lib/query';
 import type { Media } from '@/lib/types';
 import { cn, splitTags } from '@/lib/utils';
@@ -29,30 +29,6 @@ const KINDS: { value: MediaKindFilter; label: string }[] = [
   { value: 'photo', label: 'Фото' },
   { value: 'video', label: 'Видео' },
 ];
-
-function Segmented<T extends string>({ label, value, options, onChange }: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div role="group" aria-label={label} className={tabsListClass}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          aria-pressed={o.value === value}
-          data-state={o.value === value ? 'active' : 'inactive'}
-          className={tabTriggerClass}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function useMediaInvalidate(): () => void {
   const queryClient = useQueryClient();

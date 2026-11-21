@@ -56,7 +56,8 @@ export const qk = {
   mediaList: (id: number, source: string, kind: string) => ['personas', id, 'media', source, kind] as const,
   models: ['models'] as const,
   voices: ['voices'] as const,
-  instructions: ['instructions'] as const,
+  agentRegistry: ['agents', 'registry'] as const,
+  agents: (id: number) => ['personas', id, 'agents'] as const,
 
   clients: ['clients'] as const,
   /** `personaId` 0 / `stage` '' = no filter. */

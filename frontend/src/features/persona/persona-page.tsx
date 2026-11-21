@@ -10,11 +10,11 @@ import { BackLink, Page } from '@/components/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { errorMessage } from '@/lib/api';
 import { qk } from '@/lib/query';
 import type { Persona } from '@/lib/types';
 import { positiveInt } from '@/lib/utils';
 import { personaApi } from './api';
+import { AgentsSection } from './agents/agents-section';
 import { ChannelSection } from './channel-section';
 import { CloneDialog } from './clone-dialog';
 import { LifeSection } from './life/life-section';
@@ -22,7 +22,6 @@ import { MediaLibrarySection } from './media-library';
 import { PersonaEditor } from './persona-editor';
 import { PersonaIdProvider } from './persona-scope';
 import { avatarUrl } from './personas-page';
-import { FormatRulesSection } from './readonly-sections';
 
 const route = getRouteApi('/_app/personas/$personaId');
 
@@ -30,12 +29,10 @@ const TOC: { id: string; label: string }[] = [
   { id: 'basics', label: 'Основное' },
   { id: 'prompt', label: 'Промт' },
   { id: 'appearance', label: 'Внешность' },
-  { id: 'models', label: 'Модели' },
   { id: 'voice', label: 'Голос' },
-  { id: 'guard', label: 'Проверка' },
   { id: 'switches', label: 'Переключатели' },
+  { id: 'agents', label: 'Агенты' },
   { id: 'life', label: 'Жизнь' },
-  { id: 'format', label: 'Правила формата' },
   { id: 'channel', label: 'Канал' },
   { id: 'media', label: 'Медиатека' },
 ];
@@ -106,7 +103,6 @@ export function PersonaPage() {
   const { personaId } = route.useParams();
   const id = positiveInt(personaId) ?? 0;
   const persona = useQuery({ queryKey: qk.persona(id), queryFn: () => personaApi.get(id), enabled: id > 0 });
-  const models = useQuery({ queryKey: qk.models, queryFn: personaApi.models, staleTime: 5 * 60_000 });
   const voices = useQuery({ queryKey: qk.voices, queryFn: personaApi.voices, staleTime: Infinity });
 
   return (
@@ -137,14 +133,9 @@ export function PersonaPage() {
               </ul>
             </nav>
             <div className="flex min-w-0 flex-col gap-4">
-              <PersonaEditor
-                persona={persona.data}
-                models={models.data?.items ?? []}
-                modelsError={models.isError ? `Каталог моделей недоступен: ${errorMessage(models.error)}` : undefined}
-                voices={voices.data?.items ?? []}
-              >
+              <PersonaEditor persona={persona.data} voices={voices.data?.items ?? []}>
+                <AgentsSection />
                 <LifeSection />
-                <FormatRulesSection />
                 <ChannelSection />
                 <MediaLibrarySection />
               </PersonaEditor>

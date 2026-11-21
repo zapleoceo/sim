@@ -83,6 +83,7 @@ async def test_call_context(db: AsyncSession, clock: FixedClock, settings: Setti
 
     assert ctx.greeting == "Алло?" and ctx.language == "ru"
     assert ctx.voice == "Vindemiatrix" and ctx.model == "live-model"
+    assert ctx.key_tier == "paid"                       # «Звонок» runs on paid keys
     assert ctx.max_seconds == settings.call_max_seconds
     assert "Сейчас ты говоришь голосом" in ctx.system and "# Как отвечать" not in ctx.system
     assert "[звонок входящий, 1:05]\n  Дима: алло" in ctx.system

@@ -53,7 +53,8 @@ py-tgcalls вообще не подключается: звонки звонят
 1. `SIM_CALLS_ENABLED` включён;
 2. у персонажа включён ИИ (`persona.ai_enabled`);
 3. у персонажа включены звонки (`persona.calls_enabled`);
-4. у персонажа выбрана модель звонков (`persona.model_live`);
+4. у агента Звонок есть модель (`agent_config(persona, "live")`, [agents.md](agents.md)); звонок
+   идёт на его ключах (по умолчанию платных, поле `key_tier` в сообщении `start`);
 5. у клиента включён ИИ (`client.ai_enabled`, у нового клиента выключен);
 6. в чате включён ИИ (`chat.ai_enabled`).
 

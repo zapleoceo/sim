@@ -14,7 +14,8 @@ from sim.adapters.broker.blocks import (
 )
 from sim.adapters.broker.http import BrokerHttp, is_subscription_model, usage_of
 from sim.adapters.broker.models import BrokerModelCatalog
-from sim.ports import ChatMessage, ChatResult, ModelInfo, PortError
+from sim.adapters.broker.tier import with_tier
+from sim.ports import AUTO_TIER, ChatMessage, ChatResult, ModelInfo, PortError
 
 JOBS_PATH = "/v1/jobs"
 # Poll-body fields too large or useless to keep in `ChatResult.raw` (it is logged to llm_call).
@@ -22,9 +23,10 @@ BULKY_KEYS = frozenset({"files", "video_base64", "audio_base64", "image_base64"}
 
 
 def chat_body(*, model: str, messages: Sequence[ChatMessage], json_schema: dict[str, Any] | None,
-              max_tokens: int, workflow: str | None, label: str) -> dict[str, Any]:
+              max_tokens: int, workflow: str | None, label: str,
+              key_tier: str = AUTO_TIER) -> dict[str, Any]:
     """The `/v1/jobs` body. Subscription models (claude-sub/, codex-sub/) reject anything but the
-    default max_tokens / temperature, so neither is sent for them."""
+    default max_tokens / temperature, so neither is sent for them (nor the key tier)."""
     body: dict[str, Any] = {"messages": [message_payload(message) for message in messages]}
     if model:
         body["model"] = model
@@ -34,7 +36,7 @@ def chat_body(*, model: str, messages: Sequence[ChatMessage], json_schema: dict[
         body["max_tokens"] = clamp_max_tokens(max_tokens)
     if workflow:
         body["workflow"] = workflow
-    return body
+    return with_tier(body, key_tier, model)
 
 
 class BrokerLlm:
@@ -44,13 +46,14 @@ class BrokerLlm:
 
     async def chat(self, *, model: str, messages: Sequence[ChatMessage],
                    json_schema: dict[str, Any] | None = None, max_tokens: int = 4096,
-                   label: str = "") -> ChatResult:
+                   label: str = "", key_tier: str = AUTO_TIER) -> ChatResult:
         if not messages:
             raise PortError("chat: no messages")
         capability = pick_capability(model, messages, json_schema)
         workflow = workflow_tag(label)
         body = chat_body(model=model, messages=messages, json_schema=json_schema,
-                         max_tokens=max_tokens, workflow=workflow, label=label)
+                         max_tokens=max_tokens, workflow=workflow, label=label,
+                         key_tier=key_tier)
         params = {"capability": capability}
         if workflow:
             params["workflow"] = workflow

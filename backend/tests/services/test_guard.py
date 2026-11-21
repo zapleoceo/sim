@@ -66,3 +66,12 @@ def test_guard_blocks_announcing_that_media_is_being_made() -> None:
     system = guard_messages(persona, facts, [], PLAN)[0].parts[0].text or ""
     assert "5. Персонаж не объявляет" in system
     assert "сейчас запишу" in system and "придёт позже" in system
+
+
+def test_owner_guard_prompt_replaces_the_default() -> None:
+    persona = Persona(name="Марина", language="uk", guard_rules="",
+                      agents={"guard": {"prompt": 'Проверь ответ {name} ({language}). {"ok"}'}})
+    facts = compute_facts(FactsInput(now=datetime(2026, 11, 21, 18, 30, tzinfo=UTC),
+                                     persona_tz="Europe/Kyiv"))
+    system = guard_messages(persona, facts, [], PLAN)[0].parts[0].text
+    assert system == 'Проверь ответ Марина (uk). {"ok"}'

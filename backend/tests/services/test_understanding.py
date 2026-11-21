@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +41,7 @@ def test_pick_strategy(message_kind: MessageKind, kind: MediaKind, mime: str,
 async def attachment(db: AsyncSession, fakes: Fakes, clock: FixedClock, *,
                      message_kind: MessageKind, kind: MediaKind, mime: str,
                      data: bytes = b"bytes", file_name: str = "",
-                     **persona: str) -> MediaAsset:
+                     **persona: Any) -> MediaAsset:
     chat = await make_chat(db)
     if persona:
         row = await db.get(Persona, chat.persona_id)
@@ -181,7 +183,7 @@ async def test_document_text_is_read_by_tools(db: AsyncSession, deps: Deps, fake
 async def test_failure_is_recorded(db: AsyncSession, deps: Deps, fakes: Fakes,
                                    clock: FixedClock) -> None:
     media = await attachment(db, fakes, clock, message_kind=MessageKind.PHOTO,
-                             kind=MediaKind.PHOTO, mime="image/jpeg", model_vision="")
+                             kind=MediaKind.PHOTO, mime="image/jpeg", agents={})
 
     assert await Understanding(deps).understand(media.id) == UnderstandingStatus.FAILED
 
@@ -191,3 +193,29 @@ async def test_failure_is_recorded(db: AsyncSession, deps: Deps, fakes: Fakes,
     [event] = await all_rows(db, select(ChatEvent).where(
         ChatEvent.kind == EventKind.MEDIA_UNDERSTOOD))
     assert event.data["status"] == "failed"
+
+
+async def test_owner_vision_prompt_and_key_tier_are_used(db: AsyncSession, deps: Deps,
+                                                         fakes: Fakes, clock: FixedClock) -> None:
+    """«Зрение» takes the owner's [Фото] section and passes its key tier to the Broker and into
+    the log."""
+    agents = {"vision": {"model": "vision-model", "key_tier": "free",
+                         "prompt": "[Фото]\nОпиши одним словом."}}
+    photo = await attachment(db, fakes, clock, message_kind=MessageKind.PHOTO,
+                             kind=MediaKind.PHOTO, mime="image/png", agents=agents)
+    fakes.llm.script("vision-model", "Кот.")
+    await Understanding(deps).understand(photo.id)
+    [call] = fakes.llm.calls_for("vision-model")
+    assert call["messages"][0].parts[0].text == "Опиши одним словом."
+    assert (call["key_tier"], call["max_tokens"]) == ("free", 800)
+    [log] = await all_rows(db, select(LlmCall))
+    assert log.request["key_tier"] == "free"
+
+
+async def test_hearing_runs_on_its_default_paid_tier(db: AsyncSession, deps: Deps,
+                                                     fakes: Fakes, clock: FixedClock) -> None:
+    voice = await attachment(db, fakes, clock, message_kind=MessageKind.VOICE,
+                             kind=MediaKind.AUDIO, mime="audio/ogg", data=b"OGG")
+    await Understanding(deps).understand(voice.id)
+    [call] = fakes.transcriber.calls
+    assert (call["model"], call["key_tier"]) == ("stt-model", "paid")

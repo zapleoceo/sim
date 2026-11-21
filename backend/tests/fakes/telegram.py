@@ -282,6 +282,7 @@ class FakeCallContext:
     voice: str = "Vindemiatrix"
     model: str = "gemini-live"
     max_seconds: int = 30
+    key_tier: str = "paid"
 
 
 class FakeContextBuilder:

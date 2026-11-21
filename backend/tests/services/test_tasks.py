@@ -178,10 +178,10 @@ async def test_passport_task_runs_the_service(db: AsyncSession, deps: Deps, fake
 
 async def test_life_tick_plans_every_active_persona(db: AsyncSession, deps: Deps,
                                                     fakes: Fakes) -> None:
-    marina = await make_persona(db, model_life="life-model", timezone="Europe/Berlin")
-    olya = await make_persona(db, name="Оля", model_life="life-model",
+    marina = await make_persona(db, models={"life": "life-model"}, timezone="Europe/Berlin")
+    olya = await make_persona(db, name="Оля", models={"life": "life-model"},
                               timezone="Europe/Berlin")
-    await make_persona(db, name="Архив", model_life="life-model", is_active=False)
+    await make_persona(db, name="Архив", models={"life": "life-model"}, is_active=False)
     set_deps(deps)
     try:
         await agent.life_tick(0)
@@ -205,7 +205,7 @@ async def test_plan_day_queue_and_registration() -> None:
 
 
 async def test_life_tasks_run_the_planner(db: AsyncSession, deps: Deps, fakes: Fakes) -> None:
-    persona = await make_persona(db, model_life="life-model", timezone="Europe/Berlin")
+    persona = await make_persona(db, models={"life": "life-model"}, timezone="Europe/Berlin")
     set_deps(deps)
     try:
         await agent.life_tick(0)

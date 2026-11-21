@@ -13,7 +13,8 @@ from typing import Any
 from urllib.parse import quote
 
 from sim.adapters.broker.http import BrokerHttp, BrokerHttpError, usage_of
-from sim.ports import ChatResult, PortError
+from sim.adapters.broker.tier import with_tier
+from sim.ports import AUTO_TIER, ChatResult, PortError
 
 KEYED_PATH = "/v1/transcribe/keyed-jobs"
 JOB_PATH = "/v1/transcribe/jobs/{job_id}"
@@ -35,16 +36,19 @@ class BrokerTranscriber:
         self.http = http
         self.workflow = workflow
 
-    async def transcribe(self, *, audio: bytes, filename: str, model: str = "") -> ChatResult:
+    async def transcribe(self, *, audio: bytes, filename: str, model: str = "",
+                         key_tier: str = AUTO_TIER) -> ChatResult:
         """`model` is accepted for the port but not sent: the keyed route has no pin, the
-        Broker walks its transcription chain."""
+        Broker walks its transcription chain. `key_tier` goes next to `workflow` in the query
+        (the body is the multipart file); "auto" is not sent."""
         if not audio:
             raise PortError("transcribe: empty audio")
         name = filename or DEFAULT_FILENAME
         key = idempotency_key(audio, name, self.workflow)
+        params = with_tier({"workflow": self.workflow}, key_tier)
         async with self.http.slot("transcribe"):
             start = self.http.clock()
-            job = await self._submit(audio, name, key)
+            job = await self._submit(audio, name, key, params)
             job_id = str(job.get("job_id") or "")
             data = await self.http.poll(job, what="transcribe",
                                         budget_s=self.http.poll_budget_s,
@@ -57,10 +61,11 @@ class BrokerTranscriber:
             raw=data,
         )
 
-    async def _submit(self, audio: bytes, filename: str, key: str) -> dict[str, Any]:
+    async def _submit(self, audio: bytes, filename: str, key: str,
+                      params: dict[str, Any]) -> dict[str, Any]:
         try:
             response = await self.http.request(
-                "POST", KEYED_PATH, what="transcribe", params={"workflow": self.workflow},
+                "POST", KEYED_PATH, what="transcribe", params=params,
                 files={"file": (filename, audio, "application/octet-stream")},
                 headers={"Idempotency-Key": key},
             )

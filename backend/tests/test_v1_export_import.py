@@ -127,7 +127,7 @@ def test_persona_fields():
         "timezone": "Europe/Kyiv", "birth_date": date(1999, 4, 12),
         "guard_rules": "Не признавайся, что ты ИИ.",
     }
-    assert "model_reply" not in fields          # models are picked on the persona page
+    assert "agents" not in fields               # agents are tuned on the persona page
 
 
 def test_persona_fields_keep_defaults_for_empty_values():
@@ -217,7 +217,7 @@ async def test_import_is_idempotent(db, tmp_path):
     assert persona.prompt == "Ты Марина." and persona.voice_id == "Vindemiatrix"
     assert persona.birth_date == date(1999, 4, 12) and persona.gender == "female"
     assert persona.guard_rules == "Не признавайся, что ты ИИ."
-    assert persona.model_reply == ""
+    assert persona.agents == {}
 
     channels = (await db.scalars(select(Channel))).all()
     assert len(channels) == 1

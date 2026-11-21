@@ -28,8 +28,9 @@ LIFE = {"routine": [], "people": [{"name": "Андрей", "relation": "муж",
 async def source(db: AsyncSession, **fields: Any) -> Persona:
     return await make_persona(
         db, timezone="Europe/Berlin", language="uk", birth_date=date(1990, 1, 2),
-        appearance="green eyes", life=LIFE, model_life="life-model",
-        model_passport="passport-model", reply_delay_s=20, video_enabled=False, **fields)
+        appearance="green eyes", life=LIFE,
+        models={"life": "life-model", "passport": "passport-model"}, reply_delay_s=20,
+        video_enabled=False, **fields)
 
 
 def fields_of(part: ClonePart) -> tuple[str, ...]:

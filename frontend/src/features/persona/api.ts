@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import type {
-  BrokerModel, Channel, ClonePart, Items, LoginResponse, Media, Persona, PersonaPatch, PersonaRow, Voice,
+  AgentRegistry, BrokerModel, Channel, ClonePart, Items, LoginResponse, Media, Persona, PersonaAgents,
+  PersonaAgentsPatch, PersonaPatch, PersonaRow, Voice,
 } from '@/lib/types';
 
 export type MediaSourceFilter = 'all' | 'library' | 'generated';
@@ -35,7 +36,16 @@ export const personaApi = {
     api.post<Persona>(personaPath(id, '/clone'), { name, parts }),
   models: () => api.get<Items<BrokerModel>>('/models'),
   voices: () => api.get<Items<Voice>>('/voices'),
-  instructions: () => api.get<{ text: string }>('/instructions'),
+};
+
+/** The persona's agents (docs/agents.md): the registry, her settings, save and reset. */
+export const agentApi = {
+  registry: () => api.get<AgentRegistry>('/agents/registry'),
+  get: (personaId: number) => api.get<PersonaAgents>(personaPath(personaId, '/agents')),
+  save: (personaId: number, patch: PersonaAgentsPatch) =>
+    api.put<PersonaAgents>(personaPath(personaId, '/agents'), patch),
+  reset: (personaId: number, key: string) =>
+    api.post<PersonaAgents>(personaPath(personaId, `/agents/${key}/reset`)),
 };
 
 /** The persona's channels and the QR login of a Telegram account. */

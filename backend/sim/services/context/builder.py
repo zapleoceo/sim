@@ -22,6 +22,7 @@ from sim.db.models import (
     Message,
     Persona,
 )
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import (
     CallStatus,
     EventKind,
@@ -29,7 +30,7 @@ from sim.domain.enums import (
     MediaKind,
 )
 from sim.domain.passport import passport_lines, passport_of
-from sim.ports import ChatMessage, ChatPart, ClockPort
+from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
 from sim.services.capabilities import Capabilities, capabilities_of
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
 from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp
@@ -115,6 +116,7 @@ class CallContext:
     voice: str
     model: str
     max_seconds: int
+    key_tier: str = AUTO_TIER       # «Звонок» (docs/agents.md)
 
 
 def _text_message(role: str, text: str) -> ChatMessage:
@@ -341,9 +343,10 @@ class ContextBuilder:
         timeline = "\n".join(line.text for line in know.lines)
         if timeline:
             blocks.append(f"# Последняя переписка\n{timeline}")
+        live = agent_config(persona, AgentKey.LIVE)
         return CallContext(
             system="\n\n".join(blocks),
             greeting=CALL_GREETINGS.get(persona.language, DEFAULT_GREETING),
-            language=persona.language, voice=persona.voice_id, model=persona.model_live,
-            max_seconds=self.settings.call_max_seconds,
+            language=persona.language, voice=persona.voice_id, model=live.model,
+            max_seconds=self.settings.call_max_seconds, key_tier=live.key_tier,
         )

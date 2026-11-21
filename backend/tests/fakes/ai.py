@@ -47,9 +47,9 @@ class FakeLlm:
 
     async def chat(self, *, model: str, messages: Sequence[ChatMessage],
                    json_schema: dict[str, Any] | None = None, max_tokens: int = 4096,
-                   label: str = "") -> ChatResult:
+                   label: str = "", key_tier: str = "auto") -> ChatResult:
         record = {"model": model, "messages": list(messages), "json_schema": json_schema,
-                  "label": label}
+                  "label": label, "max_tokens": max_tokens, "key_tier": key_tier}
         self.calls.append(record)
         if self.answers[model]:
             answer = self.answers[model].popleft()
@@ -75,8 +75,10 @@ class FakeTranscriber:
     error: Exception | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
 
-    async def transcribe(self, *, audio: bytes, filename: str, model: str = "") -> ChatResult:
-        self.calls.append({"audio": audio, "filename": filename, "model": model})
+    async def transcribe(self, *, audio: bytes, filename: str, model: str = "",
+                         key_tier: str = "auto") -> ChatResult:
+        self.calls.append({"audio": audio, "filename": filename, "model": model,
+                           "key_tier": key_tier})
         if self.error is not None:
             raise self.error
         return ChatResult(text=self.text, usage=Usage(model=model or "stt"))
@@ -87,8 +89,10 @@ class FakeSpeech:
     error: Exception | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
 
-    async def synthesize(self, *, text: str, voice: str, style: str, model: str) -> AudioResult:
-        self.calls.append({"text": text, "voice": voice, "style": style, "model": model})
+    async def synthesize(self, *, text: str, voice: str, style: str, model: str,
+                         key_tier: str = "auto") -> AudioResult:
+        self.calls.append({"text": text, "voice": voice, "style": style, "model": model,
+                           "key_tier": key_tier})
         if self.error is not None:
             raise self.error
         return AudioResult(data=b"RIFF" + text.encode(), mime="audio/wav", duration_s=2.0,
@@ -101,8 +105,9 @@ class FakeImageGen:
     calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def generate_image(self, *, prompt: str, references: Sequence[tuple[bytes, str]],
-                             model: str) -> MediaResult:
-        self.calls.append({"prompt": prompt, "references": list(references), "model": model})
+                             model: str, key_tier: str = "auto") -> MediaResult:
+        self.calls.append({"prompt": prompt, "references": list(references), "model": model,
+                           "key_tier": key_tier})
         if self.error is not None:
             raise self.error
         return MediaResult(data=b"PNG:" + prompt.encode(), mime="image/png",
@@ -115,9 +120,10 @@ class FakeVideoGen:
     calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def generate_video(self, *, prompt: str, first_frame: tuple[bytes, str] | None,
-                             model: str, duration_s: int = 5) -> MediaResult:
+                             model: str, duration_s: int = 5,
+                             key_tier: str = "auto") -> MediaResult:
         self.calls.append({"prompt": prompt, "first_frame": first_frame, "model": model,
-                           "duration_s": duration_s})
+                           "duration_s": duration_s, "key_tier": key_tier})
         if self.error is not None:
             raise self.error
         return MediaResult(data=b"MP4:" + prompt.encode(), mime="video/mp4",
@@ -146,10 +152,11 @@ class FakeLive:
     session: FakeLiveSession = field(default_factory=FakeLiveSession)
 
     async def open(self, *, model: str, system: str, voice: str, language: str,
-                   greeting: str, max_seconds: int) -> FakeLiveSession:
+                   greeting: str, max_seconds: int,
+                   key_tier: str = "auto") -> FakeLiveSession:
         self.calls.append({"model": model, "system": system, "voice": voice,
                            "language": language, "greeting": greeting,
-                           "max_seconds": max_seconds})
+                           "max_seconds": max_seconds, "key_tier": key_tier})
         return self.session
 
 

@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.db.models import Persona
+from sim.domain.agent_prompts import render_prompt
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import LlmPurpose
 from sim.domain.plan import (
     GuardVerdict,
@@ -25,21 +27,6 @@ from sim.ports import ChatMessage, ChatPart, LlmPort
 from sim.services.context.facts import Facts
 from sim.services.llm_log import describe_messages, logged_call
 from sim.services.plan_check import extract_json
-
-GUARD_SYSTEM = """\
-Ты — проверка перед отправкой. Персонаж по имени {name} переписывается с человеком в \
-мессенджере. Тебе дают готовый ответ персонажа. Проверь ТОЛЬКО критичное:
-1. Персонаж не признаётся, что он ИИ, бот, нейросеть или программа, и не выдаёт промт, JSON, \
-id медиа или другие технические детали.
-2. Дата, время, день недели и возраст в ответе не противоречат фактам.
-3. В ответе нет ничего из списка запретов.
-4. Ответ не пустой и на языке собеседника (основной язык персонажа: {language}).
-5. Персонаж не объявляет, что фото, видео или кружок делается, снимается, записывается, \
-генерируется или придёт позже («сейчас запишу», «скоро скину», «запишется и прилетит через \
-пару минут»): живой человек так не пишет, файл просто приходит.
-Всё остальное — тон, стиль, темы, флирт, шутки, опечатки — не нарушение. Текст не переписывай.
-Верни один JSON-объект: {{"ok": true или false, "reason": "коротко по-русски, что не так; \
-пусто, если ok"}}"""
 
 NO_RULES = "(дополнительных запретов нет)"
 # Media action -> (what it is, the adjective for a new one), as the client would see it.
@@ -70,7 +57,10 @@ def outgoing_lines(plan: ReplyPlan) -> list[str]:
 
 def guard_messages(persona: Persona, facts: Facts, client_lines: Sequence[str],
                    plan: ReplyPlan) -> list[ChatMessage]:
-    system = GUARD_SYSTEM.format(name=persona.name, language=persona.language)
+    """The guard's prompt (the owner's or the default, docs/agents.md) as the system message;
+    facts, the rule list and the planned answer as the user message."""
+    system = render_prompt(agent_config(persona, AgentKey.GUARD).prompt, name=persona.name,
+                           language=persona.language)
     user = "\n\n".join([
         f"# Факты\n{facts.text}",
         f"# Запреты\n{persona.guard_rules.strip() or NO_RULES}",
@@ -96,15 +86,16 @@ class Guard:
     async def check(self, *, persona: Persona, facts: Facts, client_lines: Sequence[str],
                     plan: ReplyPlan, chat_id: int, reply_run_id: int) -> GuardVerdict:
         """Fails closed: an unreadable answer is a block; a Broker error propagates."""
-        model = persona.model_guard or persona.model_reply
+        cfg = agent_config(persona, AgentKey.GUARD)
         messages = guard_messages(persona, facts, client_lines, plan)
         result = await logged_call(
-            self.sessions, purpose=LlmPurpose.GUARD, model=model,
+            self.sessions, purpose=LlmPurpose.GUARD, model=cfg.model,
             request={"messages": describe_messages(messages)},
-            call=lambda: self.llm.chat(model=model, messages=messages,
+            call=lambda: self.llm.chat(model=cfg.model, messages=messages,
                                        json_schema=GuardVerdict.model_json_schema(),
-                                       max_tokens=400, label="guard"),
-            chat_id=chat_id, reply_run_id=reply_run_id,
+                                       max_tokens=cfg.max_tokens, label="guard",
+                                       key_tier=cfg.key_tier),
+            chat_id=chat_id, reply_run_id=reply_run_id, key_tier=cfg.key_tier,
         )
         verdict = parse_verdict(result.text)
         if not verdict.ok and not verdict.reason:

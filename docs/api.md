@@ -53,23 +53,54 @@ LlmCall = {id, purpose, model, request, response, tokens_in, tokens_out, cost_us
 |---|---|---|
 | GET | `/personas` | → `{items: [PersonaRow]}`: активные, потом архивные |
 | GET | `/personas/{id}` | → `Persona`; 404 — нет такого |
-| PUT | `/personas/{id}` | частичное обновление полей `Persona` (кроме `is_active`) → `Persona`; имя уникально (400 «Персонаж с таким именем уже есть»); аватар — только из её медиатеки |
+| PUT | `/personas/{id}` | частичное обновление полей `Persona` (кроме `is_active`) → `Persona`; имя уникально (400 «Персонаж с таким именем уже есть»); аватар — только из её медиатеки; агенты и запреты Охранника здесь не меняются (неизвестные поля игнорируются) |
 | PATCH | `/personas/{id}` | `{is_active}` — в архив (`false`) или обратно → `Persona` |
 | POST | `/personas/{id}/clone` | `{name, parts: [ClonePart]}` → новый `Persona` (201); 400 — имя занято или пустое, неизвестная часть |
-| POST | `/personas/{id}/appearance/describe` | модель распознавания описывает внешность по фото-референсам → `{text, references}`; ничего не сохраняет (текст правят и сохраняют через `PUT /personas/{id}` `{appearance}`); 400 — нет модели распознавания или референсов |
+| POST | `/personas/{id}/appearance/describe` | агент Портретист (по умолчанию модель Зрения) описывает внешность по фото-референсам → `{text, references}`; ничего не сохраняет (текст правят и сохраняют через `PUT /personas/{id}` `{appearance}`); 400 — нет модели или референсов |
 | GET | `/models` | → `{items: [{id, available, input_modalities, output_modalities, capabilities}]}` из Broker |
 | GET | `/voices` | → `{items: [{id, label}]}` голоса Gemini TTS |
-| GET | `/instructions` | → `{text}` правила формата ответа (только чтение) |
 
 ```ts
 PersonaRow = {id, name, avatar_media_id, is_active, ai_enabled, leads_count, channels: [Channel]}
-ClonePart = "basics"|"prompt"|"models"|"voice"|"guard"|"appearance"|"world"|"arcs"|"media"
+ClonePart = "basics"|"prompt"|"agents"|"voice"|"guard"|"appearance"|"world"|"arcs"|"media"
           |"switches"|"canon"
 ```
 
-`Persona` — поля таблицы `persona` (`docs/database.md`), кроме служебных и `life` (свой путь
-ниже); в том числе `model_life`, `model_passport`, `appearance`, `voice_ambience_enabled`,
-`is_active`.
+`Persona` — поля таблицы `persona` (`docs/database.md`), кроме служебных, `life` и `agents`
+(свои пути ниже) и `guard_rules` (в «Агентах»); в том числе `appearance`,
+`voice_ambience_enabled`, `is_active`.
+
+## Агенты персонажа
+
+Каждая функция ИИ внутри персонажа — агент ([agents.md](agents.md)): модель, уровень ключей,
+промт, max_tokens.
+
+| Метод | Путь | |
+|---|---|---|
+| GET | `/agents/registry` | → `AgentRegistry`: группы, агенты, значения по умолчанию, промты, фильтры моделей |
+| GET | `/personas/{id}/agents` | → `PersonaAgents`; 404 — нет персонажа |
+| PUT | `/personas/{id}/agents` | `{agents: {key: AgentIn}, guard_rules?}` → `PersonaAgents`. Присланные агенты заменяют свои настройки целиком, остальные не трогаются. 400: неизвестный агент, неизвестный `key_tier`, `max_tokens` вне 64…16384 или у агента без лимита, промт у агента без промта, лишнее поле, модель, которой нет в читаемом непустом каталоге Broker (проверяются только изменённые модели; недоступная сейчас модель сохраняется) |
+| POST | `/personas/{id}/agents/{key}/reset` | всё у агента по умолчанию → `PersonaAgents`; 404 — неизвестный агент |
+
+```ts
+KeyTier = "auto"|"paid"|"free"
+ModelMatch = {input: string[], output: string[], capabilities: string[]}   // все из списка
+AgentSpec = {key, title, group, description, port, model_filter: [ModelMatch] /* любой */,
+             key_tier, model, fallback: string|null, prompt: string|null,
+             readonly_prompt: string|null, placeholders: string[], max_tokens: number|null}
+AgentRegistry = {groups: [{key, title, description, agents: [key]}], agents: [AgentSpec],
+                 key_tiers: [{value: KeyTier, label}], max_tokens_range: {min, max}}
+AgentIn = {model?: string|null /* null — по умолчанию, "" — не использовать */,
+           key_tier?: KeyTier|null, prompt?: string /* "" — по умолчанию */,
+           max_tokens?: number|null}
+PersonaAgents = {agents: {key: {model: string|null, key_tier: KeyTier, prompt: string,
+                                max_tokens: number|null, effective_model: string}},
+                 guard_rules: string}
+```
+
+`effective_model` — модель, которой агент реально пойдёт (по умолчанию или модель
+агента-запасного); `""` — агент не работает. Сохраняется только отличие от умолчания: уровень
+ключей и max_tokens, равные стандартным, и промт, равный стандартному, не хранятся.
 
 ## Канал персонажа
 
@@ -107,7 +138,7 @@ LoginStep = {channel: Channel,
 | DELETE | `/personas/{id}/arcs/{arc}` | → 204 |
 | GET | `/personas/{id}/days?from=&to=` | → `{today, now_minute, items: [Day]}`; по умолчанию вчера…завтра по её календарю, не больше 62 дней |
 | PUT | `/personas/{id}/days/{YYYY-MM-DD}` | `{events: [DayEvent], summary?}` → `Day` (`source = edited`; 400 — время не по порядку, наложения) |
-| POST | `/personas/{id}/days/{YYYY-MM-DD}/plan` | спланировать заново (задача `agent.plan_day`, `force`) → 202 `{queued, day}`; 400 — не выбрана модель «Жизнь» |
+| POST | `/personas/{id}/days/{YYYY-MM-DD}/plan` | спланировать заново (задача `agent.plan_day`, `force`) → 202 `{queued, day}`; 400 — Планировщик выключен (у агента `life` нет модели) |
 | GET | `/personas/{id}/canon?status=active\|rejected` | → `{items: [Canon]}` от новых к старым |
 | PATCH | `/personas/{id}/canon/{canon}` | `{fact?, status?}` → `Canon` |
 

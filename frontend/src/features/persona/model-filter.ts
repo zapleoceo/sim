@@ -1,62 +1,19 @@
-import type { BrokerModel, Persona } from '@/lib/types';
-
-export type ModelField =
-  | 'model_reply' | 'model_guard' | 'model_vision' | 'model_transcribe' | 'model_memory'
-  | 'model_tts' | 'model_image' | 'model_video' | 'model_live' | 'model_life' | 'model_passport';
-
-export type ModelPurpose =
-  | 'reply' | 'guard' | 'memory' | 'vision' | 'transcribe' | 'tts' | 'image' | 'video' | 'live' | 'life'
-  | 'passport';
-
-export interface PurposeInfo {
-  purpose: ModelPurpose;
-  field: ModelField & keyof Persona;
-  label: string;
-  hint: string;
-}
-
-/** One select per purpose on the persona page, in this order. */
-export const MODEL_PURPOSES: readonly PurposeInfo[] = [
-  { purpose: 'reply', field: 'model_reply', label: 'Ответы', hint: 'Основная: пишет план ответа (JSON).' },
-  { purpose: 'guard', field: 'model_guard', label: 'Проверка', hint: 'Дешёвая и быстрая: смотрит ответ перед отправкой.' },
-  { purpose: 'vision', field: 'model_vision', label: 'Распознавание', hint: 'Описывает фото и видео клиента.' },
-  { purpose: 'transcribe', field: 'model_transcribe', label: 'Расшифровка', hint: 'Голосовые в текст.' },
-  { purpose: 'memory', field: 'model_memory', label: 'Сводка', hint: 'Сжимает старую переписку в сводку.' },
-  { purpose: 'passport', field: 'model_passport', label: 'Паспорт клиента', hint: 'После каждого ответа и звонка обновляет паспорт клиента. Пусто — модель сводки.' },
-  { purpose: 'tts', field: 'model_tts', label: 'Голос (TTS)', hint: 'Озвучивает голосовые ответы.' },
-  { purpose: 'image', field: 'model_image', label: 'Фото', hint: 'Генерирует фото по референсам внешности.' },
-  { purpose: 'video', field: 'model_video', label: 'Видео', hint: 'Генерирует видео.' },
-  { purpose: 'live', field: 'model_live', label: 'Звонки', hint: 'Живой голосовой разговор.' },
-  { purpose: 'life', field: 'model_life', label: 'Жизнь (план дня)', hint: 'Раз в день планирует её день: события, одежду, истории.' },
-];
+import type { BrokerModel, ModelMatch } from '@/lib/types';
 
 const has = (list: readonly string[] | null | undefined, value: string): boolean =>
-  (list ?? []).some((v) => v.toLowerCase() === value);
+  (list ?? []).some((v) => v.toLowerCase() === value.toLowerCase());
 
-/** Does the Broker model fit this purpose (by its modalities and capabilities)? */
-export function matchesPurpose(model: BrokerModel, purpose: ModelPurpose): boolean {
-  const input = model.input_modalities;
-  const output = model.output_modalities;
-  switch (purpose) {
-    case 'reply':
-    case 'guard':
-    case 'memory':
-    case 'life':
-    case 'passport':
-      return has(input, 'text') && has(output, 'text');
-    case 'vision':
-      return has(input, 'image') || has(input, 'video');
-    case 'transcribe':
-      return has(input, 'audio') && has(output, 'text');
-    case 'tts':
-      return has(output, 'audio');
-    case 'image':
-      return has(output, 'image');
-    case 'video':
-      return has(output, 'video');
-    case 'live':
-      return has(model.capabilities, 'live') || (has(input, 'audio') && has(output, 'audio'));
-  }
+const hasAll = (list: readonly string[] | null | undefined, wanted: readonly string[]): boolean =>
+  wanted.every((value) => has(list, value));
+
+/** Does the Broker model fit an agent: all modalities and capabilities of ANY of its matches? */
+export function matchesFilter(model: BrokerModel, filter: readonly ModelMatch[]): boolean {
+  return filter.some(
+    (m) =>
+      hasAll(model.input_modalities, m.input) &&
+      hasAll(model.output_modalities, m.output) &&
+      hasAll(model.capabilities, m.capabilities),
+  );
 }
 
 export interface ModelOption {
@@ -74,12 +31,12 @@ export function availabilityLabel(available: boolean | null): string {
 }
 
 /**
- * Options of one select: models that fit the purpose (available first, then by id), plus the
+ * Options of one select: models that fit the agent (available first, then by id), plus the
  * current value when it does not fit or is gone from the catalog.
  */
-export function modelOptions(models: readonly BrokerModel[], purpose: ModelPurpose, current: string): ModelOption[] {
+export function modelOptions(models: readonly BrokerModel[], filter: readonly ModelMatch[], current: string): ModelOption[] {
   const fit = models
-    .filter((m) => matchesPurpose(m, purpose))
+    .filter((m) => matchesFilter(m, filter))
     .sort((a, b) => Number(b.available === true) - Number(a.available === true) || a.id.localeCompare(b.id));
   const options: ModelOption[] = fit.map((m) => ({
     value: m.id,

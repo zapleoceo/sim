@@ -255,17 +255,6 @@ export interface Persona {
   birth_date: string | null;
   avatar_media_id: number | null;
   prompt: string;
-  model_reply: string;
-  model_guard: string;
-  model_vision: string;
-  model_transcribe: string;
-  model_memory: string;
-  model_tts: string;
-  model_image: string;
-  model_video: string;
-  model_live: string;
-  model_life: string;
-  model_passport: string;
   /** false = archived: answers nobody, plans no days, its Telegram accounts go offline. */
   is_active: boolean;
   /** Exact look in English for image models (eyes, hair, face, build). */
@@ -273,7 +262,6 @@ export interface Persona {
   voice_ambience_enabled: boolean;
   voice_id: string;
   voice_style: string;
-  guard_rules: string;
   ai_enabled: boolean;
   voice_enabled: boolean;
   photo_enabled: boolean;
@@ -297,7 +285,7 @@ export interface PersonaRow {
 
 /** What «Клонировать» may copy (docs/personas.md). */
 export type ClonePart =
-  | 'basics' | 'prompt' | 'models' | 'voice' | 'guard' | 'appearance' | 'world' | 'arcs' | 'media' | 'switches'
+  | 'basics' | 'prompt' | 'agents' | 'voice' | 'guard' | 'appearance' | 'world' | 'arcs' | 'media' | 'switches'
   | 'canon';
 
 export interface BrokerModel {
@@ -307,6 +295,76 @@ export interface BrokerModel {
   input_modalities: string[];
   output_modalities: string[];
   capabilities: string[];
+}
+
+// --- the persona's agents (docs/agents.md) -----------------------------------------------------
+
+/** Which Broker keys pay for an agent's calls. */
+export type KeyTier = 'auto' | 'paid' | 'free';
+
+/** A model fits when it has all of these; an agent's filter is a list of alternatives. */
+export interface ModelMatch {
+  input: string[];
+  output: string[];
+  capabilities: string[];
+}
+
+/** One AI function of a persona as the code defines it (GET /agents/registry). */
+export interface AgentSpec {
+  key: string;
+  title: string;
+  group: string;
+  description: string;
+  port: string;
+  model_filter: ModelMatch[];
+  /** Defaults. */
+  key_tier: KeyTier;
+  model: string;
+  /** Whose model is used when this agent has none. */
+  fallback: string | null;
+  /** The default editable prompt; null = the agent has no prompt to tune. */
+  prompt: string | null;
+  /** Fixed rules the code adds (shown read-only). */
+  readonly_prompt: string | null;
+  placeholders: string[];
+  /** The default answer limit; null = not tunable. */
+  max_tokens: number | null;
+}
+
+export interface AgentGroupInfo {
+  key: string;
+  title: string;
+  description: string;
+  agents: string[];
+}
+
+export interface AgentRegistry {
+  groups: AgentGroupInfo[];
+  agents: AgentSpec[];
+  key_tiers: { value: KeyTier; label: string }[];
+  max_tokens_range: { min: number; max: number };
+}
+
+/** One agent's settings of a persona: null / '' = by default. */
+export interface AgentSettings {
+  /** null = the default model; '' = not used (only where the default is a model). */
+  model: string | null;
+  key_tier: KeyTier;
+  /** '' = the default prompt. */
+  prompt: string;
+  max_tokens: number | null;
+}
+
+/** GET /personas/{id}/agents. */
+export interface PersonaAgents {
+  agents: Record<string, AgentSettings & { effective_model: string }>;
+  guard_rules: string;
+}
+
+/** PUT /personas/{id}/agents. */
+export interface PersonaAgentsPatch {
+  agents: Record<string, AgentSettings>;
+  guard_rules: string;
 }
 
 export interface Voice {

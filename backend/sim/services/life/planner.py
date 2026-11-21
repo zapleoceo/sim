@@ -1,7 +1,8 @@
-"""The daily planner (docs/persona-life.md, «План дня»): the model `persona.model_life` writes one
-day of her life — 6–14 events from waking up to bedtime, consistent with her routine, with small
-concrete incidents, an outfit and a sound tag per event — moves her story arcs a little and
-sums up the last finished day.
+"""The daily planner (docs/persona-life.md, «План дня»): the agent «Планировщик» (`life`,
+docs/agents.md) writes one day of her life — 6–14 events from waking up to bedtime, consistent
+with her routine, with small concrete incidents, an outfit and a sound tag per event — moves her
+story arcs a little and sums up the last finished day. Its prompt (the owner's or the default)
+is the system message; the user message carries only her data.
 
 - Task `agent.life_tick` (every 30 min) asks `due_days`: TODAY when it is missing, TOMORROW from
   03:00 local time. Task `agent.plan_day` runs `LifePlanner.plan` for one day.
@@ -27,6 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Persona, PersonaArc, PersonaCanon, PersonaDay
 from sim.db.session import transaction
+from sim.domain.agent_prompts import render_prompt
+from sim.domain.agents import AgentConfig, AgentKey, agent_config
 from sim.domain.enums import ArcStatus, CanonStatus, DaySource, LlmPurpose
 from sim.domain.life import Ambience, DayEvent, DayPlan, day_errors, outfit_errors
 from sim.ports import ChatMessage, ChatPart
@@ -47,30 +50,7 @@ RETRY_AFTER = timedelta(hours=3)
 HISTORY_DAYS = 3
 PROMPT_CHARS = 6000
 CANON_FOR_PLANNER = 20
-PLANNER_MAX_TOKENS = 6000
 PLAN_SCHEMA = DayPlan.model_json_schema()
-
-PLANNER_SYSTEM = """\
-Ты придумываешь один день из жизни персонажа по имени {name}: что она делает с утра до \
-вечера. Пиши по-русски. Верни один JSON-объект строго по схеме, без текста вокруг: \
-{{"events": [...], "arc_updates": [...], "yesterday_summary": "..."}}"""
-
-PLANNER_TASK = """\
-# Задача
-- events — 6–14 событий по порядку от пробуждения до сна, без наложений, время "ЧЧ:ММ" по её \
-часам. Опирайся на распорядок этого дня недели, людей, увлечения, праздники и её истории; \
-сон ночью не расписывай.
-- В каждом событии: title (что делает), place (где), with_whom (имена из её мира), busy \
-(free — свободна, partial — занята, away — телефон не в руках), details — 1–2 мелкие конкретные \
-подробности (что сломалось, что сказал Андрей, что купила, какая погода).
-- outfit — во что она одета в это событие, конкретно (цвет, вещь). Одежда держится весь день и \
-меняется только по понятной причине: после пробежки и душа, когда выходит из дома или \
-возвращается, перед сном. Если место то же и паузы нет — одежда та же, слово в слово.
-- ambience — звук места: {ambience}.
-- arc_updates — истории движутся медленно: меняй stage одной-двух историй, только если в этот \
-день с ними что-то происходит; status done — когда история закончилась. arc_id только из списка.
-- yesterday_summary — {summary_rule}
-- Не повторяй дословно прошлые дни: жизнь та же, но мелочи каждый день свои."""
 
 REPAIR_NOTE = ("Ответ не подошёл: {errors}. Верни исправленный JSON-объект строго по схеме, "
                "без текста вокруг.")
@@ -130,7 +110,7 @@ async def locked_day(session: AsyncSession, persona_id: int, day: date) -> Perso
 @dataclass(frozen=True)
 class _Input:
     persona_id: int
-    model: str
+    agent: AgentConfig
     messages: list[ChatMessage]
     arc_ids: frozenset[int]
     summary_day: date | None
@@ -176,9 +156,8 @@ def planner_messages(persona: Persona, day: date, *, history: Mapping[date, Pers
     if summary_day is not None:
         rule = (f"2–3 предложения от третьего лица о том, как прошёл {human_date(summary_day)} "
                 "(день в блоке «Последние дни»), по его событиям и подробностям.")
-    ambience = ", ".join(a.value for a in Ambience)
-    blocks.append(PLANNER_TASK.format(ambience=ambience, summary_rule=rule))
-    system = PLANNER_SYSTEM.format(name=persona.name)
+    system = render_prompt(agent_config(persona, AgentKey.LIFE).prompt, name=persona.name,
+                           ambience=", ".join(a.value for a in Ambience), summary_rule=rule)
     return [ChatMessage(role="system", parts=[ChatPart(text=system)]),
             ChatMessage(role="user", parts=[ChatPart(text="\n\n".join(blocks))])]
 
@@ -205,7 +184,10 @@ class LifePlanner:
     async def _read(self, persona_id: int, day: date, *, force: bool) -> _Input | Outcome:
         async with transaction(self.deps.sessions) as session:
             persona = await session.get(Persona, persona_id)
-            if persona is None or not persona.model_life:
+            if persona is None:
+                return Outcome.SKIPPED
+            agent = agent_config(persona, AgentKey.LIFE)
+            if not agent.model:
                 return Outcome.SKIPPED
             history = await load_days(session, persona_id, day - timedelta(days=HISTORY_DAYS),
                                       day)
@@ -227,7 +209,7 @@ class LifePlanner:
             summary_day = (last_done if target is not None and target.events
                            and not target.summary.strip() else None)
             return _Input(
-                persona_id=persona_id, model=persona.model_life,
+                persona_id=persona_id, agent=agent,
                 messages=planner_messages(persona, day, history=history, arcs=arcs,
                                           canon=list(reversed(canon)), summary_day=summary_day),
                 arc_ids=frozenset(arc.id for arc in arcs), summary_day=summary_day)
@@ -244,12 +226,15 @@ class LifePlanner:
             return parse_day_plan(await self._call(prepared, repair))
 
     async def _call(self, prepared: _Input, messages: list[ChatMessage]) -> str:
+        agent = prepared.agent
         result = await logged_call(
-            self.deps.sessions, purpose=LlmPurpose.LIFE, model=prepared.model,
+            self.deps.sessions, purpose=LlmPurpose.LIFE, model=agent.model,
             request={"messages": describe_messages(messages), "json_schema": "DayPlan"},
-            call=lambda: self.deps.llm.chat(model=prepared.model, messages=messages,
+            call=lambda: self.deps.llm.chat(model=agent.model, messages=messages,
                                             json_schema=PLAN_SCHEMA,
-                                            max_tokens=PLANNER_MAX_TOKENS, label="life"),
+                                            max_tokens=agent.max_tokens, label="life",
+                                            key_tier=agent.key_tier),
+            key_tier=agent.key_tier,
         )
         return result.text
 
@@ -264,7 +249,7 @@ class LifePlanner:
                 session.add(row)
             row.events = [event.model_dump(mode="json") for event in plan.events]
             row.source = DaySource.MODEL
-            row.model = prepared.model
+            row.model = prepared.agent.model
             row.error = None
             for update in plan.arc_updates:
                 arc = await session.get(PersonaArc, update.arc_id)
@@ -285,20 +270,22 @@ class LifePlanner:
                 row = await locked_day(session, prepared.persona_id, day)
                 if row is None:
                     row = PersonaDay(persona_id=prepared.persona_id, day=day, summary="",
-                                     events=[], source=DaySource.MODEL, model=prepared.model)
+                                     events=[], source=DaySource.MODEL,
+                                     model=prepared.agent.model)
                     session.add(row)
                 row.error = error
         except IntegrityError:
             log.info("persona %s day %s: planned in parallel", prepared.persona_id, day)
 
     async def due(self) -> list[tuple[int, date]]:
-        """(persona, day) pairs the tick should plan now."""
+        """(persona, day) pairs the tick should plan now: active personas whose planner has a
+        model (the registry default unless the owner switched it off)."""
         now = self.deps.clock.now()
         found: list[tuple[int, date]] = []
         async with transaction(self.deps.sessions) as session:
-            personas = list(await session.scalars(
-                select(Persona).where(Persona.model_life != "", Persona.is_active.is_(True))
-                .order_by(Persona.id)))
+            active = await session.scalars(
+                select(Persona).where(Persona.is_active.is_(True)).order_by(Persona.id))
+            personas = [p for p in active if agent_config(p, AgentKey.LIFE).model]
             for persona in personas:
                 today = to_local(now, persona.timezone).date()
                 rows = await load_days(session, persona.id, today, today + timedelta(days=1))

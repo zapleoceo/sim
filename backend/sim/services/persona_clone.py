@@ -123,10 +123,7 @@ class MediaCopier:
 COPIERS: dict[ClonePart, Copier] = {
     ClonePart.BASICS: FieldsCopier(("gender", "language", "timezone", "birth_date")),
     ClonePart.PROMPT: FieldsCopier(("prompt",)),
-    ClonePart.MODELS: FieldsCopier((
-        "model_reply", "model_guard", "model_vision", "model_transcribe", "model_memory",
-        "model_tts", "model_image", "model_video", "model_live", "model_life",
-        "model_passport")),
+    ClonePart.AGENTS: FieldsCopier(("agents",)),
     ClonePart.VOICE: FieldsCopier(("voice_id", "voice_style", "voice_ambience_enabled")),
     ClonePart.GUARD: FieldsCopier(("guard_rules",)),
     ClonePart.APPEARANCE: FieldsCopier(("appearance",)),

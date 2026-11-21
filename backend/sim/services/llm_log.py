@@ -1,5 +1,6 @@
-"""One helper for every Broker call: run it, time it and store an `llm_call` row (request,
-response, usage, error) in its own short transaction, so the journal survives a failed turn.
+"""One helper for every Broker call: run it, time it and store an `llm_call` row (request with
+the agent's key tier, response, usage, error) in its own short transaction, so the journal
+survives a failed turn.
 
 Bytes never go into the log: inline files are replaced by their mime and size."""
 from __future__ import annotations
@@ -63,9 +64,13 @@ async def logged_call[R: _HasUsage](
     call: Callable[[], Awaitable[R]],
     chat_id: int | None = None,
     reply_run_id: int | None = None,
+    key_tier: str | None = None,
 ) -> R:
     """Run `call`, log it, return its result. A failed call is logged with the error and the
-    exception is re-raised unchanged."""
+    exception is re-raised unchanged. `key_tier` (the agent's, docs/agents.md) is logged in
+    the request."""
+    if key_tier is not None:
+        request = {**request, "key_tier": str(key_tier)}
     started = time.perf_counter()
     try:
         result = await call()
