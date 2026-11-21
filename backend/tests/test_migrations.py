@@ -70,7 +70,7 @@ def test_life_revision_follows_the_video_note_one(scripts):
     assert revision is not None and revision.down_revision == "0002"
     purposes = life.ENUM_CHECKS[("llm_call", "purpose")][1]
     assert purposes[-1] == "life" and purposes[:-1] == life.PREVIOUS_PURPOSES
-    assert life.PREVIOUS_PURPOSES == initial.ENUM_CHECKS[("llm_call", "purpose")][1]
+    assert initial.ENUM_CHECKS[("llm_call", "purpose")][1] == life.PREVIOUS_PURPOSES
 
 
 def test_revisions_create_every_model_table_in_fk_order():
