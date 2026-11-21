@@ -42,11 +42,13 @@ class BrokerTranscriber:
             raise PortError("transcribe: empty audio")
         name = filename or DEFAULT_FILENAME
         key = idempotency_key(audio, name, self.workflow)
-        start = self.http.clock()
-        job = await self._submit(audio, name, key)
-        job_id = str(job.get("job_id") or "")
-        data = await self.http.poll(job, what="transcribe", budget_s=self.http.poll_budget_s,
-                                    default_path=JOB_PATH.format(job_id=job_id))
+        async with self.http.slot("transcribe"):
+            start = self.http.clock()
+            job = await self._submit(audio, name, key)
+            job_id = str(job.get("job_id") or "")
+            data = await self.http.poll(job, what="transcribe",
+                                        budget_s=self.http.poll_budget_s,
+                                        default_path=JOB_PATH.format(job_id=job_id))
         text = data.get("text")
         return ChatResult(
             text=text.strip() if isinstance(text, str) else "",

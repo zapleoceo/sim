@@ -10,12 +10,14 @@ import asyncio
 import base64
 import logging
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
+from sim.adapters.broker.waiter import WAIT_PATH, JobWaiter, WaiterUnavailable, wait_timeout
 from sim.config import Settings
 from sim.ports import PortError, Usage
 
@@ -38,6 +40,10 @@ RETRYABLE_JOB_CODES = frozenset({"worker_restarted", "capacity_busy", "auth_refr
 # A spent daily / monthly / lifetime allowance: retrying before the reset only burns attempts.
 BUDGET_MARKERS = ("budget cap reached", "request_cap_exhausted")
 FAILED_JOB_STATES = frozenset({"error", "cancelled", "unknown"})
+# How many Broker jobs of one lane this process runs at once (more wait here, not in the
+# Broker or at the provider's rate limit). The lane is the first word of `what`.
+DEFAULT_INFLIGHT: dict[str, int] = {"default": 8, "chat": 12, "transcribe": 4, "speech": 4,
+                                    "image": 3, "video": 2}
 
 type Sleep = Callable[[float], Awaitable[None]]
 type Clock = Callable[[], float]
@@ -162,7 +168,9 @@ class BrokerHttp:
 
     def __init__(self, base_url: str, project_key: str, *, poll_budget_s: float = 300.0,
                  media_budget_s: float = 900.0, client: httpx.AsyncClient | None = None,
-                 sleep: Sleep = asyncio.sleep, clock: Clock = time.monotonic) -> None:
+                 sleep: Sleep = asyncio.sleep, clock: Clock = time.monotonic,
+                 batch_wait: bool = False,
+                 inflight: Mapping[str, int] | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.project_key = project_key
         self.poll_budget_s = poll_budget_s      # chat, transcription
@@ -170,12 +178,36 @@ class BrokerHttp:
         self.sleep = sleep
         self.clock = clock
         self._client = client
+        # One batch long poll for every job of this process (waiter.py); None = poll each job.
+        self.waiter = JobWaiter(
+            self, job_error=lambda job_id, job: job_error("job", job_id, job),
+            terminal_failed=FAILED_JOB_STATES, sleep=sleep, clock=clock,
+        ) if batch_wait else None
+        self.inflight = {**DEFAULT_INFLIGHT, **(inflight or {})}
+        self._lanes: dict[str, asyncio.Semaphore] = {}
 
     @classmethod
     def from_settings(cls, settings: Settings, **kwargs: Any) -> BrokerHttp:
         return cls(settings.broker_url, settings.broker_project_key,
                    poll_budget_s=settings.broker_poll_budget_s,
-                   media_budget_s=settings.broker_video_budget_s, **kwargs)
+                   media_budget_s=settings.broker_video_budget_s,
+                   batch_wait=settings.broker_batch_wait,
+                   inflight=settings.broker_max_inflight, **kwargs)
+
+    @asynccontextmanager
+    async def slot(self, lane: str) -> AsyncIterator[None]:
+        """Hold one of the lane's in-flight places for the whole job (submit + wait)."""
+        semaphore = self._lanes.get(lane)
+        if semaphore is None:
+            limit = self.inflight.get(lane, self.inflight["default"])
+            semaphore = self._lanes[lane] = asyncio.Semaphore(max(1, limit))
+        async with semaphore:
+            yield
+
+    async def wait_jobs(self, ids: list[str], wait_s: int) -> dict[str, Any]:
+        """One batch long poll (the waiter's transport)."""
+        return await self.json("POST", WAIT_PATH, what="wait", json={"ids": ids, "wait": wait_s},
+                               http_timeout=wait_timeout(wait_s))
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -232,12 +264,13 @@ class BrokerHttp:
 
     async def submit(self, path: str, body: Mapping[str, Any], *, what: str, budget_s: float,
                      params: Mapping[str, str] | None = None) -> JobOutcome:
-        """POST a queued job, then poll it until it is done."""
-        start = self.clock()
-        job = await self.json("POST", path, what=what, params=params, json=body)
-        data = await self.poll(job, what=what, budget_s=budget_s)
-        return JobOutcome(job_id=str(job.get("job_id")), data=data,
-                          latency_ms=self.elapsed_ms(start))
+        """POST a queued job, then wait until it is done (within the lane's in-flight limit)."""
+        async with self.slot(what.split()[0]):
+            start = self.clock()
+            job = await self.json("POST", path, what=what, params=params, json=body)
+            data = await self.poll(job, what=what, budget_s=budget_s)
+            return JobOutcome(job_id=str(job.get("job_id")), data=data,
+                              latency_ms=self.elapsed_ms(start))
 
     async def poll(self, job: Mapping[str, Any], *, what: str, budget_s: float,
                    default_path: str | None = None) -> dict[str, Any]:
@@ -253,6 +286,11 @@ class BrokerHttp:
         if status in FAILED_JOB_STATES:
             raise job_error(what, job_id, job)
         path = str(job.get("poll_url") or default_path or f"/v1/jobs/{job_id}")
+        if self.waiter is not None and path == f"/v1/jobs/{job_id}":
+            try:
+                return await self.waiter.wait(job_id, what=what, budget_s=budget_s)
+            except WaiterUnavailable:
+                pass                                    # the Broker has no batch wait: poll
         wait = as_float(job.get("poll_after_s")) or DEFAULT_POLL_AFTER_S
         started = self.clock()
         deadline = started + budget_s

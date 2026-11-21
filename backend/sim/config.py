@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +24,11 @@ class Settings(BaseSettings):
     broker_url: str = "https://aib.zapleo.com"
     broker_project_key: str = ""
     broker_poll_budget_s: float = 300.0
+    # One batch long poll per process for all Broker jobs (docs/broker.md §2a); off = poll each.
+    broker_batch_wait: bool = True
+    # In-flight Broker jobs per lane in one process, JSON in SIM_BROKER_MAX_INFLIGHT, merged over
+    # the defaults in sim/adapters/broker/http.py (DEFAULT_INFLIGHT).
+    broker_max_inflight: dict[str, int] = Field(default_factory=dict)
     broker_video_budget_s: float = 900.0
 
     # Dashboard login: Telegram Login Widget of this bot; admins upserted from the id list.
