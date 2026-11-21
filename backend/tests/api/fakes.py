@@ -128,6 +128,9 @@ class RecordingTasks:
     async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
         self.record("chat_action", chat_id, action, seconds)
 
+    async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
+        self.record("phone_check", persona_id, delay_s)
+
 
 @dataclass
 class FakeDeps:
@@ -145,6 +148,9 @@ class FakeDeps:
     image_gen: Any = None
     video_gen: Any = None
     live: Any = None
+
+    def uniform(self) -> float:
+        return 0.5                      # the median of every human-like delay
 
     def __post_init__(self) -> None:
         self.tasks = RecordingTasks(self.session.in_transaction)

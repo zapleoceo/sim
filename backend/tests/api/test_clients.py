@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Channel, Chat, ChatEvent, Client, Persona
 from sim.domain.enums import ChannelKind, EventKind
+from tests.api.fakes import FakeDeps
 from tests.api.helpers import ApiClient, World
 
 
@@ -124,3 +125,17 @@ async def test_patch_client_validation_and_404(api: ApiClient, world: World) -> 
                      {"age": 0}):
         assert (await api.patch(url, json={"passport": passport})).status_code == 400, passport
     assert (await api.patch("/api/clients/999999", json={"name": "x"})).status_code == 404
+
+
+async def test_switching_the_client_ai_on_answers_waiting_chats(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps) -> None:
+    client = await db.get(Client, world.client_id)
+    chat = await db.get(Chat, world.chat_id)
+    assert client is not None and chat is not None
+    client.ai_enabled = False
+    chat.needs_operator = False
+    await db.commit()
+    response = await api.patch(f"/api/clients/{world.client_id}", json={"ai_enabled": True})
+    assert response.status_code == 200
+    [(name, args, in_transaction)] = deps.tasks.calls
+    assert (name, args[0], in_transaction) == ("phone_check", world.persona_id, False)

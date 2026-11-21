@@ -68,3 +68,11 @@ def test_the_plan_schema_is_one_object_with_decisions() -> None:
     schema = AttentionPlan.model_json_schema()
     assert schema["type"] == "object" and "decisions" in schema["properties"]
     assert AttentionPlan.model_validate({"decisions": []}).decisions == []
+
+
+def test_the_schema_has_no_pattern_gemini_rejects() -> None:
+    """Gemini answers HTTP 400 to a json_schema with `pattern` (seen in production: every
+    attention call failed); the «HH:MM» format is checked by the validator instead."""
+    import json
+
+    assert '"pattern"' not in json.dumps(AttentionPlan.model_json_schema())
