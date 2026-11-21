@@ -1,9 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
-export const PHONE_QUERY = '(max-width: 767px)';
-/** Below 1024px the inbox shows one pane: list OR conversation. */
+/** Below 1024 px the chats screen shows one pane at a time: the list OR the conversation. */
 export const SINGLE_PANE_QUERY = '(max-width: 1023px)';
-export const WIDE_QUERY = '(min-width: 1280px)';
 
 export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
@@ -17,5 +15,3 @@ export function useMediaQuery(query: string): boolean {
     () => false,
   );
 }
-
-export const useIsPhone = (): boolean => useMediaQuery(PHONE_QUERY);

@@ -1,0 +1,59 @@
+"""Everything a service needs from the outside world, built once per process (wiring).
+
+Procrastinate tasks are plain functions, so the process entrypoint registers the process-wide
+`Deps` with `set_deps()` and tasks read it with `get_deps()`."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from sim.config import Settings
+from sim.ports import (
+    ClockPort,
+    ImageGenPort,
+    LivePort,
+    LlmPort,
+    MediaStoragePort,
+    MediaToolsPort,
+    SpeechPort,
+    TranscriberPort,
+    VideoGenPort,
+)
+from sim.services.queue import TaskQueue
+
+
+@dataclass
+class Deps:
+    settings: Settings
+    sessions: async_sessionmaker[AsyncSession]
+    clock: ClockPort
+    llm: LlmPort
+    transcriber: TranscriberPort
+    speech: SpeechPort
+    image_gen: ImageGenPort
+    video_gen: VideoGenPort
+    live: LivePort
+    storage: MediaStoragePort
+    tools: MediaToolsPort
+    tasks: TaskQueue
+
+
+_registry: dict[str, Deps] = {}
+
+
+def set_deps(deps: Deps) -> None:
+    """Called once by the process entrypoint (worker / telegram / api) after wiring."""
+    _registry["deps"] = deps
+
+
+def get_deps() -> Deps:
+    try:
+        return _registry["deps"]
+    except KeyError:
+        raise RuntimeError("Deps are not wired: call set_deps() in the entrypoint") from None
+
+
+def reset_deps() -> None:
+    """Tests only: forget the registered Deps."""
+    _registry.clear()

@@ -1,70 +1,87 @@
-import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from 'react';
+import type * as React from 'react';
 import { cn } from '@/lib/utils';
 import { Label } from './ui/label';
 
-interface ControlProps {
-  id?: string;
-  'aria-invalid'?: boolean;
-  'aria-describedby'?: string;
-}
-
-/**
- * Label + control + hint/error, wired for screen readers.
- * The single child control receives `id`, `aria-invalid` and `aria-describedby`.
- */
+/** Label + control + hint/error, one layout for every form field. */
 export function Field({
+  id,
   label,
   hint,
   error,
-  counter,
   className,
-  anchorId,
   children,
 }: {
-  label: ReactNode;
-  hint?: ReactNode;
-  error?: ReactNode;
-  counter?: ReactNode;
+  id: string;
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  error?: string;
   className?: string;
-  /** `id` of the whole field, so a link elsewhere on the page can point at it. */
-  anchorId?: string;
-  children: ReactElement<ControlProps>;
+  children: React.ReactNode;
 }) {
-  const id = useId();
-  const noteId = `${id}-note`;
-  const hasNote = Boolean(error || hint);
-  const control = isValidElement(children)
-    ? cloneElement(children, {
-        id: children.props.id ?? id,
-        'aria-invalid': error ? true : undefined,
-        'aria-describedby': hasNote ? noteId : undefined,
-      })
-    : children;
   return (
-    <div id={anchorId} className={cn('flex min-w-0 scroll-mt-4 flex-col gap-1.5', className)}>
-      <Label htmlFor={children.props.id ?? id}>{label}</Label>
-      {control}
-      {(hasNote || counter) && (
-        <div className="flex items-start justify-between gap-3 text-xs">
-          {error ? (
-            <p id={noteId} role="alert" className="text-destructive">
-              {error}
-            </p>
-          ) : hint ? (
-            <p id={noteId} className="text-muted-foreground">
-              {hint}
-            </p>
-          ) : (
-            <span />
-          )}
-          {counter && <span className="flex-none text-muted-foreground tabular">{counter}</span>}
-        </div>
+    <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
+      <Label htmlFor={id}>{label}</Label>
+      {children}
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">{error}</p>
+      ) : (
+        hint && <p className="text-xs text-muted-foreground">{hint}</p>
       )}
     </div>
   );
 }
 
-/** Two-column responsive grid for form fields; `col-span-full` children take a full row. */
-export function FormGrid({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('grid grid-cols-1 gap-4 sm:grid-cols-2', className)}>{children}</div>;
+/** A switch row: title and hint on the left, the control on the right. */
+export function SwitchRow({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string;
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Label htmlFor={id}>{label}</Label>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Titled section of a long settings page, with an anchor id for in-page links. */
+export function Section({
+  id,
+  title,
+  description,
+  actions,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: React.ReactNode;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      aria-labelledby={`${id}-title`}
+      className="flex scroll-mt-4 flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-5"
+    >
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 id={`${id}-title`} className="text-base font-semibold">{title}</h2>
+          {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
+        </div>
+        {actions}
+      </header>
+      {children}
+    </section>
+  );
 }

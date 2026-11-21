@@ -17,14 +17,31 @@ export function initials(name: string): string {
   );
 }
 
-/** Replace an item by id, or append it when absent (lists after create/update). */
-export function upsertById<T extends { id: number }>(list: readonly T[], item: T, prepend = false): T[] {
-  if (list.some((x) => x.id === item.id)) return list.map((x) => (x.id === item.id ? item : x));
-  return prepend ? [item, ...list] : [...list, item];
-}
-
 /** Positive integer from a route/search param, otherwise null. */
 export function positiveInt(value: unknown): number | null {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/** «a, b ,, c» -> ['a', 'b', 'c'] (tags typed as one line). */
+export function splitTags(value: string): string[] {
+  return value
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** Pretty JSON for read-only blocks (plan, request, response). */
+export function prettyJson(value: unknown): string {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2) ?? '';
+  } catch {
+    return String(value);
+  }
+}
+
+/** Display name of a client: name, else @username, else «Клиент 12». */
+export function clientName(c: { id: number; name: string; username: string | null }): string {
+  return c.name || (c.username ? `@${c.username}` : `Клиент ${c.id}`);
 }

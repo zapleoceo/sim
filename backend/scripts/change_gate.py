@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 CODE = re.compile(r"^(backend/sim/|frontend/src/)")
 TEST = re.compile(r"^(backend/tests/|frontend/src/test/)|\.test\.(ts|tsx)$")
-DOCS = re.compile(r"^(README|AGENTS)\.md$")
+DOCS = re.compile(r"^(README|AGENTS)\.md$|^docs/")
 TESTS_OPT_OUT = "tests-not-needed"
 DOCS_OPT_OUT = "docs-not-needed"
 
@@ -59,7 +59,8 @@ def main(base: str, head: str) -> int:
     result = evaluate(changed, git("log", "--format=%B", f"{base}..{head}"))
     if result.missing_tests:
         print(f"::error::Product code changed without tests: {', '.join(result.code[:10])}")
-        print(f"Add or update tests, or put '{TESTS_OPT_OUT}' in a commit message for a cosmetic change.")
+        print(f"Add or update tests, or put '{TESTS_OPT_OUT}' in a commit message "
+              "for a cosmetic change.")
     if result.missing_docs:
         print(f"::error::Product code changed without docs: {', '.join(result.code[:10])}")
         print(f"Update README.md or AGENTS.md, or put '{DOCS_OPT_OUT}' in a commit message.")

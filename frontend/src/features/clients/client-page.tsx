@@ -1,294 +1,167 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getRouteApi, Link } from '@tanstack/react-router';
-import { ChevronDown, Eraser, Hourglass, Pencil, UserX } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
+import { Link, getRouteApi } from '@tanstack/react-router';
+import { AlertTriangle, MessagesSquare, Save } from 'lucide-react';
+import { useEffect } from 'react';
+import { useForm } from 'react-hook-form';
 import { Avatar } from '@/components/avatar';
-import { ChannelIcon } from '@/components/badges';
-import { StageDropdown, StatusDropdown } from '@/components/choice-dropdown';
-import { useConfirm } from '@/components/confirm';
 import { EmptyState, ErrorState } from '@/components/empty-state';
+import { Field, Section } from '@/components/field';
 import { BackLink, Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { DialogSummaryBlock } from '@/features/inbox/dialog-summary';
-import { clientsApi, stageChange } from '@/lib/api/clients';
-import { ApiError } from '@/lib/api/http';
-import { useAuth } from '@/lib/auth';
-import { formatDateTime, formatShort, isoToLocalInput, localInputToIso } from '@/lib/format';
-import { useLiveDialogs } from '@/lib/live';
-import type { ClientCard, ClientPatch, StageChange } from '@/lib/models';
+import { lastMessagePreview } from '@/features/chats/timeline-logic';
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { formatDateTime, formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
-import { CHANNEL_LABELS, PARTNER_ONLY_HINT, STATUS_LABELS, stageMeta } from '@/lib/stages';
-import { positiveInt } from '@/lib/utils';
-import { ClientChat } from './client-chat';
-import { CLEAR_PASSPORT_CONFIRM, timelineWithDates } from './client-logic';
+import type { ClientDetail, ClientPatch } from '@/lib/types';
+import { clientName, positiveInt } from '@/lib/utils';
+import { clientsApi, useUpdateClient } from './api';
+import { ClientAiSwitch } from './client-ai-switch';
+import { MemoryEditor } from './memory-editor';
 
-const route = getRouteApi('/_app/clients/$id');
+const route = getRouteApi('/_app/clients/$clientId');
 
-/** Saves one field of the card at once (no form, no «Сохранить»): the card stays calm. */
-function useClientPatch(card: ClientCard) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (patch: ClientPatch) => clientsApi.patch(card.id, patch),
-    onSuccess: (updated) => {
-      queryClient.setQueryData<ClientCard>(qk.client(card.id), (prev) => (prev ? { ...prev, ...updated } : prev));
-      toast.success('Сохранено', { duration: 1200 });
-    },
-  });
+interface ProfileValues { name: string; phone: string; timezone: string; notes: string }
+
+const toValues = (c: ClientDetail): ProfileValues => ({
+  name: c.name, phone: c.phone ?? '', timezone: c.timezone ?? '', notes: c.notes,
+});
+
+export function profilePatch(values: ProfileValues, initial: ProfileValues): ClientPatch {
+  const patch: ClientPatch = {};
+  if (values.name !== initial.name) patch.name = values.name.trim();
+  if (values.phone !== initial.phone) patch.phone = values.phone.trim() || null;
+  if (values.timezone !== initial.timezone) patch.timezone = values.timezone.trim() || null;
+  if (values.notes !== initial.notes) patch.notes = values.notes;
+  return patch;
 }
 
-/** A text that saves itself when the field loses focus (Enter in a one-line field). */
-function AutoSaveText({ label, value, onSave, multiline = false, placeholder }: {
-  label: string;
-  value: string;
-  onSave: (v: string) => void;
-  multiline?: boolean;
-  placeholder?: string;
-}) {
-  const [draft, setDraft] = useState(value);
-  const commit = (): void => {
-    if (draft.trim() !== value.trim()) onSave(draft.trim());
-  };
-  const common = {
-    'aria-label': label,
-    value: draft,
-    placeholder,
-    onBlur: commit,
-    className: 'border-transparent bg-transparent shadow-none px-0 hover:bg-muted/40 focus-visible:bg-background focus-visible:px-2',
-  };
-  return multiline ? (
-    <Textarea {...common} rows={3} onChange={(e) => setDraft(e.target.value)} className={`${common.className} min-h-16 resize-y`} />
-  ) : (
-    <Input {...common} onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
-  );
-}
+function ProfileForm({ client }: { client: ClientDetail }) {
+  const form = useForm<ProfileValues>({ defaultValues: toValues(client) });
+  const { register, handleSubmit, formState, reset } = form;
+  const update = useUpdateClient(client.id, () => 'Карточка клиента сохранена');
+  useUnsavedGuard(formState.isDirty);
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+  // A live update (e.g. the name changed elsewhere) refreshes the form unless it is being edited.
+  useEffect(() => {
+    if (!formState.isDirty) reset(toValues(client));
+  }, [client, formState.isDirty, reset]);
+
   return (
-    <section className="flex flex-col gap-1.5 border-t pt-4 first:border-t-0 first:pt-0">
-      <h2 className="text-xs font-medium text-muted-foreground">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-/** Folded by default: opened only when needed. */
-function Fold({ title, children, open = false }: { title: string; children: ReactNode; open?: boolean }) {
-  return (
-    <details open={open} className="group border-t pt-4">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-muted-foreground">
-        {title}
-        <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="pt-2 text-sm">{children}</div>
-    </details>
-  );
-}
-
-function Header({ card }: { card: ClientCard }) {
-  const patch = useClientPatch(card);
-  const [renaming, setRenaming] = useState(false);
-  const meta = stageMeta(card.stage);
-  const last = card.last_contact_at ? `последний контакт ${formatShort(card.last_contact_at)}` : 'ещё не общались';
-  return (
-    <header className="flex flex-wrap items-center gap-4">
-      <Avatar name={card.display_name} url={card.avatar_url} size={52} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {renaming ? (
-          <AutoSaveText label="Имя" value={card.display_name}
-            onSave={(v) => { if (v) patch.mutate({ display_name: v }); setRenaming(false); }} />
-        ) : (
-          <h1 className="group flex items-center gap-2 text-xl font-semibold">
-            <span className="truncate">{card.display_name}</span>
-            <Button variant="ghost" size="icon-sm" aria-label="Переименовать" onClick={() => setRenaming(true)}
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100">
-              <Pencil />
-            </Button>
-          </h1>
-        )}
-        <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-1.5 rounded-full" style={{ background: meta.color }} />
-            {meta.label}
-          </span>
-          <span>·</span>
-          <span>{STATUS_LABELS[card.status]}</span>
-          <span>·</span>
-          <span>{last}</span>
-        </p>
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={handleSubmit((values) => {
+        const patch = profilePatch(values, (formState.defaultValues ?? toValues(client)) as ProfileValues);
+        update.mutate(patch, { onSuccess: () => reset(values) });
+      })}
+    >
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field id="client-name" label="Имя">
+          <Input id="client-name" autoComplete="off" {...register('name')} />
+        </Field>
+        <Field id="client-phone" label="Телефон">
+          <Input id="client-phone" type="tel" autoComplete="off" {...register('phone')} />
+        </Field>
+        <Field id="client-tz" label="Часовой пояс" hint="Например Europe/Warsaw — агент знает его время.">
+          <Input id="client-tz" autoComplete="off" {...register('timezone')} />
+        </Field>
       </div>
-      {card.channels.map((ch) => (
-        <Button key={ch.dialog_id} asChild variant="outline" size="sm">
-          <Link to="/inbox" search={{ d: ch.dialog_id }}>
-            <ChannelIcon kind={ch.kind} size={16} />
-            Открыть диалог
-          </Link>
+      <Field id="client-notes" label="Заметки" hint="Агент видит их в карточке клиента.">
+        <Textarea id="client-notes" className="max-h-80 min-h-24" {...register('notes')} />
+      </Field>
+      <div className="flex justify-end">
+        <Button type="submit" disabled={!formState.isDirty || update.isPending}>
+          <Save />
+          Сохранить
         </Button>
-      ))}
-    </header>
+      </div>
+    </form>
   );
 }
 
-/** «Очистить паспорт» (owner only, irreversible): asks first, then shows the emptied card at once. */
-function ClearPassport({ card }: { card: ClientCard }) {
-  const queryClient = useQueryClient();
-  const confirm = useConfirm();
-  const clear = useMutation({
-    mutationFn: () => clientsApi.clearPassport(card.id),
-    onSuccess: (updated) => {
-      queryClient.setQueryData<ClientCard>(qk.client(card.id), (prev) => (prev ? { ...prev, ...updated } : prev));
-      void queryClient.invalidateQueries({ queryKey: ['dialog'] });   // the inbox side card shows needs and notes
-      toast.success('Паспорт очищен');
-    },
-  });
+function ClientCard({ client }: { client: ClientDetail }) {
+  const memory = useUpdateClient(client.id, () => 'Память обновлена');
+  const name = clientName(client);
   return (
-    <Button variant="outline" size="sm" className="w-fit text-destructive" disabled={clear.isPending}
-      onClick={() => void confirm(CLEAR_PASSPORT_CONFIRM).then((ok) => ok && clear.mutate())}>
-      <Eraser />
-      Очистить паспорт
-    </Button>
-  );
-}
-
-function SidePanel({ card, onChanged }: { card: ClientCard; onChanged: () => void }) {
-  const { isOwner } = useAuth();
-  const patch = useClientPatch(card);
-  const queryClient = useQueryClient();
-  const change = useMutation({
-    mutationFn: (body: StageChange) => clientsApi.changeStage(card.id, body),
-    onSuccess: () => {
-      onChanged();
-      void queryClient.invalidateQueries({ queryKey: ['dialog'] });   // the journal line in the open dialog
-    },
-  });
-  /** Both dropdowns go through the one stage API; false keeps the list open after a failure. */
-  const apply = (body: Pick<StageChange, 'stage' | 'status'>, reason: string): Promise<boolean> =>
-    change.mutateAsync(stageChange(body, reason)).then(() => true, () => false);
-  const history = timelineWithDates(card);
-  const passport = (card.passport ?? '').trim();
-
-  return (
-    <aside aria-label="О клиенте" className="flex flex-col gap-4 rounded-xl border bg-card p-4 lg:sticky lg:top-4">
-      <Section title="Этап и статус">
-        <div className="grid grid-cols-2 gap-2">
-          <StageDropdown field stage={card.stage} disabled={change.isPending}
-            onApply={(stage, reason) => apply({ stage }, reason)} />
-          <StatusDropdown status={card.status} disabled={change.isPending}
-            onApply={(status, reason) => apply({ status }, reason)} />
+    <>
+      <header className="flex flex-wrap items-center gap-3">
+        <Avatar name={name} size={48} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <h1 className="truncate text-lg font-semibold sm:text-2xl">{name}</h1>
+          <p className="text-sm text-muted-foreground">
+            {[client.username && `@${client.username}`, client.last_seen_at && `был(а) ${formatDateTime(client.last_seen_at)}`]
+              .filter(Boolean)
+              .join(' · ') || 'нет данных'}
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground">Регистрация и оплата {PARTNER_ONLY_HINT}.</p>
-      </Section>
+        <ClientAiSwitch clientId={client.id} enabled={client.ai_enabled} name={name} withLabel />
+      </header>
 
-      <Section title="Следующий шаг">
-        <AutoSaveText key={`ns:${card.next_step ?? ''}`} label="Следующий шаг" value={card.next_step ?? ''}
-          placeholder="Например: напомнить про ссылку" onSave={(v) => patch.mutate({ next_step: v })} />
-        <Input type="datetime-local" aria-label="Когда" defaultValue={isoToLocalInput(card.next_step_at)}
-          key={`at:${card.next_step_at ?? ''}`}
-          className="h-8 w-fit border-transparent bg-transparent px-0 text-xs text-muted-foreground shadow-none hover:bg-muted/40"
-          onBlur={(e) => {
-            const iso = localInputToIso(e.target.value);
-            if (iso !== (card.next_step_at ?? null)) patch.mutate({ next_step_at: iso });
-          }} />
-      </Section>
-
-      {card.needs.length > 0 && (
-        <Section title="Потребности">
-          <span className="flex flex-wrap gap-1.5">
-            {card.needs.map((n) => (
-              <span key={n} className="rounded-md bg-muted px-2 py-0.5 text-xs">{n}</span>
-            ))}
-          </span>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <Section id="profile" title="Профиль">
+            <ProfileForm client={client} />
+          </Section>
+          <Section id="memory" title="Память" description="Устойчивые факты о человеке. Агент видит их в каждом ответе.">
+            <MemoryEditor
+              memory={client.memory}
+              busy={memory.isPending}
+              onChange={(next) => memory.mutate({ memory: next })}
+            />
+          </Section>
+        </div>
+        <Section id="chats" title="Чаты">
+          {client.chats.length === 0 ? (
+            <EmptyState icon={MessagesSquare} title="Чатов нет" className="py-4" />
+          ) : (
+            <ul className="flex flex-col divide-y">
+              {client.chats.map((chat) => (
+                <li key={chat.id}>
+                  <Link
+                    to="/chats"
+                    search={{ id: chat.id }}
+                    className="flex items-center gap-3 rounded-md px-1 py-2.5 hover:bg-accent/60"
+                  >
+                    <MessagesSquare className="size-4 flex-none text-muted-foreground" />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-sm">{lastMessagePreview(chat.last_message)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatShort(chat.last_message_at) || 'без сообщений'}
+                        {!chat.ai_enabled && ' · ИИ в чате выключен'}
+                      </span>
+                    </span>
+                    {chat.needs_operator && <AlertTriangle className="size-4 flex-none text-warning" aria-label="Нужен оператор" />}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
-      )}
-
-      <Section title="Заметки">
-        <AutoSaveText key={`notes:${card.notes ?? ''}`} label="Заметки" value={card.notes ?? ''} multiline
-          placeholder="Пусто" onSave={(v) => patch.mutate({ notes: v })} />
-      </Section>
-
-      <Fold title="Паспорт собеседника">
-        {passport ? (
-          <>
-            <p className="whitespace-pre-wrap">{passport}</p>
-            {card.passport_updated_at && (
-              <p className="pt-2 text-xs text-muted-foreground">Обновлён {formatDateTime(card.passport_updated_at)}</p>
-            )}
-          </>
-        ) : (
-          <p className="text-muted-foreground">Пока пусто: паспортистка заполнит его после первых ответов.</p>
-        )}
-      </Fold>
-
-      {card.channels.length > 0 && (
-        <Fold title="Саммари переписки">
-          <div className="flex flex-col gap-4">
-            {card.channels.map((ch) => (
-              <div key={ch.dialog_id} className="flex flex-col gap-1">
-                {card.channels.length > 1 && <span className="text-xs font-medium">{CHANNEL_LABELS[ch.kind] ?? ch.kind}</span>}
-                <DialogSummaryBlock dialogId={ch.dialog_id} />
-              </div>
-            ))}
-          </div>
-        </Fold>
-      )}
-
-      <Fold title={`История${history.length ? ` · ${history.length}` : ''}`}>
-        {history.length ? (
-          <ol className="flex flex-col gap-2">
-            {history.map((t, i) => (
-              <li key={i} className="flex flex-col">
-                <span className={t.partner ? 'text-success' : undefined}>{t.title}</span>
-                <span className="text-xs text-muted-foreground">{t.when}{t.detail ? ` · ${t.detail}` : ''}</span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="text-muted-foreground">Событий пока нет.</p>
-        )}
-      </Fold>
-
-      <p className="border-t pt-3 text-xs text-muted-foreground">В базе с {formatDateTime(card.created_at)}</p>
-      {isOwner && <ClearPassport card={card} />}
-    </aside>
+      </div>
+    </>
   );
 }
 
-/**
- * Client card: the conversation first (a calm chat), everything else in one quiet side panel.
- * Fields save themselves; history and passport are folded. Live events refresh it.
- */
+/** Client card: profile and notes, AI switch, memory, the client's chats. */
 export function ClientPage() {
-  const { id } = route.useParams();
-  const clientId = positiveInt(id) ?? 0;
-  useLiveDialogs(clientId > 0);
-  const card = useQuery({ queryKey: qk.client(clientId), queryFn: () => clientsApi.get(clientId), enabled: clientId > 0 });
-  const notFound = clientId === 0 || (card.error instanceof ApiError && card.error.status === 404);
+  const { clientId } = route.useParams();
+  const id = positiveInt(clientId) ?? 0;
+  const client = useQuery({ queryKey: qk.client(id), queryFn: () => clientsApi.get(id), enabled: id > 0 });
 
   return (
     <Page>
       <BackLink to="/clients">Все клиенты</BackLink>
-      {card.data ? (
-        <>
-          <Header card={card.data} />
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <section aria-label="Переписка" className="min-w-0 rounded-xl bg-muted/30 p-3 sm:p-5">
-              <ClientChat clientId={card.data.id} />
-            </section>
-            <SidePanel card={card.data} onChanged={() => void card.refetch()} />
-          </div>
-        </>
-      ) : notFound ? (
-        <div role="alert">
-          <EmptyState icon={UserX} title="Клиент не найден" hint="Возможно, запись удалена." />
+      {id === 0 && <ErrorState title="Клиент не найден" />}
+      {id > 0 && client.isPending && (
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-12 w-64" />
+          <Skeleton className="h-60 w-full rounded-xl" />
         </div>
-      ) : card.isError ? (
-        <ErrorState title="Не удалось загрузить клиента" onRetry={() => void card.refetch()} />
-      ) : (
-        <EmptyState icon={Hourglass} title="Загружаем клиента…" />
       )}
+      {client.isError && <ErrorState title="Клиент не найден" onRetry={() => void client.refetch()} />}
+      {client.data && <ClientCard client={client.data} />}
     </Page>
   );
 }

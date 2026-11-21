@@ -1,5 +1,8 @@
 """Build a source-pinned SIM release tar from tracked backend files and CI-built UI.
 
+Backend content = the Docker build inputs (Dockerfile, lockfile, alembic.ini, sim/, migrations/,
+scripts/); UI = frontend/dist/sim/browser, the path nginx serves (infra/nginx-sim.conf).
+
 This command runs inside the CI frontend job after its checks succeed.
 The separate backend/PostgreSQL job is also required for the workflow to pass.
 It never deploys or reads staging credentials.
@@ -33,7 +36,8 @@ def git(*args: str) -> str:
 
 
 def allowed_backend(path: str) -> bool:
-    return path in BACKEND_FILES or path.startswith(("backend/sim/", "backend/migrations/"))
+    return path in BACKEND_FILES or path.startswith(
+        ("backend/sim/", "backend/migrations/", "backend/scripts/"))
 
 
 def safe_file(path: Path, name: str) -> bytes:

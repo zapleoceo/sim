@@ -1,35 +1,35 @@
 [project]
 name = "sim"
-version = "0.1.0"
-description = "AI personas: Instagram / WhatsApp / Telegram, funnel to partner registration and payment"
+version = "2.0.0"
+description = "SIM v2: one AI persona in Telegram — text, voice, media understanding, generated photo/video, live calls"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
+    "litestar[standard]>=2.15,<3",
+    "advanced-alchemy>=1.4,<2",
     "sqlalchemy[asyncio]>=2.0.36",
-    "asyncpg>=0.30",
     "alembic>=1.14",
+    "psycopg[binary,pool]>=3.2",
+    "procrastinate>=3.0,<4",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "httpx>=0.27",
+    "websockets>=13",
     "cryptography>=43",
-    "python-multipart>=0.0.12",
-    "instagrapi>=2.1",
     "telethon==1.45.0",
     "python-socks[asyncio]>=3.2.1",
-    "segno>=1.6",
-    "filetype>=1.2",        # upload content checks by file signature
-    "py-tgcalls>=3.0,<4",   # private Telegram calls of the userbot (ntgcalls native wheels)
+    "py-tgcalls>=2.1,<4",
+    "filetype>=1.2",
+    "pypdf>=5",
+    "python-docx>=1.1",
+    "uvloop>=0.21; sys_platform != 'win32'",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
-    "aiosqlite>=0.20",
     "respx>=0.21",
     "ruff>=0.7",
-    "mypy>=1.13",
 ]
 
 [tool.ruff]
@@ -38,24 +38,14 @@ target-version = "py312"
 extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "S"]
-ignore = ["S101", "E501"]  # line length is left to the formatter
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
+ignore = ["S101", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
-
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["sim"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S105", "S106"]

@@ -1,113 +1,136 @@
-"""Domain vocabulary. Values are stored in the DB and returned by the API — never rename one."""
+"""Every closed set of values in SIM. Stored in the database as plain strings (non-native enums)."""
 from __future__ import annotations
 
 from enum import StrEnum
 
 
 class ChannelKind(StrEnum):
-    INSTAGRAM = "instagram"
-    WHATSAPP = "whatsapp"
-    TELEGRAM = "telegram"
-    TELEGRAM_USER = "telegram_user"     # a personal account over MTProto (userbot)
+    TELEGRAM_USER = "telegram_user"     # a personal Telegram account over MTProto (Telethon)
 
 
-class VoiceMode(StrEnum):
-    """When a persona answers with a voice message instead of text."""
-
-    OFF = "off"            # text only
-    MIRROR = "mirror"      # voice when the client's latest message was a voice note
-    ALWAYS = "always"      # every AI message (replies and follow-ups) is a voice note
-
-
-class VoiceAmbience(StrEnum):
-    """How a persona voice note sounds: studio-clean, or "recorded on a phone" somewhere."""
-
-    OFF = "off"            # clean TTS
-    ROOM = "room"          # at home: ventilation, fridge hum, wall reflections
-    STREET = "street"      # outside: passing traffic, city rumble, wind
-    CAFE = "cafe"          # in a cafe: distant chatter, hall noise
-    RANDOM = "random"      # one of room / street / cafe per note
-    CONTEXTUAL = "contextual"  # current explicit routine location; unknown means off
-
-
-class SessionStatus(StrEnum):
+class ChannelStatus(StrEnum):
     NEW = "new"
-    PENDING = "pending"        # waiting for QR scan / login in progress
-    ACTIVE = "active"
-    CHALLENGE = "challenge"    # 2FA or checkpoint code required
-    EXPIRED = "expired"
+    CONNECTED = "connected"
     ERROR = "error"
+    DISABLED = "disabled"
 
 
-class Stage(StrEnum):
-    """Funnel stages in order. The order of declaration IS the funnel order."""
-
-    FIRST_CONTACT = "first_contact"
-    ENGAGED = "engaged"
-    NEEDS_IDENTIFIED = "needs_identified"
-    INTERESTED = "interested"
-    HANDED_TO_PARTNER = "handed_to_partner"
-    REGISTERED = "registered"
-    PAID = "paid"
-
-
-class ClientStatus(StrEnum):
-    ACTIVE = "active"
-    PAUSED = "paused"
-    NO_RESPONSE = "no_response"
-    REFUSED = "refused"
+class Direction(StrEnum):
+    IN = "in"       # from the client
+    OUT = "out"     # to the client
 
 
 class Author(StrEnum):
     CLIENT = "client"
-    AI = "ai"
-    OPERATOR = "operator"
+    PERSONA = "persona"     # written by the model
+    OPERATOR = "operator"   # written by a human in the dashboard, sent as the persona
 
 
-class Direction(StrEnum):
-    IN = "in"
-    OUT = "out"
+class MessageKind(StrEnum):
+    TEXT = "text"
+    PHOTO = "photo"
+    VIDEO = "video"
+    VOICE = "voice"
+    VIDEO_NOTE = "video_note"
+    FILE = "file"
+    STICKER = "sticker"
 
 
-class Delivery(StrEnum):
-    QUEUED = "queued"
+class MessageStatus(StrEnum):
+    PENDING = "pending"     # stored, not yet handed to Telegram
     SENT = "sent"
     FAILED = "failed"
-    CANCELLED = "cancelled"   # superseded (operator took over / AI paused) before it was sent
+    RECEIVED = "received"   # incoming messages
 
 
-class Role(StrEnum):
-    SUPERADMIN = "superadmin"   # owner rights + manages the admins
-    OWNER = "owner"
-    OPERATOR = "operator"
-
-    @property
-    def has_owner_rights(self) -> bool:
-        """The single place that says who may do owner-only things (settings, approvals)."""
-        return self in (Role.SUPERADMIN, Role.OWNER)
-
-
-class PartnerEventKind(StrEnum):
-    REGISTRATION = "registration"
-    PAYMENT = "payment"
+class MediaSource(StrEnum):
+    LIBRARY = "library"         # uploaded by the owner in the dashboard
+    GENERATED = "generated"     # made by a model for the persona
+    INCOMING = "incoming"       # sent by a client
 
 
 class MediaKind(StrEnum):
     PHOTO = "photo"
     VIDEO = "video"
-    VIDEO_NOTE = "video_note"
+    AUDIO = "audio"
+    FILE = "file"
 
 
-class ContentKind(StrEnum):
+class UnderstandingStatus(StrEnum):
+    """Whether an incoming attachment has been turned into text the agent can read."""
+
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"
+    SKIPPED = "skipped"     # nothing to understand (e.g. sticker without a model)
+
+
+class RunStatus(StrEnum):
+    """One persona turn (`reply_run`)."""
+
+    RUNNING = "running"
+    SENT = "sent"
+    BLOCKED = "blocked"     # the guard refused twice: an operator is needed
+    SKIPPED = "skipped"     # nothing to answer (AI off, superseded by a newer run)
+    FAILED = "failed"
+
+
+class GenerationKind(StrEnum):
     PHOTO = "photo"
     VIDEO = "video"
-    REEL = "reel"
-    STORY = "story"
+    VOICE = "voice"
 
 
-class ContentStatus(StrEnum):
-    DRAFT = "draft"
-    APPROVED = "approved"
-    SCHEDULED = "scheduled"
-    PUBLISHED = "published"
+class GenerationStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
     FAILED = "failed"
+
+
+class CallDirection(StrEnum):
+    IN = "in"
+    OUT = "out"
+
+
+class CallStatus(StrEnum):
+    RINGING = "ringing"
+    ACTIVE = "active"
+    ENDED = "ended"
+    MISSED = "missed"
+    DECLINED = "declined"
+    FAILED = "failed"
+
+
+class LlmPurpose(StrEnum):
+    REPLY = "reply"
+    GUARD = "guard"
+    VISION = "vision"
+    TRANSCRIBE = "transcribe"
+    DOCUMENT = "document"
+    TTS = "tts"
+    IMAGE = "image"
+    VIDEO = "video"
+    LIVE = "live"
+    MEMORY = "memory"
+
+
+class EventKind(StrEnum):
+    """Everything that happens in a chat. One table (`chat_event`) is both the dashboard journal
+    and the only source the context builder reads (docs/context.md)."""
+
+    MESSAGE_IN = "message_in"               # client message (any kind)
+    MESSAGE_OUT = "message_out"             # persona or operator message handed to Telegram
+    MESSAGE_EDITED = "message_edited"       # client edited a message
+    MESSAGE_DELETED = "message_deleted"     # client deleted a message
+    MEDIA_UNDERSTOOD = "media_understood"   # an attachment got its description / transcript
+    SEND_FAILED = "send_failed"
+    CALL = "call"                           # a call finished (any outcome), with transcript
+    GENERATION_STARTED = "generation_started"
+    GENERATION_FAILED = "generation_failed"
+    GUARD_BLOCKED = "guard_blocked"
+    OPERATOR_NEEDED = "operator_needed"
+    AI_TOGGLED = "ai_toggled"
+    OPERATOR_NOTE = "operator_note"         # a note for the agent typed by the operator
+    CLIENT_UPDATED = "client_updated"       # profile fields changed (name, phone, notes)
+    MEMORY_UPDATED = "memory_updated"       # client memory / chat summary refreshed

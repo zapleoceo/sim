@@ -1,387 +1,126 @@
-"""Alembic 0003 on SQLite: password-only admins are removed, new Telegram schema is in place."""
+"""Migrations without a database: branch layout, the frozen enum values and table order of
+0001_initial, and the pure helpers of the CI migration gate (scripts/ci_postgres_smoke.py).
+The gate itself runs against the disposable PostgreSQL in CI."""
 from __future__ import annotations
 
-import sqlite3
+import importlib.util
+import sys
 from pathlib import Path
+from types import ModuleType
 
-from alembic import command
+import pytest
 from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import Enum
+from sqlalchemy.engine import make_url
 
-BACKEND = Path(__file__).resolve().parent.parent
+from sim.db.models import Base
 
-
-def alembic_config(db: Path) -> Config:
-    cfg = Config(str(BACKEND / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BACKEND / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{db}")
-    return cfg
+BACKEND = Path(__file__).resolve().parents[1]
 
 
-def columns(db: Path, table: str) -> set[str]:
-    with sqlite3.connect(db) as con:
-        return {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+def load(name: str, path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_0007_send_intent_roundtrip_and_retention(tmp_path):
-    import pytest
-
-    db = tmp_path / "send-intent.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    assert {"message_id", "fingerprint", "created_at", "external_id", "sent_at"} == columns(db, "outbound_send_intent")
-    command.downgrade(cfg, "0006")
-    assert not columns(db, "outbound_send_intent")
-    command.upgrade(cfg, "head")
-    with sqlite3.connect(db) as con:
-        assert not list(con.execute("PRAGMA foreign_key_list(outbound_send_intent)"))
-        con.execute("INSERT INTO outbound_send_intent (message_id, fingerprint, created_at) "
-                    "VALUES (123, 'first', '2026-11-07')")
-        with pytest.raises(sqlite3.IntegrityError):
-            con.execute("INSERT INTO outbound_send_intent (message_id, fingerprint, created_at) "
-                        "VALUES (123, 'second', '2026-11-07')")
-    with pytest.raises(RuntimeError, match="Cannot discard outbound"):
-        command.downgrade(cfg, "0006")
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT fingerprint FROM outbound_send_intent").fetchone() == ("first",)
+initial = load("migration_0001", BACKEND / "migrations" / "versions" / "0001_initial.py")
+smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
-def test_0003_drops_password_admins_and_adds_telegram_columns(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0002")
-    with sqlite3.connect(db) as con:
-        con.execute(
-            "INSERT INTO admin_user (id, username, password_hash, role, is_active, created_at) "
-            "VALUES (1, 'dima', 'argon2-hash', 'owner', 1, '2026-11-01 00:00:00')"
-        )
-        con.execute(
-            "INSERT INTO auth_session (user_id, token_hash, csrf_token, expires_at, created_at) "
-            "VALUES (1, 'h', 'c', '2030-01-01 00:00:00', '2026-11-01 00:00:00')"
-        )
-    command.upgrade(cfg, "head")
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT count(*) FROM admin_user").fetchone() == (0,)
-        assert con.execute("SELECT count(*) FROM auth_session").fetchone() == (0,)
-        con.execute(
-            "INSERT INTO admin_user (telegram_id, tg_username, role, is_active, created_at) "
-            "VALUES (169510539, 'owner', 'superadmin', 1, '2026-11-07 00:00:00')"
-        )
-        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    cols = columns(db, "admin_user")
-    assert {"telegram_id", "tg_username", "display_name", "photo_url", "role"} <= cols
-    assert not {"username", "password_hash"} & cols
-    assert {"used_login_hash", "login_link"} <= tables
-    # telegram_id is unique
-    with sqlite3.connect(db) as con:
-        try:
-            con.execute(
-                "INSERT INTO admin_user (telegram_id, role, is_active, created_at) "
-                "VALUES (169510539, 'operator', 1, '2026-11-07 00:00:00')"
-            )
-        except sqlite3.IntegrityError:
-            pass
-        else:
-            raise AssertionError("telegram_id must be unique")
+@pytest.fixture(scope="module")
+def scripts() -> ScriptDirectory:
+    return ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
 
 
-def test_0003_downgrade_roundtrip(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    command.downgrade(cfg, "0002")
-    assert {"username", "password_hash"} <= columns(db, "admin_user")
+def test_two_branches_sim_and_procrastinate(scripts):
+    assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
+    sim_head = scripts.get_revision("sim@head")
+    assert sim_head is not None and sim_head.revision == "0001"
+    procrastinate_head = scripts.get_revision("procrastinate@head")
+    assert procrastinate_head is not None
+    assert procrastinate_head.revision.startswith("procrastinate_")
 
 
-def test_0004_folds_persona_fields_into_description_and_adds_guard_columns(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0003")
-    with sqlite3.connect(db) as con:
-        con.execute(
-            "INSERT INTO persona (id, name, gender, avatar_url, tagline, character, backstory, "
-            "communication_style, language, model, voice_id, is_active, is_virtual_disclosed, "
-            "disclosure_text, created_at) VALUES (1, 'Марина', 'female', '', 'Слоган А', "
-            "'Тёплая', 'Двадцать лет в проектах', 'Коротко', 'ru', '', '', 1, 1, 'd', "
-            "'2026-11-01 00:00:00')"
-        )
-        con.execute(
-            "INSERT INTO persona (id, name, gender, avatar_url, tagline, character, backstory, "
-            "communication_style, language, model, voice_id, is_active, is_virtual_disclosed, "
-            "disclosure_text, created_at) VALUES (2, 'Пустая', 'female', '', '', '', 'Только био', "
-            "'', 'ru', '', '', 1, 1, '', '2026-11-01 00:00:00')"
-        )
-    command.upgrade(cfg, "0004")
-    cols = columns(db, "persona")
-    assert {"description", "prohibitions"} <= cols
-    assert not {"tagline", "character", "backstory", "communication_style"} & cols
-    assert {"guard_verdict", "guard_violations", "guard_model", "original_text"} <= columns(db, "message")
-    with sqlite3.connect(db) as con:
-        rows = dict(con.execute("SELECT id, description FROM persona"))
-        assert con.execute("SELECT prohibitions FROM persona WHERE id = 1").fetchone() == ("",)
-        assert con.execute("SELECT name, disclosure_text FROM persona WHERE id = 1").fetchone() == ("Марина", "d")
-    assert rows[1] == (
-        "Слоган: Слоган А\n\nХарактер: Тёплая\n\nБиография: Двадцать лет в проектах\n\n"
-        "Стиль общения: Коротко"
-    )
-    assert rows[2] == "Биография: Только био"          # empty sections are skipped
+def test_sim_branch_starts_at_0001(scripts):
+    bases = {scripts.get_revision(base).revision for base in scripts.get_bases()}
+    assert "0001" in bases and "procrastinate_0000" in bases
 
 
-def test_0004_downgrade_roundtrip(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    command.downgrade(cfg, "0003")
-    assert {"tagline", "character", "backstory", "communication_style"} <= columns(db, "persona")
-    assert "guard_verdict" not in columns(db, "message")
+def test_initial_creates_every_model_table_in_fk_order():
+    assert set(initial.TABLES) == set(Base.metadata.tables)
+    position = {name: i for i, name in enumerate(initial.TABLES)}
+    for table in Base.metadata.tables.values():
+        for fk in table.foreign_keys:
+            if fk.use_alter:
+                continue                    # persona.avatar_media_id is added at the end
+            target = fk.column.table.name
+            assert position[target] < position[table.name], f"{table.name} -> {target}"
 
 
-def test_0005_adds_strategy_prompt_and_simulation_tables_and_roundtrips(tmp_path):
-    db = tmp_path / "mig5.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0004")
-    with sqlite3.connect(db) as con:
-        con.execute(
-            "INSERT INTO strategy (id, name, goal, offer, partner_name, registration_url, stage_playbook, "
-            "rules, followup_hours, reply_delay_s, notes, created_at) VALUES "
-            "(1, 'S', '', '', '', '', '{}', '[]', '[]', '[20, 90]', '', '2026-11-01 00:00:00')"
-        )
-    command.upgrade(cfg, "head")
-    assert "prompt" in columns(db, "strategy")
-    assert {"admin_user_id", "persona_id", "stage", "status", "needs", "next_step", "notes", "closed_at"} <= columns(db, "sim_branch")
-    assert {"branch_id", "role", "guard_verdict", "guard_violations", "model"} <= columns(db, "sim_message")
-    assert "debug" in columns(db, "sim_admin_pref")
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT prompt FROM strategy WHERE id = 1").fetchone() == ("",)
-    command.downgrade(cfg, "0004")
-    assert "prompt" not in columns(db, "strategy") and not columns(db, "sim_branch")
-    command.upgrade(cfg, "head")
+def test_initial_enum_checks_match_the_enums():
+    expected = {}
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if isinstance(column.type, Enum):
+                expected[(table.name, column.name)] = (column.type.name,
+                                                       tuple(column.type.enums))
+    assert expected == initial.ENUM_CHECKS
 
 
-def test_0006_intent_roundtrip_and_preserves_nonempty_history(tmp_path):
-    import pytest
-
-    db = tmp_path / "intent.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    assert {"post_id", "fingerprint", "external_id", "published_at"} <= columns(db, "content_publish_intent")
-    command.downgrade(cfg, "0005")
-    assert not columns(db, "content_publish_intent")
-    command.upgrade(cfg, "head")
-    with sqlite3.connect(db) as con:
-        assert not list(con.execute("PRAGMA foreign_key_list(content_publish_intent)"))
-        con.execute("INSERT INTO content_publish_intent (post_id, fingerprint, created_at) "
-                    "VALUES (123, 'fingerprint', '2026-11-01')")
-        with pytest.raises(sqlite3.IntegrityError):
-            con.execute("INSERT INTO content_publish_intent (post_id, fingerprint, created_at) "
-                        "VALUES (123, 'other', '2026-11-01')")
-    with pytest.raises(RuntimeError, match="Cannot discard"):
-        command.downgrade(cfg, "0005")
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT post_id FROM content_publish_intent").fetchall() == [(123,)]
+@pytest.mark.parametrize(("definition", "values"), [
+    ("CHECK (((kind)::text = 'telegram_user'::text))", {"telegram_user"}),
+    ("CHECK (((status)::text = ANY ((ARRAY['new'::character varying, "
+     "'connected'::character varying])::text[])))", {"new", "connected"}),
+    ("CHECK ((x = 'it''s'::text))", {"it's"}),
+])
+def test_check_values(definition, values):
+    assert smoke.check_values(definition) == values
 
 
-def test_0009_adds_app_setting_and_drops_persona_disclosure(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    assert {"key", "value", "updated_at", "updated_by_id"} <= columns(db, "app_setting")
-    assert not {"disclosure_text", "is_virtual_disclosed"} & columns(db, "persona")
-    assert "reply_delay_s" not in columns(db, "strategy")
-    command.downgrade(cfg, "0008")
-    assert {"disclosure_text", "is_virtual_disclosed"} <= columns(db, "persona")
-    assert "reply_delay_s" in columns(db, "strategy")
-    with sqlite3.connect(db) as con:
-        tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert "app_setting" not in tables
+def test_expected_checks_cover_every_enum_column():
+    expected = smoke.expected_checks(Base.metadata)
+    assert expected[("channel", "ck_channel_channelstatus")] == {
+        "new", "connected", "error", "disabled"}
+    assert ("chat_event", "ck_chat_event_eventkind") in expected
+    assert len(expected) == len(initial.ENUM_CHECKS)
 
 
-def test_0010_adds_voice_mode_and_clears_non_gemini_voice_ids(tmp_path):
-    db = tmp_path / "mig10.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0009")
-    with sqlite3.connect(db) as con:
-        for pid, voice in ((1, "21m00Tcm4TlvDq8ikWAM"), (2, "Kore"), (3, "")):
-            con.execute(
-                "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, "
-                "language, model, voice_id, is_active, created_at) "
-                "VALUES (?, ?, '', '', '', '', 'ru', '', ?, 1, "
-                "'2026-11-01 00:00:00')",
-                (pid, f"P{pid}", voice),
-            )
-    command.upgrade(cfg, "head")
-    assert {"voice_mode", "voice_style"} <= columns(db, "persona")
-    with sqlite3.connect(db) as con:
-        rows = list(con.execute("SELECT id, voice_id, voice_mode, voice_style FROM persona ORDER BY id"))
-    assert rows == [(1, "", "off", ""), (2, "Kore", "off", ""), (3, "", "off", "")]
-    command.downgrade(cfg, "0009")
-    assert "voice_mode" not in columns(db, "persona")
-    command.upgrade(cfg, "head")
+def test_compare_checks_reports_missing_and_different():
+    expected = {("t", "ck_t_a"): {"x", "y"}, ("t", "ck_t_b"): {"z"}}
+    actual = {("t", "ck_t_a"): {"x"}, ("other", "ck_other"): {"q"}}
+    problems = smoke.compare_checks(expected, actual)
+    assert len(problems) == 2
+    assert "ck_t_a" in problems[0] and "missing CHECK ck_t_b" in problems[1]
+    assert smoke.compare_checks(expected, expected) == []
 
 
-def test_0012_merges_goal_stage_hints_and_rules_into_the_strategy_prompt(tmp_path):
-    import json
-
-    db = tmp_path / "mig12.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0011")
-    with sqlite3.connect(db) as con:
-        con.execute(
-            "INSERT INTO strategy (id, name, goal, prompt, offer, partner_name, registration_url, "
-            "stage_playbook, rules, followup_hours, notes, created_at) VALUES "
-            "(1, 'S', 'Подружиться', 'Как вести разговор', '', '', '', ?, ?, '[]', '', '2026-11-01 00:00:00')",
-            (json.dumps({"engaged": "узнай о человеке", "first_contact": "поздоровайся"}, ensure_ascii=False),
-             json.dumps(["не дави"], ensure_ascii=False)),
-        )
-        con.execute(
-            "INSERT INTO strategy (id, name, goal, prompt, offer, partner_name, registration_url, "
-            "stage_playbook, rules, followup_hours, notes, created_at) VALUES "
-            "(2, 'Пустая', '', 'Только текст', '', '', '', '{}', '[]', '[]', '', '2026-11-01 00:00:00')"
-        )
-    command.upgrade(cfg, "head")
-    with sqlite3.connect(db) as con:
-        prompt, goal, playbook, rules = con.execute(
-            "SELECT prompt, goal, stage_playbook, rules FROM strategy WHERE id = 1"
-        ).fetchone()
-        untouched = con.execute("SELECT prompt FROM strategy WHERE id = 2").fetchone()[0]
-    assert prompt == (
-        "Цель: Подружиться\n\nКак вести разговор\n\n"
-        "По этапам:\n- Первый контакт: поздоровайся\n- Вовлечён: узнай о человеке\n\n"
-        "Ориентиры:\n- не дави"
-    )
-    assert goal == "" and json.loads(playbook) == {} and json.loads(rules) == []
-    assert untouched == "Только текст"
-    command.downgrade(cfg, "0011")                 # no-op: the schema did not change
-    command.upgrade(cfg, "head")
+GOOD = {"SIM_PG_DISPOSABLE": "YES", "SIM_ENV": "test",
+        "SIM_PG_TEST_URL": "postgresql+psycopg://u:p@127.0.0.1:5432/ci_sim_release_test"}
 
 
-def test_0013_adds_a_clean_voice_ambience_to_every_persona(tmp_path):
-    db = tmp_path / "mig13.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0012")
-    with sqlite3.connect(db) as con:
-        con.execute(
-            "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
-            "voice_id, voice_mode, voice_style, is_active, created_at) "
-            "VALUES (1, 'P', '', '', '', '', 'ru', '', 'Kore', 'always', '', 1, '2026-11-01 00:00:00')"
-        )
-    command.upgrade(cfg, "head")
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT voice_ambience FROM persona").fetchall() == [("off",)]
-    command.downgrade(cfg, "0012")
-    assert "voice_ambience" not in columns(db, "persona")
-    command.upgrade(cfg, "head")
+def test_require_disposable_accepts_the_ci_database():
+    url = smoke.require_disposable(GOOD)
+    assert url.database == "ci_sim_release_test"
+    assert smoke.scratch_url(url).database == "ci_sim_release_test_migrations"
 
 
-def test_0014_folds_shared_rules_into_each_persona_and_wraps_the_guard_rules(tmp_path):
-    import json
-
-    db = tmp_path / "mig14.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0013")
-    with sqlite3.connect(db) as con:
-        con.execute(
-            "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
-            "voice_id, voice_mode, voice_style, voice_ambience, is_active, created_at) VALUES "
-            "(1, 'Марина', '', '', 'Мне 45.', '- не матом', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')"
-        )
-        for key, value in (("style_rule", "СТИЛЬ ИЗ БАЗЫ"), ("guard_rules", "1. правило владельца")):
-            con.execute("INSERT INTO app_setting (key, value, updated_at) VALUES (?, ?, '2026-11-10 00:00:00')",
-                        (key, json.dumps(value, ensure_ascii=False)))
-    command.upgrade(cfg, "0031")   # 0033 drops description: read it before
-    with sqlite3.connect(db) as con:
-        description, prohibitions = con.execute("SELECT description, prohibitions FROM persona").fetchone()
-        keys = dict(con.execute("SELECT key, value FROM app_setting").fetchall())
-    assert description.startswith("Ты Марина.\n\nМне 45.\n\nРОЛЬ:")
-    assert "СТИЛЬ ИЗ БАЗЫ" in description and "БЕЗОПАСНОСТЬ:" in description
-    assert description.endswith("Чего нельзя никогда:\n- не матом") and prohibitions == ""
-    assert set(keys) == {"guard_prompt"}
-    guard = json.loads(keys["guard_prompt"])
-    assert "ПРАВИЛА:\n1. правило владельца\n\nВЕРДИКТЫ:" in guard and '"verdict"' in guard
-    command.downgrade(cfg, "0013")
-    command.upgrade(cfg, "head")
+@pytest.mark.parametrize("override", [
+    {"SIM_PG_DISPOSABLE": "no"},
+    {"SIM_ENV": "prod"},
+    {"SIM_PG_TEST_URL": ""},
+    {"SIM_PG_TEST_URL": "postgresql+psycopg://u:p@db.example.com/sim"},
+    {"SIM_PG_TEST_URL": "sqlite+aiosqlite:///x.db"},
+])
+def test_require_disposable_refuses_anything_else(override):
+    with pytest.raises(SystemExit):
+        smoke.require_disposable({**GOOD, **override})
 
 
-def test_0020_adds_accept_calls_and_roundtrips(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "head")
-    assert "accept_calls" in columns(db, "persona")
-    command.downgrade(cfg, "0019")
-    assert "accept_calls" not in columns(db, "persona")
-
-
-def insert(con: sqlite3.Connection, table: str, **values: object) -> None:
-    """Insert a row, filling the required columns the test does not care about."""
-    filler = {"INT": 0, "BOOL": 0, "DATE": "2026-11-01 00:00:00", "JSON": "[]"}
-    for _, name, kind, notnull, default, _ in con.execute(f"PRAGMA table_info({table})"):
-        if notnull and default is None and name not in values:
-            values[name] = next((v for k, v in filler.items() if k in kind.upper()), "")
-    marks = ", ".join("?" for _ in values)
-    con.execute(f"INSERT INTO {table} ({', '.join(values)}) VALUES ({marks})",  # noqa: S608
-                tuple(values.values()))
-
-
-def test_0024_removes_the_role_game(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0023")
-    with sqlite3.connect(db) as con:
-        insert(con, "strategy", id=1, name="RCIPM")
-        insert(con, "strategy", id=2, name="Sim1 — игра")
-        insert(con, "persona", id=1, name="Марина", strategy_id=1)
-        insert(con, "persona", id=4, name="Sim1", strategy_id=2, is_game=1)
-        insert(con, "persona_media", id=1, persona_id=1)
-        insert(con, "persona_media", id=2, persona_id=4)
-        insert(con, "sim_branch", id=1, persona_id=1)
-        insert(con, "sim_branch", id=2, persona_id=4)
-        insert(con, "sim_message", id=1, branch_id=1)
-        insert(con, "sim_message", id=2, branch_id=2)
-        for key in ("game_channel_id", "game_owner_telegram_id", "history_limit"):
-            insert(con, "app_setting", key=key, value="7")
-    command.upgrade(cfg, "head")
-    assert "is_game" not in columns(db, "persona")
-    assert not {"game_state", "game_consent_at"} & columns(db, "dialog")
-    with sqlite3.connect(db) as con:
-        def ids(table: str) -> list[int]:
-            return [row[0] for row in con.execute(f"SELECT id FROM {table} ORDER BY id")]  # noqa: S608
-        assert [ids(t) for t in ("persona", "strategy", "persona_media", "sim_branch", "sim_message")] == [[1]] * 5
-        assert con.execute("SELECT key FROM app_setting").fetchall() == [("history_limit",)]
-    command.downgrade(cfg, "0023")
-    assert "is_game" in columns(db, "persona")
-    assert {"game_state", "game_consent_at"} <= columns(db, "dialog")
-    command.upgrade(cfg, "head")
-
-
-def test_0024_keeps_a_game_persona_that_is_in_use_switched_off(tmp_path):
-    """The admin refuses to delete a persona used by a channel or a client; so does the migration."""
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0023")
-    with sqlite3.connect(db) as con:
-        insert(con, "strategy", id=2, name="Sim1 — игра")
-        insert(con, "persona", id=4, name="Sim1", strategy_id=2, is_game=1, is_active=1)
-        insert(con, "channel", id=1, persona_id=4)
-        insert(con, "persona_media", id=2, persona_id=4)
-    command.upgrade(cfg, "head")
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT id, is_active, strategy_id FROM persona").fetchall() == [(4, 0, 2)]
-        assert con.execute("SELECT count(*) FROM persona_media").fetchone() == (1,)
-        assert con.execute("SELECT name FROM strategy").fetchall() == [("Sim1 — игра",)]
-
-
-def test_0023_sets_eva_birth_date_and_leaves_other_personas_alone(tmp_path):
-    db = tmp_path / "mig.db"
-    cfg = alembic_config(db)
-    command.upgrade(cfg, "0013")
-    with sqlite3.connect(db) as con:
-        for persona_id, name in ((1, "Ева Коган"), (2, "Марина")):
-            con.execute(
-                "INSERT INTO persona (id, name, gender, avatar_url, description, prohibitions, language, model, "
-                "voice_id, voice_mode, voice_style, voice_ambience, is_active, created_at) VALUES "
-                "(?, ?, '', '', 'd', '', 'ru', '', '', 'off', '', 'off', 1, '2026-11-01 00:00:00')",
-                (persona_id, name),
-            )
-    command.upgrade(cfg, "0031")   # 0033 drops age: read it before
-    with sqlite3.connect(db) as con:
-        assert con.execute("SELECT birth_date, age FROM persona WHERE id = 1").fetchone() == ("1989-01-26", 37)
-        assert con.execute("SELECT birth_date FROM persona WHERE id = 2").fetchone() == (None,)
+def test_alembic_config_passes_the_url_to_env():
+    cfg = smoke.alembic_config(make_url("postgresql+psycopg://u:secret@127.0.0.1/x"))
+    assert cfg.attributes["database_url"] == "postgresql+psycopg://u:secret@127.0.0.1/x"

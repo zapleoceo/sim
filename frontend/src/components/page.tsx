@@ -3,10 +3,9 @@ import { ArrowLeft } from 'lucide-react';
 import type * as React from 'react';
 import { cn } from '@/lib/utils';
 
-const WIDTHS = { narrow: 'max-w-3xl', default: 'max-w-7xl', wide: 'max-w-none' } as const;
+const WIDTHS = { narrow: 'max-w-3xl', default: 'max-w-6xl', wide: 'max-w-none' } as const;
 
-/** Page container: consistent paddings and max width across screens. `wide` is for tables: they
- * take the whole content area instead of scrolling inside a centred column; `narrow` for forms. */
+/** Page container: consistent paddings and max width across screens. */
 export function Page({
   width = 'default',
   className,

@@ -1,156 +1,125 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Users } from 'lucide-react';
+import { Search, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Avatar } from '@/components/avatar';
-import { ChannelIcon, StageChip, StatusBadge } from '@/components/badges';
 import { DataTable } from '@/components/data-table';
 import { EmptyState, ErrorState } from '@/components/empty-state';
-import { FilterBar, FilterField, SearchInput } from '@/components/filter-bar';
-import { OptionSelect } from '@/components/option-select';
 import { Page, PageHeader } from '@/components/page';
-import { Pager } from '@/components/pager';
-import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { useDebounced } from '@/hooks/use-debounced';
-import { clientsApi } from '@/lib/api/clients';
-import type { PageRequest } from '@/lib/api/http';
-import { personasApi } from '@/lib/api/personas';
-import { formatShort } from '@/lib/format';
-import type { Client, ClientFilter, ClientStatus, Stage } from '@/lib/models';
+import { formatDateTime, formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
-import { STAGES, STATUSES, STATUS_LABELS } from '@/lib/stages';
-import { DEFAULT_CLIENT_FILTER, clientApiFilter, clientFilterCount } from './client-logic';
+import { clientName } from '@/lib/utils';
+import type { Client } from '@/lib/types';
+import { clientsApi } from './api';
+import { ClientAiSwitch } from './client-ai-switch';
 
-const columns: ColumnDef<Client, unknown>[] = [
+export const CLIENT_COLUMNS: ColumnDef<Client, unknown>[] = [
   {
-    id: 'client',
-    header: 'Клиент',
-    cell: ({ row: { original: c } }) => (
-      <span className="flex min-w-0 items-center gap-3">
-        <Avatar name={c.display_name} url={c.avatar_url} size={36} />
-        <span className="flex min-w-0 flex-col">
-          <Link to="/clients/$id" params={{ id: String(c.id) }} className="truncate font-medium hover:underline">
-            {c.display_name}
-          </Link>
-          <span className="truncate text-xs text-muted-foreground">{c.next_step || 'Следующий шаг не задан'}</span>
-        </span>
-      </span>
-    ),
-    meta: { className: 'max-w-[16rem] sm:max-w-none' },
+    id: 'name',
+    header: 'Имя',
+    cell: ({ row }) => {
+      const name = clientName(row.original);
+      return (
+        <Link
+          to="/clients/$clientId"
+          params={{ clientId: String(row.original.id) }}
+          className="flex min-w-0 items-center gap-2.5 font-medium hover:underline"
+        >
+          <Avatar name={name} size={30} />
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate">{name}</span>
+            {row.original.username && (
+              <span className="truncate text-xs font-normal text-muted-foreground md:hidden">@{row.original.username}</span>
+            )}
+          </span>
+        </Link>
+      );
+    },
+    meta: { className: 'w-full max-w-0 md:w-auto md:max-w-none' },
   },
   {
-    id: 'stage',
-    header: 'Этап',
-    cell: ({ row: { original: c } }) => (
-      <span className="flex flex-wrap gap-1.5">
-        <StageChip stage={c.stage} />
-        <span className="sm:hidden">
-          <StatusBadge status={c.status} />
-        </span>
-      </span>
-    ),
+    id: 'username',
+    header: 'Username',
+    cell: ({ row }) => (row.original.username ? `@${row.original.username}` : '—'),
+    meta: { className: 'hidden md:table-cell text-muted-foreground' },
   },
   {
-    id: 'status',
-    header: 'Статус',
-    cell: ({ row: { original: c } }) => <StatusBadge status={c.status} />,
-    meta: { className: 'hidden sm:table-cell' },
+    id: 'phone',
+    header: 'Телефон',
+    cell: ({ row }) => row.original.phone || '—',
+    meta: { className: 'hidden lg:table-cell tabular' },
   },
   {
-    id: 'channels',
-    header: 'Каналы',
-    cell: ({ row: { original: c } }) => (
-      <span className="flex gap-1">
-        {c.channels.map((ch) => (
-          <ChannelIcon key={ch.dialog_id} kind={ch.kind} size={20} />
-        ))}
-      </span>
+    id: 'last_seen',
+    header: 'Последний контакт',
+    cell: ({ row }) => (
+      <time dateTime={row.original.last_seen_at ?? undefined} title={formatDateTime(row.original.last_seen_at)}>
+        {formatShort(row.original.last_seen_at) || '—'}
+      </time>
     ),
-    meta: { className: 'hidden md:table-cell' },
+    meta: { className: 'hidden sm:table-cell whitespace-nowrap text-muted-foreground tabular' },
   },
   {
-    id: 'last',
-    header: 'Контакт',
-    cell: ({ row: { original: c } }) => (
-      <span className="text-xs text-muted-foreground tabular">{formatShort(c.last_contact_at)}</span>
+    id: 'chats',
+    header: 'Чаты',
+    cell: ({ row }) => row.original.chats_count ?? '—',
+    meta: { className: 'hidden lg:table-cell text-right tabular' },
+  },
+  {
+    id: 'ai',
+    header: 'ИИ',
+    cell: ({ row }) => (
+      <ClientAiSwitch clientId={row.original.id} enabled={row.original.ai_enabled} name={clientName(row.original)} />
     ),
-    meta: { className: 'hidden text-right sm:table-cell' },
+    meta: { className: 'w-16 text-right' },
   },
 ];
 
+/** «Клиенты»: full-width table with search; the name opens the client card. */
 export function ClientsPage() {
-  const navigate = useNavigate();
-  const [filter, setFilterState] = useState<ClientFilter>(DEFAULT_CLIENT_FILTER);
-  const [page, setPage] = useState<PageRequest>({ limit: 50, offset: 0 });
-  const q = useDebounced(filter.q, 250);
-  const apiFilter = useMemo(() => clientApiFilter({ ...filter, q }), [filter, q]);
-
-  // Any filter change goes back to the first page.
-  const setFilter = (next: ClientFilter): void => {
-    setFilterState(next);
-    setPage((p) => ({ ...p, offset: 0 }));
-  };
-  const set = <K extends keyof ClientFilter>(key: K, value: ClientFilter[K]): void => setFilter({ ...filter, [key]: value });
-
-  const personas = useQuery({ queryKey: qk.personas, queryFn: personasApi.list });
-  const list = useQuery({
-    queryKey: qk.clients(apiFilter, page),
-    queryFn: () => clientsApi.list(apiFilter, page),
-    placeholderData: (prev) => prev,
-  });
-  const total = list.data?.total ?? list.data?.items.length ?? 0;
-  const count = clientFilterCount(filter);
+  const [search, setSearch] = useState('');
+  const q = useDebounced(search.trim(), 300);
+  const clients = useQuery({ queryKey: qk.clientList(q), queryFn: () => clientsApi.list(q), placeholderData: (prev) => prev });
+  const rows = useMemo(() => clients.data?.items ?? [], [clients.data]);
 
   return (
     <Page width="wide">
-      <PageHeader title="Клиенты" subtitle={`${total} в выборке`} />
-      <FilterBar
-        activeCount={count}
-        onReset={() => setFilter(DEFAULT_CLIENT_FILTER)}
-        search={<SearchInput value={filter.q} onChange={(v) => set('q', v)} placeholder="Поиск по имени" />}
-        filters={
-          <>
-            <FilterField label="Этап">
-              <OptionSelect<Stage | ''>
-                value={filter.stage}
-                onChange={(v) => set('stage', v)}
-                options={[{ value: '', label: 'Все этапы' }, ...STAGES.map((s) => ({ value: s.id, label: s.label }))]}
-              />
-            </FilterField>
-            <FilterField label="Статус">
-              <OptionSelect<ClientStatus | ''>
-                value={filter.status}
-                onChange={(v) => set('status', v)}
-                options={[{ value: '', label: 'Любой' }, ...STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))]}
-              />
-            </FilterField>
-            <FilterField label="Персонаж">
-              <OptionSelect<number | null>
-                value={filter.persona_id}
-                onChange={(v) => set('persona_id', v)}
-                options={[{ value: null, label: 'Все' }, ...(personas.data ?? []).map((p) => ({ value: p.id, label: p.name }))]}
-              />
-            </FilterField>
-          </>
-        }
-      />
-      <Card className="gap-0 overflow-hidden p-0 sm:p-0">
-        {list.isError && !list.data ? (
-          <ErrorState onRetry={() => void list.refetch()} />
-        ) : (
-          <DataTable
-            caption="Клиенты"
-            columns={columns}
-            data={list.data?.items ?? []}
-            loading={list.isPending}
-            getRowId={(c) => String(c.id)}
-            onRowClick={(c) => void navigate({ to: '/clients/$id', params: { id: String(c.id) } })}
-            empty={<EmptyState icon={Users} title="Клиентов не найдено" hint="Измените фильтры или дождитесь первых диалогов." />}
+      <PageHeader title="Клиенты" subtitle={clients.data ? `${rows.length} в списке` : undefined}>
+        <label className="relative w-full sm:w-72">
+          <span className="sr-only">Поиск клиентов</span>
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Имя, username, телефон"
+            className="pl-8"
           />
-        )}
-      </Card>
-      {total > 25 && <Pager page={page} total={total} onChange={setPage} label="Страницы списка клиентов" />}
+        </label>
+      </PageHeader>
+      {clients.isError ? (
+        <ErrorState onRetry={() => void clients.refetch()} />
+      ) : (
+        <div className="rounded-xl border bg-card shadow-xs">
+          <DataTable
+            columns={CLIENT_COLUMNS}
+            data={rows}
+            loading={clients.isPending}
+            getRowId={(c) => String(c.id)}
+            caption="Клиенты персонажа"
+            empty={
+              <EmptyState
+                icon={Users}
+                title={q ? 'Никого не нашли' : 'Клиентов пока нет'}
+                hint={q ? 'Попробуйте другое имя или номер.' : 'Клиент появится, когда напишет персонажу.'}
+              />
+            }
+          />
+        </div>
+      )}
     </Page>
   );
 }

@@ -35,7 +35,7 @@ jobs:
     env:
       SIM_ENV: test
       SIM_PG_DISPOSABLE: "YES"
-      SIM_PG_TEST_URL: postgresql+asyncpg://sim_ci:sim_ci_disposable_only@127.0.0.1:5432/ci_sim_release_test
+      SIM_PG_TEST_URL: postgresql+psycopg://sim_ci:sim_ci_disposable_only@127.0.0.1:5432/ci_sim_release_test
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@v4
@@ -49,26 +49,18 @@ jobs:
       - name: Install backend from lockfile
         working-directory: backend
         run: uv sync --frozen
-      - name: Install local audio codec for offline tests
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
-      - name: Build isolated nginx audit test tools
-        run: docker build -f infra/nginx/Dockerfile.ci -t sim-nginx-audit-ci .
-      - name: Isolated nginx TLS and audit regression
-        run: docker run --rm --network none sim-nginx-audit-ci
-      - name: Bounded video decoder offline regression
-        working-directory: backend
-        run: uv run --frozen pytest -q tests/test_video_frames.py tests/test_video_process.py tests/test_video_note.py tests/test_video_note_bounds.py tests/test_contact_profile.py
-      - name: Deterministic transcription/reply race
-        working-directory: backend
-        run: uv run --frozen pytest -q tests/test_media_reply_race.py
-      - name: Backend unit tests
-        working-directory: backend
-        run: uv run --frozen pytest -q --ignore=tests/test_nginx_origin_audit.py
+      - name: Install ffmpeg for offline media tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Ruff
         working-directory: backend
         run: uv run --frozen ruff check .
-      - name: Disposable PostgreSQL migration and concurrency gate
+      - name: Backend tests (fakes for Broker and Telegram, disposable PostgreSQL)
         working-directory: backend
+        run: uv run --frozen pytest -q
+      - name: Migrations match the models (upgrade, autogenerate check, downgrade)
+        working-directory: backend
+        env:
+          PYTHONPATH: .     # scripts import the `sim` package (a virtual project, not installed)
         run: uv run --frozen python scripts/ci_postgres_smoke.py
 
   frontend:
@@ -102,7 +94,7 @@ jobs:
       - name: Production build
         working-directory: frontend
         run: npm run build
-      - name: Build output in the path the backend and deploy read
+      - name: Build output in the path nginx and deploy read
         working-directory: frontend
         run: test -f dist/sim/browser/index.html
       - name: Package and verify SHA-pinned bundle
@@ -131,7 +123,8 @@ jobs:
           ${{ github.event.pull_request.head.sha }}
 
   # Production deploy: only for pushes to main after backend and frontend pass.
-  # Gates: fresh DB backup, old worker stopped before migrations, readiness smoke.
+  # Gates: fresh DB backup, old worker and telegram stopped before migrations, migrations
+  # (the `migrate` service) before the new processes start, readiness smoke.
   deploy:
     name: Deploy production
     needs: [backend, frontend]
@@ -180,11 +173,11 @@ jobs:
           git archive --format=tar HEAD | $SSH 'tar -x -C /var/www/sim'
           tar -cf - frontend/dist/sim/browser | $SSH 'tar -x -C /var/www/sim'
           $SSH "echo ${GITHUB_SHA} > /var/www/sim/REVISION"
-      - name: Stop old worker before migrations
+      - name: Stop old worker and telegram before migrations
         env:
           HOST: ${{ secrets.SIM_DEPLOY_HOST }}
           PORT: ${{ secrets.SIM_DEPLOY_PORT }}
-        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'cd /var/www/sim/infra && docker compose stop worker'
+        run: ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'cd /var/www/sim/infra && docker compose stop worker telegram'
       - name: Build and start stack (migrations run first)
         env:
           HOST: ${{ secrets.SIM_DEPLOY_HOST }}
@@ -195,10 +188,14 @@ jobs:
           HOST: ${{ secrets.SIM_DEPLOY_HOST }}
           PORT: ${{ secrets.SIM_DEPLOY_PORT }}
         run: |
-          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'for i in $(seq 1 30); do docker exec sim-api python -m sim.readiness && curl -fsS --max-time 5 http://127.0.0.1:8010/api/ready && exit 0; sleep 2; done; exit 1'
-          # The admin bundle must be served too (a stale bind mount once returned 500 for every page).
-          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'curl -fsS --max-time 5 http://127.0.0.1:8010/login | grep -q "id=\"root\""'
-          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "root@$HOST" 'docker exec sim-postgres psql -U sim -d sim -tAc "select version_num from alembic_version"; cat /var/www/sim/REVISION'
+          SSH="ssh -p $PORT -i $HOME/.ssh/id_ed25519 root@$HOST"
+          # The api answers /readyz only when it reaches the database.
+          $SSH 'for i in $(seq 1 30); do curl -fsS --max-time 5 http://127.0.0.1:8010/readyz && exit 0; sleep 2; done; exit 1'
+          # worker and telegram must be running (they serve no HTTP).
+          $SSH 'cd /var/www/sim/infra && sleep 5 && running="$(docker compose ps --status running --services)" && for s in api worker telegram; do echo "$running" | grep -qx "$s" || { echo "$s is not running"; docker compose logs --tail 50 "$s"; exit 1; }; done'
+          # The admin bundle nginx serves is in place.
+          $SSH 'grep -q "id=\"root\"" /var/www/sim/frontend/dist/sim/browser/index.html'
+          $SSH 'docker exec sim-postgres psql -U sim -d sim -tAc "select version_num from alembic_version order by 1"; cat /var/www/sim/REVISION'
       - name: Remove key material
         if: always()
         run: rm -f ~/.ssh/id_ed25519
