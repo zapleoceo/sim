@@ -124,13 +124,21 @@
 Основной путь — `POST /v1/images/jobs` (Gemini image, несколько референсов):
 
 ```json
-{"prompt": "…", "references": [{"data": "<base64>", "mime": "image/jpeg"}],
- "aspect_ratio": "3:4", "workflow": "sim-photo", "model": "…"}
+{"prompt": "…", "references": [{"image_base64": "<base64>", "mime": "image/jpeg"}],
+ "aspect_ratio": "3:4", "workflow": "sim-photo", "model": "gemini/gemini-3.1-flash-image"}
 ```
 
-затем опрос `GET /v1/jobs/{id}` (или `poll_url`). Маршрут в Broker только добавляется:
-запрос собирает одна функция `images_job_body`, ответ читает одна функция `image_of`
-(понимает `image_base64` + `mime_type`, `images[0]` и PNG в `files[]`).
+Контракт Broker (AIbroker PR #161, scope `llm:image`): до 8 референсов JPEG/PNG/WebP, до 7 МБ
+каждый и 20 МБ вместе; `aspect_ratio` из 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9;
+ответ `202` с `job_id`, готовая задача в `GET /v1/jobs/{id}` несёт `image_base64`,
+`mime_type`, `cost_usd`. Модели: `gemini/gemini-3.1-flash-image` (обычный выбор),
+`gemini/gemini-3-pro-image` (лучше держит внешность), `gemini/gemini-3.1-flash-lite-image`
+(дешевле, хуже с несколькими референсами). Запрос собирает `images_job_body`, ответ читает
+`image_of`.
+
+Видео и PDF во входе vision (тот же PR): блоки `video_url` (mp4/webm/mov) и `file`
+(`file_data` + `filename`), только inline base64, до 20 МБ на запрос, только Gemini-модели
+с `video`/`pdf` в `modalities`.
 
 Запасной путь — модель `codex-sub/*` (как в v1): `POST /v1/jobs?capability=chat:fast`,
 текст `$imagegen …`, до 5 референсов блоками `image_url`, без `max_tokens` и без
