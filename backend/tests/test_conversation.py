@@ -184,3 +184,23 @@ async def test_preview_persists_nothing(container, world, fake_llm):
         assert (await s.scalars(select(Message))).all() == []
         assert (await s.scalars(select(Client))).all() == []
     assert "PREVIEW" not in fake_llm.calls[0][0][0]["content"]
+
+
+async def test_contact_profile_is_read_with_the_model_that_answers(container, world, fake_llm, monkeypatch):
+    from sim.adapters.db.models import Persona
+    from sim.services.contact_profile import ContactSnapshot, CurrentContactProfile
+
+    seen = []
+
+    async def read(self, dialog, port, request, *, channel_id, model):
+        seen.append(model)
+        return ContactSnapshot()
+
+    monkeypatch.setattr(CurrentContactProfile, "read", read)
+    async with transaction(container.factory) as s:
+        persona = await s.get(Persona, world.persona.id)
+        persona.model, persona.identity_model = "main-model", "identity-model"
+    fake_llm.replies = [decision_json(reply="Я ИИ-персонаж.")]
+    await start(container, world, "Ты ИИ?")
+    await run_reply(container)
+    assert seen == ["identity-model"]

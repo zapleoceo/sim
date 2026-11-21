@@ -153,6 +153,21 @@ async def test_list_models():
 
 
 @respx.mock
+async def test_list_models_is_cached_briefly():
+    from sim.adapters.llm.broker import MODELS_TTL_S
+
+    route = respx.get(f"{URL}/v1/models").respond(200, json={"data": [{"id": "a"}]})
+    llm = make()
+    assert [m["id"] for m in await llm.list_models()] == ["a"]
+    assert [m["id"] for m in await llm.list_models()] == ["a"]
+    assert route.call_count == 1                       # one fetch serves several callers
+    fetched, rows = llm._models
+    llm._models = (fetched - MODELS_TTL_S, rows)       # the cache expires
+    await llm.list_models()
+    assert route.call_count == 2
+
+
+@respx.mock
 async def test_default_max_tokens_is_sent_for_regular_models():
     submit = respx.post(f"{URL}/v1/jobs").respond(202, json={"job_id": 1, "poll_after_s": 1})
     respx.get(f"{URL}/v1/jobs/1").respond(200, json={**DONE, "job_id": 1})
