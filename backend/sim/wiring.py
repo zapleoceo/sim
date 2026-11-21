@@ -14,7 +14,7 @@ from sim.clock import SystemClock
 from sim.config import Settings
 from sim.db.session import make_engine, make_sessionmaker
 from sim.services.deps import Deps
-from sim.tasks.app import make_app
+from sim.tasks.app import POOL_SIZE, make_app
 from sim.tasks.queue import ProcrastinateQueue
 
 
@@ -30,10 +30,10 @@ class Wired:
         await self.engine.dispose()
 
 
-def wire(settings: Settings, *, pool_size: int = 5) -> Wired:
+def wire(settings: Settings, *, pool_size: int = 5, tasks_pool_size: int = POOL_SIZE) -> Wired:
     engine = make_engine(settings.database_url, pool_size=pool_size)
     broker = BrokerAdapters.from_settings(settings)
-    tasks_app = make_app(settings)
+    tasks_app = make_app(settings, pool_size=tasks_pool_size)
     deps = Deps(
         settings=settings,
         sessions=make_sessionmaker(engine),

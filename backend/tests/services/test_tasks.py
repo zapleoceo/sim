@@ -89,12 +89,14 @@ async def test_queue_defers_by_name_with_locks() -> None:
         (REPLY_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "chat:7",
                                       "queueing_lock": "reply:7", "schedule_in": {"seconds": 8}}),
         (UNDERSTAND_TASK, {"media_id": 3}, {"queue": "agent", "queueing_lock": "understand:3"}),
-        (GENERATE_TASK, {"generation_id": 4}, {"queue": "agent",
+        # Generation has its own queue: queued videos never hold back a reply.
+        (GENERATE_TASK, {"generation_id": 4}, {"queue": "media",
                                                "queueing_lock": "generation:4"}),
         (SEND_TASK, {"message_id": 5}, {"queue": "telegram", "lock": "send:7",
                                         "queueing_lock": "send-message:5"}),
         (SEND_TASK, {"message_id": 6}, {"queue": "telegram", "queueing_lock": "send-message:6"}),
-        (MEMORY_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "chat:7",
+        # Its own lock: a memory refresh does not wait behind the chat's turns.
+        (MEMORY_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "memory:7",
                                        "queueing_lock": "memory:7"}),
         (MARK_READ_TASK, {"message_id": 9}, {"queue": "telegram",
                                              "queueing_lock": "mark-read:9"}),
@@ -114,6 +116,7 @@ def test_make_app_registers_agent_tasks_under_shared_names() -> None:
     app = make_app(Settings(env="test"))
     assert {REPLY_TASK, UNDERSTAND_TASK, GENERATE_TASK, MEMORY_TASK} <= set(app.tasks)
     assert app.tasks[REPLY_TASK].queue == "agent"
+    assert app.tasks[GENERATE_TASK].queue == "media"
     assert {SEND_TASK, MARK_READ_TASK, CHAT_ACTION_TASK} <= set(app.tasks)
     assert app.tasks[CHAT_ACTION_TASK].queue == "telegram"
 

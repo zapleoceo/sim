@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +14,7 @@ from sim.domain.enums import (
     MediaKind,
     MediaSource,
     MessageKind,
+    MessageStatus,
 )
 from sim.domain.plan import GenerateSpec
 from sim.ports import PortError
@@ -153,3 +157,46 @@ async def test_a_circle_that_cannot_be_cut_fails_the_generation(db: AsyncSession
     fakes.tools.video_note_error = PortError("ffmpeg exited 1")
     assert await GenerationService(deps).run(generation.id) == GenerationStatus.FAILED
     assert await all_rows(db, select(Message).where(Message.chat_id == chat.id)) == []
+
+
+# --- a claimed generation never stays `running` ----------------------------------------------
+
+
+async def test_an_error_while_storing_the_result_fails_the_generation(
+        db: AsyncSession, deps: Deps, fakes: Fakes, monkeypatch: pytest.MonkeyPatch) -> None:
+    chat, generation = await queued(db, fakes, GenerationKind.PHOTO)
+
+    async def broken(*args: Any, **kwargs: Any) -> Message:
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr("sim.services.generation.enqueue_message", broken)
+
+    with pytest.raises(RuntimeError):
+        await GenerationService(deps).run(generation.id)
+
+    generation = await fresh(db, generation)
+    assert generation.status == GenerationStatus.FAILED
+    assert generation.error == "внутренняя ошибка: RuntimeError('database went away')"
+    assert generation.cost_usd == 0.04                  # the photo was paid for
+    assert await all_rows(db, select(Message).where(Message.chat_id == chat.id)) == []
+    [failed] = await all_rows(db, select(ChatEvent).where(
+        ChatEvent.chat_id == chat.id, ChatEvent.kind == EventKind.GENERATION_FAILED))
+    assert failed.generation_id == generation.id
+    assert fakes.tasks.actions() == ["upload_photo", "cancel"]
+
+
+async def test_a_failing_send_defer_keeps_the_generation_done(
+        db: AsyncSession, deps: Deps, fakes: Fakes, monkeypatch: pytest.MonkeyPatch) -> None:
+    chat, generation = await queued(db, fakes, GenerationKind.PHOTO)
+
+    async def down(message_id: int, chat_id: int | None = None) -> None:
+        raise OSError("queue unreachable")
+
+    monkeypatch.setattr(fakes.tasks, "send", down)
+
+    assert await GenerationService(deps).run(generation.id) == GenerationStatus.DONE
+
+    assert (await fresh(db, generation)).status == GenerationStatus.DONE
+    # The message is committed `pending`: the reaper queues its send again.
+    [message] = await all_rows(db, select(Message).where(Message.chat_id == chat.id))
+    assert message.status == MessageStatus.PENDING

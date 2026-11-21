@@ -14,12 +14,16 @@ apartment with that room's earlier photos as references (docs/persona-life.md, �
   scene) -> media library -> send;
 - video note: like a video (always a spoken selfie, at most `VIDEO_NOTE_GEN_S`), then
   `tools.to_video_note` cuts it to a 640x640 circle -> media library (video) -> `video_note`.
-While it runs the client sees «отправляет фото / видео», «записывает кружок»; a failure marks the
-generation failed, writes `generation_failed` and clears that status; the client gets nothing."""
+While it runs the client sees «отправляет фото / видео», «записывает кружок»; a failure (a Broker
+error, or any other error up to storing the result) marks the generation failed, writes
+`generation_failed` and clears that status; the client gets nothing. The task runs in its own
+queue `media` (sim/tasks/queue.py); a generation whose worker died is failed by the reaper
+(sim/services/reaper.py) after its budget (sim/services/generation_state.py)."""
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
+from datetime import datetime
 
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,12 +47,14 @@ from sim.domain.scene import Camera, CameraHold, SceneCard
 from sim.events import append_event
 from sim.ports import MediaResult, PortError
 from sim.services.deps import Deps
+from sim.services.generation_state import IN_PROGRESS
 from sim.services.life.home import home_room
 from sim.services.life.store import load_life
 from sim.services.llm_log import logged_call
 from sim.services.media_library import add_media, normalize_tags
 from sim.services.outbox import enqueue_message
 from sim.services.presence import show_busy, stop_busy
+from sim.services.queue import after_commit
 from sim.services.visual import (
     APPEARANCE_REFS,
     CONTINUITY_REFS,
@@ -178,6 +184,13 @@ class _Job:
     references: list[tuple[bytes, str]]
 
 
+@dataclass
+class _Spent:
+    """The cost of the model calls so far, kept when a later step fails."""
+
+    usd: float = 0.0
+
+
 def _file_name(prefix: str, generation_id: int, mime: str) -> str:
     return f"{prefix}-{generation_id}.{FILE_EXTENSIONS.get(mime, 'bin')}"
 
@@ -187,35 +200,47 @@ class GenerationService:
         self.deps = deps
 
     async def run(self, generation_id: int) -> GenerationStatus | None:
+        """Claims and makes the generation. A Broker error fails it (status FAILED); any other
+        error, storing the result included, fails it too and is raised to the job list —
+        a claimed generation never stays `running`."""
         job = await self._claim(generation_id)
         if job is None:
             return None
-        await self._busy(job)
-        cost = 0.0
-        duration: float | None = None
+        spent = _Spent()
         try:
-            photo = await self._image(job)
-            cost += photo.usage.cost_usd or 0.0
-            async with transaction(self.deps.sessions) as session:
-                photo_asset = await self._store(session, job, photo, MediaKind.PHOTO)
-                photo_id = photo_asset.id
-            final, final_kind, broker_job = photo, MediaKind.PHOTO, photo.usage.job_id
-            if job.kind in VIDEO_KINDS:
-                await self._busy(job)           # the clip takes minutes: refresh the status
-                video = await self._video(job, photo)
-                cost += video.usage.cost_usd or 0.0
-                final, final_kind, broker_job = video, MediaKind.VIDEO, video.usage.job_id
-            if job.kind == GenerationKind.VIDEO_NOTE:
-                note, duration = await self.deps.tools.to_video_note(final.data)
-                final = replace(final, data=note, mime=VIDEO_NOTE_MIME)
+            message_id = await self._make(job, spent)
         except PortError as exc:
-            await self._fail(job, str(exc) or type(exc).__name__, cost)
+            await self._fail(job, str(exc) or type(exc).__name__, spent.usd)
             return GenerationStatus.FAILED
-        message_id = await self._finish(job, final, final_kind, photo_id, broker_job, cost,
-                                        duration)
+        except Exception as exc:
+            await self._fail(job, f"внутренняя ошибка: {exc!r}", spent.usd)
+            raise
         if message_id is not None and job.chat_id is not None:
-            await self.deps.tasks.send(message_id, job.chat_id)
+            await after_commit(f"generation {job.id}: send {message_id}",
+                               self.deps.tasks.send(message_id, job.chat_id))
         return GenerationStatus.DONE
+
+    async def _make(self, job: _Job, spent: _Spent) -> int | None:
+        """The slow part: the media, stored, the generation DONE and its message enqueued (one
+        transaction). Returns the message id; `spent` counts the cost as it goes."""
+        duration: float | None = None
+        await self._busy(job)
+        photo = await self._image(job)
+        spent.usd += photo.usage.cost_usd or 0.0
+        async with transaction(self.deps.sessions) as session:
+            photo_asset = await self._store(session, job, photo, MediaKind.PHOTO)
+            photo_id = photo_asset.id
+        final, final_kind, broker_job = photo, MediaKind.PHOTO, photo.usage.job_id
+        if job.kind in VIDEO_KINDS:
+            await self._busy(job)           # the clip takes minutes: refresh the status
+            video = await self._video(job, photo)
+            spent.usd += video.usage.cost_usd or 0.0
+            final, final_kind, broker_job = video, MediaKind.VIDEO, video.usage.job_id
+        if job.kind == GenerationKind.VIDEO_NOTE:
+            note, duration = await self.deps.tools.to_video_note(final.data)
+            final = replace(final, data=note, mime=VIDEO_NOTE_MIME)
+        return await self._finish(job, final, final_kind, photo_id, broker_job, spent.usd,
+                                  duration)
 
     async def _busy(self, job: _Job) -> None:
         if job.chat_id is not None:
@@ -353,18 +378,31 @@ class GenerationService:
     async def _fail(self, job: _Job, error: str, cost: float) -> None:
         log.warning("generation %s failed: %s", job.id, error)
         async with transaction(self.deps.sessions) as session:
-            generation = await session.get(Generation, job.id)
+            generation = await session.get(Generation, job.id, with_for_update=True)
             if generation is None:
                 return
-            generation.status = GenerationStatus.FAILED
-            generation.error = error
-            generation.cost_usd = cost or None
-            generation.finished_at = self.deps.clock.now()
-            if job.chat_id is not None:
-                await append_event(
-                    session, chat_id=job.chat_id, kind=EventKind.GENERATION_FAILED,
-                    actor="system", generation_id=job.id, reply_run_id=job.reply_run_id,
-                    data={"kind": job.kind.value, "caption": job.caption, "error": error[:300]},
-                )
+            if cost:
+                generation.cost_usd = cost
+            await fail_generation(session, generation, error, self.deps.clock.now())
         if job.chat_id is not None:
             await stop_busy(self.deps.tasks, job.chat_id)
+
+
+async def fail_generation(session: AsyncSession, generation: Generation, error: str,
+                          now: datetime) -> bool:
+    """Marks an unfinished generation FAILED and writes `generation_failed` (the operator sees
+    it; the client gets nothing). False when it has already finished. The caller stops the
+    chat's live status after its commit (`stop_busy`)."""
+    if generation.status not in IN_PROGRESS:
+        return False
+    generation.status = GenerationStatus.FAILED
+    generation.error = error
+    generation.finished_at = now
+    if generation.chat_id is not None:
+        await append_event(
+            session, chat_id=generation.chat_id, kind=EventKind.GENERATION_FAILED,
+            actor="system", generation_id=generation.id, reply_run_id=generation.reply_run_id,
+            data={"kind": generation.kind.value, "caption": generation.caption,
+                  "error": error[:300]},
+        )
+    return True

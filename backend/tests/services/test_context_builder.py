@@ -6,13 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.config import Settings
-from sim.db.models import Call, Chat, ChatDay, ChatWeek, Client
+from sim.db.models import Call, Chat, ChatDay, ChatWeek, Client, Generation
 from sim.domain.enums import (
     CallDirection,
     CallStatus,
     DaySource,
     Direction,
     EventKind,
+    GenerationKind,
+    GenerationStatus,
     MessageKind,
 )
 from sim.domain.memory import with_notes
@@ -121,6 +123,25 @@ async def test_the_style_block_and_no_refusals(db: AsyncSession, clock: FixedClo
     chat.no_refusals = True
     await db.flush()
     assert NO_REFUSALS in user_text(await builder.for_reply(db, chat.id))
+
+
+async def test_only_a_generation_still_in_progress_is_promised(db: AsyncSession, clock: FixedClock,
+                                                               settings: Settings) -> None:
+    chat = await make_chat(db)
+    await add_message(db, chat, "покажись", at=clock.now() - timedelta(minutes=1))
+    for caption, ago in (("у окна", timedelta(minutes=3)), ("на пляже", timedelta(hours=2))):
+        db.add(Generation(persona_id=chat.persona_id, chat_id=chat.id,
+                          kind=GenerationKind.PHOTO, prompt="селфи", caption=caption,
+                          status=GenerationStatus.QUEUED, created_at=clock.now() - ago,
+                          updated_at=clock.now() - ago))
+    await db.flush()
+
+    ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
+
+    # The window of sim/services/generation_state.py: a two-hour-old «queued» photo will never
+    # come (the reaper fails it), so she must not keep saying it is on its way.
+    assert ctx.snapshot["facts_values"]["generations"] == ["фото «у окна»"]
+    assert "на пляже" not in user_text(ctx)
 
 
 async def test_the_stable_prefix_survives_a_new_message(db: AsyncSession, clock: FixedClock,

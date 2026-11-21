@@ -19,11 +19,16 @@ def conninfo(database_url: str) -> str:
     return database_url
 
 
-def make_app(settings: Settings) -> procrastinate.App:
+POOL_SIZE = 4       # psycopg_pool's default; each running worker keeps one for LISTEN
+
+
+def make_app(settings: Settings, *, pool_size: int = POOL_SIZE) -> procrastinate.App:
     """Tasks of other processes (e.g. `telegram.send_message`) are deferred by name; the
-    process that runs them registers them on this app at start-up."""
+    process that runs them registers them on this app at start-up. `pool_size`: Procrastinate's
+    own connections (the worker process runs two workers, sim/apps/worker.py)."""
     app = procrastinate.App(
-        connector=procrastinate.PsycopgConnector(conninfo=conninfo(settings.database_url)))
+        connector=procrastinate.PsycopgConnector(conninfo=conninfo(settings.database_url),
+                                                 min_size=pool_size))
     register_agent_tasks(app)
     # Telegram tasks run only in the telegram process (queue `telegram`), but every process
     # knows them so a defer by name is checked against one registry.

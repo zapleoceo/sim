@@ -167,7 +167,9 @@ JSON-план), `guard_verdicts` (`[{ok, reason, attempt}]`), `attempts` (ско
 сцены), `scene` (сцена, в которой сделано: `{day, event_id, place, outfit, ambience, shot}`,
 `0003`; по ней находятся фото того же события для непрерывности), `status`
 (`queued | running | done | failed`), `model`, `result_media_id`, `broker_job_id`, `cost_usd`,
-`error`, `finished_at`. Создаёт обработчик действия, выполняет задача `agent.run_generation`.
+`error`, `finished_at`. Создаёт обработчик действия, выполняет задача `agent.run_generation`
+(очередь `media`). `updated_at` — время последней смены статуса: от него считаются окно «ещё
+идёт» и сроки уборщика (`docs/reply.md`, «Генерация: сроки»).
 Результат кружка — `media_asset` вида `video` (квадрат 640×640), сообщение вида `video_note`.
 
 ### `call`
@@ -204,5 +206,7 @@ attention`; `life` — планировщик дня, `0003`; `passport` — п�
 ## Очередь задач
 
 Таблицы `procrastinate_*` создаёт Procrastinate своей миграцией схемы. Там лежат задачи
-(`agent.*`, `telegram.*`), их блокировки (`lock`, `queueing_lock`) и история запусков. Порядок и
-блокировки описаны в `docs/reply.md`, п. 2.
+(`agent.*`, `telegram.*`) трёх очередей — `agent`, `media` (генерация), `telegram`, — их
+блокировки (`lock`, `queueing_lock`) и история запусков. Порядок и блокировки описаны в
+`docs/reply.md`, п. 2; восстановление оборванных задач и застрявших строк — в
+`docs/deploy.md`.

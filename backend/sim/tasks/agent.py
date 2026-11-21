@@ -1,6 +1,7 @@
-"""The worker's tasks (queue `agent`). Each opens its own sessions through the process-wide
-Deps (`set_deps` in the entrypoint) and calls one service. Only retryable Broker errors
-(PortError) are retried; everything else is recorded by the service and finishes the job."""
+"""The worker's tasks (queue `agent`; generation in queue `media`). Each opens its own
+sessions through the process-wide Deps (`set_deps` in the entrypoint) and calls one service.
+Only retryable Broker errors (PortError) are retried; everything else is recorded by the
+service and finishes the job."""
 from __future__ import annotations
 
 import logging
@@ -28,6 +29,7 @@ from sim.tasks.queue import (
     LIFE_TICK_CRON,
     LIFE_TICK_TASK,
     LOOK_TASK,
+    MEDIA_QUEUE,
     MEMORY_TASK,
     MEMORY_TICK_CRON,
     MEMORY_TICK_TASK,
@@ -35,12 +37,15 @@ from sim.tasks.queue import (
     PASSPORT_TASK,
     PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
+    REAP_CRON,
+    REAP_TASK,
     REPLY_TASK,
     STALLED_CRON,
     STALLED_TASK,
     SUMMARIZE_DAY_TASK,
     UNDERSTAND_TASK,
 )
+from sim.tasks.reaper import reap_tick
 from sim.tasks.stalled import stalled_tick
 
 log = logging.getLogger(__name__)
@@ -132,7 +137,7 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     """Register under the exact shared names (no blueprint namespace prefix)."""
     app.task(name=REPLY_TASK, queue=AGENT_QUEUE, retry=RETRY)(reply_chat)
     app.task(name=UNDERSTAND_TASK, queue=AGENT_QUEUE, retry=RETRY)(understand_media)
-    app.task(name=GENERATE_TASK, queue=AGENT_QUEUE)(run_generation)
+    app.task(name=GENERATE_TASK, queue=MEDIA_QUEUE)(run_generation)
     app.task(name=MEMORY_TASK, queue=AGENT_QUEUE, retry=RETRY)(refresh_memory)
     app.task(name=PASSPORT_TASK, queue=AGENT_QUEUE, retry=RETRY)(update_passport)
     app.task(name=PLAN_DAY_TASK, queue=AGENT_QUEUE, retry=RETRY)(plan_day)
@@ -148,3 +153,5 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     app.periodic(cron=MEMORY_TICK_CRON, periodic_id="memory")(night)
     stalled = app.task(name=STALLED_TASK, queue=AGENT_QUEUE, pass_context=True)(stalled_tick)
     app.periodic(cron=STALLED_CRON, periodic_id="stalled")(stalled)
+    reap = app.task(name=REAP_TASK, queue=AGENT_QUEUE)(reap_tick)
+    app.periodic(cron=REAP_CRON, periodic_id="reaper")(reap)

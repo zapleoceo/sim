@@ -105,6 +105,31 @@ async def test_voice_shows_recording_for_its_length_and_sends_the_file(db, sessi
     assert sum(sleep.calls) == pytest.approx(3.2)
 
 
+class UnrecordedOutbox(FakeOutbox):
+    """The database fails right after Telegram accepted the message."""
+
+    async def mark_sent(self, session, message, external_id, at):
+        raise RuntimeError("database went away")
+
+
+async def test_a_database_error_after_the_send_leaves_it_pending_for_the_reaper(
+        db, sessions, clock):
+    world = await seed_world(db)
+    message = await outgoing(db, world)
+    messenger = FakeMessenger()
+    with pytest.raises(RuntimeError):
+        await deliver(message.id, sessions=sessions, storage=FakeStorage(), clock=clock,
+                      messenger=messenger, outbox=UnrecordedOutbox(), final_attempt=False,
+                      sleep=RecordingSleep())
+    await db.refresh(message)
+    assert len(messenger.sent) == 1 and message.status == MessageStatus.PENDING
+    # The reaper queues it again: the repeat carries the same key (Telegram's random_id), so a
+    # message Telegram already has is not delivered twice (sim/telegram/sending.py).
+    result, again, _, _ = await run(message, sessions, clock)
+    assert result == "sent"
+    assert again.sent[0][1].key == messenger.sent[0][1].key == message.id
+
+
 async def test_flood_wait_is_left_to_the_retry(db, sessions, clock):
     world = await seed_world(db)
     message = await outgoing(db, world)
