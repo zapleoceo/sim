@@ -1,5 +1,18 @@
 # Sim
 
+### One reply path
+
+Chat replies, follow-ups, the persona preview and the admin simulator build every answer
+through `ConversationService.draft_reply`: one prompt builder, one model call with a
+single JSON retry (`ask`), one pre-send guard. Silence reengagement reuses the same
+`prompt`, `ask` and `review`; it reviews a text for the moment it is scheduled and a bare
+stop/handoff decision for now. Only `prompt` adds the persona's computed facts (age,
+local time, where she is); the guard receives them through `with_persona_facts`. The guard
+approves only a clean `ok` (`approves`); it never rewrites text, so a saved message has an
+`original_text` only from older releases or media records. The silence sweep filters out
+refused clients, dialogs with follow-ups off and disconnected channels in SQL before it
+locks a dialog.
+
 ### Live call startup retries
 
 While an incoming call is still ringing, SIM retries Broker Live startup at most once,
