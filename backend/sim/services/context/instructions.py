@@ -1,5 +1,6 @@
 """Fixed rules appended to the persona prompt (docs/context.md §2.2). They describe the JSON plan
-of sim/domain/plan.py; the dashboard shows them read-only (`GET /api/instructions`)."""
+of sim/domain/plan.py; the dashboard shows them read-only on the «Собеседник» and «Звонок» agent
+cards (`GET /api/agents/registry`, `readonly_prompt`)."""
 from __future__ import annotations
 
 FORMAT_RULES = """\
