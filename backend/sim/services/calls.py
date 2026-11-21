@@ -289,6 +289,7 @@ class CallService:
             except Exception:
                 log.exception("call hangup failed dialog=%s", plan.dialog_id)
                 playback.failure = playback.failure or "transport_hangup_failed"
+        await playback.settle()         # verdicts of her last replies, after hanging up
         if summary.end_reason in {
             "no_summary", "provider_error", "transport_error", "summary_timeout",
             "receive_backlog_overflow",
@@ -425,13 +426,6 @@ class CallService:
                 STOPPED_BY.get(name, name) for name in by), by=",".join(by))
             if stopped == ["downlink"] and tasks["downlink"].exception() is None:
                 await self.drain(out)          # her last words before hanging up
-                if playback is not None:
-                    try:
-                        async with asyncio.timeout(DRAIN_LIMIT_S):
-                            await playback.drained.wait()
-                    except TimeoutError:
-                        trace.event("playback_drain_timeout")
-                        playback.failure = playback.failure or "playback_drain_timeout"
         finally:
             for task in tasks.values():
                 task.cancel()
@@ -490,7 +484,6 @@ class CallService:
         due = self.mono()
         while True:
             frame = out.pop_frame()
-            turn = playback.playing if playback is not None and frame is not None else None
             now = self.mono()
             speech = frame is not None
             if ambience is not None:
@@ -503,8 +496,8 @@ class CallService:
                 trace.count("pacer_restarts")
                 due = now
             await call.play(frame)
-            if turn is not None:
-                playback.acknowledge(turn, len(frame))
+            if speech and playback is not None:
+                playback.acknowledge(len(frame))
             if speech:
                 trace.first("first_frame_sent", "Её речь начала звучать в звонке",
                             bytes=len(frame))
@@ -572,8 +565,8 @@ class CallService:
             journal = CommunicationJournal(s, clock=self.clock)
             if steps:
                 await journal.record(dialog.id, CALL_STEPS, who=SYSTEM, reason=steps)
-            if failure or any(t.cancel_reason for t in recorded):
-                header.error = failure or "context_changed"
+            if failure:      # a caller talking over her is a conversation, not a problem
+                header.error = failure
                 await journal.record(
                     dialog.id, CALL_ISSUE, new=CALL_ENDED_WITH_ISSUE,
                     who=SYSTEM, reason="Часть ответа могла не прозвучать. Можно продолжить в чате.")
