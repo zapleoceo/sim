@@ -81,14 +81,15 @@ async def test_an_exclusive_send_is_marked_in_the_same_transaction_and_never_rep
 
 async def test_errors_retry_or_fail(world: World, db: AsyncSession, sessions: TestSessions,
                                     clock: FixedClock) -> None:
-    message = await outgoing(db, world.ig_chat.id)
+    # The id, not the row: the rolled-back send expires the session's objects.
+    message_id = (await outgoing(db, world.ig_chat.id)).id
     soft = FakeMessenger(error=RetryAfter("instagram soft block", 900))
     with pytest.raises(RetryAfter):
-        await run(message.id, sessions, clock, soft, FakeOutbox())
+        await run(message_id, sessions, clock, soft, FakeOutbox())
     outbox = FakeOutbox()
     refused = FakeMessenger(error=PortError("Instagram Direct can not send voice"))
-    assert await run(message.id, sessions, clock, refused, outbox) == "failed"
-    assert outbox.failed == [(message.id, "Instagram Direct can not send voice")]
+    assert await run(message_id, sessions, clock, refused, outbox) == "failed"
+    assert outbox.failed == [(message_id, "Instagram Direct can not send voice")]
     assert retry_delay(RetryAfter("wait", 900), 0) == 901.0
     assert retry_delay(FloodWait(30), 0) == 31.0                    # Telegram's is one too
     assert retry_delay(RetryAfter("wait", 900), 5) is None          # the last attempt

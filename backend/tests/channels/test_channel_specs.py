@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import procrastinate
 import pytest
+from procrastinate.testing import InMemoryConnector
 
 from sim.api.channel_logins import ChannelLogins
 from sim.channels.instagram.login import InstagramLogins
+from sim.channels.tasks import register_channel_tasks
 from sim.channels.whatsapp.login import NOT_INSTALLED, WhatsAppLogins
 from sim.config import Settings
 from sim.db.models import Persona
@@ -25,7 +28,6 @@ from sim.domain.writing import DEFAULT_MODE
 from sim.services.capabilities import Capabilities, capabilities_of
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.writing import CHANNEL_STYLE, STYLE_HEADING, style_block
-from sim.tasks.app import make_app
 from sim.tasks.queue import (
     CHANNELS_CHAT_ACTION_TASK,
     CHANNELS_MARK_READ_TASK,
@@ -129,7 +131,9 @@ async def test_without_a_router_everything_is_telegram() -> None:
 
 
 def test_every_process_knows_the_channels_tasks() -> None:
-    app = make_app(Settings(env="test"))
+    # A bare app: `make_app` takes the Telegram blueprint, which a process can add only once.
+    app = procrastinate.App(connector=InMemoryConnector())
+    register_channel_tasks(app)
     names = {CHANNELS_SEND_TASK, CHANNELS_MARK_READ_TASK, CHANNELS_CHAT_ACTION_TASK,
              IG_POLL_TASK, IG_TICK_TASK, WA_CATCH_UP_TASK}
     assert names <= set(app.tasks)
