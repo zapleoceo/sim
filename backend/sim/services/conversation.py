@@ -22,7 +22,7 @@ from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, MediaKind, Stage
 from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
-from sim.ports.llm import LLMResult
+from sim.ports.llm import LLMError, LLMResult
 from sim.services import jobkinds
 from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
@@ -31,7 +31,7 @@ from sim.services.chat_activity import mark_read, showing
 from sim.services.dialog_state import invalidate_plan, turns
 from sim.services.followup import FollowupService
 from sim.services.funnel import MODEL_DECISION, FunnelService
-from sim.services.guard import BLOCKED, GUARD_WORKFLOW, Guard, GuardOutcome
+from sim.services.guard import BLOCKED, GUARD_WORKFLOW, OK, Guard, GuardOutcome
 from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
@@ -66,7 +66,7 @@ log = logging.getLogger(__name__)
 
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
-NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
+GUARD_UNAVAILABLE = "контролёр недоступен, ответ отправлен без его проверки"
 AI_PAUSED = "ai_paused"   # ReplyOutcome.reason: the dialog is paused and a client message waits
 
 
@@ -163,6 +163,15 @@ def visible_turns(items: Iterable[tuple[bool, str, str | None]]) -> list[Turn]:
 def is_neutral_media_acknowledgement(text: str) -> bool:
     """Only literal acknowledgements can be proven free of scene details."""
     return text.strip().casefold() in {"хорошо", "хорошо.", "ок", "ок."}
+
+
+def with_neutral_scene(decision: Decision | None, kind: MediaKind | None) -> Decision | None:
+    """A first general media request answered with a bare «хорошо» gets the neutral scene."""
+    if (kind is None or decision is None or decision.media is None or not decision.media.send
+            or decision.media.kind is not kind or not is_neutral_media_acknowledgement(decision.reply)
+            or decision.handoff_to_operator or decision.refused or decision.stop_contact):
+        return decision
+    return replace(decision, media=replace(decision.media, scene=NEUTRAL_MEDIA_SCENE))
 
 
 def decision_fields(decision: Decision) -> dict[str, Any]:
@@ -509,7 +518,7 @@ class ConversationService:
             # reply job queued for that message answers with the full context.
             await self.defer_reply(dialog_id, 0)
             return ReplyOutcome("superseded", reason="newer_inbound")
-        if draft.decision is None or draft.guard is None or not draft.guard.allowed:
+        if draft.decision is None or draft.guard is None:
             return await self.handoff_failed(dialog, draft)
         voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, persona, strategy, draft.decision, draft.result, draft.guard,
@@ -533,22 +542,17 @@ class ConversationService:
         return ReplyOutcome("skipped", reason=AI_PAUSED, inbound_id=waiting[-1].id)
 
     async def handoff_failed(self, dialog: Dialog, draft: Draft) -> ReplyOutcome:
-        """Two rejected decisions: one neutral reply, then a visible manager handoff."""
-        reason = draft.rejection or "the generator could not produce an approved answer"
+        """The model gave no usable reply twice: the operator answers instead. Nothing is sent
+        to the client (no canned text); the dialog is paused and flagged."""
+        reason = draft.rejection or "решение не содержит корректного ответа"
         await self.mark_handoff(dialog, reason)
         dialog.needs_operator = True
         dialog.ai_paused = True
         await self.journal.record(dialog.id, HANDOFF, new="operator", who=SYSTEM,
-                                  reason=f"модель не дала ответа, прошедшего проверку: {reason}")
+                                  reason=f"модель не дала ответа: {reason}")
         await self.followups.cancel(dialog.id)
         await self.jobs.cancel_pending(jobkinds.REPLY, jobkinds.reply_key(dialog.id))
-        blocked = draft.guard or GuardOutcome(BLOCKED, draft.decision.reply if draft.decision else "",
-                                              [reason])
-        await self.outbound.store_blocked(dialog, draft.result, blocked)
-        message = await self.outbound.queue_ai(
-            dialog, NEUTRAL_HANDOFF_REPLY, None, final=True,
-        )
-        return ReplyOutcome("needs_operator", draft.decision, message)
+        return ReplyOutcome("needs_operator", draft.decision)
 
     async def mark_handoff(self, dialog: Dialog, reason: str) -> None:
         """The concrete triggering inbound keeps its historical reason after resuming AI."""
@@ -671,52 +675,75 @@ class ConversationService:
         whole_history: bool = False,
         neutral_media_kind: MediaKind | None = None,
     ) -> Draft:
-        """The same builder, model call and pre-send guard as production, without any dialog
-        bookkeeping. `history` ends with the client's latest message. `prompt` adds her facts
-        for the moment of `ctx.now`; the guard gets them for the moment of its review."""
-        prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
-        # This canonical prompt is ONLY an operation identity, never sent to an LLM.
-        # Clock changes alone must not re-purchase an accepted generator response.
-        stable_prompt = await self.prompt(persona, strategy, history,
-            recovery_context(ctx), whole_history=whole_history)
+        """The same builder, model call and guard as production, without any dialog bookkeeping.
+        `history` ends with the client's latest message.
+
+        The guard advises, it never blocks: a clean first draft goes out as is; with remarks
+        she rewrites ONCE, the remarks given to her as recommendations, and that second draft
+        goes out without another blocking review (the remarks stay recorded on it). A guard
+        that cannot answer does not hold the reply either. Only a model that gives no usable
+        reply twice leaves the draft empty (`guard` None)."""
         dialog = await self.dialogs.get(dialog_id) if dialog_id is not None else None
         identity = {"persona_id": persona.id, "timezone": persona.timezone,
                     "birth_date": str(persona.birth_date), "routine": persona.routine,
                     "dialog_revision": dialog.activity_revision if dialog is not None else None}
-        rejection = ""
+        hint = ""        # the system line added to the second attempt
+        advice: list[str] = []
+        decision: Decision | None = None
+        result = LLMResult(text="")
         for attempt in range(2):
-            key = hashlib.sha256(json.dumps({**identity, "messages": stable_prompt},
-                sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            decision, result = await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id,
-                                              recovery_key=key, model=selected_model(persona, history))
-            guard: GuardOutcome | None = None
-            if (neutral_media_kind is not None and decision is not None and decision.media is not None
-                    and decision.media.send and decision.media.kind is neutral_media_kind
-                    and is_neutral_media_acknowledgement(decision.reply)
-                    and not (decision.handoff_to_operator or decision.refused or decision.stop_contact)):
-                decision = replace(decision, media=replace(decision.media, scene=NEUTRAL_MEDIA_SCENE))
-            if decision is not None and decision.reply:
-                review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
-                guard = await self.review(
-                    strategy, history, decision, result, review_ctx, dialog_id, guard_workflow
-                )
-                if guard.allowed:
-                    return Draft(decision, result, await self.touched(guard))
-                rejection = "; ".join(guard.violations) or "контролёр отклонил решение"
-            else:
-                rejection = "решение не содержит корректного ответа"
-            if attempt == 0:
-                code = "format" if guard is None else "review"
+            if attempt:
                 ctx = replace(ctx, now=self.clock())
-                prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
-                stable_prompt = await self.prompt(persona, strategy, history,
-                    recovery_context(ctx), whole_history=whole_history)
-                # Do not turn rejected output or free-form diagnostics into history.
-                repair = {"role": "system", "content":
-                          f"Повтори полный JSON-ответ по фактам разговора (тип: {code})."}
-                prompt = [*prompt, repair]
-                stable_prompt = [*stable_prompt, repair]
-        return Draft(decision, result, guard, rejection)
+            decision, result = await self.generate(
+                persona, strategy, history, ctx, identity, hint, workflow=workflow,
+                dialog_id=dialog_id, whole_history=whole_history)
+            decision = with_neutral_scene(decision, neutral_media_kind)
+            if decision is None or not decision.reply:
+                hint = "Повтори полный JSON-ответ по фактам разговора (тип: format)."
+                continue
+            if advice:   # the rewrite after the guard's remarks: it goes out, remarks recorded
+                return Draft(decision, result, await self.touched(
+                    GuardOutcome(OK, decision.reply, advice, None)))
+            guard = await self.advise(persona, strategy, history, decision, result, ctx,
+                                      dialog_id, guard_workflow)
+            if guard.allowed or attempt:
+                return Draft(decision, result, await self.touched(replace(guard, verdict=OK)))
+            advice = list(guard.violations)
+            hint = ("Повтори полный JSON-ответ по фактам разговора (тип: review). "
+                    "Рекомендации контролёра, учти их: " + "; ".join(advice))
+        return Draft(decision, result, None, "решение не содержит корректного ответа")
+
+    async def generate(  # noqa: PLR0913
+        self, persona: Persona, strategy: Strategy, history: list[Turn], ctx: DialogContext,
+        identity: dict[str, Any], hint: str, *, workflow: str, dialog_id: int | None,
+        whole_history: bool,
+    ) -> tuple[Decision | None, LLMResult]:
+        """One generation: the prompt (plus the retry `hint`) and the model call. Its recovery
+        key hashes a clock-free copy of the prompt, so a time change alone never re-buys an
+        accepted generator response."""
+        extra = [{"role": "system", "content": hint}] if hint else []
+        prompt = [*await self.prompt(persona, strategy, history, ctx, whole_history=whole_history),
+                  *extra]
+        stable = [*await self.prompt(persona, strategy, history, recovery_context(ctx),
+                                     whole_history=whole_history), *extra]
+        key = hashlib.sha256(json.dumps({**identity, "messages": stable},
+                                        sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return await self.ask(prompt, persona, workflow=workflow, dialog_id=dialog_id,
+                              recovery_key=key, model=selected_model(persona, history))
+
+    async def advise(  # noqa: PLR0913
+        self, persona: Persona, strategy: Strategy, history: list[Turn], decision: Decision,
+        result: LLMResult, ctx: DialogContext, dialog_id: int | None, guard_workflow: str,
+    ) -> GuardOutcome:
+        """The guard's opinion of a draft for this moment. When the guard cannot answer, the
+        draft is approved with a note: the guard is an adviser, its outage holds no reply."""
+        review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
+        try:
+            return await self.review(strategy, history, decision, result, review_ctx,
+                                     dialog_id, guard_workflow)
+        except LLMError as exc:
+            log.warning("guard unavailable (dialog=%s): %s; the draft goes out", dialog_id, exc)
+            return GuardOutcome(OK, decision.reply, [GUARD_UNAVAILABLE], None)
 
     async def preview(
         self, persona: Persona, message: str, history: list[Turn] | None = None,

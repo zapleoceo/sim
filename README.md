@@ -229,19 +229,23 @@ that some speech may not have played; unconnected attempts and causes stay in
 audit. Actual delivered conversation remains intact. Known system
 boilerplate is projected out of derived passport/summary text without rewriting
 stored data. Standalone internal next-step assignments to transfer or pause AI
-are omitted at read time; mixed steps and participant quotes stay intact. A rejected reply is regenerated from clean context and a bounded
-repair category, not a previous unapproved draft or free-form guard explanation.
-The new draft is checked again. Superseded attempts still send nothing, and their
+are omitted at read time; mixed steps and participant quotes stay intact. A draft the guard
+objected to is rewritten from clean context plus the guard's remarks as recommendations,
+never the previous draft itself (see «Guard advises»). Superseded attempts still send nothing, and their
 worker detail now distinguishes a revision change from a newer inbound ID.
 
-### Guard independence preserves objections
+### Guard advises, it never blocks
 
-A primary guard objection (block, legacy rewrite or contradictory ok) returns to
-the generator even when that guard used the generator's model. Only a clean ok
-requires a second independent rotation. Its approval cannot erase an earlier
-objection. A repaired complete decision is checked anew before any send or handoff.
-Regression coverage uses synthetic media-refusal decisions and both verdict orders;
-no live models or channel messages are used.
+Every AI reply (chat, follow-up, preview, simulator) is reviewed once. A clean `ok`
+goes out as is. With remarks (block, legacy rewrite or a contradictory ok, also from
+the generator's own model, which is never overruled by another rotation) she rewrites
+ONCE with the remarks as recommendations, and that rewrite is sent without a second
+blocking review; the remarks stay recorded on the message (`guard_verdict` ok,
+`guard_violations`). A guard that fails or returns no usable verdict holds nothing: the
+draft goes out with the note «контролёр недоступен…». There is no canned reply and no
+operator handoff because of the guard. Only a model that gives no usable reply twice
+hands the dialog to the operator; nothing is sent to the client then. Silence
+reengagement and phone calls keep their own review for now.
 
 Guard and passport use the shared `LLMResult.truncated` property for provider endings
 `length` and `max_tokens` (case/whitespace normalized without changing audit metadata).
