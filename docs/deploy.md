@@ -68,6 +68,8 @@ Compose сам задаёт `SIM_ENV=prod`, `SIM_DATABASE_URL`, `SIM_MEDIA_DIR`,
 | `SIM_BROKER_PROJECT_KEY` | — | Ключ проекта SIM в Broker |
 | `SIM_BROKER_POLL_BUDGET_S` | `300` | Сколько ждать задачу Broker, секунд |
 | `SIM_BROKER_VIDEO_BUDGET_S` | `900` | Сколько ждать генерацию видео, секунд |
+| `SIM_BROKER_BATCH_WAIT` | `true` | Одно длинное ожидание на все задания процесса (`docs/broker.md` §2a) |
+| `SIM_BROKER_MAX_INFLIGHT` | `{}` | JSON с лимитами одновременных заданий по полосам, поверх значений по умолчанию |
 | `SIM_TG_LOGIN_BOT_TOKEN` | — | Бот Telegram Login Widget |
 | `SIM_TG_LOGIN_BOT_USERNAME` | — | Его username без `@` |
 | `SIM_SUPERADMIN_TELEGRAM_IDS` | — | Telegram ID админов через запятую; `sim.seed` их добавляет и включает |
