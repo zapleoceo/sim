@@ -147,7 +147,7 @@ def test_truncate() -> None:
 
 
 def test_text_document() -> None:
-    assert extract_document_text("a;b\n1;2\n".encode(), "text/csv", "t.csv") == "a;b\n1;2"
+    assert extract_document_text(b"a;b\n1;2\n","text/csv", "t.csv") == "a;b\n1;2"
 
 
 def test_unsupported_document_is_none() -> None:

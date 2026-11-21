@@ -190,15 +190,15 @@ class BrokerHttp:
                       params: Mapping[str, str] | None = None, json: Any = None,
                       files: Mapping[str, Any] | None = None,
                       headers: Mapping[str, str] | None = None,
-                      timeout: httpx.Timeout | None = None) -> httpx.Response:
+                      http_timeout: httpx.Timeout | None = None) -> httpx.Response:
         """One call; any transport failure or non-2xx status becomes a `BrokerHttpError`."""
         kwargs: dict[str, Any] = {"params": params, "headers": self.headers(headers)}
         if json is not None:
             kwargs["json"] = json
         if files is not None:
             kwargs["files"] = files
-        if timeout is not None:
-            kwargs["timeout"] = timeout
+        if http_timeout is not None:
+            kwargs["timeout"] = http_timeout
         try:
             response = await self.client.request(method, f"{self.base_url}{path}", **kwargs)
             response.raise_for_status()

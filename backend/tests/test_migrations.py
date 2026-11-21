@@ -69,7 +69,7 @@ def test_initial_enum_checks_match_the_enums():
             if isinstance(column.type, Enum):
                 expected[(table.name, column.name)] = (column.type.name,
                                                        tuple(column.type.enums))
-    assert initial.ENUM_CHECKS == expected
+    assert expected == initial.ENUM_CHECKS
 
 
 @pytest.mark.parametrize(("definition", "values"), [

@@ -152,7 +152,8 @@ class Channel(Base):
 
 
 class Client(Base):
-    """A person the persona talks to. `memory` is what the agent knows about them (docs/context.md)."""
+    """A person the persona talks to. `memory` is what the agent knows about them
+    (docs/context.md)."""
 
     __tablename__ = "client"
 
@@ -271,7 +272,8 @@ class MediaAsset(Base):
 
 
 class ReplyRun(Base):
-    """One persona turn: what she knew (`context`), what she decided (`plan`), what the guard said."""
+    """One persona turn: what she knew (`context`), what she decided (`plan`), what the
+    guard said."""
 
     __tablename__ = "reply_run"
     __table_args__ = (Index("ix_reply_run_chat", "chat_id", "id"),)
@@ -356,7 +358,8 @@ class ChatEvent(Base):
         ForeignKey("generation.id", ondelete="SET NULL"), nullable=True)
     reply_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("reply_run.id", ondelete="SET NULL"), nullable=True)
-    actor: Mapped[str] = mapped_column(String(64), default="system")   # client|persona|operator:<id>|system
+    # client | persona | operator:<id> | system
+    actor: Mapped[str] = mapped_column(String(64), default="system")
     data: Mapped[dict[str, Any]] = jsonb_dict()
 
 

@@ -45,7 +45,7 @@ class BrokerSpeech:
                            workflow=self.workflow)
         start = self.http.clock()
         data = await self.http.json("POST", SPEECH_PATH, what="speech", json=body,
-                                    timeout=SPEECH_TIMEOUT)
+                                    http_timeout=SPEECH_TIMEOUT)
         audio = decode_b64(data.get("audio_base64"), what="speech")
         return AudioResult(
             data=audio,

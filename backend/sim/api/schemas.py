@@ -38,9 +38,9 @@ class MemoryItemIn(Struct):
 
 class ClientPatchIn(Struct):
     name: Annotated[str, Meta(max_length=200)] | UnsetType = UNSET
-    phone: Annotated[str, Meta(max_length=32)] | None | UnsetType = UNSET
+    phone: Annotated[str, Meta(max_length=32)] | UnsetType | None = UNSET
     notes: Annotated[str, Meta(max_length=20_000)] | UnsetType = UNSET
-    timezone: Annotated[str, Meta(max_length=64)] | None | UnsetType = UNSET
+    timezone: Annotated[str, Meta(max_length=64)] | UnsetType | None = UNSET
     ai_enabled: bool | UnsetType = UNSET
     memory: Annotated[list[MemoryItemIn], Meta(max_length=500)] | UnsetType = UNSET
 
@@ -53,8 +53,8 @@ class PersonaPatchIn(Struct):
     gender: Annotated[str, Meta(max_length=32)] | UnsetType = UNSET
     language: Annotated[str, Meta(min_length=2, max_length=16)] | UnsetType = UNSET
     timezone: Annotated[str, Meta(min_length=1, max_length=64)] | UnsetType = UNSET
-    birth_date: date | None | UnsetType = UNSET
-    avatar_media_id: int | None | UnsetType = UNSET
+    birth_date: date | UnsetType | None = UNSET
+    avatar_media_id: int | UnsetType | None = UNSET
     prompt: Annotated[str, Meta(max_length=200_000)] | UnsetType = UNSET
     model_reply: ModelId | UnsetType = UNSET
     model_guard: ModelId | UnsetType = UNSET
