@@ -22,13 +22,13 @@ from sim.db.models import (
     Message,
     Persona,
 )
+from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import (
     CallStatus,
     EventKind,
     GenerationStatus,
     MediaKind,
 )
-from sim.domain.agents import AgentKey, agent_config
 from sim.domain.passport import passport_lines, passport_of
 from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
 from sim.services.capabilities import Capabilities, capabilities_of

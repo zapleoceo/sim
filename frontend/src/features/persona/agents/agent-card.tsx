@@ -1,5 +1,5 @@
 import { RotateCcw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Field } from '@/components/field';
 import { Segmented } from '@/components/segmented';
 import { Badge } from '@/components/ui/badge';
@@ -134,12 +134,12 @@ export function AgentCard({
             {settings.prompt ? <Badge variant="warning">свой</Badge> : <Badge variant="muted">стандартный</Badge>}
           </summary>
           <div className="mt-2 flex flex-col gap-2">
-            <Textarea
+            <PromptEditor
               id={`${id}-prompt`}
-              aria-label={`${spec.title}: промт`}
-              className="max-h-[60vh] min-h-40 font-mono text-[13px]"
-              value={promptText(settings, spec)}
-              onChange={(e) => set({ prompt: promptValue(e.target.value, spec) })}
+              label={`${spec.title}: промт`}
+              settings={settings}
+              spec={spec}
+              onPrompt={(prompt) => set({ prompt })}
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
@@ -164,5 +164,38 @@ export function AgentCard({
         </details>
       )}
     </article>
+  );
+}
+
+interface PromptEditorProps {
+  id: string;
+  label: string;
+  settings: AgentSettings;
+  spec: AgentSpec;
+  onPrompt: (prompt: string) => void;
+}
+
+/** The prompt textarea keeps the text exactly as typed (a trailing space survives while
+ * typing); the stored value is normalized by `promptValue` (the default text = «by default»). */
+function PromptEditor({ id, label, settings, spec, onPrompt }: PromptEditorProps) {
+  const [text, setText] = useState(() => promptText(settings, spec));
+  const [seen, setSeen] = useState(settings.prompt);
+  if (seen !== settings.prompt) {
+    // Reset or a reload changed the stored prompt from outside: show it, unless it is just
+    // the normalized form of what is being typed.
+    setSeen(settings.prompt);
+    if (promptValue(text, spec) !== settings.prompt) setText(promptText(settings, spec));
+  }
+  return (
+    <Textarea
+      id={id}
+      aria-label={label}
+      className="max-h-[60vh] min-h-40 font-mono text-[13px]"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onPrompt(promptValue(e.target.value, spec));
+      }}
+    />
   );
 }
