@@ -4,6 +4,10 @@ import type { ChatDetail, ChatRow, Items, PersonaStatus, ReplyRun, TimelineItem 
 export const CHATS_PAGE = 50;
 export const TIMELINE_PAGE = 50;
 
+/** The chat header switches and their endpoints. */
+export type ChatFlag = 'attention_instant' | 'no_refusals';
+const FLAG_PATHS: Record<ChatFlag, string> = { attention_instant: 'attention-instant', no_refusals: 'no-refusals' };
+
 export const chatsApi = {
   /** `personaId` 0 = the chats of every persona. */
   list: (q: string, before?: string | null, personaId = 0) =>
@@ -22,9 +26,9 @@ export const chatsApi = {
     return api.post<TimelineItem>(`/chats/${id}/messages`, form);
   },
   setAi: (id: number, enabled: boolean) => api.post<ChatRow>(`/chats/${id}/ai`, { enabled }),
-  /** «Отвечать сразу» in this chat only (docs/attention.md). */
-  setAttentionInstant: (id: number, enabled: boolean) =>
-    api.post<ChatRow>(`/chats/${id}/attention-instant`, { enabled }),
+  /** A chat header switch: «Отвечать сразу» (docs/attention.md) or «Без отказов» (docs/writing.md). */
+  setFlag: (id: number, flag: ChatFlag, enabled: boolean) =>
+    api.post<ChatRow>(`/chats/${id}/${FLAG_PATHS[flag]}`, { enabled }),
   markRead: (id: number) => api.post<void>(`/chats/${id}/read`),
   addNote: (id: number, text: string) => api.post<TimelineItem>(`/chats/${id}/notes`, { text }),
   operatorDone: (id: number) => api.post<ChatRow>(`/chats/${id}/operator-done`),

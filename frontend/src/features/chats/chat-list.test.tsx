@@ -8,7 +8,7 @@ import { ChatList } from './chat-list';
 
 const row = (id: number, persona: { id: number; name: string }): ChatRow => ({
   id, client: { id, name: `Клиент ${id}`, username: null, ai_enabled: true },
-  persona: { ...persona, avatar_media_id: null }, ai_enabled: true, attention_instant: false, needs_operator: false, unread_count: 0,
+  persona: { ...persona, avatar_media_id: null }, ai_enabled: true, attention_instant: false, no_refusals: false, needs_operator: false, unread_count: 0,
   persona_status: {
     code: 'reply_later', tone: 'wait', title: `Прочитала, ответит около 20:4${id}`, detail: 'после созвона',
     until: '2026-11-21T19:40:00Z', local_until: `20:4${id}`,

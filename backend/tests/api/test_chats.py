@@ -283,3 +283,16 @@ async def test_reply_run_with_llm_calls(api: ApiClient, world: World, db: AsyncS
     [call] = body["llm_calls"]
     assert (call["purpose"], call["model"], call["tokens_in"]) == ("reply", "google/reply", 10)
     assert (await api.get("/api/reply-runs/999999")).status_code == 404
+
+
+async def test_no_refusals_switch_of_one_chat(api: ApiClient, world: World,
+                                              db: AsyncSession) -> None:
+    listed = (await api.get("/api/chats")).json()["items"][0]
+    assert listed["no_refusals"] is False
+    response = await api.post(f"/api/chats/{world.chat_id}/no-refusals", json={"enabled": True})
+    assert response.status_code == 200
+    assert response.json()["no_refusals"] is True
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None and chat.no_refusals is True
+    assert (await api.post("/api/chats/999999/no-refusals",
+                           json={"enabled": True})).status_code == 404

@@ -125,6 +125,7 @@ def chat_row(chat: Chat, client: Client, last: Message | None,
     return {
         "id": chat.id, "client": client_brief(client), "persona": persona_brief(persona),
         "ai_enabled": chat.ai_enabled, "attention_instant": chat.attention_instant,
+        "no_refusals": chat.no_refusals,
         "needs_operator": chat.needs_operator, "unread_count": chat.unread_count,
         "persona_status": status,
         "last_message_at": chat.last_message_at,
