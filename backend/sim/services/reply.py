@@ -293,7 +293,7 @@ class ReplyService:
 
     def _action_context(self, turn: _Turn) -> ActionContext:
         return ActionContext(deps=self.deps, persona=turn.persona, chat_id=turn.chat_id,
-                             reply_run_id=turn.run_id)
+                             reply_run_id=turn.run_id, writing=turn.ctx.writing)
 
     async def _prepare(self, turn: _Turn, plan: ReplyPlan) -> list[Any]:
         actx = self._action_context(turn)

@@ -137,14 +137,28 @@ async def toggle_ai(chat_id: int, data: AiToggleIn, ctx: ApiContext, db: AsyncSe
     return row
 
 
+async def _set_flag(db: AsyncSession, ctx: ApiContext, chat_id: int, flag: str,
+                    enabled: bool) -> Json:
+    """One switch of the chat header (`CHAT_FLAGS`), then the chat row."""
+    chat = await get_or_404(db, Chat, chat_id, "Чат")
+    setattr(chat, flag, enabled)
+    return await chat_row(db, chat, ctx.deps.clock.now())
+
+
 @post("/chats/{chat_id:int}/attention-instant", status_code=200)
 async def toggle_attention_instant(chat_id: int, data: AiToggleIn, db: AsyncSession,
                                    ctx: ApiContext) -> Json:
     """«Отвечать сразу» in this chat only: no phone checks, she answers like «Всегда сразу»
     (docs/attention.md; for testing)."""
-    chat = await get_or_404(db, Chat, chat_id, "Чат")
-    chat.attention_instant = data.enabled
-    return await chat_row(db, chat, ctx.deps.clock.now())
+    return await _set_flag(db, ctx, chat_id, "attention_instant", data.enabled)
+
+
+@post("/chats/{chat_id:int}/no-refusals", status_code=200)
+async def toggle_no_refusals(chat_id: int, data: AiToggleIn, db: AsyncSession,
+                             ctx: ApiContext) -> Json:
+    """«Без отказов»: she does what this client asks; what she can not do now she does later
+    (docs/writing.md)."""
+    return await _set_flag(db, ctx, chat_id, "no_refusals", data.enabled)
 
 
 @post("/chats/{chat_id:int}/read", status_code=204)
@@ -177,4 +191,5 @@ async def get_reply_run(run_id: int, db: AsyncSession) -> Json:
 
 
 ROUTES = [list_chats, get_chat, get_status, get_timeline, send_message, toggle_ai,
-          toggle_attention_instant, mark_read, add_note, operator_done, get_reply_run]
+          toggle_attention_instant, toggle_no_refusals, mark_read, add_note, operator_done,
+          get_reply_run]

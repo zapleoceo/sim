@@ -11,7 +11,7 @@ her current scene, the media catalog and the turn instruction (change every turn
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -38,11 +38,12 @@ from sim.domain.enums import (
 )
 from sim.domain.memory import notes_of
 from sim.domain.passport import passport_lines, passport_of
+from sim.domain.writing import DEFAULT_MODE, WritingMode
 from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
 from sim.services.capabilities import Capabilities, capabilities_of, with_camera
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
 from sim.services.context.diary import Diary, load_diary, usable
-from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp
+from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp, to_local
 from sim.services.context.instructions import CALL_RULES, FORMAT_RULES, REPLY_TURN
 from sim.services.context.render import (
     GENERATION_LABELS,
@@ -56,6 +57,7 @@ from sim.services.context.window import day_start, local_day
 from sim.services.life.render import LifeBlocks, life_blocks
 from sim.services.life.store import load_life
 from sim.services.media_library import catalog_for_chat
+from sim.services.writing import style_block, writing_mode
 
 MIN_TIMELINE_TOKENS = 2_000
 GUARD_CLIENT_LINES = 6
@@ -96,6 +98,7 @@ class Knowledge:
     all_lines: list[TimelineLine]           # the whole verbatim window after the morning
     lines: list[TimelineLine]               # the part that fits the budget (newest)
     timeline_budget: int
+    writing: WritingMode = DEFAULT_MODE     # how she types right now (docs/writing.md)
 
     @property
     def summary(self) -> str:
@@ -138,7 +141,7 @@ class Knowledge:
             "timeline": [line.text for line in self.lines],
             "event_ids": [line.event_id for line in self.lines], "trimmed": self.trimmed,
             "facts": list(self.facts.lines), "facts_values": self.facts.values,
-            "now": self.life.now,
+            "now": self.life.now, "writing": asdict(self.writing),
         }
 
 
@@ -168,6 +171,7 @@ class ReplyContext:
     # when only new events arrived (the cached prefix, docs/context.md §2).
     stable_prefix: str = ""
     today: date | None = None
+    writing: WritingMode = DEFAULT_MODE     # for the «phone» of the text handler
 
 
 @dataclass
@@ -344,6 +348,8 @@ class ContextBuilder:
             capabilities=caps, client_card=card, life=life, diary=diary, today=today,
             window_start=start, morning=notes.morning, all_lines=all_lines,
             lines=fit_newest(all_lines, budget), timeline_budget=budget,
+            writing=writing_mode(state.scene() if state.has_life else None,
+                                 to_local(now, persona.timezone)),
         )
 
     async def _facts_input(self, session: AsyncSession, chat: Chat, persona: Persona,
@@ -407,8 +413,9 @@ class ContextBuilder:
                                           frame.allowed)
         chat, persona = know.chat, know.persona
         stable = "\n\n".join([*know.shared_blocks(), know.timeline_block()])
-        user = "\n\n".join([stable, *know.volatile_blocks(), f"# Каталог медиа\n{catalog}",
-                            REPLY_TURN])
+        style = style_block(know.writing, no_refusals=chat.no_refusals)
+        user = "\n\n".join([stable, *know.volatile_blocks(), style,
+                            f"# Каталог медиа\n{catalog}", REPLY_TURN])
         event_ids = [line.event_id for line in know.lines]
         client_lines = [line.text for line in know.lines
                         if line.kind == EventKind.MESSAGE_IN][-GUARD_CLIENT_LINES:]
@@ -420,7 +427,7 @@ class ContextBuilder:
             facts=know.facts, client_lines=client_lines,
             last_event_id=know.all_lines[-1].event_id if know.all_lines else None,
             needs_compression=know.needs_compression, event_ids=event_ids,
-            stable_prefix=stable, today=know.today,
+            stable_prefix=stable, today=know.today, writing=know.writing,
         )
 
     # --- calls ----------------------------------------------------------------------------

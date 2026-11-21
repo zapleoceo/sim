@@ -54,7 +54,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0007"
+    assert sim_head is not None and sim_head.revision == "0008"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -214,3 +214,9 @@ def test_require_disposable_refuses_anything_else(override):
 def test_alembic_config_passes_the_url_to_env():
     cfg = smoke.alembic_config(make_url("postgresql+psycopg://u:secret@127.0.0.1/x"))
     assert cfg.attributes["database_url"] == "postgresql+psycopg://u:secret@127.0.0.1/x"
+
+
+def test_no_refusals_revision_follows_the_day_memory_one(scripts):
+    revision = scripts.get_revision("0008")
+    assert revision is not None and revision.down_revision == "0007"
+    assert "no_refusals" in Base.metadata.tables["chat"].columns
