@@ -123,6 +123,7 @@ async def test_a_database_error_after_the_send_leaves_it_pending_for_the_reaper(
                       sleep=RecordingSleep())
     await db.refresh(message)
     assert len(messenger.sent) == 1 and message.status == MessageStatus.PENDING
+    await db.commit()                   # end the read, as the other tests do before `deliver`
     # The reaper queues it again: the repeat carries the same key (Telegram's random_id), so a
     # message Telegram already has is not delivered twice (sim/telegram/sending.py).
     result, again, _, _ = await run(message, sessions, clock)

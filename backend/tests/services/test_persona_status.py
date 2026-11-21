@@ -316,7 +316,8 @@ async def test_a_generation_is_now_only_within_its_window(db: AsyncSession,
                                                           clock: FixedClock) -> None:
     # One definition with the reply context (sim/services/generation_state.py): a video claimed
     # two hours ago is no longer «Снимает видео» — the reaper fails it.
-    stale, fresh = await make_chat(db), await make_chat(db)
+    her = await make_persona(db)
+    stale, fresh = await make_chat(db, her), await make_chat(db, her, name="Саша")
     for chat, kind, ago in ((stale, GenerationKind.VIDEO, timedelta(hours=2)),
                             (fresh, GenerationKind.PHOTO, timedelta(minutes=10))):
         db.add(Generation(persona_id=chat.persona_id, chat_id=chat.id, kind=kind,
