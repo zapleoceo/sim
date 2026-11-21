@@ -1,7 +1,6 @@
 """How she writes right now and what her phone does to the text (docs/writing.md)."""
 from __future__ import annotations
 
-import random
 from datetime import date, datetime
 
 from sim.domain.life import Ambience, BusyLevel
@@ -65,11 +64,11 @@ def test_plain_marks_are_what_a_phone_types() -> None:
 
 def test_the_phone_drops_the_full_stop_and_sometimes_the_capital() -> None:
     calm = mode(Device.PHONE, Pace.RELAXED, "дома")
-    never = random.Random(1)
+    never = message_rng(0, 1)
     never.random = lambda: 0.99                                  # type: ignore[method-assign]
     assert humanize("Давай позже.", calm, never) == "Давай позже"
     assert humanize("Ну как так?", calm, never) == "Ну как так?"
-    always = random.Random(1)
+    always = message_rng(0, 1)
     always.random = lambda: 0.0                                  # type: ignore[method-assign]
     no_typos = mode(Device.PHONE, Pace.RELAXED, "дома")
     lowered = humanize("Давай", no_typos, always)
@@ -82,13 +81,13 @@ def test_the_phone_drops_the_full_stop_and_sometimes_the_capital() -> None:
 def test_a_typo_is_one_typical_smartphone_slip() -> None:
     text = "Андрей уже приехал, сейчас ужинаем"
     for seed in range(40):
-        typo = add_typo(text, random.Random(seed))
+        typo = add_typo(text, message_rng(0, seed))
         changed = [(a, b) for a, b in zip(text.split(), typo.split(), strict=True) if a != b]
         assert len(changed) == 1, (seed, typo)
         before, after = changed[0]
         assert before[0] == after[0] and before != "Андрей"        # names are not touched
         assert abs(len(before) - len(after)) <= 1
-    assert add_typo("ок, да", random.Random(1)) == "ок, да"         # no word to slip on
+    assert add_typo("ок, да", message_rng(0, 1)) == "ок, да"         # no word to slip on
 
 
 def test_typos_are_rarer_on_the_laptop_and_stable_for_a_message() -> None:

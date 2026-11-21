@@ -114,8 +114,7 @@ async def test_the_style_block_and_no_refusals(db: AsyncSession, clock: FixedClo
     builder = ContextBuilder(clock, settings)
 
     ctx = await builder.for_reply(db, chat.id)
-    assert "# КАК ТЫ СЕЙЧАС ПИШЕШЬ
-Сейчас ты пишешь с телефона" in user_text(ctx)
+    assert "# КАК ТЫ СЕЙЧАС ПИШЕШЬ\nСейчас ты пишешь с телефона" in user_text(ctx)
     assert NO_REFUSALS not in user_text(ctx)
     assert ctx.snapshot["writing"]["device"] == "phone" and ctx.writing.max_messages >= 1
 

@@ -136,4 +136,5 @@ def humanize(text: str, writing: WritingMode, rng: random.Random) -> str:
 
 def message_rng(reply_run_id: int, index: int) -> random.Random:
     """The same turn and message always get the same «phone» (a retried turn types the same)."""
-    return random.Random(f"{reply_run_id}:{index}")
+    # Not security: a reproducible imitation of human typing.
+    return random.Random(f"{reply_run_id}:{index}")  # noqa: S311
