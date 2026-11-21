@@ -83,12 +83,14 @@ class PcmBuffer:
         return frame
 
     def flush_tail(self) -> bytes | None:
-        """The last partial frame, padded with silence (end of a model turn)."""
+        """Drain buffered PCM, padding its last frame with silence."""
         if not self.data:
             return None
-        frame = bytes(self.data).ljust(self.frame_size, b"\x00")
+        padding = -len(self.data) % self.frame_size
+        self.data.extend(bytes(padding))
+        frames = bytes(self.data)
         self.data.clear()
-        return frame
+        return frames
 
     def clear(self) -> None:
         self.data.clear()
