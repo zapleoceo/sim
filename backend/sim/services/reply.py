@@ -31,6 +31,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.call_scope import call_scope
 from sim.db.models import Chat, Client, Persona, ReplyRun
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
@@ -105,6 +106,11 @@ def _message(role: str, text: str) -> ChatMessage:
     return ChatMessage(role=role, parts=[ChatPart(text=text)])
 
 
+def turn_scope_name(chat_id: int, last_in_message_id: int | None) -> str:
+    """The idempotency scope of one turn: the chat and the newest client message it answers."""
+    return f"reply-{chat_id}-{last_in_message_id or 0}"
+
+
 class ReplyService:
     def __init__(self, deps: Deps) -> None:
         self.deps = deps
@@ -136,7 +142,12 @@ class ReplyService:
 
     async def _handle(self, turn: _Turn) -> TurnResult:
         try:
-            decision = await self._decide(turn)
+            # The model and guard calls of this turn are the same calls on a retry of the task,
+            # whatever the newer clock in the prompt: the Broker re-attaches them by position
+            # (docs/broker.md §2b). A newer client message is another turn, with new keys.
+            with call_scope(turn_scope_name(turn.chat_id, turn.last_in_message_id),
+                            sequential=True):
+                decision = await self._decide(turn)
             if decision.blocked:
                 await self._block(turn, decision)
                 return TurnResult(RunStatus.BLOCKED, turn.run_id, "guard blocked twice")
