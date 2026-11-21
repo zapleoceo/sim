@@ -1,0 +1,129 @@
+"""Minimal local fakes for the API tests: just what the routes touch, no network, no files."""
+from __future__ import annotations
+
+import base64
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from sim.clock import FixedClock
+from sim.config import Settings
+from sim.ports import ModelInfo, PortError, Probe
+
+# A valid 1x1 PNG.
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA"
+    "60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+class BorrowedSession:
+    """`async with sessions() as s` that hands out the test session and never closes it."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def __aenter__(self) -> AsyncSession:
+        return self.session
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+@dataclass
+class FakeLlm:
+    models: list[ModelInfo] = field(default_factory=list)
+    fail: bool = False
+
+    async def list_models(self) -> list[ModelInfo]:
+        if self.fail:
+            raise PortError("Broker недоступен", retryable=True)
+        return list(self.models)
+
+    async def chat(self, **_: Any) -> Any:
+        raise AssertionError("the API never calls a chat model")
+
+
+class MemoryStorage:
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+
+    async def put(self, data: bytes, *, mime: str, prefix: str) -> str:
+        key = f"{prefix}/{len(self.files) + 1}"
+        self.files[key] = data
+        return key
+
+    async def get(self, key: str) -> bytes:
+        return self.files[key]
+
+    async def delete(self, key: str) -> None:
+        self.files.pop(key, None)
+
+
+class FakeTools:
+    async def probe(self, data: bytes, mime: str) -> Probe:
+        return Probe(mime=mime, width=1, height=1) if mime.startswith("image/") else Probe(mime)
+
+    async def wav_to_ogg_opus(self, wav: bytes) -> tuple[bytes, float]:
+        return wav, 1.0
+
+    async def to_pcm16k(self, data: bytes, mime: str) -> bytes:
+        return data
+
+    async def document_text(self, data: bytes, mime: str, file_name: str) -> str | None:
+        return None
+
+    async def image_for_model(self, data: bytes, mime: str) -> tuple[bytes, str]:
+        return data, mime
+
+
+class RecordingTasks:
+    """Records every task the API defers, with whether a DB transaction was still open."""
+
+    def __init__(self, in_transaction: Callable[[], bool]) -> None:
+        self.in_transaction = in_transaction
+        self.calls: list[tuple[str, tuple[Any, ...], bool]] = []
+
+    def record(self, name: str, *args: Any) -> None:
+        self.calls.append((name, args, self.in_transaction()))
+
+    async def send(self, message_id: int, chat_id: int | None = None) -> None:
+        self.record("send", message_id, chat_id)
+
+    async def reply(self, chat_id: int, delay_s: float = 0) -> None:
+        self.record("reply", chat_id, delay_s)
+
+    async def understand(self, media_id: int) -> None:
+        self.record("understand", media_id)
+
+    async def generate(self, generation_id: int) -> None:
+        self.record("generate", generation_id)
+
+    async def refresh_memory(self, chat_id: int) -> None:
+        self.record("refresh_memory", chat_id)
+
+
+@dataclass
+class FakeDeps:
+    """Duck-typed `sim.services.deps.Deps` with only what the API uses."""
+
+    settings: Settings
+    session: AsyncSession
+    clock: FixedClock
+    llm: FakeLlm = field(default_factory=FakeLlm)
+    storage: MemoryStorage = field(default_factory=MemoryStorage)
+    tools: FakeTools = field(default_factory=FakeTools)
+    tasks: RecordingTasks = field(init=False)
+    transcriber: Any = None
+    speech: Any = None
+    image_gen: Any = None
+    video_gen: Any = None
+    live: Any = None
+
+    def __post_init__(self) -> None:
+        self.tasks = RecordingTasks(self.session.in_transaction)
+
+    def sessions(self) -> BorrowedSession:
+        return BorrowedSession(self.session)

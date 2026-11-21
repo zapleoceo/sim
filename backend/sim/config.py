@@ -1,4 +1,4 @@
-"""Settings from env (prefix SIM_). Secrets never have defaults that work in production."""
+"""Settings from the environment (prefix SIM_). Secrets have no working defaults."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -9,94 +9,49 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SIM_", env_file=".env", extra="ignore")
 
-    env: str = "dev"                                   # dev | test | prod
-    database_url: str = "sqlite+aiosqlite:///./sim.db"
-    public_url: str = "http://localhost:8000"          # used for Telegram webhook URLs
-    # Fernet key or comma-separated list (first encrypts, all decrypt) for channel secrets.
+    env: str = "dev"                                    # dev | test | prod
+    # postgresql+psycopg://user:pass@host/db — SQLAlchemy and Procrastinate share it.
+    database_url: str = "postgresql+psycopg://sim:sim@localhost:5432/sim"
+    public_url: str = "http://localhost:8000"
+    # Fernet key or comma-separated keys (first encrypts, all decrypt) for channel credentials.
     secret_key: str = ""
+    media_dir: str = "/app/media"
+    static_dir: str = "/app/static"
     session_ttl_h: int = 72
-    preview_async_enabled: bool = False
     cookie_secure: bool = True
-    # Disabled until a separately approved OAuth rollout; exact values from ChatGPT management.
-    mcp_oauth_enabled: bool = False
-    mcp_oauth_client_id: str = ""
-    mcp_oauth_redirect_uri: str = ""
-    # Peers whose X-Real-IP / X-Forwarded-For we believe (nginx + docker gateway); comma list of IPs/CIDRs.
-    trusted_proxies: str = "127.0.0.1,::1,172.16.0.0/12"
 
     broker_url: str = "https://aib.zapleo.com"
     broker_project_key: str = ""
-    broker_poll_budget_s: float = 180.0
-    broker_subscription_budget_s: float = 600.0
-    # AI video notes (Broker /v1/video/jobs): how long one clip may stay queued + rendering.
+    broker_poll_budget_s: float = 300.0
     broker_video_budget_s: float = 900.0
-    # Persona phone calls (Broker /v1/live, Gemini Live): the longest call; the Broker caps it at
-    # 540 s itself (Google closes one live session after ~10 min).
-    call_max_seconds: float = 540.0
-    # Delay before opening the paid session and answering Telegram.
-    call_ring_min_s: float = 4.0
-    call_ring_max_s: float = 9.0
-    # Kill switch: off = the worker never attaches the call library to userbot accounts.
-    calls_enabled: bool = True
-    # Call diagnostics in the worker log (logger sim.calls.trace): session opened, answer sent,
-    # first frame, first model audio, counters. Off: only failures are logged.
-    call_diagnostics: bool = False
 
-    evolution_url: str = "http://evolution:8080"
-    evolution_api_key: str = ""
-    # Address Evolution uses to call us back inside the docker network.
-    evolution_webhook_base: str = "http://api:8000"
-
-    # Both switches are required: enabling the feature alone never releases a backlog.
-    ig_content_enabled: bool = False
-    ig_content_post_ids: tuple[int, ...] = ()  # JSON array in SIM_IG_CONTENT_POST_IDS
-
-    ig_proxy: str = ""
-    ig_poll_interval_s: int = 120
-
-    # Telegram userbot (personal account, MTProto)
-    # Fallback sweep only: new private messages wake the poll at once (Telethon NewMessage events).
-    tg_user_poll_interval_s: int = 90
-    tg_user_min_send_interval_s: float = 3.0   # anti-ban: min gap between sends per account
-
-    partner_webhook_secret: str = ""
-
-    # Admin login is Telegram-only (Login Widget; the bot needs the site domain via BotFather
-    # /setdomain). Superadmins are upserted from the comma list on seed / API start.
+    # Dashboard login: Telegram Login Widget of this bot; admins upserted from the id list.
     tg_login_bot_token: str = ""
-    tg_login_bot_username: str = ""                    # without @
+    tg_login_bot_username: str = ""
     superadmin_telegram_ids: str = ""
 
-    # Pre-send guard: a DIFFERENT broker rotation than the generator (chat:sales / persona.model);
-    # when the guard is served by the generator's own model it is re-run on the fallback.
-    guard_capability: str = "structured"
-    guard_fallback_capability: str = "prefilter"
+    # The userbot's api_id / api_hash / StringSession / proxy live encrypted in
+    # channel.credentials_enc (JSON), not in the environment.
+    tg_min_send_interval_s: float = 1.5
 
-    typo_percent: int = 12             # defaults of the owner settings (messenger touches by code)
-    lowercase_percent: int = 30
-    reply_debounce_s: int = 8          # wait for a burst of client messages before answering
-    worker_tick_s: float = 2.0
-    # A client message without an answer for this long in a dialog whose AI is ON is written to
-    # the system log as a warning (once per message); the worker looks every watch interval.
-    unanswered_warn_s: int = 300
-    unanswered_watch_interval_s: float = 60.0
-    # System log (trace_event): the worker deletes steps older than this; 0 keeps everything.
-    trace_retention_days: int = 30
-    trace_purge_interval_s: float = 3600.0
+    calls_enabled: bool = True
+    call_max_seconds: int = 540
+    call_ring_min_s: float = 3.0
+    call_ring_max_s: float = 7.0
 
-    static_dir: str = "../frontend/dist/sim/browser"   # built React admin (Vite; prod: /app/static)
-    media_dir: str = "./media"  # downloaded voice/images (prod: /app/media)
-    # Private subscription studio: explicit account binding, disabled by default.
-    studio_owner_telegram_id: int = 0
-    studio_photo_filename: str = ""
-    studio_video_filename: str = ""
+    # Context window budget for the reply model, in estimated tokens (docs/context.md).
+    context_budget_tokens: int = 60_000
+    context_keep_recent_events: int = 60
 
+    @property
+    def superadmin_ids(self) -> list[int]:
+        return [int(x) for x in self.superadmin_telegram_ids.replace(" ", "").split(",") if x]
 
-def parse_telegram_ids(spec: str) -> list[int]:
-    """Comma list of numeric Telegram ids; junk items are skipped."""
-    return [int(x) for x in (i.strip() for i in spec.split(",")) if x.isdigit()]
+    @property
+    def is_prod(self) -> bool:
+        return self.env == "prod"
 
 
 @lru_cache
-def settings() -> Settings:
+def get_settings() -> Settings:
     return Settings()

@@ -1,100 +1,42 @@
-import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { LogOut, Menu, Monitor, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react';
-import { useState } from 'react';
+import { Link, Outlet, useNavigate, useRouterState, type LinkProps } from '@tanstack/react-router';
+import { LogOut, MessagesSquare, Monitor, Moon, Smile, Sun, Users, type LucideIcon } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Tip } from '@/components/ui/tooltip';
+import { session, useAdmin } from '@/features/auth/session';
 import { useViewportVars } from '@/hooks/use-viewport-vars';
-import { authStore, useAuth } from '@/lib/auth';
-import { NAV_GROUPS, ROLE_LABELS, bottomSlots, inAgents, isActivePath, visibleNav, type NavItem } from '@/lib/nav';
+import { useLiveEvents } from '@/lib/events';
 import { setTheme, useTheme, type ThemeMode } from '@/lib/theme';
 import { cn } from '@/lib/utils';
-import { AgentTabs } from './agent-tabs';
 
-const COLLAPSE_KEY = 'sim-nav-collapsed';
-/** One slot of the phone bottom bar: a 20 px icon over a one-line caption; `min-w-0` lets the caption truncate. */
-const BOTTOM_TAB = 'flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] leading-tight text-muted-foreground';
+export interface NavItem { path: NonNullable<LinkProps['to']>; label: string; icon: LucideIcon }
 
-function readCollapsed(): boolean {
-  try {
-    return localStorage.getItem(COLLAPSE_KEY) === '1';
-  } catch {
-    return false;
-  }
+/** The whole dashboard: exactly three sections. */
+export const NAV: readonly NavItem[] = [
+  { path: '/chats', label: 'Чаты', icon: MessagesSquare },
+  { path: '/persona', label: 'Персонаж', icon: Smile },
+  { path: '/clients', label: 'Клиенты', icon: Users },
+];
+
+export function isActivePath(pathname: string, path: string): boolean {
+  return pathname === path || pathname.startsWith(`${path}/`);
 }
 
-function Brand({ compact }: { compact: boolean }) {
-  return (
-    <Link to="/" className="flex h-14 items-center gap-2.5 px-3 font-semibold">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">S</span>
-      {!compact && <span className="text-[15px]">Sim</span>}
-    </Link>
-  );
-}
-
-function NavLinks({ items, compact, pathname, onNavigate }: {
-  items: NavItem[];
-  compact: boolean;
-  pathname: string;
-  onNavigate?: () => void;
-}) {
-  return (
-    <nav aria-label="Разделы" className="flex flex-col gap-4 px-2">
-      {NAV_GROUPS.map((g) => {
-        const list = items.filter((i) => i.group === g.key);
-        if (!list.length) return null;
-        return (
-          <div key={g.key} role="group" aria-label={g.label} className="flex flex-col gap-0.5">
-            {!compact && <span aria-hidden="true" className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{g.label}</span>}
-            {compact && g.key !== NAV_GROUPS[0].key && <span aria-hidden="true" className="mx-3 mb-1 border-t" />}
-            {list.map((item) => {
-              const active = isActivePath(pathname, item.path);
-              const Icon = item.icon;
-              return (
-                <Tip key={item.path} label={compact ? item.label : ''} side="right">
-                  <Link
-                    to={item.path}
-                    onClick={onNavigate}
-                    aria-current={active ? 'page' : undefined}
-                    aria-label={compact ? item.label : undefined}
-                    className={cn(
-                      'flex h-9 items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-                      active && 'bg-accent font-medium text-accent-foreground',
-                      compact && 'justify-center px-0',
-                    )}
-                  >
-                    <Icon className="size-[18px] flex-none" />
-                    {!compact && <span className="truncate">{item.label}</span>}
-                  </Link>
-                </Tip>
-              );
-            })}
-          </div>
-        );
-      })}
-    </nav>
-  );
-}
-
-const THEMES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+const THEMES: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
   { value: 'light', label: 'Светлая', icon: Sun },
   { value: 'dark', label: 'Тёмная', icon: Moon },
   { value: 'system', label: 'Как в системе', icon: Monitor },
 ];
 
-function UserMenu({ compact }: { compact: boolean }) {
-  const { user } = useAuth();
+function AccountMenu({ compact }: { compact: boolean }) {
+  const admin = useAdmin();
   const theme = useTheme();
   const navigate = useNavigate();
-  const name = user?.display_name || user?.tg_username || 'Администратор';
-  const role = ROLE_LABELS[user?.role ?? 'operator'];
+  const name = admin?.name || admin?.username || 'Администратор';
   const logout = async (): Promise<void> => {
-    await authStore.logout();
+    await session.logout();
     await navigate({ to: '/login' });
   };
   return (
@@ -103,21 +45,23 @@ function UserMenu({ compact }: { compact: boolean }) {
         <button
           type="button"
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-md p-1.5 text-left transition-colors hover:bg-accent',
-            compact && 'justify-center',
+            'flex items-center gap-2.5 rounded-md p-1.5 text-left transition-colors hover:bg-accent',
+            compact ? 'h-12 flex-1 flex-col justify-center gap-0.5 p-0 text-[11px] text-muted-foreground' : 'w-full',
           )}
-          aria-label={`${name}, ${role}: меню`}
+          aria-label={`${name}: меню`}
         >
-          <Avatar name={name} url={user?.photo_url} size={30} />
-          {!compact && (
+          <Avatar name={name} size={compact ? 22 : 30} />
+          {compact ? (
+            <span>Я</span>
+          ) : (
             <span className="flex min-w-0 flex-col leading-tight">
               <span className="truncate text-sm font-medium">{name}</span>
-              <span className="truncate text-xs text-muted-foreground">{role}</span>
+              {admin?.username && <span className="truncate text-xs text-muted-foreground">@{admin.username}</span>}
             </span>
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-56">
+      <DropdownMenuContent side="top" align={compact ? 'end' : 'start'} className="w-56">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Тема</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as ThemeMode)}>
           {THEMES.map((t) => (
@@ -138,108 +82,81 @@ function UserMenu({ compact }: { compact: boolean }) {
 }
 
 /**
- * Responsive shell: sidebar on desktop (collapsible to a rail) grouped into «Работа», «Агенты» and
- * «Настройка»; on phones a bottom tab bar (the agents' sections behind one «Агенты» slot, switched
- * by the strip on top of their pages) and the «Ещё» sheet with everything.
+ * Responsive shell: a left rail with the three sections on tablets and desktops, a bottom tab bar
+ * on phones. Also opens the one live-updates stream for every screen.
  */
 export function AppShell() {
-  const { user } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [moreOpen, setMoreOpen] = useState(false);
   useViewportVars();
-  const items = visibleNav(user?.role);
-  const bottom = bottomSlots(items);
-
-  const toggle = (): void => {
-    setCollapsed((v) => {
-      try {
-        localStorage.setItem(COLLAPSE_KEY, v ? '0' : '1');
-      } catch {
-        /* ignore */
-      }
-      return !v;
-    });
-  };
+  useLiveEvents();
 
   return (
     <div className="flex min-h-dvh">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2"
+      >
         К содержимому
       </a>
       <aside
-        className={cn(
-          'sticky top-0 hidden h-dvh flex-none flex-col border-r bg-sidebar transition-[width] duration-200 md:flex',
-          collapsed ? 'w-16' : 'w-60',
-        )}
+        className="sticky top-0 hidden h-dvh w-20 flex-none flex-col items-center border-r bg-sidebar py-3 md:flex xl:w-56 xl:items-stretch xl:px-2"
         aria-label="Основная навигация"
       >
-        <div className={cn('flex items-center justify-between', collapsed && 'justify-center')}>
-          {!collapsed && <Brand compact={false} />}
-          <Button variant="ghost" size="icon-sm" className={cn(!collapsed && 'mr-2', collapsed && 'mt-3')} onClick={toggle} aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}>
-            {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          </Button>
-        </div>
-        <div className="flex-1 overflow-y-auto py-3 scrollbar-thin">
-          <NavLinks items={items} compact={collapsed} pathname={pathname} />
-        </div>
-        <div className="border-t p-2">
-          <UserMenu compact={collapsed} />
+        <Link to="/chats" className="mb-4 flex h-10 items-center gap-2.5 px-2 font-semibold" aria-label="Sim">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">S</span>
+          <span className="hidden text-[15px] xl:inline">Sim</span>
+        </Link>
+        <nav aria-label="Разделы" className="flex flex-1 flex-col gap-1">
+          {NAV.map((item) => {
+            const active = isActivePath(pathname, item.path);
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex flex-col items-center gap-1 rounded-md px-2 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground xl:h-9 xl:flex-row xl:gap-3 xl:px-2.5 xl:py-0 xl:text-sm',
+                  active && 'bg-accent font-medium text-accent-foreground',
+                )}
+              >
+                <item.icon className="size-[18px] flex-none" />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="w-full border-t px-1 pt-2">
+          <AccountMenu compact={false} />
         </div>
       </aside>
 
       <main id="main" className="flex min-w-0 flex-1 flex-col pb-(--bottom-nav) max-md:overflow-x-clip">
-        {inAgents(items, pathname) && <AgentTabs items={items} pathname={pathname} />}
         <Outlet />
       </main>
 
       <nav
-        aria-label="Быстрая навигация"
+        aria-label="Разделы"
         className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden kb:hidden"
       >
-        {bottom.map((item) => {
-          const active = item.match.some((path) => isActivePath(pathname, path));
-          const Icon = item.icon;
+        {NAV.map((item) => {
+          const active = isActivePath(pathname, item.path);
           return (
             <Link
               key={item.path}
               to={item.path}
               aria-current={active ? 'page' : undefined}
-              className={cn(BOTTOM_TAB, active && 'text-primary')}
+              className={cn(
+                'flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] leading-tight text-muted-foreground',
+                active && 'text-primary',
+              )}
             >
-              <Icon className="size-[20px]" />
+              <item.icon className="size-5" />
               <span className="max-w-full truncate px-0.5">{item.label}</span>
             </Link>
           );
         })}
-        <button
-          type="button"
-          onClick={() => setMoreOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={moreOpen}
-          className={BOTTOM_TAB}
-        >
-          <Menu className="size-[20px]" />
-          <span>Ещё</span>
-        </button>
+        <AccountMenu compact />
       </nav>
-
-      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="left" className="w-72 gap-0 p-0">
-          <SheetHeader className="p-0">
-            <SheetTitle asChild>
-              <div><Brand compact={false} /></div>
-            </SheetTitle>
-            <SheetDescription className="sr-only">Все разделы админки</SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto py-2">
-            <NavLinks items={items} compact={false} pathname={pathname} onNavigate={() => setMoreOpen(false)} />
-          </div>
-          <div className="border-t p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
-            <UserMenu compact={false} />
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

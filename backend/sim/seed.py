@@ -1,113 +1,68 @@
-"""`python -m sim.seed`: idempotent initial data and the superadmins from SIM_SUPERADMIN_TELEGRAM_IDS.
+"""Initial data, run after every migration (`python -m sim.seed`, the `migrate` service).
 
-Existing rows are matched by name; only an EMPTY agent_prompt is filled
-in, so edits made in the admin survive a re-run."""
+Idempotent:
+- every id from SIM_SUPERADMIN_TELEGRAM_IDS becomes an active admin (added or re-activated);
+- if there is no persona at all, one named «Марина» is created with default settings
+  (the owner fills the prompt and models on the persona page, or scripts/import_v1.py does)."""
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Sequence
+from dataclasses import dataclass
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.adapters.db.models import Persona, Strategy
-from sim.adapters.db.repositories.catalog import PersonaRepo, StrategyRepo
-from sim.adapters.db.session import create_all, transaction
-from sim.config import Settings, parse_telegram_ids, settings
-from sim.persona_prompts import (
-    EVA,
-    MARINA,
-    PERSONA_PROMPTS,
-    STRATEGY_NAME,
-    STRATEGY_PROMPT,
-)
-from sim.wiring import Container, build_container
+from sim.config import Settings, get_settings
+from sim.db.models import AdminUser, Persona
+from sim.db.session import make_engine, make_sessionmaker, transaction
 
 log = logging.getLogger(__name__)
 
-STRATEGY: dict[str, Any] = {
-    "name": STRATEGY_NAME,
-    "partner_name": "RCIPM",
-    "goal": "",
-    "prompt": STRATEGY_PROMPT,
-    "offer": (
-        "RCIPM (rcipm.com): «Стратегическое мышление — навык будущего. Образовательная среда, "
-        "где решения становятся осознанными и системными». Других деталей продукта, цен и "
-        "условий в этом описании нет: если клиент спрашивает — честно скажи, что уточнишь."
-    ),
-    "registration_url": "https://rcipm.com/?ref={ref}",
-    "stage_playbook": {},
-    "rules": [],
-    "followup_hours": [24, 72, 168],
-    "notes": (
-        "TO CONFIRM with the owner: точная ссылка регистрации (шаблон https://rcipm.com/?ref={ref} "
-        "— предположение, сайт закрыт проверкой «я не робот»), описание продукта и цены."
-    ),
-}
-
-PERSONAS: list[dict[str, Any]] = [
-    {
-        "name": MARINA,
-        "gender": "female",
-        "language": "русский (переходит на украинский, если клиент пишет по-украински)",
-        "agent_prompt": PERSONA_PROMPTS[MARINA],
-    },
-    {
-        "name": EVA,
-        "gender": "female",
-        "language": "русский и украинский (отвечает на языке клиента)",
-        "agent_prompt": PERSONA_PROMPTS[EVA],
-    },
-]
+DEFAULT_PERSONA_NAME = "Марина"
 
 
-async def seed_catalog(session: AsyncSession) -> dict[str, int]:
-    strategies, personas = StrategyRepo(session), PersonaRepo(session)
-    created = {"strategies": 0, "personas": 0}
-    strategy = await strategies.by_name(STRATEGY_NAME)
-    if strategy is None:
-        strategy = await strategies.add(Strategy(**STRATEGY))
-        created["strategies"] += 1
-    elif not strategy.prompt.strip():
-        strategy.prompt = STRATEGY_PROMPT   # added in 0005: fill once, owner edits win after that
-    for data in PERSONAS:
-        existing = await personas.by_name(data["name"])
-        if existing is not None:
-            if not (existing.agent_prompt or "").strip():
-                existing.agent_prompt = data["agent_prompt"]
-        else:
-            await personas.add(
-                Persona(
-                    **data,
-                    model="",  # empty = Broker chain chat:sales
-                    strategy_id=strategy.id,
-                    is_active=True,
-                )
-            )
-            created["personas"] += 1
-    return created
+@dataclass(frozen=True)
+class SeedReport:
+    admins_added: int = 0
+    admins_reactivated: int = 0
+    persona_created: bool = False
 
 
-async def seed(container: Container, cfg: Settings) -> dict[str, Any]:
-    if cfg.env != "prod" and cfg.database_url.startswith("sqlite"):
-        await create_all(container.engine)  # dev convenience; prod schema is Alembic's
-    async with transaction(container.factory) as s:
-        created: dict[str, Any] = dict(await seed_catalog(s))
-        created["superadmins"] = await container.auth(s).sync_superadmins(
-            parse_telegram_ids(cfg.superadmin_telegram_ids)
-        )
-    return created
+async def seed(session: AsyncSession, superadmin_ids: Sequence[int]) -> SeedReport:
+    """Applies the seed inside the caller's transaction (flushes, never commits)."""
+    added = reactivated = 0
+    for telegram_id in dict.fromkeys(superadmin_ids):
+        admin = await session.scalar(select(AdminUser).where(AdminUser.telegram_id == telegram_id))
+        if admin is None:
+            session.add(AdminUser(telegram_id=telegram_id, name="", is_active=True))
+            added += 1
+        elif not admin.is_active:
+            admin.is_active = True
+            reactivated += 1
+    created = not await session.scalar(select(func.count()).select_from(Persona))
+    if created:
+        session.add(Persona(name=DEFAULT_PERSONA_NAME))
+    await session.flush()
+    return SeedReport(admins_added=added, admins_reactivated=reactivated, persona_created=created)
 
 
-async def main() -> None:
-    cfg = settings()
-    container = build_container(cfg)
+async def run(settings: Settings) -> SeedReport:
+    engine = make_engine(settings.database_url, pool_size=1)
     try:
-        log.info("seed: %s", await seed(container, cfg))
+        async with transaction(make_sessionmaker(engine)) as session:
+            return await seed(session, settings.superadmin_ids)
     finally:
-        await container.engine.dispose()
+        await engine.dispose()
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    report = asyncio.run(run(get_settings()))
+    log.info("seed: %d admins added, %d re-activated, persona created: %s",
+             report.admins_added, report.admins_reactivated, report.persona_created)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    asyncio.run(main())
+    main()

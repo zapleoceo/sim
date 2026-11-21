@@ -1,14 +1,25 @@
-import { QueryClient } from '@tanstack/react-query';
-import { ApiError } from './api/http';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { ApiError, errorMessage } from './api';
 
-/** Client errors (4xx) are final; network/5xx get one retry. */
+/** Client errors (4xx) are final; network and 5xx get one retry. */
 export function shouldRetry(failureCount: number, error: unknown): boolean {
   if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
   return failureCount < 1;
 }
 
+/**
+ * Every failed mutation shows one toast with the server's text (`{error}`), so features only
+ * add success toasts. A mutation with `meta: { silent: true }` handles its error itself.
+ */
 export function createQueryClient(): QueryClient {
   return new QueryClient({
+    mutationCache: new MutationCache({
+      onError: (error, _vars, _ctx, mutation) => {
+        if (mutation.options.meta?.silent) return;
+        toast.error(errorMessage(error));
+      },
+    }),
     defaultOptions: {
       queries: { staleTime: 30_000, retry: shouldRetry, refetchOnWindowFocus: false },
       mutations: { retry: false },
@@ -16,35 +27,30 @@ export function createQueryClient(): QueryClient {
   });
 }
 
-/** Query keys in one place, so invalidation never drifts from the reads. */
+/**
+ * Query keys in one place, so invalidation never drifts from the reads.
+ * Prefix keys (`chats`, `clients`, `media`) invalidate every list and card under them.
+ */
 export const qk = {
-  personas: ['personas'] as const,
-  strategies: ['strategies'] as const,
+  me: ['auth', 'me'] as const,
+  authConfig: ['auth', 'config'] as const,
+
+  chats: ['chats'] as const,
+  chatLists: ['chats', 'list'] as const,
+  chatList: (q: string) => ['chats', 'list', q] as const,
+  chat: (id: number) => ['chats', 'detail', id] as const,
+  timeline: (chatId: number) => ['timeline', chatId] as const,
+  replyRun: (id: number) => ['reply-run', id] as const,
+
+  persona: ['persona'] as const,
   models: ['models'] as const,
+  voices: ['voices'] as const,
+  instructions: ['instructions'] as const,
   channels: ['channels'] as const,
-  content: ['content'] as const,
-  admins: ['admins'] as const,
-  studio: ['studio'] as const,
-  settings: ['settings'] as const,
-  personaMedia: (id: number) => ['persona-media', id] as const,
-  /** Versions of a persona prompt: refreshed when the persona is saved or a version restored. */
-  personaPromptVersions: (id: number) => ['persona-prompt', id, 'versions'] as const,
-  dialogs: (filter: unknown) => ['dialogs', filter] as const,
-  dialog: (id: number) => ['dialog', id] as const,
-  /** Under the dialog key: a live event of the dialog refreshes its summary too. */
-  dialogSummary: (id: number) => ['dialog', id, 'summary'] as const,
-  clients: (filter: unknown, page: unknown) => ['clients', filter, page] as const,
-  client: (id: number) => ['client', id] as const,
-  clientChat: (id: number, limit: number) => ['client-chat', id, limit] as const,
-  funnel: (personaId: number | null) => ['funnel', personaId] as const,
-  analytics: (from: string, to: string, personaId: number | null) => ['analytics', from, to, personaId] as const,
-  spend: (from: string, to: string) => ['analytics', 'spend', from, to] as const,
-  activity: (kind: 'messages' | 'llm' | 'log', args: unknown) => ['activity', kind, args] as const,
-  trace: (id: string) => ['trace', id] as const,
-  simulations: ['simulations'] as const,
-  simulation: (id: number) => ['simulation', id] as const,
-  /** Every test chat for the inbox (one flat list); under `simulations`, so it refreshes with them. */
-  inboxSimulations: ['simulations', 'all'] as const,
-  /** The «needs operator» counter of the inbox. */
-  operatorQueue: ['dialogs', 'operator-queue'] as const,
+  media: ['media'] as const,
+  mediaList: (source: string, kind: string) => ['media', source, kind] as const,
+
+  clients: ['clients'] as const,
+  clientList: (q: string) => ['clients', 'list', q] as const,
+  client: (id: number) => ['clients', 'detail', id] as const,
 };

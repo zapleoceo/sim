@@ -1,49 +1,54 @@
-"""Domain errors → HTTP responses, in one place instead of a try/except in every route.
-
-The body is the same `{"detail": "<text>"}` an HTTPException gives. Starlette picks the handler of
-the most specific class in the exception's MRO, so a subclass (ContentConflict) can map to another
-status than its base (ContentError)."""
+"""Every error leaves the API as `{"error": "text for a human"}` with a 4xx/5xx code."""
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+import logging
+from typing import Any
 
-from sim.ports.llm import LLMError
-from sim.services.channels import ChannelError
-from sim.services.content import ContentConflict, ContentError
-from sim.services.conversation import ConversationError
-from sim.services.persona_media import MediaNotFound, MediaRejected, MediaTooLarge
-from sim.services.preview_media import AttachmentError
-from sim.services.video_note import VideoNoteRefused
+from litestar import Request, Response
+from litestar.exceptions import HTTPException, ValidationException
 
-STATUS_BY_ERROR: dict[type[Exception], int] = {
-    ChannelError: 422,
-    ContentError: 422,
-    ContentConflict: 409,
-    ConversationError: 422,
-    AttachmentError: 422,
-    MediaRejected: 422,
-    MediaTooLarge: 413,
-    MediaNotFound: 404,
-    VideoNoteRefused: 409,
+from sim.ports import PortError
+
+logger = logging.getLogger(__name__)
+
+INTERNAL_ERROR = "Внутренняя ошибка сервера"
+
+
+def error_response(status_code: int, message: str,
+                   headers: dict[str, str] | None = None) -> Response[dict[str, str]]:
+    return Response({"error": message}, status_code=status_code, headers=headers)
+
+
+def validation_message(exc: ValidationException) -> str:
+    """`Validation failed for POST /api/x: field: reason` from Litestar's `extra` details."""
+    extra = exc.extra if isinstance(exc.extra, list) else [exc.extra] if exc.extra else []
+    reasons = []
+    for item in extra:
+        if isinstance(item, dict):
+            key, message = item.get("key"), item.get("message", "")
+            reasons.append(f"{key}: {message}" if key else str(message))
+        else:
+            reasons.append(str(item))
+    return f"{exc.detail}: {'; '.join(reasons)}" if reasons else str(exc.detail)
+
+
+def http_error(_: Request[Any, Any, Any], exc: HTTPException) -> Response[dict[str, str]]:
+    message = validation_message(exc) if isinstance(exc, ValidationException) else exc.detail
+    return error_response(exc.status_code, message, dict(exc.headers or {}) or None)
+
+
+def port_error(_: Request[Any, Any, Any], exc: PortError) -> Response[dict[str, str]]:
+    """An outside service (Broker, storage) failed: the request was fine, the upstream was not."""
+    return error_response(502, str(exc) or "Внешний сервис недоступен")
+
+
+def internal_error(request: Request[Any, Any, Any], exc: Exception) -> Response[dict[str, str]]:
+    logger.error("unhandled error in %s %s", request.method, request.url.path, exc_info=exc)
+    return error_response(500, INTERNAL_ERROR)
+
+
+EXCEPTION_HANDLERS: dict[type[Exception], Any] = {
+    HTTPException: http_error,
+    PortError: port_error,
+    Exception: internal_error,
 }
-BROKER_STATUS = 502
-
-
-async def domain_error(_: Request, exc: Exception) -> JSONResponse:
-    return JSONResponse({"detail": str(exc)}, status_code=STATUS_BY_ERROR[type_in(exc)])
-
-
-async def broker_error(_: Request, exc: Exception) -> JSONResponse:
-    return JSONResponse({"detail": f"Broker error: {exc}"}, status_code=BROKER_STATUS)
-
-
-def type_in(exc: Exception) -> type[Exception]:
-    """The most specific mapped class of the exception."""
-    return next(cls for cls in type(exc).__mro__ if cls in STATUS_BY_ERROR)
-
-
-def install_error_handlers(app: FastAPI) -> None:
-    for error in STATUS_BY_ERROR:
-        app.add_exception_handler(error, domain_error)
-    app.add_exception_handler(LLMError, broker_error)

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
-import { authStore } from '@/lib/auth';
+import { session } from '@/features/auth/session';
 
 // jsdom gaps that Radix UI and the layout rely on.
 if (!window.matchMedia) {
@@ -35,6 +35,6 @@ window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 
 afterEach(() => {
   cleanup();
-  authStore.clear();
+  session.clear();
   localStorage.clear();
 });

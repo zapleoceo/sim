@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 CODE = re.compile(r"^(backend/sim/|frontend/src/)")
 TEST = re.compile(r"^(backend/tests/|frontend/src/test/)|\.test\.(ts|tsx)$")
-DOCS = re.compile(r"^(README|AGENTS)\.md$")
+DOCS = re.compile(r"^(README|AGENTS)\.md$|^docs/")
 TESTS_OPT_OUT = "tests-not-needed"
 DOCS_OPT_OUT = "docs-not-needed"
 

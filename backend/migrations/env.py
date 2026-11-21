@@ -1,56 +1,75 @@
-"""Alembic environment (async). The database URL is taken from SIM_DATABASE_URL / .env."""
+"""Alembic environment (async engine, psycopg).
+
+Two branches live side by side (docs/deploy.md): SIM's own revisions (label `sim`,
+migrations/versions) and Procrastinate's job-queue revisions (label `procrastinate`, shipped in
+`procrastinate.contrib.alembic`). `alembic upgrade heads` applies both.
+
+The database URL is `config.attributes["database_url"]` when a caller passes one (the CI smoke
+does), otherwise SIM_DATABASE_URL through sim.config."""
 from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
+from sqlalchemy import pool
 from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from sim.adapters.db import models  # noqa: F401  (registers the tables on Base.metadata)
-from sim.adapters.db.base import Base
-from sim.adapters.db.session import make_engine
-from sim.config import settings
+from sim.config import get_settings
+from sim.db.models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
+PROCRASTINATE_PREFIX = "procrastinate_"
+
+
+def include_name(name: str | None, type_: str, parent_names: Any) -> bool:
+    """Procrastinate's tables belong to its own branch: autogenerate must not want to drop them."""
+    return type_ != "table" or not (name or "").startswith(PROCRASTINATE_PREFIX)
+
 
 def database_url() -> str:
-    return config.get_main_option("sqlalchemy.url") or settings().database_url
+    return str(config.attributes.get("database_url") or get_settings().database_url)
+
+
+def configure(**kw: Any) -> None:
+    context.configure(
+        target_metadata=target_metadata,
+        include_name=include_name,
+        compare_type=True,
+        compare_server_default=True,
+        # Procrastinate revisions commit inside an autocommit block; Alembic recommends one
+        # transaction per revision around them.
+        transaction_per_migration=True,
+        **kw,
+    )
 
 
 def run_migrations_offline() -> None:
-    context.configure(
-        url=database_url(),
-        target_metadata=target_metadata,
-        literal_binds=True,
-        compare_type=True,
-        dialect_opts={"paramstyle": "named"},
-    )
+    configure(url=database_url(), literal_binds=True, dialect_opts={"paramstyle": "named"})
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(
-        connection=connection,
-        target_metadata=target_metadata,
-        compare_type=True,
-        render_as_batch=connection.dialect.name == "sqlite",
-    )
+    configure(connection=connection)
     with context.begin_transaction():
         context.run_migrations()
 
 
 async def run_migrations_online() -> None:
-    engine = make_engine(database_url())
-    async with engine.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await engine.dispose()
+    engine = create_async_engine(database_url(), poolclass=pool.NullPool)
+    try:
+        async with engine.connect() as connection:
+            await connection.run_sync(do_run_migrations)
+    finally:
+        await engine.dispose()
 
 
 if context.is_offline_mode():
