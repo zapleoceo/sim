@@ -18,7 +18,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from sim.config import get_settings
-from sim.db.models import Base
+from sim.db.models import FTS_INDEX_PREFIX, Base
 
 config = context.config
 if config.config_file_name is not None:
@@ -30,8 +30,18 @@ PROCRASTINATE_PREFIX = "procrastinate_"
 
 
 def include_name(name: str | None, type_: str, parent_names: Any) -> bool:
-    """Procrastinate's tables belong to its own branch: autogenerate must not want to drop them."""
+    """Procrastinate's tables belong to its own branch: autogenerate must not want to drop them.
+    The full-text GIN indexes (`ix_fts_*`) are compared by name in the CI gate, not here:
+    PostgreSQL prints their expression back in its own words."""
+    if type_ == "index":
+        return not (name or "").startswith(FTS_INDEX_PREFIX)
     return type_ != "table" or not (name or "").startswith(PROCRASTINATE_PREFIX)
+
+
+def include_object(obj: Any, name: str | None, type_: str, reflected: bool,
+                   compare_to: Any) -> bool:
+    """The models' side of `include_name` for the full-text indexes."""
+    return type_ != "index" or not (name or "").startswith(FTS_INDEX_PREFIX)
 
 
 def database_url() -> str:
@@ -42,6 +52,7 @@ def configure(**kw: Any) -> None:
     context.configure(
         target_metadata=target_metadata,
         include_name=include_name,
+        include_object=include_object,
         compare_type=True,
         compare_server_default=True,
         # Procrastinate revisions commit inside an autocommit block; Alembic recommends one

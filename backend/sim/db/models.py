@@ -23,6 +23,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
+    literal_column,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -274,9 +276,49 @@ class Chat(Base):
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True,
                                                              index=True)
-    # Rolling summary of events older than `summary_until_event_id` (docs/context.md).
+    # Legacy rolling summary of the conversation before the day diary (migration 0007): shown
+    # read-only as «Давняя переписка», never written any more (docs/memory.md).
     summary: Mapped[str] = mapped_column(Text, default="")
     summary_until_event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # «Заметки дня» per persona-local day: {"YYYY-MM-DD": {"notes": [fact], "morning": text,
+    # "morning_until": event id}} for the last few days (sim/domain/memory.py, docs/memory.md).
+    day_notes: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class DiaryEntry:
+    """The shared shape of a chat's day and week summaries (docs/memory.md)."""
+
+    summary: Mapped[str] = mapped_column(Text, default="")
+    # Durable facts of that period, one short line each.
+    facts: Mapped[list[str]] = jsonb_list()
+    first_event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    model: Mapped[str] = mapped_column(String(160), default="")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ChatDay(DiaryEntry, Base):
+    """The chronicler's detailed summary of one persona-local day of a chat, written at her
+    midnight. The owner's edit marks it `edited`: the night job never overwrites it."""
+
+    __tablename__ = "chat_day"
+    __table_args__ = (UniqueConstraint("chat_id", "day"),)
+
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chat.id", ondelete="CASCADE"))
+    day: Mapped[date] = mapped_column(Date)
+    source: Mapped[DaySource] = enum_col(DaySource, default=DaySource.MODEL)
+
+
+class ChatWeek(DiaryEntry, Base):
+    """The week's rollup of a chat's day summaries (`week` = its Monday), written the night to
+    Monday; it bounds the context to a month of weeks."""
+
+    __tablename__ = "chat_week"
+    __table_args__ = (UniqueConstraint("chat_id", "week"),)
+
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chat.id", ondelete="CASCADE"))
+    week: Mapped[date] = mapped_column(Date)
+    source: Mapped[DaySource] = enum_col(DaySource, default=DaySource.MODEL)
 
 
 class Message(Base):
@@ -455,3 +497,31 @@ class LlmCall(Base):
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# --- full-text search («А помнишь…?», docs/memory.md) ----------------------------------------
+
+# Russian full-text search over message texts and day summaries. The index and the query
+# (sim/services/memory/recall.py) use the same expression, so PostgreSQL uses the index.
+# Autogenerate skips `ix_fts_*` (migrations/env.py: PostgreSQL prints the expression back in its
+# own words); the CI migration gate checks these indexes by name instead.
+FTS_CONFIG = literal_column("'russian'::regconfig")
+FTS_INDEX_PREFIX = "ix_fts_"
+
+
+def fts_vector(column: Any) -> Any:
+    return func.to_tsvector(FTS_CONFIG, column)
+
+
+def fts_index(name: str, table: Any, column: Any) -> Index:
+    """A GIN index on the column's Russian tsvector, bound to its table explicitly: an index on
+    an expression that starts with a literal is not attached to a table by itself."""
+    index = Index(f"{FTS_INDEX_PREFIX}{name}", fts_vector(column), postgresql_using="gin")
+    index._set_parent(table)
+    return index
+
+
+FTS_INDEXES = (
+    fts_index("message_text", Message.__table__, Message.text),
+    fts_index("chat_day_summary", ChatDay.__table__, ChatDay.summary),
+)

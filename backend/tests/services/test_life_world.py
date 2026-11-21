@@ -170,6 +170,7 @@ def test_blocks_with_a_planned_day() -> None:
     assert blocks.canon.startswith(CANON_HEADING) and "- Соседскую собаку зовут Рекс" in (
         blocks.canon)
     assert blocks.texts() == [blocks.routine, blocks.now, blocks.arcs, blocks.canon]
+    assert blocks.shared() == [blocks.routine, blocks.arcs, blocks.canon]      # no «now»
 
 
 def test_blocks_fall_back_to_the_routine() -> None:

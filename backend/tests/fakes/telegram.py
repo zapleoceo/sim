@@ -300,7 +300,6 @@ class FakeContextBuilder:
 @dataclass
 class FakeTasks:
     memory: list[int] = field(default_factory=list)
-    passports: list[int] = field(default_factory=list)
     checks: list[tuple[int, float]] = field(default_factory=list)   # (persona id, delay)
 
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
@@ -308,9 +307,6 @@ class FakeTasks:
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.memory.append(chat_id)
-
-    async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
-        self.passports.append(chat_id)
 
 
 @dataclass

@@ -1,5 +1,5 @@
 """Canon: durable facts the persona invented about herself in a chat («соседскую собаку зовут
-Рекс»). Stored once (normalized text, sim/services/fact_text.py), shown in the context of every
+Рекс»). Stored once (normalized text, sim/domain/fact_text.py), shown in the context of every
 chat; a fact the owner rejected is never added again."""
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import PersonaCanon
 from sim.domain.enums import CanonStatus
-from sim.services.fact_text import normalize_fact
+from sim.domain.fact_text import normalize_fact
 
 
 async def add_canon(session: AsyncSession, *, persona_id: int, facts: Iterable[str],

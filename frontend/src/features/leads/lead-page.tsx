@@ -10,6 +10,7 @@ import { BackLink, Page } from '@/components/page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { lastMessagePreview } from '@/features/chats/timeline-logic';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
@@ -19,6 +20,7 @@ import type { ClientDetail, ClientPatch } from '@/lib/types';
 import { clientName, positiveInt } from '@/lib/utils';
 import { leadsApi, useUpdateClient } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
+import { DaysTab } from './days-tab';
 import { PassportEditor } from './passport-editor';
 
 const route = getRouteApi('/_app/leads/$clientId');
@@ -95,55 +97,67 @@ function LeadCard({ client }: { client: ClientDetail }) {
         <ClientAiSwitch clientId={client.id} enabled={client.ai_enabled} name={name} withLabel />
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <Section
-            id="passport"
-            title="Паспорт"
-            description="Живая анкета человека. Паспортистка обновляет её после каждого ответа и звонка; поля, которые вы поправили, она не трогает."
-          >
-            <PassportEditor clientId={client.id} passport={client.passport} />
-          </Section>
-        </div>
-        <div className="flex min-w-0 flex-col gap-4">
-          <Section id="profile" title="Профиль">
-            <ProfileForm client={client} />
-          </Section>
-          <Section id="chats" title="Чаты">
-            {client.chats.length === 0 ? (
-              <EmptyState icon={MessagesSquare} title="Чатов нет" className="py-4" />
-            ) : (
-              <ul className="flex flex-col divide-y">
-                {client.chats.map((chat) => (
-                  <li key={chat.id}>
-                    <Link
-                      to="/chats"
-                      search={{ id: chat.id }}
-                      className="flex items-center gap-3 rounded-md px-1 py-2.5 hover:bg-accent/60"
-                    >
-                      <MessagesSquare className="size-4 flex-none text-muted-foreground" />
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm">{lastMessagePreview(chat.last_message)}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {chat.persona ? `${chat.persona.name} · ` : ''}
-                          {formatShort(chat.last_message_at) || 'без сообщений'}
-                          {!chat.ai_enabled && ' · ИИ в чате выключен'}
-                        </span>
-                      </span>
-                      {chat.needs_operator && <AlertTriangle className="size-4 flex-none text-warning" aria-label="Нужен оператор" />}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-        </div>
-      </div>
+      <Tabs defaultValue="card">
+        <TabsList aria-label="Карточка лида">
+          <TabsTrigger value="card">Карточка</TabsTrigger>
+          <TabsTrigger value="days">Дни</TabsTrigger>
+        </TabsList>
+        {/* forceMount keeps what is being typed when the tab changes. */}
+        <TabsContent value="card" forceMount className="data-[state=inactive]:hidden">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <Section
+                id="passport"
+                title="Паспорт"
+                description="Живая анкета человека. Паспортистка обновляет её раз в сутки, ночью, по итогам дня (или по кнопке «Обновить паспорт сейчас» во вкладке «Дни»); поля, которые вы поправили, она не трогает."
+              >
+                <PassportEditor clientId={client.id} passport={client.passport} />
+              </Section>
+            </div>
+            <div className="flex min-w-0 flex-col gap-4">
+              <Section id="profile" title="Профиль">
+                <ProfileForm client={client} />
+              </Section>
+              <Section id="chats" title="Чаты">
+                {client.chats.length === 0 ? (
+                  <EmptyState icon={MessagesSquare} title="Чатов нет" className="py-4" />
+                ) : (
+                  <ul className="flex flex-col divide-y">
+                    {client.chats.map((chat) => (
+                      <li key={chat.id}>
+                        <Link
+                          to="/chats"
+                          search={{ id: chat.id }}
+                          className="flex items-center gap-3 rounded-md px-1 py-2.5 hover:bg-accent/60"
+                        >
+                          <MessagesSquare className="size-4 flex-none text-muted-foreground" />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-sm">{lastMessagePreview(chat.last_message)}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {chat.persona ? `${chat.persona.name} · ` : ''}
+                              {formatShort(chat.last_message_at) || 'без сообщений'}
+                              {!chat.ai_enabled && ' · ИИ в чате выключен'}
+                            </span>
+                          </span>
+                          {chat.needs_operator && <AlertTriangle className="size-4 flex-none text-warning" aria-label="Нужен оператор" />}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Section>
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent value="days" forceMount className="data-[state=inactive]:hidden">
+          <DaysTab client={client} />
+        </TabsContent>
+      </Tabs>
     </>
   );
 }
 
-/** The lead card: passport, profile and notes, AI switch, the lead's chats. */
+/** The lead card: passport, profile and notes, AI switch, the lead's chats; «Дни» — her day memory. */
 export function LeadPage() {
   const { clientId } = route.useParams();
   const id = positiveInt(clientId) ?? 0;

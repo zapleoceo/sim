@@ -11,6 +11,8 @@ import pytest
 from sim.domain.agent_prompts import (
     ATTENTION_PROMPT,
     GUARD_PROMPT,
+    MEMORY_PROMPT,
+    PASSPORT_PROMPT,
     VISION_PROMPT,
     VISION_SECTIONS,
     render_prompt,
@@ -19,6 +21,7 @@ from sim.domain.agent_prompts import (
 from sim.domain.agents import (
     AGENTS,
     DEFAULT_MAX_TOKENS,
+    NIGHT_MODEL,
     REGISTRY,
     AgentGroup,
     AgentKey,
@@ -67,10 +70,6 @@ def test_defaults_when_nothing_is_stored() -> None:
 def test_fallback_models_follow_the_chain() -> None:
     only_reply = persona({"reply": {"model": "r"}})
     assert agent_config(only_reply, AgentKey.GUARD).model == "r"
-    assert agent_config(only_reply, AgentKey.MEMORY).model == "r"
-    assert agent_config(only_reply, AgentKey.PASSPORT).model == "r"      # passport → memory
-    with_memory = persona({"reply": {"model": "r"}, "memory": {"model": "m"}})
-    assert agent_config(with_memory, AgentKey.PASSPORT).model == "m"
     # An explicit "" of an agent without a default model is «by default», i.e. the fallback.
     assert agent_config(persona({"reply": {"model": "r"}, "guard": {"model": ""}}),
                         AgentKey.GUARD).model == "r"
@@ -90,6 +89,19 @@ def test_attention_runs_on_a_cheap_fast_model_with_its_own_prompt() -> None:
         assert action in ATTENTION_PROMPT
     # «Не использовать» is possible: it has a default model.
     assert agent_config(persona({"attention": {"model": ""}}), AgentKey.ATTENTION).model == ""
+
+
+def test_night_agents_run_on_the_subscription_and_can_be_switched_off() -> None:
+    """docs/memory.md: the chronicler and the passport writer work at night on `NIGHT_MODEL`
+    with «auto» keys; "" switches each off (no fallback to the companion's model)."""
+    for key, tokens in ((AgentKey.MEMORY, 8000), (AgentKey.PASSPORT, 6000)):
+        config = agent_config(persona({"reply": {"model": "r"}}), key)
+        assert (config.model, config.key_tier, config.max_tokens) == (
+            NIGHT_MODEL, KeyTier.AUTO, tokens)
+        assert REGISTRY[key].fallback is None and "{name}" in config.prompt
+        assert agent_config(persona({key.value: {"model": ""}}), key).model == ""
+    assert "дневник" in MEMORY_PROMPT.lower() and '"morning"' in MEMORY_PROMPT
+    assert '"days"' in PASSPORT_PROMPT and "раз в сутки" in PASSPORT_PROMPT
 
 
 def test_the_planner_can_be_switched_off() -> None:

@@ -44,6 +44,8 @@ export const qk = {
   chatStatus: (id: number) => ['chats', 'status', id] as const,
   timeline: (chatId: number) => ['timeline', chatId] as const,
   replyRun: (id: number) => ['reply-run', id] as const,
+  /** A chat's day and week summaries (the lead card's «Дни»). */
+  chatDays: (chatId: number) => ['chat-days', chatId] as const,
 
   // Everything of one persona lives under ['personas', id], so `qk.personas` refreshes all.
   personas: ['personas'] as const,

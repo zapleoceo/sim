@@ -22,11 +22,14 @@ from sim.tasks.queue import (
     LIFE_TICK_TASK,
     MARK_READ_TASK,
     MEMORY_TASK,
+    MEMORY_TICK_TASK,
+    NIGHT_TASK,
     PASSPORT_TASK,
     PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
     REPLY_TASK,
     SEND_TASK,
+    SUMMARIZE_DAY_TASK,
     UNDERSTAND_TASK,
     ProcrastinateQueue,
 )
@@ -142,15 +145,14 @@ async def test_reply_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: 
         await agent.run_generation(999_999)
     finally:
         reset_deps()
-    assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action",
-                                                       "update_passport", "send"]
+    assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action", "send"]
 
 
 async def test_passport_queue_and_registration() -> None:
     app = FakeApp()
     queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
     await queue.update_passport(7, 5)
-    await queue.update_passport(7, 5)                   # a burst of turns: one update
+    await queue.update_passport(7, 5)                   # one waiting update per chat
     await queue.update_passport(8)
     assert app.deferred == [
         (PASSPORT_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "passport:7",
@@ -167,7 +169,7 @@ async def test_passport_task_runs_the_service(db: AsyncSession, deps: Deps, fake
                                               clock: FixedClock) -> None:
     chat = await make_chat(db)
     await add_message(db, chat, "я врач", at=clock.now())
-    fakes.llm.script("memory-model", '{"text": "Жизнь: врач", "occupation": "врач"}')
+    fakes.llm.script("passport-model", '{"text": "Жизнь: врач", "occupation": "врач"}')
     set_deps(deps)
     try:
         await agent.update_passport(chat.id)
@@ -251,3 +253,44 @@ async def test_life_tasks_run_the_planner(db: AsyncSession, deps: Deps, fakes: F
         reset_deps()
     assert fakes.tasks.of("plan_day") == [("plan_day", persona.id, "2026-11-21", False),
                                           ("plan_day", persona.id, "2026-11-22", False)]
+
+
+async def test_night_queue_and_registration() -> None:
+    app = FakeApp()
+    queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
+    await queue.night_memory(1, "2026-11-20")
+    await queue.night_memory(1, "2026-11-20")         # one night job per persona and day
+    await queue.summarize_day(7, "2026-11-20", True)
+    assert app.deferred == [
+        (NIGHT_TASK, {"persona_id": 1, "day": "2026-11-20"},
+         {"queue": "agent", "lock": "night:1", "queueing_lock": "night:1:2026-11-20"}),
+        (SUMMARIZE_DAY_TASK, {"chat_id": 7, "day": "2026-11-20", "force": True},
+         {"queue": "agent", "lock": "diary:7", "queueing_lock": "diary:7:2026-11-20"}),
+    ]
+    real = make_app(Settings(env="test"))
+    assert {NIGHT_TASK, SUMMARIZE_DAY_TASK, MEMORY_TICK_TASK} <= set(real.tasks)
+    assert any(MEMORY_TICK_TASK in str(key) for key in real.periodic_registry.periodic_tasks)
+
+
+async def test_night_tasks_run_the_night_job(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                             clock: FixedClock) -> None:
+    chat = await make_chat(db)
+    await add_message(db, chat, "я врач", at=clock.now() - timedelta(days=1))
+    fakes.llm.always("memory-model", '{"summary": "Дима рассказал, что он врач.", '
+                                     '"facts": ["врач"]}')
+    fakes.llm.always("passport-model", '{"text": "Жизнь: врач", "occupation": "врач"}')
+    set_deps(deps)
+    try:
+        await agent.memory_tick(0)
+        [(_, persona_id, day)] = fakes.tasks.of("night_memory")
+        await agent.night_memory(persona_id, day)
+        await agent.summarize_day(chat.id, day, True)
+        await agent.night_memory(999_999, day)          # unknown persona: nothing to do
+    finally:
+        reset_deps()
+    assert (persona_id, day) == (chat.persona_id, "2026-11-20")
+    assert len(fakes.llm.calls_for("memory-model")) == 2            # the night + the rebuild
+    client = await db.get(Client, chat.client_id)
+    assert client is not None
+    await db.refresh(client)
+    assert client.passport["occupation"] == "врач"
