@@ -46,8 +46,9 @@ async def search_days(session: AsyncSession, chat_id: int, query: str, tz: str,
     tsquery = func.websearch_to_tsquery(FTS_CONFIG, query)
     message_rank = func.ts_rank(fts_vector(Message.text), tsquery)
     scores: dict[date, float] = defaultdict(float)
+    # The day of a message is when it was sent (stored rows may be written later).
     rows = await session.execute(
-        select(Message.created_at, message_rank)
+        select(func.coalesce(Message.sent_at, Message.created_at), message_rank)
         .where(Message.chat_id == chat_id, fts_vector(Message.text).op("@@")(tsquery))
         .order_by(message_rank.desc()).limit(SEARCH_ROWS))
     for created_at, rank in rows:

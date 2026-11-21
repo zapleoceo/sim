@@ -133,10 +133,10 @@ describe('LifeSection', () => {
 });
 
 describe('reply run context', () => {
-  it('shows the life blocks right after the facts', () => {
+  it('shows the blocks from stable to volatile, as the model gets them (prompt cache)', () => {
     const blocks = contextBlocks({ client: 'c', canon: 'k', facts: 'f', now: 'n', routine: 'r', arcs: 'a' });
     expect(blocks.map((b) => b.title)).toEqual([
-      'Факты от кода', 'Распорядок', 'Точные данные на сейчас', 'Истории', 'Канон', 'Карточка клиента',
+      'Распорядок', 'Истории', 'Канон', 'Карточка клиента', 'Факты от кода', 'Точные данные на сейчас',
     ]);
   });
 });

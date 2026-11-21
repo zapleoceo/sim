@@ -513,8 +513,15 @@ def fts_vector(column: Any) -> Any:
     return func.to_tsvector(FTS_CONFIG, column)
 
 
+def fts_index(name: str, table: Any, column: Any) -> Index:
+    """A GIN index on the column's Russian tsvector, bound to its table explicitly: an index on
+    an expression that starts with a literal is not attached to a table by itself."""
+    index = Index(f"{FTS_INDEX_PREFIX}{name}", fts_vector(column), postgresql_using="gin")
+    index._set_parent(table)
+    return index
+
+
 FTS_INDEXES = (
-    Index(f"{FTS_INDEX_PREFIX}message_text", fts_vector(Message.text), postgresql_using="gin"),
-    Index(f"{FTS_INDEX_PREFIX}chat_day_summary", fts_vector(ChatDay.summary),
-          postgresql_using="gin"),
+    fts_index("message_text", Message.__table__, Message.text),
+    fts_index("chat_day_summary", ChatDay.__table__, ChatDay.summary),
 )
