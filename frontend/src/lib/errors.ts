@@ -1,15 +1,15 @@
 import { ApiError } from './api/http';
 
 /**
- * Human message for a failed request. Raw backend/exception text is not shown to the user;
- * details go to the console (see http.ts).
+ * Human message for a failed request. A rejected input (400/422) shows the server's own
+ * one-line reason when it gives one; other raw backend text goes to the console (see http.ts).
  */
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return 'Что-то пошло не так. Попробуйте ещё раз';
   switch (err.status) {
     case 0: return 'Нет связи с сервером';
     case 400:
-    case 422: return 'Проверьте введённые данные';
+    case 422: return errorDetail(err) || 'Проверьте введённые данные';
     case 403: return 'Недостаточно прав для этого действия';
     case 404: return 'Не найдено — возможно, запись уже удалена';
     case 409: return 'Данные изменились. Обновите страницу и повторите';

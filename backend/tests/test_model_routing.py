@@ -170,3 +170,19 @@ async def test_owner_route_fields_roundtrip_and_catalog_validation(api, world, f
     assert fake_llm.gen_calls[-1][1]["model"] == RESERVE
     assert fake_llm.guard_calls  # identity routing never bypasses review
     assert (await api.put(url, json={**body, "fallback_model": "unlisted"}, headers=headers)).status_code == 422
+
+
+async def test_identity_model_with_unprobed_availability_is_accepted(api, world, fake_llm, monkeypatch):
+    """Broker reports `available: null` for API models it has not probed: that is not a refusal."""
+    headers = await owner(api)
+    catalog = [*CATALOG, {"id": "gemini/gemini-2.5-flash", "available": None, "billing_type": "api"},
+               {"id": "gemini/off", "available": False, "billing_type": "api"}]
+    monkeypatch.setattr(fake_llm, "list_models", AsyncMock(return_value=catalog))
+    url = f"/api/personas/{world.persona.id}"
+    body = {**(await api.get(url)).json(), "gender": "female"}
+    ok = await api.put(url, json={**body, "identity_model": "gemini/gemini-2.5-flash"}, headers=headers)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["identity_model"] == "gemini/gemini-2.5-flash"
+    off = await api.put(url, json={**body, "identity_model": "gemini/off"}, headers=headers)
+    assert off.status_code == 422
+    assert off.json()["detail"] == "Модель gemini/off недоступна в проекте Брокера"

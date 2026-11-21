@@ -32,6 +32,8 @@ describe('errorMessage', () => {
     expect(errorMessage(new Error('x'))).toBe('Что-то пошло не так. Попробуйте ещё раз');
     expect(errorDetail(new ApiError(502, { detail: 'Broker unavailable' }, '/x'))).toBe('Broker unavailable');
     expect(errorDetail(new ApiError(422, { detail: [{ loc: [] }] }, '/x'))).toBe('');
+    expect(errorMessage(new ApiError(422, { detail: 'Модель x недоступна' }, '/x'))).toBe('Модель x недоступна');
+    expect(errorMessage(new ApiError(422, { detail: [{ loc: [] }] }, '/x'))).toBe('Проверьте введённые данные');
   });
 });
 
