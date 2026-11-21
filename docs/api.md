@@ -19,6 +19,7 @@
 |---|---|---|
 | GET | `/chats?q=&limit=50&before=<last_message_at>&persona_id=` | → `{items: [ChatRow]}`; `persona_id` — только чаты этого персонажа |
 | GET | `/chats/{id}` | → `ChatRow` + `client: Client` |
+| GET | `/chats/{id}/status` | → `PersonaStatus` — «Статус Марины» этого чата сейчас (только для команды, [attention.md](attention.md), «Статус для команды») |
 | GET | `/chats/{id}/timeline?before_id=&limit=50` | → `{items: [TimelineItem]}` от новых к старым |
 | POST | `/chats/{id}/messages` | `{text}` или multipart (`file`, `caption`) — пишет оператор от имени персонажа → `TimelineItem` |
 | POST | `/chats/{id}/ai` | `{enabled}` → `ChatRow` |
@@ -31,8 +32,16 @@
 ```ts
 ChatRow = {id, client: {id, name, username, ai_enabled}, persona: PersonaBrief | null,
            ai_enabled, attention_instant, needs_operator, unread_count, last_message_at,
-           last_message: {kind, direction, author, text} | null}
+           last_message: {kind, direction, author, text} | null,
+           persona_status: PersonaStatus}
 PersonaBrief = {id, name, avatar_media_id}     // персонаж, который отвечает в этом чате
+PersonaStatus = {code, tone: "ok" | "wait" | "busy" | "warn" | "off",
+                 title,               // «Прочитала, ответит около 20:40»
+                 detail,              // причина / пояснение, может быть ""
+                 until: UTC | null,   // когда пауза кончится, если известно
+                 local_until: "ЧЧ:ММ" | null}    // то же по её часовому поясу
+// Считается при чтении, нигде не хранится, клиенту и агентам не уходит. Статусы страницы
+// списка — фиксированным числом запросов, её доступность — один раз на персонажа.
 TimelineItem = {id, kind, actor, created_at, in_context, reply_run_id,
                 message?: {id, direction, author, kind, text, status, error, sent_at,
                            media?: Media},

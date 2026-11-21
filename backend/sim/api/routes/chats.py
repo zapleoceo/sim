@@ -31,6 +31,7 @@ from sim.events import append_event
 from sim.services.ai_switch import plan_wakes, wake
 from sim.services.media_library import add_media
 from sim.services.outbox import enqueue_message
+from sim.services.persona_status import chat_status
 
 Json = dict[str, Any]
 Limit = Annotated[int, Parameter(ge=1, le=200)]
@@ -45,9 +46,11 @@ MESSAGE_KIND_BY_MEDIA = {
 
 
 @get("/chats")
-async def list_chats(db: AsyncSession, q: str | None = None, limit: Limit = 50,
-                     before: datetime | None = None, persona_id: int | None = None) -> Json:
-    """Newest activity first; `persona_id` keeps the chats that persona answers in."""
+async def list_chats(db: AsyncSession, ctx: ApiContext, q: str | None = None,
+                     limit: Limit = 50, before: datetime | None = None,
+                     persona_id: int | None = None) -> Json:
+    """Newest activity first; `persona_id` keeps the chats that persona answers in. Every row
+    carries `persona_status` (statuses of the page in a fixed number of queries)."""
     stmt = search_clients(select(Chat, Client).join(Client, Client.id == Chat.client_id), q)
     if persona_id is not None:
         stmt = stmt.where(Chat.persona_id == persona_id)
@@ -55,14 +58,23 @@ async def list_chats(db: AsyncSession, q: str | None = None, limit: Limit = 50,
         stmt = stmt.where(Chat.last_message_at < before)
     stmt = stmt.order_by(Chat.last_message_at.desc().nulls_last(), Chat.id.desc()).limit(limit)
     pairs = [(chat, client) for chat, client in (await db.execute(stmt)).all()]
-    return {"items": await chat_rows(db, pairs)}
+    return {"items": await chat_rows(db, pairs, ctx.deps.clock.now())}
 
 
 @get("/chats/{chat_id:int}")
-async def get_chat(chat_id: int, db: AsyncSession) -> Json:
+async def get_chat(chat_id: int, db: AsyncSession, ctx: ApiContext) -> Json:
     chat = await get_or_404(db, Chat, chat_id, "Чат")
     client = await get_or_404(db, Client, chat.client_id, "Клиент")
-    return {**(await chat_rows(db, [(chat, client)]))[0], "client": views.client_view(client)}
+    row = (await chat_rows(db, [(chat, client)], ctx.deps.clock.now()))[0]
+    return {**row, "client": views.client_view(client)}
+
+
+@get("/chats/{chat_id:int}/status")
+async def get_status(chat_id: int, db: AsyncSession, ctx: ApiContext) -> Json:
+    """«Статус Марины» of one chat, for the team only (docs/attention.md, «Статус для
+    команды»): the dashboard re-reads it on the chat's live events and every 30 s."""
+    await get_or_404(db, Chat, chat_id, "Чат")
+    return (await chat_status(db, ctx.deps, chat_id)).as_json()
 
 
 @get("/chats/{chat_id:int}/timeline")
@@ -114,24 +126,25 @@ async def toggle_ai(chat_id: int, data: AiToggleIn, ctx: ApiContext, db: AsyncSe
     """Switching the AI on also answers what arrived while it was off (services/ai_switch)."""
     chat = await get_or_404(db, Chat, chat_id, "Чат")
     if chat.ai_enabled == data.enabled:
-        return await chat_row(db, chat)
+        return await chat_row(db, chat, ctx.deps.clock.now())
     chat.ai_enabled = data.enabled
     await append_event(db, chat_id=chat.id, kind=EventKind.AI_TOGGLED, actor=admin.actor,
                        data={"enabled": data.enabled, "scope": "chat"})
     waiting = await plan_wakes(db, ctx.deps, [chat.id]) if data.enabled else []
-    row = await chat_row(db, chat)
+    row = await chat_row(db, chat, ctx.deps.clock.now())
     await db.commit()
     await wake(ctx.deps, waiting)
     return row
 
 
 @post("/chats/{chat_id:int}/attention-instant", status_code=200)
-async def toggle_attention_instant(chat_id: int, data: AiToggleIn, db: AsyncSession) -> Json:
+async def toggle_attention_instant(chat_id: int, data: AiToggleIn, db: AsyncSession,
+                                   ctx: ApiContext) -> Json:
     """«Отвечать сразу» in this chat only: no phone checks, she answers like «Всегда сразу»
     (docs/attention.md; for testing)."""
     chat = await get_or_404(db, Chat, chat_id, "Чат")
     chat.attention_instant = data.enabled
-    return await chat_row(db, chat)
+    return await chat_row(db, chat, ctx.deps.clock.now())
 
 
 @post("/chats/{chat_id:int}/read", status_code=204)
@@ -149,10 +162,10 @@ async def add_note(chat_id: int, data: TextIn, db: AsyncSession, admin: AdminCon
 
 
 @post("/chats/{chat_id:int}/operator-done", status_code=200)
-async def operator_done(chat_id: int, db: AsyncSession) -> Json:
+async def operator_done(chat_id: int, db: AsyncSession, ctx: ApiContext) -> Json:
     chat = await get_or_404(db, Chat, chat_id, "Чат")
     chat.needs_operator = False
-    return await chat_row(db, chat)
+    return await chat_row(db, chat, ctx.deps.clock.now())
 
 
 @get("/reply-runs/{run_id:int}")
@@ -163,5 +176,5 @@ async def get_reply_run(run_id: int, db: AsyncSession) -> Json:
     return views.reply_run_view(run, calls)
 
 
-ROUTES = [list_chats, get_chat, get_timeline, send_message, toggle_ai,
+ROUTES = [list_chats, get_chat, get_status, get_timeline, send_message, toggle_ai,
           toggle_attention_instant, mark_read, add_note, operator_done, get_reply_run]

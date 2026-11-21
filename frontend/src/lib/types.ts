@@ -151,6 +151,23 @@ export interface LastMessage {
   text: string | null;
 }
 
+/** ok — answered or answering now; wait — an intended pause; busy — her life; warn — a person is needed; off — AI off. */
+export type PersonaStatusTone = 'ok' | 'wait' | 'busy' | 'warn' | 'off';
+
+/** «Статус Марины»: what she does about a chat now and why it waits. Team-only (docs/attention.md). */
+export interface PersonaStatus {
+  code: string;
+  tone: PersonaStatusTone;
+  /** One short Russian line: «Прочитала, ответит около 20:40». */
+  title: string;
+  /** The reason or explanation; may be empty. */
+  detail: string;
+  /** When the pause ends (UTC ISO), if known. */
+  until: string | null;
+  /** The same moment as «HH:MM» in her time zone. */
+  local_until: string | null;
+}
+
 export interface ChatRow {
   id: number;
   client: ChatRowClient;
@@ -161,6 +178,8 @@ export interface ChatRow {
   attention_instant: boolean;
   needs_operator: boolean;
   unread_count: number;
+  /** What she is doing about this chat now — visible to the team only. */
+  persona_status: PersonaStatus;
   last_message_at: string | null;
   last_message: LastMessage | null;
 }
