@@ -35,9 +35,12 @@ from sim.tasks.queue import (
     PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
     REPLY_TASK,
+    STALLED_CRON,
+    STALLED_TASK,
     SUMMARIZE_DAY_TASK,
     UNDERSTAND_TASK,
 )
+from sim.tasks.stalled import stalled_tick
 
 log = logging.getLogger(__name__)
 
@@ -135,3 +138,5 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     app.task(name=SUMMARIZE_DAY_TASK, queue=AGENT_QUEUE, retry=RETRY)(summarize_day)
     night = app.task(name=MEMORY_TICK_TASK, queue=AGENT_QUEUE)(memory_tick)
     app.periodic(cron=MEMORY_TICK_CRON, periodic_id="memory")(night)
+    stalled = app.task(name=STALLED_TASK, queue=AGENT_QUEUE, pass_context=True)(stalled_tick)
+    app.periodic(cron=STALLED_CRON, periodic_id="stalled")(stalled)
