@@ -119,8 +119,9 @@ IDENTITY = ("The same woman as in the first {n} reference image(s): the same fac
             "hair and build.")
 CONTINUITY = ("Reference image(s) {first}–{last}: the same room and the same clothes as this "
               "photo — keep the place and the outfit exactly as there.")
-CONTINUITY_CLOTHES = ("Reference image(s) {first}–{last}: the same clothes as in this photo (she is "
-                      "somewhere else now) — keep the outfit exactly as there.")
+CONTINUITY_CLOTHES = (
+    "Reference image(s) {first}–{last}: the same clothes as in this photo (she is somewhere "
+    "else now) — keep the outfit exactly as there.")
 FIXED_SCENE = ("The place, the clothes and the light above are fixed; ignore any other place "
                "or clothes mentioned in the pose line.")
 NEGATIVE = ("Avoid: a second phone, a phone in the other hand, extra hands or fingers, a "
