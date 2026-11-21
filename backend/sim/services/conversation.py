@@ -373,33 +373,21 @@ class ConversationService:
         model: str | None = None,
     ) -> tuple[Decision | None, LLMResult]:
         """One model call, plus ONE retry when the JSON is unusable."""
-        result = await routed_chat(
-            self.llm,
-            messages,
-            capability="chat:sales",
-            model=model or persona.model or None,
-            fallback_model=persona.fallback_model or "",
-            json_mode=True,
-            workflow=workflow,
-            dialog_id=dialog_id,
-            recovery_key=recovery_key,
-        )
+        async def call(prompt: list[dict[str, Any]], key: str | None) -> LLMResult:
+            return await routed_chat(
+                self.llm, prompt, capability="chat:sales",
+                model=model or persona.model or None, fallback_model=persona.fallback_model or "",
+                json_mode=True, workflow=workflow, dialog_id=dialog_id, recovery_key=key,
+            )
+
+        result = await call(messages, recovery_key)
         decision = self.usable_decision(result, workflow, dialog_id)
         if decision is None:
             log.warning("unusable decision (workflow=%s dialog=%s), retrying", workflow, dialog_id)
             nudge = (await self.config()).prompt_texts().retry_nudge
-            retry = [*messages, {"role": "system", "content": nudge}]
-            result = await routed_chat(
-                self.llm,
-                retry,
-                capability="chat:sales",
-                model=model or persona.model or None,
-                fallback_model=persona.fallback_model or "",
-                json_mode=True,
-                workflow=workflow,
-                dialog_id=dialog_id,
-                recovery_key=(hashlib.sha256(f"{recovery_key}\0{nudge}".encode()).hexdigest()
-                              if recovery_key else None),
+            result = await call(
+                [*messages, {"role": "system", "content": nudge}],
+                hashlib.sha256(f"{recovery_key}\0{nudge}".encode()).hexdigest() if recovery_key else None,
             )
             decision = self.usable_decision(result, workflow, dialog_id)
         return decision, result
@@ -522,7 +510,7 @@ class ConversationService:
         if draft.decision is None or draft.guard is None or not draft.guard.allowed:
             return await self.handoff_failed(dialog, draft)
         voice = will_speak(persona, followup, newer)
-        return await self.apply(dialog, strategy, draft.decision, draft.result, draft.guard,
+        return await self.apply(dialog, persona, strategy, draft.decision, draft.result, draft.guard,
                                 followup=followup, voice=voice)
 
     async def contact_context(self, dialog, persona, ctx, port, request):
@@ -608,9 +596,10 @@ class ConversationService:
         invalidate_plan(dialog)
         return True
 
-    async def apply(
+    async def apply(  # noqa: PLR0913
         self,
         dialog: Dialog,
+        persona: Persona,
         strategy: Strategy,
         decision: Decision,
         result: LLMResult,
@@ -649,9 +638,8 @@ class ConversationService:
                 final=final, guard=guard, voice=voice, delay_s=delay, typing_s=pause,
             )
             delay += pause
-        persona = await self.personas.get(client.persona_id) if self.media_tool is not None else None
         media = None
-        if self.media_tool is not None and persona is not None:
+        if self.media_tool is not None:
             # Her media decision (send, not send, later) is journaled in the dialog; a photo or
             # note she asked to send is queued after her text.
             media = await self.media_tool.decide(
@@ -682,8 +670,8 @@ class ConversationService:
         neutral_media_kind: MediaKind | None = None,
     ) -> Draft:
         """The same builder, model call and pre-send guard as production, without any dialog
-        bookkeeping. `history` ends with the client's latest message."""
-        ctx = with_persona_facts(persona, ctx)
+        bookkeeping. `history` ends with the client's latest message. `prompt` adds her facts
+        for the moment of `ctx.now`; the guard gets them for the moment of its review."""
         prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
         # This canonical prompt is ONLY an operation identity, never sent to an LLM.
         # Clock changes alone must not re-purchase an accepted generator response.
@@ -717,7 +705,7 @@ class ConversationService:
                 rejection = "решение не содержит корректного ответа"
             if attempt == 0:
                 code = "format" if guard is None else "review"
-                ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
+                ctx = replace(ctx, now=self.clock())
                 prompt = await self.prompt(persona, strategy, history, ctx, whole_history=whole_history)
                 stable_prompt = await self.prompt(persona, strategy, history,
                     recovery_context(ctx), whole_history=whole_history)

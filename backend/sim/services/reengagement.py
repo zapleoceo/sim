@@ -15,14 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
-from sim.adapters.db.models import Dialog, Message, Persona
+from sim.adapters.db.models import Channel, Client, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, SessionStatus
 from sim.services import instructions, jobkinds
 from sim.services.guard import GuardError
-from sim.services.persona_clock import persona_facts
 from sim.services.prompt import extract_json_object, one_line
 from sim.services.reply_schedule import Incoming, answers_at_once, plan_reply, rules_from
 
@@ -74,10 +73,17 @@ class ReengagementService:
 
     async def sweep(self) -> int:
         """Coalesce work after silence, including existing chats after rollout. No model calls."""
-        ids = (await self.session.scalars(select(Dialog.id).where(
-            Dialog.last_message_at <= self.clock() - SILENCE,
-            Dialog.ai_paused.is_(False), Dialog.needs_operator.is_(False),
-        ).order_by(Dialog.last_message_at.desc()))).all()
+        # The SQL pre-filter mirrors `eligible`, so ineligible dialogs cost no lock and no load.
+        ids = (await self.session.scalars(
+            select(Dialog.id)
+            .join(Client, Client.id == Dialog.client_id)
+            .join(Channel, Channel.id == Dialog.channel_id)
+            .where(
+                Dialog.last_message_at <= self.clock() - SILENCE,
+                Dialog.ai_paused.is_(False), Dialog.needs_operator.is_(False),
+                Client.status == ClientStatus.ACTIVE, Client.no_followups.is_(False),
+                Channel.status == SessionStatus.ACTIVE,
+            ).order_by(Dialog.last_message_at.desc()))).all()
         count = 0
         for dialog_id in ids:
             if not await try_lock(self.session, NS_DIALOG, dialog_id):
@@ -128,7 +134,7 @@ class ReengagementService:
         return True
 
     async def analyze(self, dialog_id: int, revision: int, conversation: ConversationService) -> str:
-        from sim.services.conversation import history_turns
+        from sim.services.conversation import history_turns, with_persona_facts
 
         if not await try_lock(self.session, NS_REPLY, dialog_id):
             raise GuardError("dialog generation busy")
@@ -166,9 +172,7 @@ class ReengagementService:
                           + "\n" + instructions.text("reengagement_no_reply"))
         base_ctx, feedback, previous_draft = ctx, "", ""
         for _attempt in range(2):
-            now = self.clock()
-            ctx = replace(base_ctx, now=now, persona_facts=persona_facts(
-                persona.birth_date, persona.timezone, now, persona.routine))
+            ctx = replace(base_ctx, now=self.clock())
             prompt = await conversation.prompt(persona, strategy, history, ctx, whole_history=True)
             if feedback:
                 prompt = [*prompt, {"role": "assistant", "content": previous_draft},
@@ -189,13 +193,9 @@ class ReengagementService:
                 cfg = await conversation.config()
                 at = plan_reply(at, persona.routine, persona.timezone, [Incoming("", at)],
                                 rules_from(cfg), marked_urgent=answers_at_once(dialog, cfg)).at
-                ctx = replace(ctx, now=at, persona_facts=persona_facts(
-                    persona.birth_date, persona.timezone, at, persona.routine))
-                guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
-            elif control:
-                now = self.clock()
-                ctx = replace(ctx, now=now, persona_facts=persona_facts(
-                    persona.birth_date, persona.timezone, now, persona.routine))
+            if decision.reply or control:
+                # The text is checked for the moment it goes out; a bare control decision for now.
+                ctx = with_persona_facts(persona, replace(ctx, now=at or self.clock()))
                 guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
             if guard is None or guard.allowed:
                 break
@@ -215,7 +215,7 @@ class ReengagementService:
                         reason=decision.handoff_reason or reason)
         elif guard is not None and guard.allowed and at is not None:
             if control:
-                return (await conversation.apply(dialog, strategy, decision, result, guard,
+                return (await conversation.apply(dialog, persona, strategy, decision, result, guard,
                                                   followup=True)).status
             if not can_contact:
                 plan.update(reason="Повторно оценено: ждём ответа человека, повторный контакт запрещён")

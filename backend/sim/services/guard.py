@@ -96,11 +96,10 @@ class GuardVerdict:
 
 @dataclass(frozen=True)
 class GuardOutcome:
-    verdict: str                      # ok | rewritten | blocked
+    verdict: str                      # ok | blocked ("rewritten" only in old saved messages)
     text: str                         # what to send (the draft when blocked: for the operator)
     violations: list[str] = field(default_factory=list)
     model: str | None = None          # model that served the final guard call
-    original_text: str | None = None  # the generator's draft, when it was rewritten
 
     @property
     def allowed(self) -> bool:
@@ -157,6 +156,11 @@ def parse_verdict(result: LLMResult) -> GuardVerdict | None:
     )
 
 
+def approves(verdict: GuardVerdict) -> bool:
+    """A clean ok: no objection and no guard-authored text."""
+    return verdict.verdict == OK and not verdict.violations and not verdict.fixed_reply
+
+
 def same_model(a: str | None, b: str | None) -> bool:
     return bool(a) and bool(b) and a.strip().lower() == b.strip().lower()  # type: ignore[union-attr]
 
@@ -193,24 +197,27 @@ class Guard:
         trusted_facts: dict[str, Any] | None = None,
         context: dict[str, Any] | None = None,
     ) -> GuardOutcome:
-        system = guard_system_prompt(self.prompt_text)
-
-        async def run(text: str) -> tuple[GuardVerdict, str | None]:
-            payload = guard_user_message(history, text, stage, allowed_links, self.history_limit,
-                                         decision, trusted_facts, context)
-            messages = [
-                {"role": "system", "content": system},
-                {"role": "user", "content": payload},
-            ]
-            return await self.run_once(messages, generator_model, dialog_id, workflow)
-
-        first, model = await run(draft)
-        if first.verdict == "ok" and not first.violations and not first.fixed_reply:
+        messages = [
+            {"role": "system", "content": guard_system_prompt(self.prompt_text)},
+            {"role": "user", "content": guard_user_message(
+                history, draft, stage, allowed_links, self.history_limit,
+                decision, trusted_facts, context)},
+        ]
+        verdict, model = await self.run_once(messages, generator_model, dialog_id, workflow)
+        if approves(verdict):
             return GuardOutcome(OK, draft, [], model)
         # Old saved prompts can still return rewrite or contradictory ok. Never publish
         # guard-authored text or silently correct only part of a structured decision.
-        reasons = first.violations or ["Контролёр вернул противоречивый ответ или замечание без причины"]
+        reasons = verdict.violations or ["Контролёр вернул противоречивый ответ или замечание без причины"]
         return GuardOutcome(BLOCKED, draft, reasons, model)
+
+    async def verdict_of(self, messages: list[dict[str, str]], capability: str, dialog_id: int | None,
+                         workflow: str, model: str = "") -> tuple[GuardVerdict, LLMResult]:
+        result = await self.call(messages, capability, dialog_id, workflow, model)
+        verdict = parse_verdict(result)
+        if verdict is None:
+            raise GuardError(f"guard returned an unusable verdict (model={result.model})")
+        return verdict, result
 
     async def run_once(
         self,
@@ -219,24 +226,16 @@ class Guard:
         dialog_id: int | None,
         workflow: str,
     ) -> tuple[GuardVerdict, str | None]:
-        result = await self.call(messages, self.capability, dialog_id, workflow, self.model)
-        verdict = parse_verdict(result)
-        if verdict is None:
-            raise GuardError(f"guard returned an unusable verdict (model={result.model})")
+        verdict, result = await self.verdict_of(messages, self.capability, dialog_id, workflow, self.model)
         # Independence is required to approve a draft, never to retain an objection.
         # A second rotation must not erase block/rewrite or contradictory ok feedback.
-        if verdict.verdict != "ok" or verdict.violations or verdict.fixed_reply:
-            return verdict, result.model
-        if same_model(result.model, generator_model):
+        if approves(verdict) and same_model(result.model, generator_model):
             # The same model would be grading its own homework: take another rotation.
             log.info("guard served by the generator's model %s: re-running on %s",
                      result.model, self.fallback_capability)
-            result = await self.call(messages, self.fallback_capability, dialog_id, workflow)
+            verdict, result = await self.verdict_of(messages, self.fallback_capability, dialog_id, workflow)
             if same_model(result.model, generator_model):
                 raise GuardError("guard fallback returned the generator's model")
-        verdict = parse_verdict(result)
-        if verdict is None:
-            raise GuardError(f"guard returned an unusable verdict (model={result.model})")
         return verdict, result.model
 
     async def call(  # noqa: PLR0913

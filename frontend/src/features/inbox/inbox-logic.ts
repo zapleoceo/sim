@@ -1,7 +1,7 @@
 import type { ConfirmOptions } from '@/components/confirm';
 import { dayKey, dayLabel, formatShort, formatTime, formatZonedDateTime } from '@/lib/format';
 import type {
-  AiRecovery, Delivery, Dialog, DialogDetail, DialogEvent, DialogFilter, DialogRow, GuardInfo, Message, Persona, ReplyPlan,
+  AiRecovery, Delivery, Dialog, DialogEvent, DialogFilter, DialogRow, GuardInfo, Message, Persona, ReplyPlan,
   SimBranchRow,
 } from '@/lib/models';
 import { mergeFeed, toEventVm, type EventVm } from './journal-logic';
@@ -174,26 +174,6 @@ export function deliveryMeta(delivery: Delivery, guard?: GuardInfo | null): { ic
   }
 }
 
-/** True when a polled detail differs from what is shown (avoids re-render / scroll jumps). */
-export function detailChanged(prev: DialogDetail | null | undefined, next: DialogDetail): boolean {
-  if (!prev) return true;
-  const a = prev.messages.at(-1);
-  const b = next.messages.at(-1);
-  return !(
-    prev.dialog.id === next.dialog.id &&
-    prev.messages.length === next.messages.length &&
-    (prev.events?.length ?? 0) === (next.events?.length ?? 0) &&
-    a?.id === b?.id &&
-    a?.delivery === b?.delivery &&
-    prev.dialog.ai_paused === next.dialog.ai_paused &&
-    prev.dialog.needs_operator === next.dialog.needs_operator &&
-    (prev.dialog.unanswered?.count ?? 0) === (next.dialog.unanswered?.count ?? 0) &&
-    (prev.dialog.reply_plan?.at ?? null) === (next.dialog.reply_plan?.at ?? null) &&
-    (prev.dialog.reply_plan?.reason ?? null) === (next.dialog.reply_plan?.reason ?? null) &&
-    JSON.stringify(prev.dialog.reengagement_plan) === JSON.stringify(next.dialog.reengagement_plan) &&
-    !!prev.dialog.urgent === !!next.dialog.urgent
-  );
-}
 
 /** «Ответит в 09:40 — на работе: консультации до 13:00» (the reason is built by the server). */
 export function replyPlanText(plan: ReplyPlan): string {

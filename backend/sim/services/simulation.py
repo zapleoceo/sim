@@ -19,7 +19,7 @@ from sim.clock import Clock, utcnow
 from sim.domain.enums import ClientStatus, Stage
 from sim.domain.funnel import advance_by_ai
 from sim.services.conversation import ConversationService, visible_turns
-from sim.services.guard import BLOCKED, REWRITTEN
+from sim.services.guard import BLOCKED
 from sim.services.humanize import bubbles
 from sim.services.prompt import MAX_NEEDS, Decision, DialogContext
 
@@ -148,7 +148,6 @@ class SimulationService:
                     text=part,
                     guard_verdict=guard.verdict,
                     guard_violations=list(guard.violations) or None,
-                    original_text=guard.original_text if guard.verdict == REWRITTEN else None,
                     model=draft.result.model,
                     created_at=self.clock(),
                 )

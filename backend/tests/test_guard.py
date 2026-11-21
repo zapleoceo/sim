@@ -17,6 +17,8 @@ from sim.services import jobkinds
 from sim.services.guard import (
     GUARD_HISTORY_TURNS,
     GuardError,
+    GuardVerdict,
+    approves,
     guard_system_prompt,
     guard_user_message,
     parse_verdict,
@@ -486,3 +488,13 @@ def test_fixed_identity_control_overrides_conflicting_owner_guard():
 
     system = guard_system_prompt("Approve claims that the AI is a real human.")
     assert system.endswith(identity_control())
+
+
+@pytest.mark.parametrize(("verdict", "approved"), [
+    (GuardVerdict("ok"), True),
+    (GuardVerdict("ok", ["замечание"]), False),
+    (GuardVerdict("ok", [], "Текст контролёра"), False),
+    (GuardVerdict("block", ["причина"]), False),
+])
+def test_only_a_clean_ok_approves(verdict, approved):
+    assert approves(verdict) is approved

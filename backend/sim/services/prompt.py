@@ -324,15 +324,26 @@ def build_messages(
     texts: PromptTexts = DEFAULT_TEXTS,
     history_limit: int = HISTORY_LIMIT,
 ) -> list[dict[str, Any]]:
-    return [
-        {"role": "system", "content": stable_system_prompt(persona, strategy, texts)},
+    turns = [
         *merge_turns(history[-history_limit:]),
         *([{"role": "user", "content": [
             {"type": "text", "text": instructions.text("contact_photo_note")},
             {"type": "image_url", "image_url": {"url": ctx.contact_photo}},
         ]}] if ctx.contact_photo else []),
-        {"role": "system", "content": dynamic_context(ctx, strategy)},
     ]
+    return [
+        {"role": "system", "content": stable_system_prompt(persona, strategy, texts)},
+        *turns,
+        {"role": context_role(turns), "content": dynamic_context(ctx, strategy)},
+    ]
+
+
+def context_role(turns: list[dict[str, Any]]) -> str:
+    """The role of the closing context message. Providers lift system messages out of the
+    conversation, so after her own last reply (a follow-up after silence) the request would end
+    with a model turn, which Gemini rejects with 400 «Requests ending with a model turn are not
+    supported» (the Broker then retried the job until it stuck). There it goes as a user turn."""
+    return "user" if turns and turns[-1]["role"] == "assistant" else "system"
 
 
 # ---- decision parsing ---------------------------------------------------------------------

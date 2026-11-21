@@ -1,5 +1,24 @@
 # Sim
 
+### One reply path
+
+Chat replies, follow-ups, the persona preview and the admin simulator build every answer
+through `ConversationService.draft_reply`: one prompt builder, one model call with a
+single JSON retry (`ask`), one pre-send guard. Silence reengagement reuses the same
+`prompt`, `ask` and `review`; it reviews a text for the moment it is scheduled and a bare
+stop/handoff decision for now. Only `prompt` adds the persona's computed facts (age,
+local time, where she is); the guard receives them through `with_persona_facts`. The guard
+approves only a clean `ok` (`approves`); it never rewrites text, so a saved message has an
+`original_text` only from older releases or media records. The silence sweep filters out
+refused clients, dialogs with follow-ups off and disconnected channels in SQL before it
+locks a dialog.
+
+In the admin every query key lives in `qk` (`frontend/src/lib/query.ts`). The inbox
+shares `qk.channels` and `qk.simulation(id)` with the other pages, its flat test-chat
+list `qk.inboxSimulations` sits under `simulations` and its «нужен оператор» counter
+`qk.operatorQueue` under `dialogs`, so one live event or mutation refreshes each of
+them once.
+
 ### Live call startup retries
 
 While an incoming call is still ringing, SIM retries Broker Live startup at most once,
@@ -438,6 +457,10 @@ API и воркера) публикует тексты (`instructions.publish`),
 
 ## Звонки (Telegram-аккаунт, AIbroker /v1/live)
 
+В конце каждой голосовой реплики SIM дополняет тишиной неполный 10-мс кадр.
+Когда Telegram-транспорт принял последний кадр, следующая реплика может пройти
+проверку и прозвучать. Это применяется и к короткому приветствию.
+
 Персонаж отвечает на звонок клиента, с которым уже переписывается, если у него включён приём
 звонков и выбран голос. Порядок: пауза перед ответом `SIM_CALL_RING_MIN_S`–`SIM_CALL_RING_MAX_S`
 (4–9 с, как человек тянется к телефону), **одновременно** открывается голосовая сессия
@@ -474,6 +497,13 @@ API» с методом POST/PUT/PATCH/DELETE есть раскрываемый 
 - вход и авторизация (`/api/auth/*`, включая вход через Telegram, и `/api/oauth/*`) — только
   пометка «тело не сохраняется»;
 - GET-запросы тела не имеют; в списке журнала тело не отдаётся, только в трассе.
+
+## Запрос к модели ответа
+
+Запрос: системный промпт, история диалога и в конце контекст ответа. Если история кончается
+репликой самой персоны (продолжение после тишины), контекст идёт последним сообщением от роли
+`user`: Gemini отклоняет запрос, который заканчивается репликой модели (400 «Requests ending
+with a model turn are not supported»), и такие задачи висели у брокера в повторах.
 
 ## Ограничения доставки
 

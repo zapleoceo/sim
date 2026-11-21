@@ -55,7 +55,8 @@ def test_layout_system_history_system():
     msgs = build_messages(
         PERSONA, STRATEGY, [Turn("user", "a"), Turn("assistant", "b")], ctx("Анна", "r")
     )
-    assert [m["role"] for m in msgs] == ["system", "user", "assistant", "system"]
+    # after her own reply the context closes the request as a user turn (Gemini needs one)
+    assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
 
 
 def test_unified_prompt_contains_agent_prompt_link_contract_boundaries_and_format():
@@ -244,3 +245,12 @@ def test_marina_style_guides_conversation():
                      "Не приписывай срочность",
                      "обязательные правила безопасности"):
         assert guidance in MARINA_PROMPT
+
+
+def test_a_request_never_ends_with_her_own_turn():
+    after_client = build_messages(PERSONA, STRATEGY, [Turn("assistant", "a"), Turn("user", "b")], ctx("Анна", "r"))
+    after_her = build_messages(PERSONA, STRATEGY, [Turn("user", "a"), Turn("assistant", "b")], ctx("Анна", "r"))
+    assert after_client[-1]["role"] == "system"            # unchanged for an ordinary reply
+    assert after_her[-1]["role"] == "user"                 # a follow-up after silence
+    assert after_client[-1]["content"] == after_her[-1]["content"]
+    assert [m["role"] for m in after_her if m["role"] != "system"][-1] == "user"

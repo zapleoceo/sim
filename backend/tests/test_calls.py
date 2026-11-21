@@ -98,6 +98,10 @@ def test_buffer_hands_out_whole_frames_and_pads_the_tail():
     buf.push(b"abcdef")
     assert buf.pop_frame() == b"abcd" and buf.pop_frame() is None and len(buf) == 2
     assert buf.flush_tail() == b"ef\x00\x00" and buf.flush_tail() is None
+    buf.push(b"abcdef")
+    assert buf.flush_tail() == b"abcdef\x00\x00"
+    buf.push(b"abcdefgh")
+    assert buf.flush_tail() == b"abcdefgh"
     buf.push(b"xyz")
     buf.clear()
     assert len(buf) == 0

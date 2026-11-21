@@ -25,7 +25,6 @@ from sim.services.funnel import FunnelService
 from sim.services.tracing import Tracer
 
 REPLAY_WINDOW_S = 300
-CSV_COLUMNS = ("client_ref", "event", "amount", "currency", "payout", "occurred_at", "external_id")
 EVENT_ALIASES = {
     "registration": PartnerEventKind.REGISTRATION,
     "register": PartnerEventKind.REGISTRATION,

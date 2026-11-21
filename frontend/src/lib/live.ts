@@ -25,8 +25,8 @@ export function useLiveDialogs(enabled = true): void {
     const onDialogs = (e: MessageEvent<string>): void => {
       const ids = parseDialogsEvent(e.data);
       if (!ids.length) return;
+      // Every dialog list, the «needs operator» counter (qk.operatorQueue) included.
       void queryClient.invalidateQueries({ queryKey: ['dialogs'] });
-      void queryClient.invalidateQueries({ queryKey: ['inbox-operator-queue'] });
       for (const id of ids) void queryClient.invalidateQueries({ queryKey: qk.dialog(id) });
       // The client card: its chat and its stage/status follow the same events.
       void queryClient.invalidateQueries({ queryKey: ['client-chat'] });
