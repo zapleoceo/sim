@@ -13,6 +13,7 @@ export function AttentionInstantSwitch({ chatId, enabled }: { chatId: number; en
     onSuccess: (_row, next) => {
       toast.success(next ? 'В этом чате она отвечает сразу' : 'В этом чате она отвечает как живой человек');
       void queryClient.invalidateQueries({ queryKey: qk.chat(chatId) });
+      void queryClient.invalidateQueries({ queryKey: qk.chatStatus(chatId) });
       void queryClient.invalidateQueries({ queryKey: qk.chatLists });
     },
   });

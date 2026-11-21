@@ -7,10 +7,11 @@ A call she did not take because she was asleep or busy (`call` event with `life_
 for an answer the same way: she writes back when she is free."""
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, ChatEvent, Client, MediaAsset, Message, Persona, ReplyRun
@@ -41,16 +42,51 @@ class Unanswered:
     first_in_at: datetime | None = None     # when the oldest unanswered one arrived
 
 
+@dataclass(frozen=True)
+class Waiting:
+    """How many events of a chat wait for her answer, and the newest of them."""
+
+    count: int
+    last_event_id: int
+
+
+async def answered_bounds(session: AsyncSession, chat_ids: Sequence[int]) -> dict[int, int]:
+    """`answered_until` of many chats in two queries (0 = nothing answered yet)."""
+    if not chat_ids:
+        return {}
+    runs = await session.execute(
+        select(ReplyRun.chat_id, func.max(ReplyRun.trigger_event_id))
+        .where(ReplyRun.chat_id.in_(chat_ids), ReplyRun.status.in_(CONSUMED_RUNS))
+        .group_by(ReplyRun.chat_id))
+    outs = await session.execute(
+        select(ChatEvent.chat_id, func.max(ChatEvent.id))
+        .where(ChatEvent.chat_id.in_(chat_ids), ChatEvent.kind == EventKind.MESSAGE_OUT)
+        .group_by(ChatEvent.chat_id))
+    bounds = dict.fromkeys(chat_ids, 0)
+    for chat_id, until in [*runs.all(), *outs.all()]:
+        bounds[chat_id] = max(bounds[chat_id], until or 0)
+    return bounds
+
+
 async def answered_until(session: AsyncSession, chat_id: int) -> int:
-    run_until = (await session.execute(
-        select(func.max(ReplyRun.trigger_event_id))
-        .where(ReplyRun.chat_id == chat_id, ReplyRun.status.in_(CONSUMED_RUNS))
-    )).scalar_one_or_none()
-    out_until = (await session.execute(
-        select(func.max(ChatEvent.id))
-        .where(ChatEvent.chat_id == chat_id, ChatEvent.kind == EventKind.MESSAGE_OUT)
-    )).scalar_one_or_none()
-    return max(run_until or 0, out_until or 0)
+    return (await answered_bounds(session, [chat_id]))[chat_id]
+
+
+async def waiting_counts(session: AsyncSession,
+                         bounds: Mapping[int, int]) -> dict[int, Waiting]:
+    """Per chat: the client messages and the calls she did not take because of her life after
+    its answered boundary (`answered_bounds`), in one query. A chat with none is absent."""
+    if not bounds:
+        return {}
+    after = or_(*(and_(ChatEvent.chat_id == chat_id, ChatEvent.id > until)
+                  for chat_id, until in bounds.items()))
+    waits = or_(ChatEvent.kind == EventKind.MESSAGE_IN,
+                and_(ChatEvent.kind == EventKind.CALL, ChatEvent.data.has_key(LIFE_REFUSED_KEY)))
+    rows = await session.execute(
+        select(ChatEvent.chat_id, func.count(), func.max(ChatEvent.id))
+        .where(after, waits).group_by(ChatEvent.chat_id))
+    return {chat_id: Waiting(count=count, last_event_id=last)
+            for chat_id, count, last in rows.all()}
 
 
 async def unanswered(session: AsyncSession, chat_id: int) -> Unanswered | None:

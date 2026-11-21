@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 
@@ -86,8 +86,18 @@ class PhoneCheck:
         if isinstance(looked, CheckResult):
             await queue_check(self.deps.tasks, persona_id, looked.next_check, now)
             return looked
-        decisions = await self._decide(looked, now)
-        return await self._act(looked, decisions, now)
+        clear, undecided = self._by_rules(looked, now)
+        started: list[Decision] = []
+        if undecided:
+            # Clear chats («Отвечать сразу», a live exchange, a promise come due) do not wait for
+            # the agent's answer about other chats: their turns start at once.
+            started = [d for d in clear if d.later_at is None]
+            if started:
+                await self._dispatch(looked, started)
+            clear = [d for d in clear if d.later_at is not None]
+        decisions = clear + await self._by_agent(looked, undecided, now)
+        result = await self._act(looked, decisions, now)
+        return replace(result, decisions=(*started, *result.decisions))
 
     # --- 1. look ---------------------------------------------------------------------------
 
@@ -117,16 +127,40 @@ class PhoneCheck:
 
     # --- 2. decide -------------------------------------------------------------------------
 
-    async def _decide(self, look: _Look, now: datetime) -> list[Decision]:
-        tz = look.persona.timezone
+    def _by_rules(self, look: _Look, now: datetime) -> tuple[list[Decision], list[ChatNotice]]:
         decisions: list[Decision] = []
         undecided: list[ChatNotice] = []
         for notice in look.notices:
-            rule = rule_decision(notice, look.av, look.settings, now, tz)
+            rule = rule_decision(notice, look.av, look.settings, now, look.persona.timezone)
             if rule is not None:
                 decisions.append(rule)
             else:
                 undecided.append(notice)
+        return decisions, undecided
+
+    async def _dispatch(self, look: _Look, decisions: list[Decision]) -> None:
+        """Record and start clear decisions now, keeping the check's lease."""
+        notices = {notice.chat_id: notice for notice in look.notices}
+        replies, reads = [], []
+        async with transaction(self.deps.sessions) as session:
+            for decision in decisions:
+                notice = notices[decision.chat_id]
+                await append_event(session, chat_id=decision.chat_id, kind=EventKind.ATTENTION,
+                                   actor=ACTOR, in_context=bool(decision.note),
+                                   data=decision_data(decision, notice, look.persona))
+                if decision.action in REPLYING:
+                    replies.append(decision.chat_id)
+                elif decision.action in READS_NOW and (last := _last_message(notice)):
+                    reads.append(last)
+        for chat_id in replies:
+            await self.deps.tasks.reply(chat_id, 0)
+        for message_id in reads:
+            await mark_read(self.deps.tasks, message_id)
+
+    async def _by_agent(self, look: _Look, undecided: list[ChatNotice],
+                        now: datetime) -> list[Decision]:
+        tz = look.persona.timezone
+        decisions: list[Decision] = []
         if not undecided:
             return decisions
         answer = await self.agent.decide(

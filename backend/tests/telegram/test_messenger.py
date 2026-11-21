@@ -189,3 +189,16 @@ def test_every_chat_action_maps_to_a_telethon_type():
         assert type(chat_action(action)).__name__ == CHAT_ACTIONS[action]
     assert type(chat_action("record_round")).__name__ == "SendMessageRecordRoundAction"
     assert type(chat_action("cancel")).__name__ == "SendMessageCancelAction"
+
+
+def test_a_non_round_delivery_is_logged(caplog):
+    from types import SimpleNamespace
+
+    from sim.telegram.messenger import warn_if_not_round
+
+    with caplog.at_level("WARNING", logger="sim.telegram.messenger"):
+        warn_if_not_round(SimpleNamespace(id=5, video_note=object()))
+    assert caplog.records == []
+    with caplog.at_level("WARNING", logger="sim.telegram.messenger"):
+        warn_if_not_round([SimpleNamespace(id=6, video_note=None)])
+    assert "video note 6 was not delivered as a round message" in caplog.text

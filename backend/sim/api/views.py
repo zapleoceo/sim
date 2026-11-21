@@ -119,11 +119,14 @@ def client_view(client: Client) -> Json:
 
 
 def chat_row(chat: Chat, client: Client, last: Message | None,
-             persona: Persona | None = None) -> Json:
+             persona: Persona | None = None, *, status: Json | None = None) -> Json:
+    """`persona_status` — what she is doing about this chat now, for the team only
+    (sim/services/persona_status.py)."""
     return {
         "id": chat.id, "client": client_brief(client), "persona": persona_brief(persona),
         "ai_enabled": chat.ai_enabled, "attention_instant": chat.attention_instant,
         "needs_operator": chat.needs_operator, "unread_count": chat.unread_count,
+        "persona_status": status,
         "last_message_at": chat.last_message_at,
         "last_message": None if last is None else {
             "kind": last.kind, "direction": last.direction, "author": last.author,

@@ -104,6 +104,15 @@ def chat_action(action: str) -> Any:
     return cls(progress=0) if action in _UPLOAD_ACTIONS else cls()
 
 
+def warn_if_not_round(sent: Any) -> None:
+    """Telethon's Message.video_note is set only when Telegram stored a round video message;
+    anything else (an ordinary video with a seek bar) is logged so it never goes unnoticed."""
+    first = sent[0] if isinstance(sent, list) and sent else sent
+    if getattr(first, "video_note", None) is None:
+        log.warning("telegram: video note %s was not delivered as a round message",
+                    getattr(first, "id", "?"))
+
+
 class TelegramMessenger:
     def __init__(
         self, runtime: ClientSource, *, min_interval_s: float,
@@ -192,11 +201,13 @@ class TelegramMessenger:
             # A true round message: the flag plus an explicit round video attribute, so Telegram
             # never shows it as an ordinary square video.
             duration = max(1, round(message.duration_s or 1))
-            return await client.send_file(
+            sent = await client.send_file(
                 entity, file, video_note=True,
                 attributes=[types.DocumentAttributeVideo(
                     duration=duration, w=VIDEO_NOTE_SIDE, h=VIDEO_NOTE_SIDE,
                     round_message=True)])
+            warn_if_not_round(sent)
+            return sent
         if message.kind == "video":
             return await client.send_file(entity, file, caption=caption, supports_streaming=True)
         if message.kind == "photo":

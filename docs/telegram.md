@@ -187,6 +187,13 @@
 - Задачи берут зависимости из `sim.tasks.app.get_deps()` (`sessions`, `storage`, `clock`).
 
 
+## Кружок — настоящее круглое видеосообщение
+
+Файл кружка — квадрат 640×640, H.264 + AAC, до 60 с. Отправка: `send_file(..., video_note=True)`
+с явным `DocumentAttributeVideo(round_message=True, w=640, h=640, duration)`. После отправки код
+смотрит ответ Telegram (`Message.video_note`): если сообщение легло не круглым видео, в журнал
+пишется предупреждение `video note N was not delivered as a round message`.
+
 ## Догонялка: сообщения, пришедшие пока процесс лежал
 
 Telegram не присылает повторно обновления, которые пришли, пока процесс `telegram` был выключен

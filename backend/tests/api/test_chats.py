@@ -242,6 +242,29 @@ async def test_operator_done_clears_flag(api: ApiClient, world: World) -> None:
     assert (await api.post("/api/chats/999999/operator-done")).status_code == 404
 
 
+async def test_persona_status_in_rows_detail_and_its_own_route(api: ApiClient,
+                                                               world: World) -> None:
+    """«Статус Марины» for the team (docs/attention.md, «Статус для команды»)."""
+    [row] = (await api.get("/api/chats")).json()["items"]
+    status = row["persona_status"]
+    assert (status["code"], status["tone"]) == ("needs_operator", "warn")
+    assert status["title"] == "Нужен оператор"
+    detail = (await api.get(f"/api/chats/{world.chat_id}")).json()
+    assert detail["persona_status"] == status
+    assert (await api.get(f"/api/chats/{world.chat_id}/status")).json() == status
+    card = (await api.get(f"/api/clients/{world.client_id}")).json()
+    assert card["chats"][0]["persona_status"] == status
+
+    # The operator is done: the waiting message is hers again, and she is free.
+    done = (await api.post(f"/api/chats/{world.chat_id}/operator-done")).json()
+    assert done["persona_status"]["title"] == "Свободна — заглянет в течение минуты"
+    fresh_status = (await api.get(f"/api/chats/{world.chat_id}/status")).json()
+    assert fresh_status == {"code": "free", "tone": "wait",
+                            "title": "Свободна — заглянет в течение минуты",
+                            "detail": "без ответа: 1", "until": None, "local_until": None}
+    assert (await api.get("/api/chats/999999/status")).status_code == 404
+
+
 async def test_reply_run_with_llm_calls(api: ApiClient, world: World, db: AsyncSession) -> None:
     run = ReplyRun(chat_id=world.chat_id, status=RunStatus.SENT, context={"facts": {"a": 1}},
                    plan={"messages": []}, guard_verdicts=[{"verdict": "ok"}])

@@ -56,6 +56,16 @@ def test_scene_from_the_routine_with_a_neutral_outfit() -> None:
     assert night.event_id == "routine:2026-11-21T23:00" and night.light == Light.NIGHT
 
 
+def test_a_gap_continues_the_event_before_it() -> None:
+    # 07:45-08:00: after the run, before the shower — still out there, still in the run suit.
+    gap = life_state("07:50", plans={SATURDAY: day_plan()}).scene()
+    assert gap.event_id == "2026-11-21T07:00:after"
+    assert (gap.place, gap.outfit) == ("вдоль Эльбы", "чёрный беговой костюм")
+    assert gap.activity == "свободное время" and gap.busy == BusyLevel.FREE
+    # The same gap a few minutes later: the same card, so photos share one scene.
+    assert life_state("07:58", plans={SATURDAY: day_plan()}).scene() == gap
+
+
 def test_free_time_is_one_scene_at_home() -> None:
     first, second = life_state("19:00").scene(), life_state("19:20").scene()
     assert first.event_id == second.event_id == "2026-11-21:free"

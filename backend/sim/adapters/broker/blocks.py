@@ -100,6 +100,38 @@ def inline_refs(schema: Any) -> Any:
     return walk(schema, ())
 
 
+# Value constraints the model does not need: SIM validates every answer itself (pydantic) and
+# retries a bad one. Gemini refuses a schema whose constraints make «too many states for
+# serving» (HTTP 400: string/array length limits, numeric ranges, formats, patterns) — every
+# attention-agent call failed on 2026-11-21. Titles only add text.
+CONSTRAINT_KEYS = frozenset({
+    "maxLength", "minLength", "maxItems", "minItems", "uniqueItems", "pattern", "format",
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "title",
+})
+
+
+def structure_only(schema: Any) -> Any:
+    """The schema's structure (types, properties, required, enums, unions, descriptions)
+    without value constraints. Property NAMES are kept even when they look like a constraint
+    keyword (a field called `format` stays)."""
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            out: dict[str, Any] = {}
+            for key, value in node.items():
+                if key in CONSTRAINT_KEYS:
+                    continue
+                if key == "properties" and isinstance(value, dict):
+                    out[key] = {name: walk(field) for name, field in value.items()}
+                else:
+                    out[key] = walk(value)
+            return out
+        if isinstance(node, list):
+            return [walk(value) for value in node]
+        return node
+
+    return walk(schema)
+
+
 def response_format(json_schema: dict[str, Any], label: str = "") -> dict[str, Any]:
     """`json_schema` is either a bare JSON Schema or the full OpenAI `json_schema` object
     (`{"name", "strict", "schema"}`); both become the Broker's strict `response_format`, with
@@ -107,9 +139,10 @@ def response_format(json_schema: dict[str, Any], label: str = "") -> dict[str, A
     if isinstance(json_schema.get("schema"), dict):
         spec = {"name": schema_name(str(json_schema.get("name") or label)), "strict": True,
                 **{k: v for k, v in json_schema.items() if k != "name"}}
-        spec["schema"] = inline_refs(spec["schema"])
+        spec["schema"] = structure_only(inline_refs(spec["schema"]))
     else:
-        spec = {"name": schema_name(label), "strict": True, "schema": inline_refs(json_schema)}
+        spec = {"name": schema_name(label), "strict": True,
+                "schema": structure_only(inline_refs(json_schema))}
     return {"type": "json_schema", "json_schema": spec}
 
 

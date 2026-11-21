@@ -63,11 +63,11 @@ async def list_clients(db: AsyncSession, q: str | None = None, persona_id: int |
 
 
 @get("/clients/{client_id:int}")
-async def get_client(client_id: int, db: AsyncSession) -> Json:
+async def get_client(client_id: int, db: AsyncSession, ctx: ApiContext) -> Json:
     client = await get_or_404(db, Client, client_id, "Клиент")
     persona = await db.get(Persona, client.persona_id)
     return {**views.client_view(client), "persona": views.persona_brief(persona),
-            "chats": await chats_of_client(db, client)}
+            "chats": await chats_of_client(db, client, ctx.deps.clock.now())}
 
 
 @patch("/clients/{client_id:int}")

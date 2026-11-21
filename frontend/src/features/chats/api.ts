@@ -1,5 +1,5 @@
 import { api } from '@/lib/api';
-import type { ChatDetail, ChatRow, Items, ReplyRun, TimelineItem } from '@/lib/types';
+import type { ChatDetail, ChatRow, Items, PersonaStatus, ReplyRun, TimelineItem } from '@/lib/types';
 
 export const CHATS_PAGE = 50;
 export const TIMELINE_PAGE = 50;
@@ -9,6 +9,8 @@ export const chatsApi = {
   list: (q: string, before?: string | null, personaId = 0) =>
     api.get<Items<ChatRow>>('/chats', { params: { q, limit: CHATS_PAGE, before, persona_id: personaId || null } }),
   get: (id: number) => api.get<ChatDetail>(`/chats/${id}`),
+  /** «Статус Марины» of one chat, team-only (docs/attention.md). */
+  status: (id: number) => api.get<PersonaStatus>(`/chats/${id}/status`),
   /** Newest first; `beforeId` pages back in time. */
   timeline: (id: number, beforeId?: number | null) =>
     api.get<Items<TimelineItem>>(`/chats/${id}/timeline`, { params: { before_id: beforeId, limit: TIMELINE_PAGE } }),

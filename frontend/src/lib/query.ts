@@ -40,6 +40,8 @@ export const qk = {
   /** `personaId` 0 = every persona. */
   chatList: (q: string, personaId = 0) => ['chats', 'list', q, personaId] as const,
   chat: (id: number) => ['chats', 'detail', id] as const,
+  /** «Статус Марины» of one chat (the strip in the conversation header). */
+  chatStatus: (id: number) => ['chats', 'status', id] as const,
   timeline: (chatId: number) => ['timeline', chatId] as const,
   replyRun: (id: number) => ['reply-run', id] as const,
   /** A chat's day and week summaries (the lead card's «Дни»). */

@@ -302,9 +302,30 @@ async def test_photos_of_one_event_share_the_scene_and_continuity_refs(
     assert "Reference image(s) 2–2: the same room and the same clothes" in two
     assert len(fakes.image_gen.calls[1]["references"]) == 2
 
-    clock.at = utc(SATURDAY, "21:40")                   # the next event: a new scene
+    clock.at = utc(SATURDAY, "21:40")      # the next event, still in the same home clothes
     third = await generate(db, deps, chat, persona, spec)
-    assert third.scene["event_id"] == "2026-11-21T21:30" and third.ref_media_ids == [face.id]
+    assert third.scene["event_id"] == "2026-11-21T21:30"
+    assert third.ref_media_ids[0] == face.id and len(third.ref_media_ids) == 3
+
+
+async def test_clothes_stay_the_same_across_events_and_gaps(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    persona = await life_persona(db)
+    chat = await make_chat(db, persona)
+    await make_media(db, persona.id, is_reference=True, storage=fakes.storage, data=b"FACE")
+    await add_day(db, persona, SATURDAY, day_plan())
+    spec = GenerateSpec(prompt="улыбаюсь", caption="утро", tags=[])
+
+    clock.at = utc(SATURDAY, "08:30")                   # breakfast in the kitchen
+    kitchen = await generate(db, deps, chat, persona, spec)
+    clock.at = utc(SATURDAY, "10:00")                   # cleaning in the living room
+    room = await generate(db, deps, chat, persona, spec)
+
+    assert kitchen.scene["outfit"] == room.scene["outfit"]
+    assert len(room.ref_media_ids) == 2                 # the face + the kitchen photo
+    prompt = fakes.image_gen.calls[1]["prompt"]
+    assert "the same clothes as in this photo (she is somewhere else now)" in prompt
+    assert "the same room" not in prompt
 
 
 # --- voice notes: the scene's background -------------------------------------------------------

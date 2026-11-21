@@ -3,6 +3,7 @@ items joined with their message / media / call / generation (batched, no N+1).""
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Any
 
 from litestar.exceptions import NotFoundException
@@ -21,6 +22,7 @@ from sim.db.models import (
     Message,
     Persona,
 )
+from sim.services.persona_status import chat_statuses
 
 Json = dict[str, Any]
 
@@ -68,24 +70,29 @@ async def last_messages(session: AsyncSession, chat_ids: Sequence[int]) -> dict[
     return {m.chat_id: m for m in rows}
 
 
-async def chat_rows(session: AsyncSession, pairs: Sequence[tuple[Chat, Client]]) -> list[Json]:
-    """Chat rows with the last message and the persona that answers in each chat."""
+async def chat_rows(session: AsyncSession, pairs: Sequence[tuple[Chat, Client]],
+                    now: datetime) -> list[Json]:
+    """Chat rows with the last message, the persona that answers in each chat and what she is
+    doing about it now (`persona_status`, team-only, batched)."""
     last = await last_messages(session, [chat.id for chat, _ in pairs])
     personas = await by_ids(session, Persona, (chat.persona_id for chat, _ in pairs))
-    return [views.chat_row(chat, client, last.get(chat.id), personas.get(chat.persona_id))
+    statuses = await chat_statuses(
+        session, [(chat, client, personas.get(chat.persona_id)) for chat, client in pairs], now)
+    return [views.chat_row(chat, client, last.get(chat.id), personas.get(chat.persona_id),
+                           status=statuses[chat.id].as_json())
             for chat, client in pairs]
 
 
-async def chat_row(session: AsyncSession, chat: Chat) -> Json:
+async def chat_row(session: AsyncSession, chat: Chat, now: datetime) -> Json:
     client = await get_or_404(session, Client, chat.client_id, "Клиент")
-    return (await chat_rows(session, [(chat, client)]))[0]
+    return (await chat_rows(session, [(chat, client)], now))[0]
 
 
-async def chats_of_client(session: AsyncSession, client: Client) -> list[Json]:
+async def chats_of_client(session: AsyncSession, client: Client, now: datetime) -> list[Json]:
     chats = await session.scalars(
         select(Chat).where(Chat.client_id == client.id)
         .order_by(Chat.last_message_at.desc().nulls_last(), Chat.id.desc()))
-    return await chat_rows(session, [(chat, client) for chat in chats])
+    return await chat_rows(session, [(chat, client) for chat in chats], now)
 
 
 async def timeline_items(session: AsyncSession, events: Sequence[ChatEvent]) -> list[Json]:

@@ -16,6 +16,8 @@ import { qk } from '@/lib/query';
 import type { ChatRow } from '@/lib/types';
 import { clientName, cn } from '@/lib/utils';
 import { CHATS_PAGE, chatsApi } from './api';
+import { PersonaStatusPill } from './persona-status';
+import { STATUS_REFRESH_MS } from './persona-status-logic';
 import { aiActive, lastMessagePreview } from './timeline-logic';
 
 function ChatListItem({ chat, active, showPersona }: { chat: ChatRow; active: boolean; showPersona: boolean }) {
@@ -53,6 +55,7 @@ function ChatListItem({ chat, active, showPersona }: { chat: ChatRow; active: bo
               {formatShort(chat.last_message_at)}
             </time>
           </span>
+          <PersonaStatusPill status={chat.persona_status} />
           {showPersona && chat.persona && (
             <span className="truncate text-[11px] text-muted-foreground">
               <span className="sr-only">Отвечает </span>
@@ -99,6 +102,8 @@ export function ChatList({ activeId }: { activeId: number | null }) {
     initialPageParam: null as string | null,
     getNextPageParam: (last) =>
       last.items.length < CHATS_PAGE ? undefined : (last.items[last.items.length - 1]?.last_message_at ?? undefined),
+    // «Статус Марины» moves with time (she becomes free, a promised hour comes).
+    refetchInterval: STATUS_REFRESH_MS,
   });
   const items = chats.data?.pages.flatMap((p) => p.items) ?? [];
   const canLoadMore = chats.hasNextPage && !chats.isFetchingNextPage;

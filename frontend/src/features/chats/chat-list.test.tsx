@@ -9,6 +9,10 @@ import { ChatList } from './chat-list';
 const row = (id: number, persona: { id: number; name: string }): ChatRow => ({
   id, client: { id, name: `Клиент ${id}`, username: null, ai_enabled: true },
   persona: { ...persona, avatar_media_id: null }, ai_enabled: true, attention_instant: false, needs_operator: false, unread_count: 0,
+  persona_status: {
+    code: 'reply_later', tone: 'wait', title: `Прочитала, ответит около 20:4${id}`, detail: 'после созвона',
+    until: '2026-11-21T19:40:00Z', local_until: `20:4${id}`,
+  },
   last_message_at: '2026-11-21T10:00:00Z', last_message: { kind: 'text', direction: 'in', author: 'client', text: 'привет' },
 });
 
@@ -45,5 +49,17 @@ describe('ChatList with many personas', () => {
     await screen.findByRole('list', { name: 'Чаты' });
     expect(screen.queryByRole('combobox', { name: 'Персонаж' })).not.toBeInTheDocument();
     expect(screen.queryByText('Марина')).not.toBeInTheDocument();
+  });
+
+  it('shows «Статус Марины» under the client name in every row', async () => {
+    fakeApi({
+      'GET /api/personas': { items: [persona(1, 'Марина')] },
+      'GET /api/chats': { items: [row(1, { id: 1, name: 'Марина' }), row(2, { id: 1, name: 'Марина' })] },
+    });
+    await renderWithApp(<ChatList activeId={null} />);
+    const list = await screen.findByRole('list', { name: 'Чаты' });
+    const [first, second] = within(list).getAllByRole('listitem');
+    expect(within(first).getByText('Прочитала, ответит около 20:41')).toBeInTheDocument();
+    expect(within(second).getByText('Прочитала, ответит около 20:42').closest('[data-tone]')).toHaveAttribute('data-tone', 'wait');
   });
 });

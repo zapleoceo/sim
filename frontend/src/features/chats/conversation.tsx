@@ -20,6 +20,7 @@ import { clientName } from '@/lib/utils';
 import { TIMELINE_PAGE, chatsApi } from './api';
 import { AttentionInstantSwitch } from './attention-instant-switch';
 import { Composer } from './composer';
+import { PersonaStatusStrip } from './persona-status';
 import { ReplyRunSheet } from './reply-run-sheet';
 import { TimelineEntry } from './timeline-entry';
 
@@ -74,6 +75,7 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
   const [noteOpen, setNoteOpen] = useState(false);
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: qk.chat(chat.id) });
+    void queryClient.invalidateQueries({ queryKey: qk.chatStatus(chat.id) });
     void queryClient.invalidateQueries({ queryKey: qk.chatLists });
     void queryClient.invalidateQueries({ queryKey: qk.timeline(chat.id) });
   };
@@ -245,6 +247,7 @@ export function Conversation({ chatId, onBack }: { chatId: number; onBack?: () =
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ChatHeader chat={chat.data} onBack={onBack} />
+      <PersonaStatusStrip chatId={chatId} initial={chat.data.persona_status} />
       <Timeline chatId={chatId} onExplain={setRunId} />
       <Composer chatId={chatId} />
       <ReplyRunSheet runId={runId} onClose={() => setRunId(null)} />

@@ -5,31 +5,39 @@ import { qk } from './query';
 import type { EventKind } from './types';
 
 const ev = (kind: EventKind, chat_id = 7): LiveEvent => ({ chat_id, event_id: 1, kind });
+/** Every event of a chat re-reads its timeline and «Статус Марины». */
+const always = (chatId = 7) => [qk.timeline(chatId), qk.chatStatus(chatId)];
 
 describe('invalidationsFor', () => {
-  it('a client message refreshes the timeline, the chat lists, that chat and the clients', () => {
-    expect(invalidationsFor(ev('message_in'))).toEqual([qk.timeline(7), qk.chatLists, qk.chat(7), qk.clients]);
+  it('a client message refreshes the timeline, the status, the chat lists, that chat and the clients', () => {
+    expect(invalidationsFor(ev('message_in'))).toEqual([...always(), qk.chatLists, qk.chat(7), qk.clients]);
   });
 
   it('an outgoing message or operator flag refreshes the timeline and chat rows, not the clients', () => {
     for (const kind of ['message_out', 'send_failed', 'operator_needed', 'guard_blocked', 'call'] as const) {
-      expect(invalidationsFor(ev(kind))).toEqual([qk.timeline(7), qk.chatLists, qk.chat(7)]);
+      expect(invalidationsFor(ev(kind))).toEqual([...always(), qk.chatLists, qk.chat(7)]);
     }
   });
 
-  it('timeline-only events touch just that chat timeline', () => {
-    for (const kind of ['media_understood', 'generation_started', 'generation_failed', 'operator_note'] as const) {
-      expect(invalidationsFor(ev(kind, 3))).toEqual([qk.timeline(3)]);
+  it('her decision and a generation change the status in the chat rows', () => {
+    for (const kind of ['attention', 'generation_started', 'generation_failed'] as const) {
+      expect(invalidationsFor(ev(kind, 3))).toEqual([...always(3), qk.chatLists, qk.chat(3)]);
+    }
+  });
+
+  it('timeline-only events touch just that chat timeline and status', () => {
+    for (const kind of ['media_understood', 'operator_note'] as const) {
+      expect(invalidationsFor(ev(kind, 3))).toEqual(always(3));
     }
   });
 
   it('client data changes refresh the clients but not the chat list', () => {
-    expect(invalidationsFor(ev('memory_updated'))).toEqual([qk.timeline(7), qk.clients, qk.chatDays(7)]);
-    expect(invalidationsFor(ev('client_updated'))).toEqual([qk.timeline(7), qk.clients]);
+    expect(invalidationsFor(ev('memory_updated'))).toEqual([...always(), qk.clients, qk.chatDays(7)]);
+    expect(invalidationsFor(ev('client_updated'))).toEqual([...always(), qk.clients]);
   });
 
   it('AI toggle changes both the chat row and the clients', () => {
-    expect(invalidationsFor(ev('ai_toggled'))).toEqual([qk.timeline(7), qk.chatLists, qk.chat(7), qk.clients]);
+    expect(invalidationsFor(ev('ai_toggled'))).toEqual([...always(), qk.chatLists, qk.chat(7), qk.clients]);
   });
 });
 
@@ -55,11 +63,12 @@ describe('connectLiveEvents', () => {
     expect(open).toHaveBeenCalledWith(EVENTS_URL);
 
     source.onmessage?.(new MessageEvent('message', { data: '{"chat_id": 4, "event_id": 9, "kind": "operator_note"}' }));
-    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(2);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.timeline(4) });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.chatStatus(4) });
 
     source.onmessage?.(new MessageEvent('message', { data: 'broken' }));
-    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(2);
 
     stop();
     expect(source.close).toHaveBeenCalled();
