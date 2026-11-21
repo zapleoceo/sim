@@ -22,21 +22,23 @@ PostgreSQL 16. Модели — `backend/sim/db/models.py`, миграции Ale
 ### `persona`
 Персонаж (их может быть несколько, [personas.md](personas.md)): `name` (уникальное), `gender`, `language`, `timezone`,
 `birth_date`, `avatar_media_id`, единый `prompt`.
-Модели Broker по назначению (`""` — не выбрана): `model_reply` (ответы), `model_guard`
-(проверка; пусто — используется `model_reply`), `model_vision` (фото/видео/PDF),
-`model_transcribe` (голосовые), `model_memory` (сводка и память; пусто — `model_reply`),
-`model_tts`, `model_image`, `model_video`, `model_live`; голос `voice_id` (из
+Агенты (миграция `0005`, [agents.md](agents.md)): `agents` (JSONB, `{agent_key: {model,
+key_tier, prompt, max_tokens}}`, только изменённое владельцем; `{}` — всё по умолчанию). Читает
+его только `sim.domain.agents.agent_config`. Голос `voice_id` (из
 `sim/services/voices.py`) и `voice_style` — обычная манера речи в 2–4 словах («тепло, естественно, разговорно»), не описание: TTS получает её как подсказку и длинный текст начинает произносить.
-`guard_rules` — короткий список запретов для проверки. Переключатели `ai_enabled`,
+`guard_rules` — короткий список запретов для Охранника. Переключатели `ai_enabled`,
 `voice_enabled`, `photo_enabled`, `video_enabled`, `calls_enabled`. `reply_delay_s` — сколько
 ждать пачку сообщений перед ответом.
 Жизнь (миграция `0003`, `docs/persona-life.md`): `life` (JSONB, `{}` — мира нет: распорядок,
-люди, увлечения, места по схеме `sim/domain/life.PersonaLife`), `model_life` (планировщик дня;
-пусто — дни не планируются), `appearance` (точное описание внешности по-английски для фото и
-видео), `voice_ambience_enabled` (фон сцены в голосовых, по умолчанию да).
-Миграция `0004` ([personas.md](personas.md), [leads.md](leads.md)): `model_passport`
-(паспортистка; пусто — `model_memory`, затем `model_reply`), `is_active` (по умолчанию да;
+люди, увлечения, места по схеме `sim/domain/life.PersonaLife`), `appearance` (точное описание
+внешности по-английски для фото и видео), `voice_ambience_enabled` (фон сцены в голосовых, по
+умолчанию да).
+Миграция `0004` ([personas.md](personas.md), [leads.md](leads.md)): `is_active` (по умолчанию да;
 `false` — архив: никому не отвечает, дни не планируются, аккаунты Telegram отключаются).
+Миграция `0005` перенесла одиннадцать колонок `model_reply`, `model_guard`, `model_vision`,
+`model_transcribe`, `model_memory`, `model_tts`, `model_image`, `model_video`, `model_live`,
+`model_life`, `model_passport` в `agents` (непустые значения — `{"model": …}` своего агента) и
+удалила их; откат возвращает колонки с моделями из `agents` (ключи, промты и лимиты теряются).
 Новый персонаж создаётся клонированием (`sim/services/persona_clone.py`).
 Кто использует: ответ и проверка (`reply.py`, `guard.py`), распознавание, генерация, память,
 `capabilities.py` (что можно в этом ходе).
@@ -164,8 +166,10 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 ### `llm_call`
 Каждый вызов Broker: `reply_run_id` (если в рамках хода), `chat_id`, `purpose` (`reply | guard |
 vision | transcribe | document | tts | image | video | live | memory | life | passport`; `life` —
-планировщик дня, `0003`; `passport` — паспортистка, `0004`), `model`, `request`
-(без байтов: вместо файлов mime и размер), `response`, `tokens_in`, `tokens_out`, `cost_usd`,
+планировщик дня, `0003`; `passport` — паспортистка, `0004`; Портретист пишется как `vision` с
+`request.task = "appearance"`), `model`, `request`
+(без байтов: вместо файлов mime и размер; `key_tier` — уровень ключей агента, [agents.md](agents.md)),
+`response`, `tokens_in`, `tokens_out`, `cost_usd`,
 `latency_ms`, `error`. Пишет `sim/services/llm_log.logged_call` в отдельной короткой транзакции.
 В дашборде — под каждым ответом персонажа («что ушло в модель и что вернулось»).
 

@@ -163,9 +163,8 @@ admin_user        id, telegram_id (uniq), name, created_at
 auth_session      id, admin_id, token_hash, expires_at, created_at
 
 persona           id, name, gender, language, timezone, birth_date, avatar_media_id,
-                  prompt,
-                  model_reply, model_guard, model_vision, model_transcribe,
-                  model_tts, voice_id, voice_style, model_image, model_video, model_live,
+                  prompt, agents (jsonb: модель, ключи, промт, max_tokens каждого агента —
+                  docs/agents.md; до 0005 — колонки model_*), voice_id, voice_style,
                   ai_enabled, voice_enabled, photo_enabled, video_enabled, calls_enabled,
                   guard_rules, created_at, updated_at
 
