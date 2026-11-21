@@ -4,10 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import procrastinate
 from procrastinate.jobs import Status
+from procrastinate.testing import InMemoryConnector
 
-from sim.config import Settings
-from sim.tasks.app import make_app
+from sim.tasks.agent import register_agent_tasks
 from sim.tasks.queue import (
     AGENT_QUEUE,
     GENERATE_TASK,
@@ -64,7 +65,9 @@ async def test_nothing_stalled_changes_nothing() -> None:
 
 
 def test_the_recovery_is_registered_every_minute() -> None:
-    app = make_app(Settings(env="test"))
+    # A bare app: `make_app` takes the Telegram blueprint, which a process can add only once.
+    app = procrastinate.App(connector=InMemoryConnector())
+    register_agent_tasks(app)
     assert STALLED_TASK in app.tasks
     assert app.tasks[STALLED_TASK].queue == AGENT_QUEUE
     assert app.tasks[STALLED_TASK].pass_context
