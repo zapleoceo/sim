@@ -169,6 +169,39 @@ async def test_ai_toggle_writes_event(api: ApiClient, world: World, db: AsyncSes
     assert (await api.post("/api/chats/999999/ai", json={"enabled": True})).status_code == 404
 
 
+async def test_switching_ai_on_answers_what_arrived_while_it_was_off(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps) -> None:
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None
+    chat.ai_enabled = False
+    chat.needs_operator = False
+    await db.commit()
+    await api.post(f"/api/chats/{world.chat_id}/ai", json={"enabled": True})
+    # The world's client message is unanswered: a reply turn, deferred after the commit.
+    assert deps.tasks.calls == [("reply", (world.chat_id, 0), False)]
+
+
+async def test_switching_ai_off_or_again_on_wakes_nothing(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps) -> None:
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None
+    chat.needs_operator = False
+    await db.commit()
+    await api.post(f"/api/chats/{world.chat_id}/ai", json={"enabled": True})   # already on
+    await api.post(f"/api/chats/{world.chat_id}/ai", json={"enabled": False})
+    assert deps.tasks.calls == []
+
+
+async def test_a_chat_waiting_for_an_operator_is_not_woken(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps) -> None:
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None
+    chat.ai_enabled = False                       # needs_operator stays True in the world
+    await db.commit()
+    await api.post(f"/api/chats/{world.chat_id}/ai", json={"enabled": True})
+    assert deps.tasks.calls == []
+
+
 async def test_read_resets_unread(api: ApiClient, world: World, db: AsyncSession) -> None:
     response = await api.post(f"/api/chats/{world.chat_id}/read")
     assert response.status_code == 204

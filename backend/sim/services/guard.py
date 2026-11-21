@@ -29,16 +29,17 @@ from sim.services.llm_log import describe_messages, logged_call
 from sim.services.plan_check import extract_json
 
 NO_RULES = "(дополнительных запретов нет)"
-# Media action -> (what it is, the adjective for a new one), as the client would see it.
-MEDIA_WORDS: dict[type, tuple[str, str]] = {
-    PhotoAction: ("фото", "новое"), VideoAction: ("видео", "новое"),
-    VideoNoteAction: ("кружок", "новый"),
-}
+# Media action -> how the client sees it: the file itself, not its generation task.
+MEDIA_WORDS: dict[type, str] = {PhotoAction: "фото", VideoAction: "видео",
+                                VideoNoteAction: "кружок"}
 UNREADABLE_REASON = "проверка вернула неразборчивый ответ"
 
 
 def outgoing_lines(plan: ReplyPlan) -> list[str]:
-    """What the client would actually see or hear, numbered in plan order."""
+    """Only what the client will actually see or hear, numbered in plan order. A photo, video or
+    video note is the file itself — shown as a bracketed mark, never with its internal
+    generation task (scene prompt, library caption, tags): the guard once read «новый кружок:
+    приветствие для Max» as the persona announcing a recording and blocked a good answer."""
     lines = []
     for i, action in enumerate(plan.messages, start=1):
         if isinstance(action, TextAction):
@@ -46,12 +47,14 @@ def outgoing_lines(plan: ReplyPlan) -> list[str]:
         elif isinstance(action, VoiceAction):
             lines.append(f"{i}. [голосовое, вслух] {action.text}")
         elif isinstance(action, MediaAction):
-            word, new = MEDIA_WORDS[type(action)]
-            what = (f"{new} {word}: {action.generate.caption}" if action.generate
-                    else f"{word} из медиатеки")
-            text = getattr(action, "caption", "")
-            caption = f" подпись: {text}" if text else ""
-            lines.append(f"{i}. [{what}]{caption}")
+            parts = [f"{i}. [{MEDIA_WORDS[type(action)]}]"]
+            speech = action.generate.speech if action.generate else ""
+            if speech:
+                parts.append(f"в кадре говорит вслух: {speech}")
+            caption = getattr(action, "caption", "")
+            if caption:
+                parts.append(f"подпись: {caption}")
+            lines.append(" ".join(parts))
     return lines
 
 
