@@ -9,7 +9,8 @@ const text = z.string();
 const flag = z.boolean();
 
 /**
- * The persona form. Every persona setting is edited here and only here (docs/frontend.md).
+ * The persona form: her own settings, each edited here and only here (docs/frontend.md); her agents
+ * and the guard's rules live in «Агенты».
  * All values are strings/booleans, so the form input and the validated output are the same type.
  */
 export const personaSchema = z.object({
@@ -19,21 +20,9 @@ export const personaSchema = z.object({
   timezone: z.string().refine(notBlank, 'Укажите часовой пояс').refine((v) => v.length <= 64, 'Не длиннее 64 символов'),
   birth_date: z.string().refine((v) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))), 'Дата вида 1999-12-31'),
   prompt: text,
-  model_reply: text,
-  model_guard: text,
-  model_vision: text,
-  model_transcribe: text,
-  model_memory: text,
-  model_tts: text,
-  model_image: text,
-  model_video: text,
-  model_live: text,
-  model_life: text,
-  model_passport: text,
   appearance: text,
   voice_id: text,
   voice_style: text,
-  guard_rules: text,
   ai_enabled: flag,
   voice_enabled: flag,
   photo_enabled: flag,
@@ -57,21 +46,9 @@ export function toFormValues(p: Persona): PersonaFormValues {
     timezone: p.timezone,
     birth_date: p.birth_date ?? '',
     prompt: p.prompt,
-    model_reply: p.model_reply,
-    model_guard: p.model_guard,
-    model_vision: p.model_vision,
-    model_transcribe: p.model_transcribe,
-    model_memory: p.model_memory,
-    model_tts: p.model_tts,
-    model_image: p.model_image,
-    model_video: p.model_video,
-    model_live: p.model_live,
-    model_life: p.model_life,
-    model_passport: p.model_passport,
     appearance: p.appearance,
     voice_id: p.voice_id,
     voice_style: p.voice_style,
-    guard_rules: p.guard_rules,
     ai_enabled: p.ai_enabled,
     voice_enabled: p.voice_enabled,
     photo_enabled: p.photo_enabled,

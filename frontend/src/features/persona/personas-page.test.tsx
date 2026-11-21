@@ -76,7 +76,7 @@ describe('CloneDialog', () => {
     await waitFor(() => expect(onCloned).toHaveBeenCalledWith(expect.objectContaining({ id: 9 })));
     expect(log.find((r) => r.method === 'POST')?.body).toEqual({
       name: 'Оля',
-      parts: ['basics', 'models', 'voice', 'guard', 'appearance', 'world', 'arcs', 'media', 'switches', 'canon'],
+      parts: ['basics', 'agents', 'voice', 'guard', 'appearance', 'world', 'arcs', 'media', 'switches', 'canon'],
     });
   });
 

@@ -5,7 +5,6 @@ import { useMemo, type ReactNode } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Field, Section, SwitchRow } from '@/components/field';
-import { InlineError } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -13,11 +12,9 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { qk } from '@/lib/query';
-import type { BrokerModel, Persona, Voice } from '@/lib/types';
+import type { Persona, Voice } from '@/lib/types';
 import { personaApi } from './api';
 import { lifeApi } from './life/life-api';
-import { MODEL_PURPOSES } from './model-filter';
-import { ModelSelect } from './model-select';
 import {
   GENDERS, LANGUAGES, PROMPT_SOFT_LIMIT, REPLY_DELAY_MAX, personaSchema, timeZones, toFormValues, toPatch, withCurrent,
   type PersonaFormValues,
@@ -35,15 +32,16 @@ const SWITCHES: { name: 'ai_enabled' | 'voice_enabled' | 'photo_enabled' | 'vide
 
 export interface PersonaEditorProps {
   persona: Persona;
-  models: readonly BrokerModel[];
-  modelsError?: string;
   voices: readonly Voice[];
-  /** Read-only sections and the media library, rendered between the form and the save bar. */
+  /** Sections with their own Save (agents, life, channel, media library), between the form and its save bar. */
   children?: ReactNode;
 }
 
-/** All settings of one persona on one form with one Save button (PUT /personas/{id}, changed fields). */
-export function PersonaEditor({ persona, models, modelsError, voices, children }: PersonaEditorProps) {
+/**
+ * The persona's own settings on one form with one Save button (PUT /personas/{id}, changed fields).
+ * Her agents and the guard's rules are edited in «Агенты» (agents/agents-section.tsx).
+ */
+export function PersonaEditor({ persona, voices, children }: PersonaEditorProps) {
   const queryClient = useQueryClient();
   const initial = useMemo(() => toFormValues(persona), [persona]);
   const form = useForm<PersonaFormValues>({ resolver: zodResolver(personaSchema), defaultValues: initial, mode: 'onBlur' });
@@ -144,16 +142,7 @@ export function PersonaEditor({ persona, models, modelsError, voices, children }
           </Field>
         </Section>
 
-        <Section id="models" title="Модели" description="Списки из каталога Broker, отфильтрованы по тому, что модель умеет.">
-          {modelsError && <InlineError>{modelsError}</InlineError>}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {MODEL_PURPOSES.map((info) => (
-              <ModelSelect key={info.field} info={info} models={models} control={control} register={register} />
-            ))}
-          </div>
-        </Section>
-
-        <Section id="voice" title="Голос" description="Для голосовых ответов (модель — в разделе «Модели»).">
+        <Section id="voice" title="Голос" description="Для голосовых ответов (модель и ключи — в «Агентах», агент «Голос»).">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field id="persona-voice" label="Голос">
               <NativeSelect id="persona-voice" {...register('voice_id')}>
@@ -184,12 +173,6 @@ export function PersonaEditor({ persona, models, modelsError, voices, children }
               )}
             />
           </SwitchRow>
-        </Section>
-
-        <Section id="guard" title="Проверка" description="Что проверка перед отправкой не должна пропускать. Одно правило на строку.">
-          <Field id="persona-guard" label={<span className="sr-only">Правила проверки</span>}>
-            <Textarea id="persona-guard" className="max-h-96 min-h-28" {...register('guard_rules')} />
-          </Field>
         </Section>
 
         <Section id="switches" title="Переключатели">
