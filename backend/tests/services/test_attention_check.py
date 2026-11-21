@@ -275,6 +275,36 @@ async def test_read_only_and_leave_unread_in_one_look(db: AsyncSession, deps: De
     assert [c["chat_id"] for c in agent_payload(fakes)["chats"]] == [ok_chat.id, spam_chat.id]
 
 
+async def test_a_clear_chat_does_not_wait_for_the_agent(db: AsyncSession, deps: Deps,
+                                                       fakes: Fakes,
+                                                       clock: FixedClock) -> None:
+    """«Отвечать сразу» in one chat starts its turn before the agent is asked about another
+    chat (seen in production: the agent hung and the instant chat waited minutes)."""
+    persona = await make_persona(db)
+    instant = await make_chat(db, persona, name="Дима")
+    other = await make_chat(db, persona, name="Max")
+    instant.attention_instant = True
+    now = clock.now()
+    await add_message(db, instant, "пришли кружок", at=now - timedelta(seconds=20))
+    await add_message(db, other, "ок", at=now - timedelta(minutes=3))
+    seen_when_asked: list[list[Any]] = []
+
+    def agent(record: dict[str, Any]) -> str:
+        seen_when_asked.append(list(fakes.tasks.of("reply")))
+        return plan(decision(other, "read_only"))
+
+    fakes.llm.script(ATTENTION_MODEL, agent)
+    await due_now(db, persona, clock)
+
+    result = await look(deps, persona)
+
+    assert seen_when_asked == [[("reply", instant.id, 0)]]     # already started
+    assert {d.chat_id: d.action for d in result.decisions} == {
+        instant.id: A.REPLY_NOW, other.id: A.READ_ONLY}
+    assert fakes.tasks.of("reply") == [("reply", instant.id, 0)]   # not twice
+    assert [c["chat_id"] for c in agent_payload(fakes)["chats"]] == [other.id]
+
+
 async def test_without_leave_read_she_answers_later_instead(db: AsyncSession, deps: Deps,
                                                             fakes: Fakes,
                                                             clock: FixedClock) -> None:
