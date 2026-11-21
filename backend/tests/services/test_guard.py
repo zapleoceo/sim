@@ -67,8 +67,7 @@ def test_the_generation_task_never_reaches_the_guard() -> None:
             "prompt": "улыбается на кухне", "caption": "Приветствие для Max с кухни",
             "tags": ["кружок", "кухня"], "speech": "Привет, Max! Драники жарю."}},
     ]})
-    text = "
-".join(outgoing_lines(plan))
+    text = " | ".join(outgoing_lines(plan))
     assert "Приветствие" not in text and "кухня" not in text
     assert "[кружок] в кадре говорит вслух: Привет, Max! Драники жарю." in text
 
