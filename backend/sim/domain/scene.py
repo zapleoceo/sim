@@ -25,6 +25,20 @@ class ShotType(StrEnum):
     TAKEN_BY_OTHER = "taken_by_other"   # someone she is with took it
 
 
+class CameraHold(StrEnum):
+    """How a video note / speaking video is filmed at this moment (visual.camera_for)."""
+
+    HANDHELD = "handheld"       # front camera in her hand at arm's length (the usual way)
+    PROPPED = "propped"         # the phone leans on something: her hands are busy
+    IMPOSSIBLE = "impossible"   # she can not film now (driving, running, shower, asleep)
+
+
+@dataclass(frozen=True)
+class Camera:
+    hold: CameraHold
+    reason: str                 # Russian, for the journal and the plan check
+
+
 @dataclass(frozen=True)
 class SceneCard:
     day: date

@@ -37,7 +37,7 @@ from sim.domain.enums import (
 )
 from sim.domain.plan import GenerateSpec
 from sim.domain.presence import busy_with
-from sim.domain.scene import SceneCard
+from sim.domain.scene import Camera, CameraHold, SceneCard
 from sim.events import append_event
 from sim.ports import MediaResult, PortError
 from sim.services.deps import Deps
@@ -46,7 +46,13 @@ from sim.services.llm_log import logged_call
 from sim.services.media_library import add_media, normalize_tags
 from sim.services.outbox import enqueue_message
 from sim.services.presence import show_busy, stop_busy
-from sim.services.visual import APPEARANCE_REFS, CONTINUITY_REFS, choose_shot, media_prompt
+from sim.services.visual import (
+    APPEARANCE_REFS,
+    CONTINUITY_REFS,
+    camera_for,
+    choose_shot,
+    media_prompt,
+)
 
 log = logging.getLogger(__name__)
 
@@ -192,8 +198,13 @@ class GenerationService:
             spoken = generation.kind == GenerationKind.VIDEO_NOTE or bool(generation.speech)
             hint = str((generation.scene or {}).get("shot_hint", ""))
             shot = choose_shot(scene, hint, spoken=spoken)
+            camera = camera_for(scene)
+            if camera.hold == CameraHold.IMPOSSIBLE:     # the scene moved on since the plan
+                camera = Camera(CameraHold.PROPPED, f"телефон прислонён ({camera.reason})")
             generation.scene = {**(scene.as_json() if scene is not None else {}),
-                                "shot": shot.value, **({"shot_hint": hint} if hint else {})}
+                                "shot": shot.value, **({"shot_hint": hint} if hint else {}),
+                                **({"camera": camera.hold.value, "camera_reason": camera.reason}
+                                   if spoken else {})}
             generation.ref_media_ids = identity + continuity
             refs = await self._references(session, identity + continuity)
             prompt_args = {"action": generation.prompt, "scene": scene, "shot": shot}
@@ -206,7 +217,8 @@ class GenerationService:
                 video_prompt=media_prompt(
                     stage="video", speech=generation.speech or "",
                     language=persona.language or "",
-                    round_note=generation.kind == GenerationKind.VIDEO_NOTE, **prompt_args),
+                    round_note=generation.kind == GenerationKind.VIDEO_NOTE, camera=camera,
+                    **prompt_args),
                 caption=generation.caption, tags=list(generation.tags or []),
                 image_agent=agent_config(persona, AgentKey.IMAGE),
                 video_agent=agent_config(persona, AgentKey.VIDEO),

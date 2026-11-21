@@ -12,10 +12,11 @@ not move her to another place or change her clothes. Explicit negatives forbid a
 and extra hands (seen in production)."""
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from sim.domain.life import Ambience
-from sim.domain.scene import Light, SceneCard, ShotType
+from sim.domain.life import Ambience, BusyLevel
+from sim.domain.scene import Camera, CameraHold, Light, SceneCard, ShotType
 
 APPEARANCE_REFS = 4
 CONTINUITY_REFS = 2
@@ -37,6 +38,11 @@ SELFIE_FRAMING = (
     "Vertical selfie video filmed on her phone's front camera, held at arm's length; the phone "
     "itself is not visible. She looks straight into the lens. Natural light of the place she is "
     "in, casual and warm, slight handheld movement.")
+PROPPED_FRAMING = (
+    "Vertical video filmed on her phone's front camera propped up on a nearby surface at chest "
+    "height (leaning against the wall, a cup or a stand); the frame is static, not handheld; the "
+    "phone itself is not visible. Her hands are busy with what she is doing; she glances and "
+    "leans toward the lens while talking. Natural light of the place, casual and warm.")
 PHOTO_CONTINUES = ("The video continues this photo: the same woman, the same place, the same "
                    "clothes and light.")
 LIGHT_WORDS = {
@@ -73,6 +79,30 @@ NO_OVERLAYS = "No subtitles, no music, no text on screen."
 Stage = Literal["image", "video"]
 
 
+# Word starts in her current activity that decide how a video note can be filmed.
+_CANNOT_FILM = re.compile(
+    r"\b(за рул|вед[уёе]т машин|веду машин|бе[гж]и|бегает|бежит|пробежк|тренировк|плава|душ\b|"
+    r"ванн|сон\b|сплю|спит|спать)", re.IGNORECASE)
+_HANDS_BUSY = re.compile(
+    r"\b(готов|жар|варит|печ[её]т|печь|режет|мо[ею]т посуд|ужина|обеда|завтрака|работа|"
+    r"консульт|ноутбук|красит|макияж|вяж|шь[её]т|глад|убира|грядк|сажа|полива)", re.IGNORECASE)
+
+
+def camera_for(scene: SceneCard | None) -> Camera:
+    """How she can film a video note right now, with the reason (docs/persona-life.md). Without
+    a scene: handheld, the usual way."""
+    if scene is None:
+        return Camera(CameraHold.HANDHELD, "обычный кружок с руки")
+    activity = scene.activity.lower()
+    if _CANNOT_FILM.search(activity) or scene.busy == BusyLevel.AWAY:
+        return Camera(CameraHold.IMPOSSIBLE,
+                      f"сейчас она {scene.activity} — снять кружок не может")
+    if _HANDS_BUSY.search(activity):
+        return Camera(CameraHold.PROPPED,
+                      f"телефон прислонён, руки заняты: {scene.activity}")
+    return Camera(CameraHold.HANDHELD, f"кружок с руки: {scene.activity}")
+
+
 def choose_shot(scene: SceneCard | None, hint: str, *, spoken: bool) -> ShotType:
     """A spoken video (video note) is always a front selfie; a photo «by someone» needs someone
     from the scene; a mirror selfie when asked; otherwise a front selfie."""
@@ -99,13 +129,14 @@ def _scene_lines(scene: SceneCard, shot: ShotType, *, video: bool) -> list[str]:
 
 def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: ShotType,
                  appearance: str = "", identity_refs: int = 0, continuity_refs: int = 0,
-                 speech: str = "", language: str = "", round_note: bool = False) -> str:
+                 speech: str = "", language: str = "", round_note: bool = False,
+                 camera: Camera | None = None) -> str:
     """The Broker prompt: `image` = the photo (also the first frame of a video), `video` = the
     clip made from that photo."""
     action = " ".join(action.split())
     if stage == "video":
         return _video(action, scene, shot, speech=speech, language=language,
-                      round_note=round_note)
+                      round_note=round_note, camera=camera or camera_for(scene))
     lines = [IDENTITY.format(n=identity_refs) if identity_refs else "A photo of a young woman."]
     if appearance.strip():
         lines.append(f"Her appearance (keep exactly): {' '.join(appearance.split())}")
@@ -124,10 +155,14 @@ def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: Sh
 
 
 def _video(action: str, scene: SceneCard | None, shot: ShotType, *, speech: str, language: str,
-           round_note: bool) -> str:
+           round_note: bool, camera: Camera) -> str:
     words = " ".join(speech.split())
-    # A video note or a video in which she speaks is a selfie for this person.
-    framing = SELFIE_FRAMING if round_note or words else PHOTO_CONTINUES
+    # A video note or a video in which she speaks is filmed by her for this person: in her hand,
+    # or propped up when her hands are busy (camera_for).
+    if round_note or words:
+        framing = PROPPED_FRAMING if camera.hold == CameraHold.PROPPED else SELFIE_FRAMING
+    else:
+        framing = PHOTO_CONTINUES
     lines = [framing, f"Scene: {action}"]
     if scene is not None:
         lines += _scene_lines(scene, shot, video=True)
