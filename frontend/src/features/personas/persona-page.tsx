@@ -56,7 +56,7 @@ export function PersonaPage() {
   const remove = useMutation({
     mutationFn: (pid: number) => personasApi.remove(pid),
     onSuccess: (_, pid) => {
-      queryClient.setQueryData<Persona[]>(qk.personas, (list) => (list ?? []).filter((p) => p.id !== pid));
+      queryClient.setQueryData<Persona[]>(qk.personas, (list) => list?.filter((p) => p.id !== pid));
       void navigate({ to: '/personas' });
     },
   });

@@ -39,7 +39,7 @@ export function StrategyPage() {
   const remove = useMutation({
     mutationFn: (sid: number) => strategiesApi.remove(sid),
     onSuccess: (_, sid) => {
-      queryClient.setQueryData<Strategy[]>(qk.strategies, (list) => (list ?? []).filter((s) => s.id !== sid));
+      queryClient.setQueryData<Strategy[]>(qk.strategies, (list) => list?.filter((s) => s.id !== sid));
       void navigate({ to: '/strategies' });
     },
   });

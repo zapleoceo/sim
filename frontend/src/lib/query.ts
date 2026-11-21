@@ -44,4 +44,8 @@ export const qk = {
   trace: (id: string) => ['trace', id] as const,
   simulations: ['simulations'] as const,
   simulation: (id: number) => ['simulation', id] as const,
+  /** Every test chat for the inbox (one flat list); under `simulations`, so it refreshes with them. */
+  inboxSimulations: ['simulations', 'all'] as const,
+  /** The «needs operator» counter of the inbox. */
+  operatorQueue: ['dialogs', 'operator-queue'] as const,
 };

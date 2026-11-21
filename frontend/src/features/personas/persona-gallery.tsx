@@ -37,7 +37,7 @@ export function PersonaGallery({ personaId }: { personaId: number }) {
   const remove = useMutation({
     mutationFn: (id: number) => personasApi.media.remove(personaId, id),
     onSuccess: (_, id) => {
-      queryClient.setQueryData<PersonaMedia[]>(qk.personaMedia(personaId), (list) => (list ?? []).filter((m) => m.id !== id));
+      queryClient.setQueryData<PersonaMedia[]>(qk.personaMedia(personaId), (list) => list?.filter((m) => m.id !== id));
     },
   });
 

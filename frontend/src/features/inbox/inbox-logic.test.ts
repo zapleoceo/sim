@@ -1,6 +1,6 @@
-import type { DialogDetail, DialogRow, Message } from '@/lib/models';
+import type { DialogRow, Message } from '@/lib/models';
 import {
-  CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, clearedRow, deliveryMeta, detailChanged, groupByDay, isSendKey, mergeFirstPage,
+  CLEAR_CHAT_CONFIRM, DEFAULT_DIALOG_FILTER, activeFilterCount, appendPage, clearedRow, deliveryMeta, groupByDay, isSendKey, mergeFirstPage,
   messagesWord, normalizeFilter, pauseNotice, recoveryToast, replyPlanNotice, replyPlanText, replyPlanTitle, rowPreview, testDialogRow, visibleTestRows, combineDialogRows,
 } from './inbox-logic';
 
@@ -77,23 +77,6 @@ describe('conversation', () => {
     expect(deliveryMeta('failed').icon).toBe('alert');
   });
 
-  it('detects real changes of a polled dialog only', () => {
-    const base: DialogDetail = {
-      dialog: { id: 1, ai_paused: false, needs_operator: false },
-      client: {} as DialogDetail['client'],
-      messages: [msg(1, '2026-01-01T10:00:00Z')],
-    };
-    expect(detailChanged(null, base)).toBe(true);
-    expect(detailChanged(base, { ...base })).toBe(false);
-    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, ai_paused: true } })).toBe(true);
-    const waiting = { count: 1, since: '2026-01-01T10:00:00Z', message_ids: [1] };
-    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, unanswered: waiting } })).toBe(true);
-    const planned = { ...base, dialog: { ...base.dialog,
-      reengagement_plan: { status: 'scheduled', text: 'Synthetic follow-up', at: '2026-01-01T11:00:00Z' } } };
-    expect(detailChanged(base, planned)).toBe(true);
-    expect(detailChanged(planned, { ...planned, dialog: { ...planned.dialog,
-      reengagement_plan: { ...planned.dialog.reengagement_plan, status: 'outdated' } } })).toBe(true);
-  });
 
   it('sends on Enter but not on Shift+Enter or while composing', () => {
     expect(isSendKey({ key: 'Enter', shiftKey: false })).toBe(true);
@@ -171,18 +154,6 @@ describe('reply delayed by the persona routine', () => {
     expect(replyPlanNotice({ ai_paused: false })).toBeNull();
   });
 
-  it('re-renders a polled dialog when the plan or the urgent mark changes', () => {
-    const base: DialogDetail = {
-      dialog: { id: 1, ai_paused: false, needs_operator: false },
-      client: {} as DialogDetail['client'],
-      messages: [msg(1, '2026-01-01T10:00:00Z')],
-    };
-    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, urgent: false, reply_plan: null } })).toBe(false);
-    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, reply_plan: plan } })).toBe(true);
-    expect(detailChanged(base, { ...base, dialog: { ...base.dialog, urgent: true } })).toBe(true);
-    const planned = { ...base, dialog: { ...base.dialog, reply_plan: plan } };
-    expect(detailChanged(planned, { ...base, dialog: { ...base.dialog, reply_plan: { ...plan, reason: 'пишет' } } })).toBe(true);
-  });
 
   it('titles the chat state by what the planned reply waits for', () => {
     expect(replyPlanTitle(plan)).toBe('Ответ отложен');

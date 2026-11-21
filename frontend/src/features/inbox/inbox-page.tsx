@@ -91,8 +91,8 @@ function TestConversation({ branch, onBack }: { branch: SimBranchDetail; onBack?
       setText('');
       request.current = null;
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['inbox-test-dialog', -branch.id] }),
-        queryClient.invalidateQueries({ queryKey: ['inbox-simulations'] }),
+        queryClient.invalidateQueries({ queryKey: qk.simulation(branch.id) }),
+        queryClient.invalidateQueries({ queryKey: qk.inboxSimulations }),
       ]);
     } catch {
       setError('Не удалось подтвердить тестовое сообщение. Повтор использует тот же запрос.');
@@ -176,9 +176,9 @@ export function InboxPage() {
   const filterKey = JSON.stringify(apiFilter);
 
   const personas = useQuery({ queryKey: qk.personas, queryFn: personasApi.list });
-  const channels = useQuery({ queryKey: ['inbox-channels'], queryFn: channelsApi.list });
+  const channels = useQuery({ queryKey: qk.channels, queryFn: channelsApi.list });
   const operatorQueue = useQuery({
-    queryKey: ['inbox-operator-queue'],
+    queryKey: qk.operatorQueue,
     queryFn: () => dialogsApi.list({ ...DEFAULT_DIALOG_FILTER, needs_operator: true },
       { limit: 1, offset: 0 }, true),
     refetchInterval: POLL_MS,
@@ -186,12 +186,12 @@ export function InboxPage() {
   const startTest = useMutation({
     mutationFn: (personaId: number) => simulationsApi.start(personaId),
     onSuccess: (branch) => {
-      void queryClient.invalidateQueries({ queryKey: ['inbox-simulations'] });
+      void queryClient.invalidateQueries({ queryKey: qk.inboxSimulations });
       void navigate({ search: (current) => ({ ...current, d: -branch.id }) });
     },
   });
   const simulations = useQuery({
-    queryKey: ["inbox-simulations"],
+    queryKey: qk.inboxSimulations,
     queryFn: async () => {
       const items: SimBranchRow[] = [];
       for (let offset = 0; ; offset += 200) {
@@ -205,7 +205,7 @@ export function InboxPage() {
     refetchInterval: 30_000,
   });
 
-  // List: first page refetched every 5 s; the loaded tail is kept between polls.
+  // List: first page refreshed by live events (and a slow poll); the loaded tail is kept.
   const [rows, setRows] = useState<DialogRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -241,7 +241,7 @@ export function InboxPage() {
       .finally(() => setLoadingMore(false));
   };
 
-  // Open dialog: loaded and polled every 5 s (silent after the first load).
+  // Open dialog: refreshed by live events and a slow poll (silent after the first load).
   const loadedOnce = useRef<number | null>(null);
   const detailQuery = useQuery({
     queryKey: qk.dialog(dialogId ?? 0),
@@ -256,7 +256,7 @@ export function InboxPage() {
   });
   const detail = dialogId !== null && dialogId > 0 && detailQuery.data?.dialog.id === dialogId ? detailQuery.data : null;
   const testDetail = useQuery({
-    queryKey: ["inbox-test-dialog", dialogId],
+    queryKey: qk.simulation(-(dialogId ?? 0)),
     queryFn: () => simulationsApi.get(-(dialogId as number)),
     enabled: dialogId !== null && dialogId < 0,
     refetchInterval: POLL_MS,
@@ -321,7 +321,6 @@ export function InboxPage() {
     onSuccess: (cleared, id) => {
       queryClient.setQueryData<DialogDetail>(qk.dialog(id), cleared);
       setRows((prev) => prev.map((r) => (r.id === id ? clearedRow(r) : r)));
-      void queryClient.invalidateQueries({ queryKey: ['dialogs'] });
       void queryClient.invalidateQueries({ queryKey: ['client-chat'] });
       toast.success('Чат очищен');
     },

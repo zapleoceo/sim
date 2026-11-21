@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { ArrowLeft, CheckCheck, ChevronRight, Eraser, Milestone, MoreVertical, Rows3, User, X, Zap } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ChevronRight, Eraser, Milestone, MoreVertical, Rows3, User, Zap } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon, NeedsOperatorBadge, StageChip, StatusBadge } from '@/components/badges';
@@ -135,14 +135,3 @@ export function CompactConversationHeader({
   );
 }
 
-/** Phone banner «нужен оператор»: one or two short lines, hidden with «×» (the «⋮» dot and menu badge stay). */
-export function CompactOperatorBanner({ onDismiss, text }: { onDismiss: () => void; text?: string }) {
-  return (
-    <div role="alert" className="flex flex-none items-center gap-2 border-b bg-warning/15 py-1 pr-1 pl-3 text-xs leading-snug font-medium">
-      <span className="min-w-0 flex-1">{text ?? 'Нужен ответ оператора. Проверьте состояние ИИ.'}</span>
-      <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Скрыть уведомление" onClick={onDismiss}>
-        <X />
-      </Button>
-    </div>
-  );
-}
