@@ -13,16 +13,13 @@ from typing import Any, Literal, Protocol
 
 from sim.adapters.media import MediaStore
 from sim.ports.llm import LLMError, LLMResult
+from sim.services import instructions
 
 AttachmentKind = Literal["voice", "audio", "image", "file"]
 
 MAX_BYTES = 10 * 1024 * 1024
 TEXT_LIMIT = 8000
 VISION_WORKFLOW = "preview-vision"
-VISION_PROMPT = (
-    "Опиши по-русски, что на изображении, коротко и по делу (2-5 предложений). "
-    "Если на нём есть текст, перепиши его дословно."
-)
 TEXT_SUFFIXES = frozenset({"txt", "md", "csv", "json", "log", "html", "xml", "yaml", "yml"})
 AUDIO_SUFFIXES = frozenset({"ogg", "oga", "opus", "mp3", "m4a", "wav", "webm", "aac", "flac"})
 IMAGE_SUFFIXES = frozenset({"jpg", "jpeg", "png", "webp", "gif"})
@@ -111,7 +108,7 @@ class PreviewAttachments:
         url = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
         result = await self.vision.chat(
             [{"role": "user", "content": [
-                {"type": "text", "text": VISION_PROMPT},
+                {"type": "text", "text": instructions.text("vision_prompt")},
                 {"type": "image_url", "image_url": {"url": url}},
             ]}],
             capability="vision", workflow=VISION_WORKFLOW,

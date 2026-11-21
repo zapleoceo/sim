@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.adapters.db.models import AdminUser, Client, Dialog, DialogEvent, Persona
 from sim.adapters.db.repositories.conversations import DialogEventRepo
 from sim.clock import Clock, utcnow
+from sim.services import instructions
 from sim.services.conversation_memory import conversational_memory, conversational_next_step
 
 STAGE = "stage"
@@ -256,7 +257,7 @@ class CommunicationJournal:
                     and event.created_at >= recent):
                 # The answered-call writer recorded that some speech might not have played.
                 # Do not import transport causes or claim a connection failed before answer.
-                lines.append(f"- {event.created_at:%Y-%m-%d %H:%M} В звонке часть ответа могла не прозвучать.")
+                lines.append(f"- {event.created_at:%Y-%m-%d %H:%M} {instructions.text('call_issue_fact')}")
                 continue
             if event.kind not in CONVERSATION_FACTS:
                 continue

@@ -10,7 +10,8 @@ from sim.adapters.db.models import Dialog, DialogSummary, Persona
 from sim.adapters.db.session import transaction
 from sim.domain.enums import Delivery
 from sim.services.app_settings import AppSettingsService
-from sim.services.call_prompt import CALL_HISTORY_CHARS, CALL_HISTORY_TRIMMED, chat_transcript
+from sim.services.call_prompt import CALL_HISTORY_CHARS, chat_transcript
+from sim.services.instructions import CALL_HISTORY_TRIMMED
 from sim.services.journal import CHAT_CLEARED, NOTES, CommunicationJournal
 from sim.services.prompt import Turn
 from tests.conftest import inbound

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.adapters.db.models import Message
 from sim.adapters.db.repositories.conversations import MessageRepo
 from sim.clock import Clock, utcnow
+from sim.services import instructions
 from sim.services.ai_media import history_text
 
 MIN_MESSAGES = 10          # the floor: the latest exchange is always read word for word
@@ -52,9 +53,7 @@ class Window:
         """The line of the context that states a cut; "" when nothing was cut."""
         if not self.trimmed:
             return ""
-        return (f"ИСТОРИЯ ОБРЕЗАНА: за последние {self.hours} ч сообщений больше, чем помещается "
-                f"в лимит контекста. {self.trimmed} самых старых из них в историю выше не вошли; "
-                "что было раньше, смотри в саммари.")
+        return instructions.fill("history_trimmed", hours=self.hours, trimmed=self.trimmed)
 
 
 def fit(messages: list[Message], token_limit: int) -> tuple[list[Message], int, int]:

@@ -37,6 +37,7 @@ from sim.adapters.db.models import Dialog, Message
 from sim.adapters.db.repositories.conversations import MessageRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import Author, Delivery, Direction, MediaKind
+from sim.services import instructions
 from sim.services.persona_clock import local_time
 from sim.services.persona_routine import doing_now
 from sim.services.prompt import MEDIA_DECLINE, MEDIA_LATER, MEDIA_SEND
@@ -106,10 +107,6 @@ BROKER_REFUSAL = re.compile(r"\bHTTP 4\d\d\b")
 # ---- the context of the next replies ----------------------------------------------------------
 CONTEXT_RECORDS = 3
 CONTEXT_HOURS = 24
-EARLIER = (
-    "РАНЕЕ ПО МЕДИА (записала система, это было на самом деле; не противоречь этим решениям, а "
-    "если причину уже назвала, держись её и новых не придумывай):"
-)
 STEM_MIN = 4
 WORD = re.compile(rf"[a-zа-яё]{{{STEM_MIN},}}")
 
@@ -128,7 +125,6 @@ GENERAL_MEDIA_REQUEST = re.compile(
     r"(?:пришли|скинь|отправь)\s+(?:мне\s+)?"
     r"(фото|фотку|селфи|кружок|кружочек)(?:\s*[,.]?\s+пожалуйста)?[.!?]*"
 )
-NEUTRAL_MEDIA_SCENE = "нейтральный синтетический кадр с персонажем на простом фоне"
 
 
 def general_media_request_kind(text: str) -> MediaKind | None:
@@ -382,4 +378,4 @@ class MediaDecisionLog:
             for row, decision in await self.recent(dialog_id, CONTEXT_RECORDS)
             if row.created_at >= since
         ]
-        return "\n".join([EARLIER, *lines]) if lines else ""
+        return "\n".join([instructions.text("media_earlier"), *lines]) if lines else ""

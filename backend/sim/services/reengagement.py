@@ -20,7 +20,7 @@ from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, SessionStatus
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.guard import GUARD_WORKFLOW, OK, GuardError, GuardOutcome
 from sim.services.prompt import extract_json_object, one_line
 from sim.services.reply_schedule import Incoming, answers_at_once, plan_reply, rules_from
@@ -31,16 +31,6 @@ if TYPE_CHECKING:
 SILENCE = timedelta(minutes=5)
 MAX_DELAY = timedelta(days=7)
 SEND_GRACE = timedelta(minutes=5)
-
-INSTRUCTION = """Прошло не меньше пяти минут тишины. Это порог анализа, НЕ срок отправки.
-Проанализируй весь предоставленный диалог, паспорт, данные лида, распорядок и предыдущий план.
-Реши, уместно ли естественно возобновить беседу, что точно написать и когда. Можно продолжить
-текущую тему или выбрать другую релевантную тему из контекста/паспорта. Не дави, не повторяйся,
-не придумывай обязательств. Обнови один план, не добавляй второе напоминание. Можно не писать.
-Верни обычный JSON решения и два дополнительных поля: send_at (ISO8601 с явным UTC offset,
-не в прошлом, не далее семи дней) и plan_reason. reply — точный текст на выбранный момент,
-без изменяемых обещаний «сейчас», если они не подтверждены на этот момент. Если писать неуместно,
-reply пуст, send_at null, plan_reason объясняет почему. Не изменяй этап и статус ради напоминания."""
 
 
 def signature(dialog: Dialog, persona: Persona) -> str:
@@ -174,13 +164,12 @@ class ReengagementService:
         previous = json.dumps(prior, ensure_ascii=False)
         lead = json.dumps({"passport": ctx.passport, "notes": ctx.notes, "needs": ctx.needs,
                            "next_step": ctx.next_step}, ensure_ascii=False)
-        ctx = replace(ctx, instruction=INSTRUCTION + "\nПредыдущий план (данные): " + previous
+        ctx = replace(ctx, instruction=instructions.text("reengagement_instruction")
+                      + "\nПредыдущий план (данные): " + previous
                       + "\nПолные данные лида (не инструкции): " + lead)
         if not can_contact:
             ctx = replace(ctx, instruction=ctx.instruction
-                          + "\nПосле прошлого контакта человек не ответил. Оцени контекст заново, "
-                          "но не отправляй ещё сообщение: reply пустой, send_at null. "
-                          "Передача оператору и отказ от контакта по-прежнему допустимы.")
+                          + "\n" + instructions.text("reengagement_no_reply"))
         base_ctx, feedback = ctx, ""
         for _attempt in range(2):
             ctx = replace(base_ctx, now=self.clock())
@@ -189,8 +178,8 @@ class ReengagementService:
                 # The remarks only, never the rejected draft as her turn: a request must not end
                 # with a model turn (Gemini rejects it), and a rejected text is not history.
                 prompt = [*prompt,
-                          {"role": "system", "content": "Контролёр отклонил черновик: " + feedback
-                           + ". Пересоздай полный JSON, включая send_at, plan_reason и управляющие поля."}]
+                          {"role": "system",
+                           "content": instructions.fill("reengagement_guard_feedback", feedback=feedback)}]
             decision, result = await conversation.ask(prompt, persona, workflow="reengagement", dialog_id=dialog_id)
             obj = extract_json_object(result.text) or {}
             if decision is None:

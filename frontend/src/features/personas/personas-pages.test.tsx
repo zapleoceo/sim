@@ -21,7 +21,7 @@ function backend(extra: Record<string, unknown> = {}) {
     'GET /api/personas': { items: [MARINA] },
     'GET /api/strategies': { items: [] },
     'GET /api/models': { items: [{ id: 'gpt-x', name: 'GPT X', subscription: true, available: true }] },
-    'GET /api/settings': { items: [], fixed: { persona: '', guard: '' } },
+    'GET /api/settings': { items: [] },
     ...extra,
   });
 }

@@ -10,10 +10,11 @@ from sim.adapters.db.models import Persona
 from sim.adapters.db.session import transaction
 from sim.ports.llm import LLMError, LLMResult, LLMTerminalError
 from sim.services.app_settings import AppSettingsService
-from sim.services.guard import IDENTITY_CONTROL
+from sim.services.guard import identity_control
+from sim.services.instructions import IDENTITY_BOUNDARY
 from sim.services.llm_audit import AuditedLLM
 from sim.services.model_routing import identity_question, routed_chat, selected_model
-from sim.services.prompt import IDENTITY_BOUNDARY, Turn
+from sim.services.prompt import Turn
 from tests.conftest import decision_json, guard_json
 from tests.test_api_smoke import owner
 from tests.test_broker_reconciliation import MESSAGES, adapter
@@ -54,7 +55,7 @@ async def test_conflicting_instructions_cannot_remove_honesty_from_routes_and_re
     for messages, _ in fake_llm.gen_calls:
         assert messages[0]["content"].endswith(IDENTITY_BOUNDARY)
     (guard_call,) = fake_llm.guard_calls
-    assert guard_call[0][0]["content"].endswith(IDENTITY_CONTROL)
+    assert guard_call[0][0]["content"].endswith(identity_control())
     assert json.loads(guard_call[0][1]["content"])["draft_reply"] == dishonest
     repair, _ = fake_llm.gen_calls[-1]
     assert repair[-1]["role"] == "system" and "(тип: review)" in repair[-1]["content"]

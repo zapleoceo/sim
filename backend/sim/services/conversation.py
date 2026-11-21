@@ -23,7 +23,7 @@ from sim.domain.enums import Author, ClientStatus, Delivery, Direction, MediaKin
 from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMError, LLMResult
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
@@ -36,7 +36,6 @@ from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import (
-    NEUTRAL_MEDIA_SCENE,
     MediaDecision,
     general_media_request_kind,
 )
@@ -171,7 +170,7 @@ def with_neutral_scene(decision: Decision | None, kind: MediaKind | None) -> Dec
             or decision.media.kind is not kind or not is_neutral_media_acknowledgement(decision.reply)
             or decision.handoff_to_operator or decision.refused or decision.stop_contact):
         return decision
-    return replace(decision, media=replace(decision.media, scene=NEUTRAL_MEDIA_SCENE))
+    return replace(decision, media=replace(decision.media, scene=instructions.text("neutral_media_scene")))
 
 
 def decision_fields(decision: Decision) -> dict[str, Any]:
@@ -703,7 +702,7 @@ class ConversationService:
                 dialog_id=dialog_id, whole_history=whole_history)
             decision = with_neutral_scene(decision, neutral_media_kind)
             if decision is None or not decision.reply:
-                hint = "Повтори полный JSON-ответ по фактам разговора (тип: format)."
+                hint = instructions.fill("repair_nudge", code="format")
                 continue
             if advice:   # the rewrite after the guard's remarks: it goes out, remarks recorded
                 return Draft(decision, result, await self.touched(
@@ -713,8 +712,8 @@ class ConversationService:
             if guard.allowed or attempt:
                 return Draft(decision, result, await self.touched(replace(guard, verdict=OK)))
             advice = list(guard.violations)
-            hint = ("Повтори полный JSON-ответ по фактам разговора (тип: review). "
-                    "Рекомендации контролёра, учти их: " + "; ".join(advice))
+            hint = " ".join([instructions.fill("repair_nudge", code="review"),
+                             instructions.text("guard_advice_note"), "; ".join(advice)])
         return Draft(decision, result, None, "решение не содержит корректного ответа")
 
     async def generate(  # noqa: PLR0913

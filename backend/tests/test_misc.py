@@ -114,7 +114,7 @@ async def test_apply_persona_prompts_overwrites_seeded_texts(container):
 
 def test_prompt_template_unified_structure():
     from sim.persona_prompts import MARINA_PROMPT
-    from sim.services.prompt import LINK_CONTRACT, UNIFIED_BOUNDARIES
+    from sim.services.instructions import LINK_CONTRACT, UNIFIED_BOUNDARIES
 
     system = stable_system_prompt(
         PersonaProfile(name="Марина", agent_prompt=MARINA_PROMPT),

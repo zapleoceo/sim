@@ -5,22 +5,25 @@ Each key has a spec with its code default. A missing row means "use the default"
 value that no longer validates (the spec changed) is ignored with a warning. Defaults of the
 keys that used to be environment settings come from the environment (`env_defaults`).
 
-Every prompt sent to a model is editable: the persona prompt is the persona's own text, the
-guard prompt and the service prompts live here. The fixed guard text is the decision consistency contract
-(`guard.GUARD_CONTROL`) and a fixed truthful identity boundary, independent of routing."""
+Every prompt sent to a model is editable: the persona prompt is the persona's own text; the guard,
+passport and summary prompts and every text the code adds to a model request live here (the
+«Промпт · …» groups, in the order they act; defaults in sim.services.instructions). Nothing is
+fixed or hidden in code. Reading the settings publishes those texts (`instructions.publish`)."""
 from __future__ import annotations
 
 import logging
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Any, Literal
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sim.adapters.db.repositories.settings import AppSettingRepo
+from sim.adapters.db.session import transaction
 from sim.config import Settings
+from sim.services import instructions
 from sim.services.content import CAPTION_RULES
 from sim.services.guard import GUARD_PROMPT
 from sim.services.owner_accounts import parse_ids
@@ -37,6 +40,130 @@ SCHEDULE_GROUP = "Время ответа по распорядку"
 OWNER_GROUP = "Аккаунты владельца"
 CAPABILITY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,79}$")
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,119}$")
+
+
+PROMPT_REPLY = "Промпт · 1. Ответ в чате: правила"
+PROMPT_CONTEXT = "Промпт · 2. Ответ в чате: контекст"
+PROMPT_CALL = "Промпт · 3. Звонок"
+PROMPT_GUARD = "Промпт · 4. Проверка охранником"
+PROMPT_FOLLOWUP = "Промпт · 5. Напоминания и продолжения"
+PROMPT_MEDIA = "Промпт · 6. Фото и кружочки"
+PROMPT_EXTRA = "Промпт · 7. Вложения и подписи постов"
+
+# key, group, label, where and when the text is applied. The default is `instructions.DEFAULTS[key]`.
+INSTRUCTION_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    ("link_contract", PROMPT_REPLY, "Правило ссылок",
+     "Системный промпт каждого ответа и звонка: сразу после промпта персонажа и распорядка."),
+    ("unified_boundaries", PROMPT_REPLY, "Обязательные границы",
+     "Системный промпт каждого ответа и звонка, после правила ссылок."),
+    ("identity_boundary", PROMPT_REPLY, "Честное раскрытие ИИ",
+     "Последний абзац системного промпта каждого ответа и звонка. Этот же текст открывает "
+     "правило охранника «Проверка раскрытия ИИ»."),
+    ("repair_nudge", PROMPT_REPLY, "Повтор после отклонения",
+     "Вторая попытка ответа, когда первый ответ не разобрался или охранник его отклонил. "
+     "{code}: format или review."),
+    ("guard_advice_note", PROMPT_REPLY, "Перед замечаниями охранника",
+     "Вторая попытка ответа после замечаний охранника: после «Повтор после отклонения», перед "
+     "самими замечаниями."),
+    ("routine_header", PROMPT_CONTEXT, "Заголовок распорядка",
+     "Перед строками распорядка персонажа в системном промпте (если распорядок заполнен)."),
+    ("facts_header", PROMPT_CONTEXT, "Заголовок точных данных",
+     "Начало контекста ответа: перед датой, временем, возрастом и распорядком на сейчас, "
+     "которые считает код."),
+    ("delay_pause_note", PROMPT_CONTEXT, "Задержка: была пауза ИИ",
+     "Строка о задержке ответа, когда ответы стояли на паузе ИИ."),
+    ("delay_routine_hint", PROMPT_CONTEXT, "Задержка: по распорядку",
+     "Строка о задержке ответа, когда персонаж был занят по распорядку."),
+    ("delay_pause_hint", PROMPT_CONTEXT, "Задержка: после паузы",
+     "Строка о задержке ответа после паузы ИИ без дела по распорядку."),
+    ("context_header", PROMPT_CONTEXT, "Заголовок контекста разговора",
+     "Контекст каждого ответа и звонка: перед этапом, статусом, потребностями и ссылками."),
+    ("known_contact_rule", PROMPT_CONTEXT, "Правило про известное имя",
+     "Строка контекста ответа после имени и username собеседника."),
+    ("handoff_links_header", PROMPT_CONTEXT, "Заголовок ссылок в другие каналы",
+     "Контекст ответа, если у персонажа есть другие каналы: перед списком ссылок."),
+    ("contact_profile_note", PROMPT_CONTEXT, "Профиль собеседника",
+     "Контекст ответа, когда персонаж прочитал профиль собеседника в Telegram (по его просьбе)."),
+    ("contact_photo_note", PROMPT_CONTEXT, "Фото профиля собеседника",
+     "Подпись к фото профиля собеседника, которое уходит модели вместе с ответом."),
+    ("passport_header", PROMPT_CONTEXT, "Заголовок паспорта",
+     "Контекст ответа и звонка: перед паспортом собеседника."),
+    ("summary_header", PROMPT_CONTEXT, "Заголовок саммари",
+     "Контекст ответа и звонка: перед саммари старой переписки. {until}: до какого времени оно."),
+    ("journal_header", PROMPT_CONTEXT, "Заголовок фактов журнала",
+     "Контекст ответа и звонка: перед служебными событиями диалога."),
+    ("history_trimmed", PROMPT_CONTEXT, "История обрезана",
+     "Контекст ответа, когда окно не поместилось в лимит токенов. {hours}, {trimmed}: часы окна "
+     "и число отрезанных сообщений."),
+    ("attachment_note", PROMPT_CONTEXT, "Распознанное вложение",
+     "Перед распознанным содержимым вложения клиента в тексте его сообщения."),
+    ("attachment_failed_note", PROMPT_CONTEXT, "Нераспознанное вложение",
+     "Вместо содержимого вложения, которое распознать не удалось."),
+    ("call_rules", PROMPT_CALL, "Правила звонка",
+     "Промпт голосовой модели: после промпта персонажа (без формата ответа)."),
+    ("call_identity", PROMPT_CALL, "Кто ты на звонке",
+     "Промпт звонка после правил. {name}: имя персонажа."),
+    ("call_greeting", PROMPT_CALL, "Первая реплика",
+     "Первое сообщение голосовой модели, когда персонаж взял трубку."),
+    ("call_history_header", PROMPT_CALL, "Заголовок переписки до звонка",
+     "Промпт звонка: перед перепиской этого диалога."),
+    ("call_history_trimmed", PROMPT_CALL, "Переписка сокращена",
+     "Первая строка переписки в промпте звонка, если она не поместилась целиком."),
+    ("call_issue_fact", PROMPT_CALL, "Факт журнала о сбое звонка",
+     "Строка фактов журнала в следующих ответах (сутки), если в звонке часть ответа могла не прозвучать."),
+    ("guard_control", PROMPT_GUARD, "Проверка решения целиком",
+     "Промпт охранника, сразу после его основного промпта (страница «Помощники»)."),
+    ("guard_fact_control", PROMPT_GUARD, "Проверяемые факты",
+     "Промпт охранника, после проверки решения."),
+    ("guard_voice_control", PROMPT_GUARD, "Голосовые ответы",
+     "Промпт охранника, после проверяемых фактов."),
+    ("guard_media_control", PROMPT_GUARD, "Медиа по запросу",
+     "Промпт охранника, после правила голосовых ответов."),
+    ("guard_identity_rule", PROMPT_GUARD, "Проверка раскрытия ИИ",
+     "Последний абзац промпта охранника, сразу после текста «Честное раскрытие ИИ»."),
+    ("followup_event", PROMPT_FOLLOWUP, "Плановое напоминание",
+     "Контекст ответа-напоминания, когда клиент молчит. {step}, {total}: номер и число "
+     "напоминаний; {hours}: сколько часов молчит; {last}: да или нет."),
+    ("reengagement_instruction", PROMPT_FOLLOWUP, "Продолжение после тишины",
+     "Контекст плана продолжения беседы после пяти минут тишины. Должен требовать send_at и "
+     "plan_reason, иначе план не разберётся."),
+    ("reengagement_no_reply", PROMPT_FOLLOWUP, "Продолжение: человек не ответил",
+     "Добавляется к продолжению, если после прошлого сообщения персонажа клиент не ответил."),
+    ("reengagement_guard_feedback", PROMPT_FOLLOWUP, "Продолжение: замечания охранника",
+     "Повторный план продолжения после замечаний охранника. {feedback}: замечания."),
+    ("media_none", PROMPT_MEDIA, "Медиа недоступно",
+     "Контекст ответа, когда фото и кружочки сейчас недоступны."),
+    ("media_brief", PROMPT_MEDIA, "Медиа можно приложить",
+     "Контекст ответа, когда можно приложить фото или кружочек. {kinds}: что можно; {values}: "
+     "значения поля kind."),
+    ("media_report", PROMPT_MEDIA, "Отказ или «позже»",
+     "Контекст каждого ответа после блока медиа: как сообщить решение не присылать."),
+    ("media_priority", PROMPT_MEDIA, "Медиа по запросу",
+     "Контекст ответа для контактов из «Telegram id: медиа по запросу»."),
+    ("media_earlier", PROMPT_MEDIA, "Прошлые решения по медиа",
+     "Контекст ответа: перед решениями по медиа за последние сутки."),
+    ("neutral_media_scene", PROMPT_MEDIA, "Нейтральная сцена",
+     "Сцена фото или кружочка, когда клиент просто попросил медиа, а персонаж ответил согласием."),
+    ("photo_frame", PROMPT_MEDIA, "Кадр фото",
+     "Первая строка запроса к модели фото персонажа."),
+    ("video_note_frame", PROMPT_MEDIA, "Кадр кружочка",
+     "Первая строка запроса к модели кружочка персонажа."),
+    ("shot_person", PROMPT_MEDIA, "Кто в кадре",
+     "Запрос фото и кружочка после вида кадра. {who}: пол и возраст персонажа."),
+    ("shot_light", PROMPT_MEDIA, "Освещение кадра",
+     "Запрос фото и кружочка после сцены. {light}: ночь, утро, день или вечер по её часам."),
+    ("shot_rules", PROMPT_MEDIA, "Ограничения кадра",
+     "Последняя строка запроса фото и кружочка."),
+    ("vision_prompt", PROMPT_EXTRA, "Описание картинки в превью",
+     "Запрос к модели зрения, когда в превью персонажа прикладывают изображение."),
+    ("caption_intro", PROMPT_EXTRA, "Подпись поста: роль",
+     "Системный промпт подписи поста Instagram. {name}, {agent_prompt}, {language}: имя, "
+     "промпт и язык персонажа."),
+    ("caption_request", PROMPT_EXTRA, "Подпись поста: запрос",
+     "Сообщение модели при генерации подписи. {kind}: тип поста; {idea}: идея или черновик."),
+    ("caption_default_idea", PROMPT_EXTRA, "Подпись поста: идея по умолчанию",
+     "Подставляется в {idea}, если идея поста не указана."),
+)
 
 
 class SettingError(ValueError):
@@ -91,7 +218,25 @@ class SettingSpec:
         return text
 
 
-SPECS: tuple[SettingSpec, ...] = (
+def instruction_specs(*groups: str) -> tuple[SettingSpec, ...]:
+    return tuple(SettingSpec(key, group, label, where, "text", instructions.DEFAULTS[key])
+                 for key, group, label, where in INSTRUCTION_SPECS if group in groups)
+
+
+SPECS: tuple[SettingSpec, ...] = instruction_specs(PROMPT_REPLY) + (
+    SettingSpec("output_contract", PROMPT_REPLY, "Формат ответа персонажа",
+                "Системный промпт каждого ответа после обязательных границ: какой JSON вернуть. Если "
+                "сломать формат, ответы перестанут разбираться. В звонке не используется.",
+                "text", OUTPUT_CONTRACT),
+    SettingSpec("retry_nudge", PROMPT_REPLY, "Повтор при неверном ответе",
+                "Что сказать модели, если её ответ не разобрался как JSON.",
+                "text", RETRY_NUDGE),
+) + instruction_specs(PROMPT_CONTEXT, PROMPT_CALL, PROMPT_GUARD, PROMPT_FOLLOWUP, PROMPT_MEDIA,
+                       PROMPT_EXTRA) + (
+    SettingSpec("caption_rules", PROMPT_EXTRA, "Подпись поста: правила",
+                "Системный промпт подписи поста Instagram, после роли: требования к тексту.",
+                "text", CAPTION_RULES),
+) + (
     SettingSpec("incoming_media_subscription", "Входящие вложения", "Распознавание по подписке",
                 "0 — прежний режим; 1 — изображения, UTF-8 документы и кадры видео через "
                 "разрешённую подписочную Terra. Звук, PDF и Office не распознаются; "
@@ -213,16 +358,6 @@ SPECS: tuple[SettingSpec, ...] = (
                 "Числовой Telegram id единственного аккаунта, которому можно отправлять "
                 "сгенерированные ИИ кружочки. 0: кружочки не отправляются никому.",
                 "int", 0, 0, 9_999_999_999_999),
-    SettingSpec("output_contract", "Служебные промпты", "Формат ответа персонажа",
-                "Добавляется в конец промпта персонажа: какой JSON вернуть. Если сломать формат, "
-                "ответы перестанут разбираться.",
-                "text", OUTPUT_CONTRACT),
-    SettingSpec("retry_nudge", "Служебные промпты", "Повтор при неверном ответе",
-                "Что сказать модели, если её ответ не разобрался как JSON.",
-                "text", RETRY_NUDGE),
-    SettingSpec("caption_rules", "Контент", "Правила подписей",
-                "Требования к подписи поста в Instagram.",
-                "text", CAPTION_RULES),
     SettingSpec("trace_retention_days", "Журнал", "Хранить журнал, дней",
                 "Сколько дней хранить записи журнала системы (Активность → Журнал). 0 — не удалять.",
                 "int", None, 0, 365),
@@ -334,6 +469,8 @@ class AppSettingsService:
             raise SettingError(f"unknown setting {key!r}") from None
 
     async def items(self) -> list[SettingItem]:
+        """Every setting with its value in force; publishes the instruction texts as a side effect,
+        so a prompt built after any settings read in this process uses the owner's texts."""
         rows = {row.key: row for row in await self.repo.all()}
         out = []
         for spec in SPECS:
@@ -343,10 +480,13 @@ class AppSettingsService:
                 out.append(SettingItem(spec, default, default))
             else:
                 out.append(SettingItem(spec, value, default, row.updated_at, row.updated_by_id))
+        instructions.publish({item.spec.key: item.value for item in out})
         return out
 
     async def load(self) -> AppSettings:
-        return AppSettings(**{item.spec.key: item.value for item in await self.items()})
+        names = {field.name for field in fields(AppSettings)}
+        return AppSettings(**{item.spec.key: item.value for item in await self.items()
+                              if item.spec.key in names})
 
     async def item(self, key: str) -> SettingItem:
         return next(item for item in await self.items() if item.spec.key == key)
@@ -374,3 +514,13 @@ async def trace_retention_days(session: AsyncSession, settings: Settings) -> int
     """How long the system log is kept: the owner setting, else SIM_TRACE_RETENTION_DAYS."""
     item = await AppSettingsService(session, env_defaults(settings)).item("trace_retention_days")
     return int(item.value)
+
+
+async def publish_instructions(factory: async_sessionmaker[AsyncSession], settings: Settings) -> None:
+    """At process start: publish the owner's model texts before the first prompt is built. A
+    failure keeps the code defaults; the next settings read publishes them again."""
+    try:
+        async with transaction(factory) as s:
+            await AppSettingsService(s, env_defaults(settings)).items()
+    except Exception:
+        log.exception("owner instructions not loaded at start; code defaults until the next read")

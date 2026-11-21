@@ -25,8 +25,8 @@ from sim.services import jobkinds
 from sim.services.ai_media import AI_LABEL, AI_PHOTO_PREFIX, MEDIA_URL, history_text, is_ai_photo
 from sim.services.app_settings import BY_KEY, AppSettingsService
 from sim.services.conversation import ConversationService, decision_fields, history_turns
+from sim.services.instructions import NEUTRAL_MEDIA_SCENE, NO_MEDIA
 from sim.services.media_decisions import (
-    NEUTRAL_MEDIA_SCENE,
     QUEUED,
     REFUSED,
     UNAVAILABLE,
@@ -35,7 +35,6 @@ from sim.services.media_decisions import (
 )
 from sim.services.outbound import media_caption
 from sim.services.persona_media_tool import (
-    NO_MEDIA,
     PHOTO_FAILED,
     PHOTO_WORKFLOW,
     Offer,

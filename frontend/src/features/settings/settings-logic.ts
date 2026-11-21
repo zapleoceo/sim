@@ -5,6 +5,13 @@ export const AGENT_KEYS = [
   'guard_model', 'guard_prompt', 'passport_model', 'passport_prompt', 'summary_model', 'summary_prompt',
 ] as const;
 
+/** Groups of the texts the code adds to model requests, in the order they act (backend owns names and order). */
+export const PROMPT_GROUPS = {
+  reply: 'Промпт · 1. Ответ в чате: правила',
+  context: 'Промпт · 2. Ответ в чате: контекст',
+  guard: 'Промпт · 4. Проверка охранником',
+} as const;
+
 export type SettingPage = '/settings' | '/agents';
 
 /** The page a shared setting is edited on. */

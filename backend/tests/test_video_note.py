@@ -44,8 +44,8 @@ from sim.ports.video import VideoError, VideoResult
 from sim.services import jobkinds
 from sim.services.ai_media import is_ai_video
 from sim.services.app_settings import BY_KEY, AppSettingsService
+from sim.services.instructions import NEUTRAL_MEDIA_SCENE
 from sim.services.media_decisions import (
-    NEUTRAL_MEDIA_SCENE,
     QUEUED,
     SEND_FAILED,
     SENT,

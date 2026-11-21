@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from sim.config import settings
+from sim.services.app_settings import publish_instructions
 from sim.wiring import build_container
 from sim.worker.loop import Worker
 
@@ -12,6 +13,7 @@ from sim.worker.loop import Worker
 async def main() -> None:
     container = build_container(settings())
     try:
+        await publish_instructions(container.factory, container.settings)
         await Worker(container).run()
     finally:
         await container.aclose()
