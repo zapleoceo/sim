@@ -35,6 +35,7 @@ from sim.call_scope import call_scope
 from sim.db.models import Chat, Client, Persona, ReplyRun
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
+from sim.domain.ai_gate import AiBlock, ai_block
 from sim.domain.enums import EventKind, LlmPurpose, RunStatus
 from sim.domain.memory import with_notes
 from sim.domain.plan import ReplyPlan
@@ -53,7 +54,7 @@ from sim.services.llm_log import describe_messages, logged_call
 from sim.services.memory.recall import Recollection, recollect
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.presence import mark_read, show_busy, stop_busy
-from sim.services.turn_state import Unanswered, ai_allowed, newer_client_message, unanswered
+from sim.services.turn_state import Unanswered, newer_client_message, unanswered
 
 log = logging.getLogger(__name__)
 
@@ -173,10 +174,11 @@ class ReplyService:
                 return TurnResult(None, reason="chat not found")
             persona = await session.get(Persona, chat.persona_id)
             client = await session.get(Client, chat.client_id)
-            if not ai_allowed(persona, client, chat) or persona is None:
-                return TurnResult(None, reason="AI is off")
-            if chat.needs_operator:
+            blocked = ai_block(persona, client, chat)
+            if blocked == AiBlock.NEEDS_OPERATOR:
                 return TurnResult(None, reason="waiting for an operator")
+            if blocked is not None or persona is None:
+                return TurnResult(None, reason="AI is off")
             waiting = await unanswered(session, chat_id)
             if waiting is None:
                 return TurnResult(None, reason="nothing to answer")
@@ -304,7 +306,7 @@ class ReplyService:
 
     def _action_context(self, turn: _Turn) -> ActionContext:
         return ActionContext(deps=self.deps, persona=turn.persona, chat_id=turn.chat_id,
-                             reply_run_id=turn.run_id)
+                             reply_run_id=turn.run_id, writing=turn.ctx.writing)
 
     async def _prepare(self, turn: _Turn, plan: ReplyPlan) -> list[Any]:
         actx = self._action_context(turn)
@@ -333,7 +335,7 @@ class ReplyService:
             skip_reason = ""
             if await newer_client_message(session, chat.id, run.trigger_event_id or 0):
                 skip_reason, requeue = "пришло новое сообщение, ответ пересобран", True
-            elif not ai_allowed(persona, client, chat) or chat.needs_operator:
+            elif ai_block(persona, client, chat) is not None:
                 skip_reason = "ИИ выключили, пока готовился ответ"
             if skip_reason:
                 run.status = RunStatus.SKIPPED

@@ -1,5 +1,8 @@
-"""TelegramMessenger over a fake Telethon client: send kinds, throttling, error mapping."""
+"""TelegramMessenger over a fake Telethon client: send kinds, throttling, error mapping,
+idempotent retries (the same random_id for the same message)."""
 from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
 from telethon import errors, types
@@ -13,7 +16,9 @@ from sim.telegram.messenger import (
     chunks,
     file_name,
     to_port_error,
+    warn_if_not_round,
 )
+from sim.telegram.sending import is_duplicate, random_id, sent_id
 from tests.fakes.telegram import FakeRuntime, FakeTelethonClient, RecordingSleep
 
 PEER = Peer(external_id="1001", access_hash="555")
@@ -191,14 +196,90 @@ def test_every_chat_action_maps_to_a_telethon_type():
     assert type(chat_action("cancel")).__name__ == "SendMessageCancelAction"
 
 
+def answer(message_id: int, attributes: list[object]) -> types.Updates:
+    message = SimpleNamespace(id=message_id, media=SimpleNamespace(
+        document=SimpleNamespace(attributes=attributes)))
+    return types.Updates(updates=[types.UpdateNewMessage(message=message, pts=1, pts_count=1)],
+                         users=[], chats=[], date=None, seq=0)
+
+
 def test_a_non_round_delivery_is_logged(caplog):
-    from types import SimpleNamespace
-
-    from sim.telegram.messenger import warn_if_not_round
-
+    round_video = types.DocumentAttributeVideo(duration=1, w=640, h=640, round_message=True)
     with caplog.at_level("WARNING", logger="sim.telegram.messenger"):
-        warn_if_not_round(SimpleNamespace(id=5, video_note=object()))
+        warn_if_not_round(answer(5, [round_video]))
+        warn_if_not_round(None)                        # a duplicate retry: nothing to check
     assert caplog.records == []
     with caplog.at_level("WARNING", logger="sim.telegram.messenger"):
-        warn_if_not_round([SimpleNamespace(id=6, video_note=None)])
+        warn_if_not_round(answer(6, []))
     assert "video note 6 was not delivered as a round message" in caplog.text
+
+
+# --- idempotent sends ---------------------------------------------------------------------
+
+
+def test_random_id_is_stable_per_message_channel_and_part():
+    assert random_id(3, 42) == random_id(3, 42)
+    assert 0 < random_id(3, 42) < 2 ** 63
+    assert len({random_id(3, 42), random_id(4, 42), random_id(3, 43),
+                random_id(3, 42, 1)}) == 4
+    assert random_id(3, None) != random_id(3, None)         # no key: a fresh one each time
+
+
+@pytest.mark.parametrize("kind", ["text", "voice", "video_note", "photo", "file"])
+async def test_a_retry_after_a_lost_answer_is_not_delivered_twice(kind):
+    """The first attempt reached Telegram but the answer timed out (retryable). The retry
+    sends the same random_id; Telegram refuses the duplicate and it counts as sent."""
+    messenger, client, _, _ = await make()
+    client.lost_answers = 1
+    message = OutboundMessage(peer=PEER, kind=kind, text="привет", data=b"D", key=42)
+    with pytest.raises(PortError) as info:
+        await messenger.send(3, message)
+    assert info.value.retryable
+    assert await messenger.send(3, message) is None
+    [sent] = client.sent
+    assert sent["random_id"] == random_id(3, 42)
+
+
+async def test_same_message_id_gives_the_same_random_id_on_every_attempt():
+    messenger, client, _, _ = await make()
+    client.errors.append(ConnectionError("dropped"))       # never reached Telegram
+    message = OutboundMessage(peer=PEER, kind="voice", data=b"OGG", key=7)
+    with pytest.raises(PortError):
+        await messenger.send(3, message)
+    external_id = await messenger.send(3, message)
+    [sent] = client.sent
+    assert external_id == str(sent["id"])
+    assert sent["random_id"] == random_id(3, 7)
+
+
+async def test_a_duplicate_random_id_counts_as_sent():
+    messenger, client, _, _ = await make()
+    client.errors.append(errors.RandomIdDuplicateError(request=None))
+    assert await messenger.send(3, OutboundMessage(peer=PEER, kind="text", text="x",
+                                                   key=9)) is None
+    assert is_duplicate(errors.RandomIdDuplicateError(request=None))
+    assert not is_duplicate(errors.RPCError(request=None, message="X", code=500))
+
+
+async def test_a_retried_long_text_sends_only_the_missing_parts():
+    messenger, client, _, _ = await make()
+    text = ("слово " * 1200).strip()                       # two parts
+    client.lost_answers = 1                                 # part 1 delivered, answer lost
+    message = OutboundMessage(peer=PEER, kind="text", text=text, key=11)
+    with pytest.raises(PortError):
+        await messenger.send(3, message)
+    assert await messenger.send(3, message) is None        # part 1 a duplicate, part 2 sent
+    assert [s["random_id"] for s in client.sent] == [random_id(3, 11, 0), random_id(3, 11, 1)]
+
+
+def test_sent_id_reads_the_answer():
+    rid = random_id(3, 1)
+    short = types.UpdateShortSentMessage(out=True, id=501, pts=1, pts_count=1, date=None)
+    assert sent_id(short, rid) == 501
+    by_random_id = types.Updates(
+        updates=[types.UpdateMessageID(id=777, random_id=random_id(3, 2)),
+                 types.UpdateMessageID(id=502, random_id=rid)],
+        users=[], chats=[], date=None, seq=0)
+    assert sent_id(by_random_id, rid) == 502
+    assert sent_id(answer(503, []), rid) == 503
+    assert sent_id(types.Updates(updates=[], users=[], chats=[], date=None, seq=0), rid) is None

@@ -1,10 +1,11 @@
 """Turning the AI on picks up what is already waiting (docs/reply.md).
 
 Messages that arrived while the AI was off were stored without anyone looking at them. When an
-operator switches the AI on (for a chat or for the whole client), every chat whose AI is now on
-at every level, without an operator flag and with unanswered client messages, counts as a fresh
-notification: the persona gets a phone check by her life (docs/attention.md), exactly as if the
-messages had just arrived. Otherwise she would stay silent until the client writes again."""
+operator switches the AI on (for a chat or for the whole client) or is done with a chat
+(«Оператор разобрался»), every chat the AI may now answer in (the AI gate,
+`sim.domain.ai_gate`) with unanswered client messages counts as a fresh notification: the
+persona gets a phone check by her life (docs/attention.md), exactly as if the messages had just
+arrived. Otherwise she would stay silent until the client writes again."""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -15,7 +16,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Chat, Client, Persona
+from sim.db.models import Chat, Persona
+from sim.services.ai_gate import only_ai_open
 from sim.services.attention.schedule import check_after_notice, queue_check
 from sim.services.turn_state import unanswered
 
@@ -29,17 +31,12 @@ class Wake:
 
 
 async def chats_to_wake(session: AsyncSession, chat_ids: Iterable[int]) -> list[int]:
-    """Chats among `chat_ids` with the AI on at every level and something left unanswered."""
+    """Chats among `chat_ids` the AI may answer in, with something left unanswered."""
     ids = list(chat_ids)
     if not ids:
         return []
     rows = (await session.execute(
-        select(Chat.id)
-        .join(Client, Client.id == Chat.client_id)
-        .join(Persona, Persona.id == Chat.persona_id)
-        .where(Chat.id.in_(ids), Chat.ai_enabled.is_(True), Client.ai_enabled.is_(True),
-               Persona.ai_enabled.is_(True), Chat.needs_operator.is_(False))
-        .order_by(Chat.id)
+        only_ai_open(select(Chat.id).where(Chat.id.in_(ids))).order_by(Chat.id)
     )).scalars().all()
     return [chat_id for chat_id in rows if await unanswered(session, chat_id) is not None]
 

@@ -272,6 +272,9 @@ class Chat(Base):
     # «Отвечать сразу»: this chat skips the phone checks, as «Всегда сразу» (for tests).
     attention_instant: Mapped[bool] = mapped_column(Boolean, default=False,
                                                     server_default=text("false"))
+    # «Без отказов»: she does what this client asks, later if she can not now (docs/writing.md).
+    no_refusals: Mapped[bool] = mapped_column(Boolean, default=False,
+                                              server_default=text("false"))
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True,

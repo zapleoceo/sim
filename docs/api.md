@@ -24,14 +24,15 @@
 | POST | `/chats/{id}/messages` | `{text}` или multipart (`file`, `caption`) — пишет оператор от имени персонажа → `TimelineItem` |
 | POST | `/chats/{id}/ai` | `{enabled}` → `ChatRow` |
 | POST | `/chats/{id}/attention-instant` | `{enabled}` — «Отвечать сразу» в этом чате (без проверок телефона, [attention.md](attention.md)) → `ChatRow` |
+| POST | `/chats/{id}/no-refusals` | `{enabled}` — «Без отказов» в этом чате ([writing.md](writing.md)) → `ChatRow` |
 | POST | `/chats/{id}/read` | → 204 (обнуляет `unread_count`) |
 | POST | `/chats/{id}/notes` | `{text}` — заметка для агента (`operator_note`) → `TimelineItem` |
-| POST | `/chats/{id}/operator-done` | снимает «нужен оператор» → `ChatRow` |
+| POST | `/chats/{id}/operator-done` | снимает «нужен оператор»: событие `ai_toggled` `{enabled: true, scope: "operator"}` и, если клиент писал, пока ждали оператора, — проверка телефона персонажа, как после включения ИИ ([reply.md](reply.md)); повторно — ничего → `ChatRow` |
 | GET | `/reply-runs/{id}` | → `{id, status, context, plan, guard_verdicts, error, llm_calls: [LlmCall]}` |
 
 ```ts
 ChatRow = {id, client: {id, name, username, ai_enabled}, persona: PersonaBrief | null,
-           ai_enabled, attention_instant, needs_operator, unread_count, last_message_at,
+           ai_enabled, attention_instant, no_refusals, needs_operator, unread_count, last_message_at,
            last_message: {kind, direction, author, text} | null,
            persona_status: PersonaStatus}
 PersonaBrief = {id, name, avatar_media_id}     // персонаж, который отвечает в этом чате

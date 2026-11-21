@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Chat, ChatEvent, Client, MediaAsset, Message, Persona, ReplyRun
+from sim.db.models import ChatEvent, MediaAsset, Message, ReplyRun
 from sim.domain.enums import EventKind, RunStatus, UnderstandingStatus
 
 CONSUMED_RUNS = (RunStatus.SENT, RunStatus.BLOCKED)
@@ -22,14 +22,6 @@ CONSUMED_RUNS = (RunStatus.SENT, RunStatus.BLOCKED)
 # her busy level then, and what she was doing.
 LIFE_REFUSED_KEY = "life_busy"
 LIFE_ACTIVITY_KEY = "life_activity"
-
-
-def ai_allowed(persona: Persona | None, client: Client | None, chat: Chat) -> bool:
-    """May `persona` answer in `chat`? It must be the chat's OWN persona (`chat.persona_id`,
-    never another one), active (not archived), and AI must be on for her, the client and the
-    chat. The one rule for incoming messages, replies and calls."""
-    return bool(persona and client and persona.id == chat.persona_id and persona.is_active
-                and persona.ai_enabled and client.ai_enabled and chat.ai_enabled)
 
 
 @dataclass(frozen=True)

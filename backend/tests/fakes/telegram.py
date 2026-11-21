@@ -164,6 +164,8 @@ class FakeTelethonClient:
         self.errors: list[Exception] = []
         self.ids = itertools.count(500)
         self.entities: dict[int, Any] = {}
+        self.random_ids: set[int] = set()
+        self.lost_answers = 0
 
     def is_connected(self) -> bool:
         return self.connected
@@ -204,27 +206,59 @@ class FakeTelethonClient:
     async def get_dialogs(self, limit: int = 0) -> list[Any]:
         return []
 
-    def _next(self, entry: dict[str, Any]) -> Any:
-        if self.errors:
-            raise self.errors.pop(0)
+    # Sending: the messenger builds raw Send*Request with its own random_id; Telethon's private
+    # helpers it uses are faked as identity parse / a dict "media" of the send_file options.
+
+    async def _parse_message_text(self, text: str, parse_mode: Any) -> tuple[str, list[Any]]:
+        return text, []
+
+    async def _file_to_media(self, file: Any, **options: Any) -> tuple[None, Any, bool]:
+        return None, {"name": file.name, "data": file.getvalue(), **options}, False
+
+    def _deliver(self, request: Any) -> Any:
+        """Like Telegram: a repeated random_id is refused, a new one makes a message.
+        `lost_answers` deliveries succeed but their answer never comes (a timeout)."""
+        from telethon import errors, types
+
+        if request.random_id in self.random_ids:
+            raise errors.RandomIdDuplicateError(request=request)
+        self.random_ids.add(request.random_id)
         message_id = next(self.ids)
-        self.sent.append({**entry, "id": message_id})
-        return SimpleNamespace(id=message_id)
-
-    async def send_message(self, entity: Any, text: str) -> Any:
-        return self._next({"kind": "message", "entity": entity, "text": text})
-
-    async def send_file(self, entity: Any, file: Any, **kwargs: Any) -> Any:
-        return self._next({"kind": "file", "entity": entity, "name": file.name,
-                           "data": file.getvalue(), **kwargs})
+        options = getattr(request, "media", None)
+        if isinstance(options, dict):
+            entry = {"kind": "file", "caption": request.message, **options}
+            media = SimpleNamespace(document=SimpleNamespace(
+                attributes=options.get("attributes") or []))
+        else:
+            entry = {"kind": "message", "text": request.message}
+            media = None
+        self.sent.append({**entry, "entity": request.peer, "id": message_id,
+                          "random_id": request.random_id})
+        if self.lost_answers:
+            self.lost_answers -= 1
+            raise TimeoutError("the answer was lost")
+        date = datetime(2026, 11, 21, 18, 0, tzinfo=UTC)
+        if media is None:
+            return types.UpdateShortSentMessage(out=True, id=message_id, pts=1, pts_count=1,
+                                                date=date)
+        return types.Updates(
+            updates=[types.UpdateMessageID(id=message_id, random_id=request.random_id),
+                     types.UpdateNewMessage(message=SimpleNamespace(id=message_id, media=media),
+                                            pts=1, pts_count=1)],
+            users=[], chats=[], date=date, seq=0)
 
     async def send_read_acknowledge(self, entity: Any, *, max_id: int) -> bool:
         self.read.append((entity, max_id))
         return True
 
     async def __call__(self, request: Any) -> Any:
+        from telethon import functions
+
         if self.errors:
             raise self.errors.pop(0)
+        messages = functions.messages
+        if isinstance(request, messages.SendMessageRequest | messages.SendMediaRequest):
+            return self._deliver(request)
         self.requests.append(request)
         return True
 
@@ -251,6 +285,11 @@ class FakeInbox:
     async def ingest(self, msg: InboundMessage) -> int | None:
         self.ingested.append(msg)
         return len(self.ingested)
+
+    async def known(self, channel_id: int, peer: Peer, external_ids: list[str]) -> set[str]:
+        stored = {m.external_id for m in self.ingested
+                  if m.channel_id == channel_id and m.peer.external_id == peer.external_id}
+        return stored & set(external_ids)
 
     async def edited(self, channel_id: int, peer: Peer, external_id: str, text: str) -> None:
         self.edits.append((channel_id, peer, external_id, text))
@@ -333,7 +372,7 @@ class FakeMessenger:
         self.actions: list[tuple[int, str]] = []
         self.read: list[tuple[int, Peer, str]] = []
 
-    async def send(self, channel_id: int, message: OutboundMessage) -> str:
+    async def send(self, channel_id: int, message: OutboundMessage) -> str | None:
         if self.error is not None:
             raise self.error
         self.sent.append((channel_id, message))
@@ -350,10 +389,10 @@ class FakeOutbox:
     """sim.services.outbox stand-in: flips the status and records the call."""
 
     def __init__(self) -> None:
-        self.sent: list[tuple[int, str, datetime]] = []
+        self.sent: list[tuple[int, str | None, datetime]] = []
         self.failed: list[tuple[int, str]] = []
 
-    async def mark_sent(self, session: AsyncSession, message: Any, external_id: str,
+    async def mark_sent(self, session: AsyncSession, message: Any, external_id: str | None,
                         at: datetime) -> None:
         message.status = MessageStatus.SENT
         message.external_id = external_id

@@ -13,8 +13,10 @@ out of order because one photo downloads slower.
 
 Catch-up: updates that arrive while the process is down (a deploy restart) are never pushed
 again. So on every connect, and then every few minutes, `catch_up` walks the private dialogs
-with unread incoming messages and hands those messages to the inbox too; the inbox ignores
-messages it already has (idempotent by external id)."""
+with unread incoming messages and hands those messages to the inbox too. A dialog stays unread
+while nobody answers (a new client has AI off), so the sweep first asks the inbox which of those
+ids it already has (`known`) and skips them: their attachments are not downloaded again every
+few minutes. The inbox still ignores a message it already has (idempotent by external id)."""
 from __future__ import annotations
 
 import asyncio
@@ -41,6 +43,7 @@ DEFAULT_MIME = {
 
 class InboxPort(Protocol):
     async def ingest(self, msg: InboundMessage) -> int | None: ...
+    async def known(self, channel_id: int, peer: Peer, external_ids: list[str]) -> set[str]: ...
     async def edited(self, channel_id: int, peer: Peer, external_id: str, text: str) -> None: ...
     async def deleted(self, channel_id: int, external_ids: list[str]) -> None: ...
 
@@ -162,11 +165,14 @@ class Receiver:
                     continue
                 peer = peer_from_user(entity)
                 messages = [m async for m in client.iter_messages(
-                    entity, limit=min(unread, CATCH_UP_PER_DIALOG))]
+                    entity, limit=min(unread, CATCH_UP_PER_DIALOG))
+                    if not getattr(m, "out", False)]
                 lock = self.locks.setdefault((channel_id, int(dialog.id)), asyncio.Lock())
                 async with lock:
+                    known = await self.inbox.known(
+                        channel_id, peer, [str(int(m.id)) for m in messages])
                     for message in reversed(messages):              # oldest first
-                        if getattr(message, "out", False):
+                        if str(int(message.id)) in known:
                             continue
                         await self.inbox.ingest(await build_inbound(channel_id, peer, message))
                         handed += 1

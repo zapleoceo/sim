@@ -24,6 +24,7 @@ from sim.tasks.queue import (
     CHAT_ACTION_TASK,
     GENERATE_TASK,
     LIFE_TICK_TASK,
+    LOOK_TASK,
     MARK_READ_TASK,
     MEMORY_TASK,
     MEMORY_TICK_TASK,
@@ -174,9 +175,10 @@ def test_broker_tasks_are_registered_with_the_job_context() -> None:
     app = procrastinate.App(connector=InMemoryConnector())
     agent.register_agent_tasks(app)
     broker_tasks = {REPLY_TASK, UNDERSTAND_TASK, GENERATE_TASK, MEMORY_TASK, PASSPORT_TASK,
-                    PLAN_DAY_TASK, PHONE_CHECK_TASK, NIGHT_TASK, SUMMARIZE_DAY_TASK}
+                    PLAN_DAY_TASK, LOOK_TASK, NIGHT_TASK, SUMMARIZE_DAY_TASK}
     assert all(app.tasks[name].pass_context for name in broker_tasks)
     assert not app.tasks[LIFE_TICK_TASK].pass_context
+    assert not app.tasks[PHONE_CHECK_TASK].pass_context      # a timer: no Broker call
     assert app.tasks[REPLY_TASK].retry_strategy is not None
     assert app.tasks[GENERATE_TASK].retry_strategy is None
 
@@ -230,20 +232,28 @@ async def test_life_tick_plans_every_active_persona(db: AsyncSession, deps: Deps
     assert planned == {marina.id, olya.id}
 
 
-async def test_phone_checks_are_never_absorbed_and_are_registered() -> None:
+async def test_phone_check_timers_are_never_absorbed_and_checks_never_overlap() -> None:
+    """The timer has no lock: an earlier check must not wait behind (or be absorbed by) a later
+    one. The check itself is deferred only for «now» with `lock = phone:<persona>`: two checks
+    of one persona never run at the same time, one asked for meanwhile runs right after."""
     app = FakeApp()
     queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
     await queue.phone_check(3, 600)
     await queue.phone_check(3, 20)                    # earlier: must not wait or be absorbed
+    await queue.look_at_phone(3)
+    await queue.look_at_phone(3)                      # waits for the first, never absorbed
+    look = {"queue": "agent", "lock": "phone:3"}
     assert app.deferred == [
         (PHONE_CHECK_TASK, {"persona_id": 3}, {"queue": "agent",
                                                "schedule_in": {"seconds": 600}}),
         (PHONE_CHECK_TASK, {"persona_id": 3}, {"queue": "agent",
                                                "schedule_in": {"seconds": 20}}),
+        (LOOK_TASK, {"persona_id": 3}, look),
+        (LOOK_TASK, {"persona_id": 3}, look),
     ]
     real = make_app(Settings(env="test"))
-    assert {PHONE_CHECK_TASK, ATTENTION_TICK_TASK} <= set(real.tasks)
-    assert real.tasks[PHONE_CHECK_TASK].queue == "agent"
+    assert {PHONE_CHECK_TASK, LOOK_TASK, ATTENTION_TICK_TASK} <= set(real.tasks)
+    assert real.tasks[PHONE_CHECK_TASK].queue == real.tasks[LOOK_TASK].queue == "agent"
     assert any(ATTENTION_TICK_TASK in str(key)
                for key in real.periodic_registry.periodic_tasks)
 
@@ -256,11 +266,12 @@ async def test_attention_tasks_run_the_check_and_the_sweep(db: AsyncSession, dep
     await request_check(db, lost.id, clock.now() - timedelta(minutes=30), clock.now())
     set_deps(deps)
     try:
-        await agent.phone_check(persona.id)             # nothing due: a stale job
+        await agent.phone_check(persona.id)             # the timer: the check itself, locked
+        await agent.look_at_phone(persona.id)           # nothing due: a stale job
         await agent.attention_tick(0)
     finally:
         reset_deps()
-    assert fakes.tasks.calls == [("phone_check", lost.id, 0)]
+    assert fakes.tasks.calls == [("look_at_phone", persona.id), ("phone_check", lost.id, 0)]
 
 
 async def test_plan_day_queue_and_registration() -> None:

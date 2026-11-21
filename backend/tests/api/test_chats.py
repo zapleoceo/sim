@@ -235,11 +235,38 @@ async def test_note_is_an_operator_note_event(api: ApiClient, world: World) -> N
     assert (await api.post("/api/chats/999999/notes", json={"text": "x"})).status_code == 404
 
 
-async def test_operator_done_clears_flag(api: ApiClient, world: World) -> None:
+async def test_operator_done_clears_flag_writes_a_line_and_wakes_the_chat(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps) -> None:
+    """«Оператор разобрался» works like switching the AI on: a journal line, and the message
+    the client wrote meanwhile gets her phone check, deferred after the commit."""
     response = await api.post(f"/api/chats/{world.chat_id}/operator-done")
     assert response.status_code == 200
     assert response.json()["needs_operator"] is False
+    events = (await db.scalars(select(ChatEvent).where(
+        ChatEvent.chat_id == world.chat_id, ChatEvent.kind == EventKind.AI_TOGGLED))).all()
+    assert [(e.data, e.in_context, e.actor.startswith("operator:")) for e in events] == [
+        ({"enabled": True, "scope": "operator"}, False, True)]
+    [(name, args, in_transaction)] = deps.tasks.calls
+    assert (name, args[0], in_transaction) == ("phone_check", world.persona_id, False)
+
+    # Already done: nothing more is written or woken.
+    again = await api.post(f"/api/chats/{world.chat_id}/operator-done")
+    assert again.status_code == 200 and again.json()["needs_operator"] is False
+    assert len(deps.tasks.calls) == 1
+    assert len((await db.scalars(select(ChatEvent).where(
+        ChatEvent.chat_id == world.chat_id, ChatEvent.kind == EventKind.AI_TOGGLED))).all()) == 1
     assert (await api.post("/api/chats/999999/operator-done")).status_code == 404
+
+
+async def test_operator_done_with_nothing_waiting_wakes_nothing(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps) -> None:
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None
+    chat.ai_enabled = False                     # the AI gate is still closed in this chat
+    await db.commit()
+    response = await api.post(f"/api/chats/{world.chat_id}/operator-done")
+    assert response.json()["needs_operator"] is False
+    assert deps.tasks.calls == []
 
 
 async def test_persona_status_in_rows_detail_and_its_own_route(api: ApiClient,
@@ -259,9 +286,10 @@ async def test_persona_status_in_rows_detail_and_its_own_route(api: ApiClient,
     done = (await api.post(f"/api/chats/{world.chat_id}/operator-done")).json()
     assert done["persona_status"]["title"] == "Свободна — заглянет в течение минуты"
     fresh_status = (await api.get(f"/api/chats/{world.chat_id}/status")).json()
-    assert fresh_status == {"code": "free", "tone": "wait",
-                            "title": "Свободна — заглянет в течение минуты",
-                            "detail": "без ответа: 1", "until": None, "local_until": None}
+    # (`until` is her phone check that «Оператор разобрался» asked for.)
+    assert {key: fresh_status[key] for key in ("code", "tone", "title", "detail")} == {
+        "code": "free", "tone": "wait", "title": "Свободна — заглянет в течение минуты",
+        "detail": "без ответа: 1"}
     assert (await api.get("/api/chats/999999/status")).status_code == 404
 
 
@@ -283,3 +311,16 @@ async def test_reply_run_with_llm_calls(api: ApiClient, world: World, db: AsyncS
     [call] = body["llm_calls"]
     assert (call["purpose"], call["model"], call["tokens_in"]) == ("reply", "google/reply", 10)
     assert (await api.get("/api/reply-runs/999999")).status_code == 404
+
+
+async def test_no_refusals_switch_of_one_chat(api: ApiClient, world: World,
+                                              db: AsyncSession) -> None:
+    listed = (await api.get("/api/chats")).json()["items"][0]
+    assert listed["no_refusals"] is False
+    response = await api.post(f"/api/chats/{world.chat_id}/no-refusals", json={"enabled": True})
+    assert response.status_code == 200
+    assert response.json()["no_refusals"] is True
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None and chat.no_refusals is True
+    assert (await api.post("/api/chats/999999/no-refusals",
+                           json={"enabled": True})).status_code == 404

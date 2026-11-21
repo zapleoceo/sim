@@ -33,6 +33,7 @@ from sim.tasks.queue import (
     GENERATE_TASK,
     LIFE_TICK_CRON,
     LIFE_TICK_TASK,
+    LOOK_TASK,
     MEMORY_TASK,
     MEMORY_TICK_CRON,
     MEMORY_TICK_TASK,
@@ -100,6 +101,12 @@ async def update_passport(chat_id: int) -> None:
 
 
 async def phone_check(persona_id: int) -> None:
+    """The timer of a phone check: its time has come — the check itself runs as
+    `look_at_phone`, one at a time per persona (sim/tasks/queue.py)."""
+    await get_deps().tasks.look_at_phone(persona_id)
+
+
+async def look_at_phone(persona_id: int) -> None:
     result = await PhoneCheck(get_deps()).run(persona_id)
     log.info("phone check persona=%s status=%s decisions=%s next=%s", persona_id,
              result.status, len(result.decisions), result.next_check)
@@ -162,7 +169,8 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     broker_task(PLAN_DAY_TASK, plan_day, retry=RETRY)
     tick = app.task(name=LIFE_TICK_TASK, queue=AGENT_QUEUE)(life_tick)
     app.periodic(cron=LIFE_TICK_CRON, periodic_id="life")(tick)
-    broker_task(PHONE_CHECK_TASK, phone_check)
+    app.task(name=PHONE_CHECK_TASK, queue=AGENT_QUEUE)(phone_check)
+    broker_task(LOOK_TASK, look_at_phone)
     sweep = app.task(name=ATTENTION_TICK_TASK, queue=AGENT_QUEUE)(attention_tick)
     app.periodic(cron=ATTENTION_TICK_CRON, periodic_id="attention")(sweep)
     broker_task(NIGHT_TASK, night_memory, retry=RETRY)

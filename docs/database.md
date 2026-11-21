@@ -98,7 +98,8 @@ next_step, updated_at, locked_fields}` ([leads.md](leads.md)), `last_seen_at`.
 `client_id`, `channel_id` (уникально `(channel_id, client_id)`), `peer_access_hash` (access hash
 клиента так, как его видит аккаунт этого чата; `0004`), `ai_enabled` (переключатель чата),
 `attention_instant` («Отвечать сразу» в этом чате, по умолчанию нет; `0006`,
-[attention.md](attention.md)), `needs_operator` (ставится после
+[attention.md](attention.md)), `no_refusals` («Без отказов», по умолчанию нет; `0008`,
+[writing.md](writing.md)), `needs_operator` (ставится после
 второго блока проверки; пока стоит, персонаж молчит), `unread_count`, `last_message_at`,
 `summary` и `summary_until_event_id` — сводка переписки до дневника (с `0007` больше не
 пишется; агент видит её как «Давняя переписка»), `day_notes` (JSONB, `0007`,

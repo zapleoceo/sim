@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Persona
 from sim.domain.presence import Busy
+from sim.domain.writing import DEFAULT_MODE, WritingMode
 from sim.services.deps import Deps
 
 
@@ -28,6 +29,7 @@ class ActionContext:
     persona: Persona
     chat_id: int
     reply_run_id: int
+    writing: WritingMode = DEFAULT_MODE     # how she types now: the «phone» of text messages
 
 
 @dataclass

@@ -9,6 +9,8 @@ Telethon sessions).
 A transient error (FloodWait, network, account reconnecting) is retried by Procrastinate:
 FloodWait after the seconds Telegram asked for, the rest with a growing pause. A permanent error,
 or a transient one on the last attempt, marks the message failed (a `send_failed` event).
+The outbound message carries the row id as its key, so a retry after a lost answer is not
+delivered twice (sim/telegram/sending.py); such a retry is marked sent without a Telegram id.
 
 `mark_read(message_id)` marks the chat read up to an incoming message (best effort).
 
@@ -115,7 +117,7 @@ class SendRetry(BaseRetryStrategy):
 
 
 class Outbox(Protocol):
-    async def mark_sent(self, session: AsyncSession, message: Message, external_id: str,
+    async def mark_sent(self, session: AsyncSession, message: Message, external_id: str | None,
                         at: Any) -> None: ...
     async def mark_failed(self, session: AsyncSession, message: Message, error: str) -> None: ...
 
@@ -169,15 +171,16 @@ async def load_delivery(session: AsyncSession, message: Message,
     if kind == MessageKind.STICKER.value:
         kind = MessageKind.FILE.value
     if kind == MessageKind.TEXT.value:
-        return Delivery(channel_id, OutboundMessage(peer=peer, kind=kind, text=message.text),
-                        message.chat_id)
+        return Delivery(channel_id, OutboundMessage(peer=peer, kind=kind, text=message.text,
+                                                    key=message.id), message.chat_id)
     asset = await session.get(MediaAsset, message.media_id) if message.media_id else None
     if asset is None:
         raise PortError(f"{kind} message has no media")
     data = await storage.get(asset.storage_key)
     return Delivery(channel_id, OutboundMessage(
         peer=peer, kind=kind, text=message.text, data=data, mime=asset.mime,
-        file_name=asset.file_name, duration_s=asset.duration_s), message.chat_id)
+        file_name=asset.file_name, duration_s=asset.duration_s, key=message.id),
+        message.chat_id)
 
 
 async def show_action(messenger: MessengerPort, delivery: Delivery, sleep: Sleep) -> None:

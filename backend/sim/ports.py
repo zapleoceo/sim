@@ -179,10 +179,12 @@ class OutboundMessage:
     mime: str | None = None
     file_name: str = ""
     duration_s: float | None = None
+    key: int | None = None          # our message id: a retry of it is not delivered twice
 
 
 class MessengerPort(Protocol):
-    async def send(self, channel_id: int, message: OutboundMessage) -> str: ...
+    # The messenger's message id; None when it is unknown (an earlier attempt delivered it).
+    async def send(self, channel_id: int, message: OutboundMessage) -> str | None: ...
     async def set_typing(self, channel_id: int, peer: Peer, action: str) -> None: ...
     async def mark_read(self, channel_id: int, peer: Peer, external_id: str) -> None: ...
 

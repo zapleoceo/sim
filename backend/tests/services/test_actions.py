@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -35,6 +37,7 @@ from sim.domain.plan import (
     VoiceAction,
     tts_style,
 )
+from sim.domain.writing import DEFAULT_MODE
 from sim.ports import PortError
 from sim.services.actions import ActionContext, ApplyResult, handler_for
 from sim.services.actions.media import (
@@ -77,6 +80,16 @@ async def test_text_handler_queues_a_message(db: AsyncSession, deps: Deps) -> No
                                                              MessageStatus.PENDING)
     assert message.reply_run_id == ctx.reply_run_id
     assert result.message_ids == [message.id]
+
+
+async def test_text_goes_through_her_phone(db: AsyncSession, deps: Deps) -> None:
+    chat, ctx = await context(db, deps)
+    steady = replace(DEFAULT_MODE, typo_rate=0.0, lowercase_rate=0.0)
+    result = ApplyResult()
+    await TextHandler().apply(db, TextAction(type="text", text="Спальня — это личное…"), None,
+                              replace(ctx, writing=steady), result)
+    [message] = await messages_of(db, chat)
+    assert message.text == "Спальня - это личное..."
 
 
 async def test_voice_handler_tts_to_ogg_to_library(db: AsyncSession, deps: Deps,

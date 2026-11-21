@@ -13,9 +13,15 @@ class TaskQueue(Protocol):
         ...
 
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
-        """She looks at her phone (docs/attention.md). Every request is a job; only the one
-        whose time matches `persona.attention_check_at` does the check, the others find
-        nothing due and finish."""
+        """She looks at her phone in `delay_s` (docs/attention.md). Every request is a job;
+        only the one whose time matches `persona.attention_check_at` does the check, the
+        others find nothing due and finish."""
+        ...
+
+    async def look_at_phone(self, persona_id: int) -> None:
+        """The check itself, now (asked for by the `phone_check` job when its time comes). Two
+        checks of one persona never run at the same time: one asked for while another runs
+        waits and runs right after it."""
         ...
 
     async def understand(self, media_id: int) -> None:

@@ -1,7 +1,8 @@
 """Incoming side of a chat (docs/reply.md, «Входящие»). The messenger process hands every
 client message here: it is stored once (idempotent by chat + direction + external id), its
 attachment goes to the media library, a `message_in` event is written and, after commit, the
-attachment is queued for understanding and, when AI is on everywhere, her reaction: a phone
+attachment is queued for understanding and, when the AI may answer here (the AI gate,
+`sim.domain.ai_gate`: AI on everywhere, no operator awaited), her reaction: a phone
 check when her life lets her look (docs/attention.md), or with «Всегда сразу» a reply after
 the burst pause as before.
 
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Channel, Chat, ChatEvent, Client, ClientIdentity, Message, Persona
 from sim.db.session import transaction
+from sim.domain.ai_gate import ai_block
 from sim.domain.attention import attention_settings
 from sim.domain.enums import (
     Author,
@@ -36,7 +38,6 @@ from sim.ports import InboundAttachment, InboundMessage, Peer
 from sim.services.attention.schedule import check_after_notice, queue_check
 from sim.services.deps import Deps
 from sim.services.media_library import add_media, kind_from_mime
-from sim.services.turn_state import ai_allowed
 
 log = logging.getLogger(__name__)
 
@@ -90,9 +91,34 @@ def understandable(attachment: InboundAttachment) -> bool:
     return mime.startswith(UNDERSTANDABLE_PREFIXES)
 
 
+async def known_ids(session: AsyncSession, channel_id: int, peer_external_id: str,
+                    external_ids: list[str]) -> set[str]:
+    """Which of these incoming message ids of this person on this channel are already stored
+    (the same key `_store` dedupes by: the chat of channel + identity, direction in)."""
+    if not external_ids:
+        return set()
+    rows = await session.scalars(
+        select(Message.external_id)
+        .join(Chat, Chat.id == Message.chat_id)
+        .join(Channel, Channel.id == Chat.channel_id)
+        .join(ClientIdentity, (ClientIdentity.client_id == Chat.client_id)
+              & (ClientIdentity.channel_kind == Channel.kind))
+        .where(Chat.channel_id == channel_id,
+               ClientIdentity.external_id == peer_external_id,
+               Message.direction == Direction.IN,
+               Message.external_id.in_(external_ids)))
+    return {external_id for external_id in rows if external_id is not None}
+
+
 class Inbox:
     def __init__(self, deps: Deps) -> None:
         self.deps = deps
+
+    async def known(self, channel_id: int, peer: Peer, external_ids: list[str]) -> set[str]:
+        """The ids of these messages from `peer` the inbox already has: the catch-up skips them
+        before downloading anything."""
+        async with transaction(self.deps.sessions) as session:
+            return await known_ids(session, channel_id, peer.external_id, external_ids)
 
     async def ingest(self, msg: InboundMessage) -> int | None:
         """Store one client message. Returns the new message id, or None for a duplicate."""
@@ -125,7 +151,7 @@ class Inbox:
     async def _reaction(self, session: AsyncSession, persona: Persona | None,
                         client: Client | None, chat: Chat) -> Reaction | None:
         """How she reacts to a new notification in `chat` (inside its transaction)."""
-        if persona is None or not ai_allowed(persona, client, chat):
+        if persona is None or ai_block(persona, client, chat) is not None:
             return None
         now = self.deps.clock.now()
         if attention_settings(persona.attention).is_instant(chat.attention_instant):
