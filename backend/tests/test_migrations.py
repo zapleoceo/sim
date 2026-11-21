@@ -136,9 +136,9 @@ def test_day_memory_revision_follows_the_attention_one(scripts):
     # The night agents get the subscription model and their new prompts.
     sql = day_memory.reset_night_agents_sql()
     for agent in day_memory.NIGHT_AGENTS:
-        assert f"agents ? '{agent}'" in sql and f"'{{{agent}}}'" in sql
+        assert f"#- '{{{agent},model}}'" in sql and f"#- '{{{agent},prompt}}'" in sql
         assert REGISTRY[agent].model == "codex-sub/gpt-6.1-sol"
-    assert "- 'model' - 'prompt'" in sql
+    assert sql.startswith("UPDATE persona SET agents = agents #- ")
 
 
 def test_revisions_create_every_model_table_in_fk_order():

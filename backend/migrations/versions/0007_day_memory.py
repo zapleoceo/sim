@@ -63,13 +63,12 @@ def allowed(values: Sequence[str]) -> str:
 
 
 def reset_night_agents_sql() -> str:
-    """One UPDATE: drop `model` and `prompt` from the night agents' overrides, keep the rest
-    (an agent left with nothing stored disappears from `agents`)."""
-    sql = "agents"
-    for agent in NIGHT_AGENTS:
-        sql = (f"CASE WHEN {sql} ? '{agent}' THEN jsonb_set({sql}, '{{{agent}}}', "
-               f"({sql} -> '{agent}') - 'model' - 'prompt') ELSE {sql} END")
-    return f"UPDATE persona SET agents = jsonb_strip_nulls({sql})"
+    """One UPDATE: drop `model` and `prompt` from the night agents' overrides, keep the rest.
+    `#-` on a path that is not there changes nothing; an agent left with nothing stored is
+    removed by `strip_empty_agents_sql`."""
+    paths = " ".join(f"#- '{{{agent},{key}}}'" for agent in NIGHT_AGENTS
+                     for key in ("model", "prompt"))
+    return f"UPDATE persona SET agents = agents {paths}"
 
 
 def strip_empty_agents_sql() -> str:
