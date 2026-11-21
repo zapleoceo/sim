@@ -14,8 +14,8 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Enum
 from sqlalchemy.engine import make_url
 
-from sim.db.models import Base
-from sim.domain.agents import AGENTS
+from sim.db.models import FTS_INDEXES, Base
+from sim.domain.agents import AGENTS, REGISTRY
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -37,10 +37,12 @@ life = load("migration_0003", BACKEND / "migrations" / "versions" / "0003_person
 leads = load("migration_0004", BACKEND / "migrations" / "versions" / "0004_personas_leads.py")
 agents = load("migration_0005", BACKEND / "migrations" / "versions" / "0005_persona_agents.py")
 attention = load("migration_0006", BACKEND / "migrations" / "versions" / "0006_attention.py")
+day_memory = load("migration_0007", BACKEND / "migrations" / "versions" / "0007_day_memory.py")
 ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
-               **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS}
+               **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS,
+               **day_memory.ENUM_CHECKS}
 # Tables in creation order over all revisions.
-TABLES = (*initial.TABLES, *life.TABLES)
+TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
@@ -52,7 +54,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0006"
+    assert sim_head is not None and sim_head.revision == "0007"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -117,6 +119,26 @@ def test_attention_revision_follows_the_agents_one(scripts):
     persona = Base.metadata.tables["persona"]
     assert {"attention", "attention_check_at"} <= set(persona.columns.keys())
     assert "attention_instant" in Base.metadata.tables["chat"].columns
+
+
+def test_day_memory_revision_follows_the_attention_one(scripts):
+    revision = scripts.get_revision("0007")
+    assert revision is not None and revision.down_revision == "0006"
+    assert day_memory.TABLES == ("chat_day", "chat_week")
+    assert "day_notes" in Base.metadata.tables["chat"].columns
+    # The full-text indexes of the migration are the models' ones, by name and column.
+    model_indexes = {str(index.name): (index.table.name, index.expressions[0])
+                     for index in FTS_INDEXES if index.table is not None}
+    assert set(model_indexes) == set(day_memory.FTS_INDEXES)
+    for name, (table, column) in day_memory.FTS_INDEXES.items():
+        assert model_indexes[name][0] == table
+        assert column in str(model_indexes[name][1])
+    # The night agents get the subscription model and their new prompts.
+    sql = day_memory.reset_night_agents_sql()
+    for agent in day_memory.NIGHT_AGENTS:
+        assert f"agents ? '{agent}'" in sql and f"'{{{agent}}}'" in sql
+        assert REGISTRY[agent].model == "codex-sub/gpt-6.1-sol"
+    assert "- 'model' - 'prompt'" in sql
 
 
 def test_revisions_create_every_model_table_in_fk_order():
