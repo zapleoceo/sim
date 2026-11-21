@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from sim.apps.worker import WORKERS, WorkerSpec, run_workers
+from sim.apps.worker import WORKERS, run_workers
 from sim.tasks.queue import AGENT_QUEUE, MEDIA_QUEUE
 
 
@@ -18,9 +18,12 @@ class FakeWorkerApp:
         self.crash = crash
         self.started: list[dict[str, Any]] = []
         self.stopped: list[str] = []
+        self.all_started = asyncio.Event()
 
     async def run_worker_async(self, **options: Any) -> None:
         self.started.append(options)
+        if len(self.started) == len(WORKERS):
+            self.all_started.set()
         [queue] = options["queues"]
         try:
             if queue == self.crash:
@@ -31,16 +34,12 @@ class FakeWorkerApp:
             raise
 
 
-async def started(app: FakeWorkerApp, count: int) -> None:
-    while len(app.started) < count:
-        await asyncio.sleep(0)
-
-
 async def test_both_queues_run_side_by_side_until_stopped() -> None:
-    assert WORKERS == (WorkerSpec(AGENT_QUEUE, 6), WorkerSpec(MEDIA_QUEUE, 3))
+    assert [(spec.queue, spec.concurrency) for spec in WORKERS] == [(AGENT_QUEUE, 6),
+                                                                   (MEDIA_QUEUE, 3)]
     app, stop = FakeWorkerApp(), asyncio.Event()
     running = asyncio.create_task(run_workers(app, WORKERS, stop))
-    await started(app, 2)
+    await app.all_started.wait()
 
     stop.set()                                  # SIGTERM
     await running
