@@ -119,6 +119,10 @@ detector and model selection. Both are owner-editable on «Общие прави
 hidden in code); a persona prompt or custom guard prompt does not replace them.
 Ordinary conversation need not repeatedly mention AI. Live-call model
 selection is unchanged. Detection is deliberately not a claim of perfect language coverage.
+Saving a newly chosen identity or fallback model checks the Broker catalog: a model missing
+from it or marked `available: false` is refused (422 with its name, shown in the toast);
+`available: null` (an API model Broker has not probed) is accepted. The reserve must also be
+a subscription model.
 
 Reserve is one owner-selected **subscription** model, checked against the same project's
 catalog before use. Only confirmed terminal Broker `error_code=model_unavailable` or

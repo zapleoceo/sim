@@ -61,9 +61,11 @@ async def check_model_routes(c: App, body: PersonaIn, previous: Persona | None =
     except LLMError as exc:
         raise HTTPException(422, "Каталог моделей недоступен; новый маршрут не сохранён") from exc
     for key, value in changed.items():
-        row = rows.get(value, {})
-        if row.get("available") is not True:
-            raise HTTPException(422, "Выберите доступную модель проекта")
+        # Broker leaves `available` empty for API models it has not probed: only a listed model
+        # it marks unavailable (False) is refused.
+        row = rows.get(value)
+        if row is None or row.get("available") is False:
+            raise HTTPException(422, f"Модель {value} недоступна в проекте Брокера")
         if key == "fallback_model" and row.get("billing_type") != "subscription":
             raise HTTPException(422, "Резерв должен быть подписочной моделью проекта")
 
