@@ -216,6 +216,14 @@ def _render_note(event: ChatEvent, data: dict[str, Any], rel: Related,
     return f"(заметка оператора: {one_line(str(data.get('text', '')))})"
 
 
+def _render_attention(event: ChatEvent, data: dict[str, Any], rel: Related,
+                      who: Speakers) -> str | None:
+    """Only the note for the reply (a call she missed because she was busy); her other
+    attention decisions are for the operator."""
+    note = one_line(str(data.get("note", "")))
+    return f"({note})" if note else None
+
+
 Renderer = Callable[[ChatEvent, dict[str, Any], Related, Speakers], str | None]
 
 # One renderer per visible kind; a kind missing here is not shown to the agent.
@@ -229,6 +237,7 @@ RENDERERS: dict[EventKind, Renderer] = {
     EventKind.GENERATION_STARTED: _render_generation_started,
     EventKind.GENERATION_FAILED: _render_generation_failed,
     EventKind.OPERATOR_NOTE: _render_note,
+    EventKind.ATTENTION: _render_attention,
 }
 
 

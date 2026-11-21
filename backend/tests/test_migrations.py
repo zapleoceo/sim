@@ -36,8 +36,9 @@ video_note = load("migration_0002",
 life = load("migration_0003", BACKEND / "migrations" / "versions" / "0003_persona_life.py")
 leads = load("migration_0004", BACKEND / "migrations" / "versions" / "0004_personas_leads.py")
 agents = load("migration_0005", BACKEND / "migrations" / "versions" / "0005_persona_agents.py")
+attention = load("migration_0006", BACKEND / "migrations" / "versions" / "0006_attention.py")
 ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
-               **leads.ENUM_CHECKS, **agents.ENUM_CHECKS}
+               **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS}
 # Tables in creation order over all revisions.
 TABLES = (*initial.TABLES, *life.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
@@ -51,7 +52,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0005"
+    assert sim_head is not None and sim_head.revision == "0006"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -90,10 +91,10 @@ def test_personas_leads_revision_follows_the_life_one(scripts):
 def test_agents_revision_follows_the_personas_leads_one(scripts):
     revision = scripts.get_revision("0005")
     assert revision is not None and revision.down_revision == "0004"
-    # Every old model column moves to its agent (only «Портретист» is new), and no column of
-    # the model is left behind.
+    # Every old model column moves to its agent («Портретист» and the later «Внимание» had no
+    # column), and no column of the model is left behind.
     assert set(agents.COLUMN_AGENTS.values()) == {spec.key.value for spec in AGENTS} - {
-        "appearance"}
+        "appearance", "attention"}
     persona = Base.metadata.tables["persona"]
     assert "agents" in persona.columns
     assert not set(agents.COLUMN_AGENTS) & set(persona.columns.keys())
@@ -102,6 +103,20 @@ def test_agents_revision_follows_the_personas_leads_one(scripts):
         assert f"{column} = coalesce(agents -> '{agent}' ->> 'model', '')" in \
             agents.AGENTS_TO_MODELS
     assert "jsonb_strip_nulls" in agents.MODELS_TO_AGENTS
+
+
+def test_attention_revision_follows_the_agents_one(scripts):
+    revision = scripts.get_revision("0006")
+    assert revision is not None and revision.down_revision == "0005"
+    purposes = attention.ENUM_CHECKS[("llm_call", "purpose")][1]
+    assert purposes[-1] == "attention" and purposes[:-1] == attention.PREVIOUS_PURPOSES
+    assert leads.ENUM_CHECKS[("llm_call", "purpose")][1] == attention.PREVIOUS_PURPOSES
+    kinds = attention.ENUM_CHECKS[("chat_event", "kind")][1]
+    assert kinds[-1] == "attention" and kinds[:-1] == attention.PREVIOUS_KINDS
+    assert initial.ENUM_CHECKS[("chat_event", "kind")][1] == attention.PREVIOUS_KINDS
+    persona = Base.metadata.tables["persona"]
+    assert {"attention", "attention_check_at"} <= set(persona.columns.keys())
+    assert "attention_instant" in Base.metadata.tables["chat"].columns
 
 
 def test_revisions_create_every_model_table_in_fk_order():

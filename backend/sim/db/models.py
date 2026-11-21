@@ -133,6 +133,11 @@ class Persona(Base):
     # Her internal agents (docs/agents.md): {agent_key: {model, key_tier, prompt, max_tokens}},
     # only what the owner changed; read through sim.domain.agents.agent_config.
     agents: Mapped[dict[str, Any]] = jsonb_dict()
+    # «Внимание» (docs/attention.md): {mode, pace, may_leave_read, after_missed_call, night_dnd};
+    # read through sim.domain.attention.attention_settings ({} = the defaults).
+    attention: Mapped[dict[str, Any]] = jsonb_dict()
+    # When she next looks at her phone (the one pending phone check); NULL = none pending.
+    attention_check_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True)
     # Archived (False): never answers, plans no days, its Telegram accounts go offline.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
 
@@ -262,6 +267,9 @@ class Chat(Base):
     # accounts, so with many personas it lives on the chat, not on the identity).
     peer_access_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # «Отвечать сразу»: this chat skips the phone checks, as «Всегда сразу» (for tests).
+    attention_instant: Mapped[bool] = mapped_column(Boolean, default=False,
+                                                    server_default=text("false"))
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True,

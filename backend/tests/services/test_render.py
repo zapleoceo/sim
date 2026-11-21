@@ -154,6 +154,20 @@ def test_generation_lines() -> None:
         "[21.11 20:30] (не получилось сделать фото «селфи»)"
 
 
+def test_attention_shows_only_the_missed_call_note() -> None:
+    """Her attention decisions are for the operator; the reply agent reads only the note of
+    a text after a missed call (docs/attention.md)."""
+    note = event(EventKind.ATTENTION, data={
+        "action": "text_after_missed_call", "reason": "освободилась",
+        "note": "пропущенный звонок, ты была занята: сон"})
+    assert render_one(note, Related()) == (
+        "[21.11 20:30] (пропущенный звонок, ты была занята: сон)")
+    plain = event(EventKind.ATTENTION, data={"action": "reply_later", "reason": "на рынке"})
+    assert render_one(plain, Related()) is None
+    assert render_one(event(EventKind.ATTENTION, data={"note": "x"}, in_context=False),
+                      Related()) is None
+
+
 def test_hidden_kinds_are_not_rendered() -> None:
     rel = Related(messages={10: message(10, text="привет")})
     hidden = [event(EventKind.GUARD_BLOCKED, data={"reason": "x"}, in_context=False),
