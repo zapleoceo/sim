@@ -209,6 +209,32 @@ async def test_catch_up_takes_unread_incoming_messages_oldest_first():
     assert client.asked == [3]                  # only the dialog with unread messages
 
 
+async def test_a_second_sweep_skips_stored_messages_without_downloading():
+    """A new client's dialog stays unread (AI off): the next sweep must not fetch its media
+    again — the inbox already has those ids."""
+    dima = FakeUser()
+    photo = FakeTgMessage(81, media="photo", data=b"JPG")
+    client = Dialogs([(dima, 2, [FakeTgMessage(82, "ну что?"), photo])])
+    inbox = FakeInbox()
+    receiver = Receiver(inbox)
+    assert await receiver.catch_up(CHANNEL, client) == 2
+    assert photo.downloads == 1
+    assert await receiver.catch_up(CHANNEL, client) == 0
+    assert photo.downloads == 1
+    assert [m.external_id for m in inbox.ingested] == ["81", "82"]
+
+
+async def test_a_sweep_takes_only_the_new_messages_of_a_dialog():
+    dima = FakeUser()
+    old = FakeTgMessage(91, media="voice", data=b"OGG")
+    inbox = FakeInbox()
+    receiver = Receiver(inbox)
+    await receiver.catch_up(CHANNEL, Dialogs([(dima, 1, [old])]))
+    await receiver.catch_up(CHANNEL, Dialogs([(dima, 2, [FakeTgMessage(92, "алло"), old])]))
+    assert old.downloads == 1
+    assert [m.external_id for m in inbox.ingested] == ["91", "92"]
+
+
 async def test_catch_up_never_raises():
     class Broken:
         async def iter_dialogs(self, limit: int):
