@@ -24,6 +24,13 @@ def test_spoken_words_are_personal() -> None:
     assert "10 секунд" in FORMAT_RULES
 
 
+def test_memory_and_recall_are_explained() -> None:
+    """docs/memory.md: today verbatim, the past by summaries, «А помнишь…?» once per turn."""
+    for phrase in ("«Лента за сегодня»", "«Прошлые дни»", "«Заметках дня»", '"recall"',
+                   "«в прошлую субботу»", "один раз за ход"):
+        assert phrase in FORMAT_RULES, phrase
+
+
 def test_the_plan_schema_knows_video_notes_and_speech() -> None:
     schema = str(ReplyPlan.model_json_schema())
     assert "video_note" in schema and "speech" in schema

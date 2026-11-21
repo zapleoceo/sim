@@ -9,16 +9,19 @@
    model thinks. A day without a plan
    asks the daily planner for one (task `agent.plan_day`).
 2. Decide (no transaction): the reply model returns a JSON plan (one repair retry when the
-   JSON or the media choice is invalid); the guard checks it; on a block the model tries once
-   more with the reason; a second block -> run blocked, chat needs an operator.
+   JSON or the media choice is invalid). A plan with `recall` and no messages («а помнишь…?»)
+   makes code look the days up (sim/services/memory/recall.py) and ask the model again with a
+   «Вспомнила» block — once per turn. The guard checks the plan; on a block the model tries
+   once more with the reason; a second block -> run blocked, chat needs an operator.
 3. Prepare (no transaction): slow per-action work (TTS, cutting a video to a circle), each
    announced by its Telegram status («записывает голосовое», «записывает кружок»...).
 4. Commit (transaction, chat row locked): if a newer client message arrived meanwhile the plan
    is dropped (run skipped) and the reply is re-queued; else pending messages / generations
-   are written in plan order, `canon` facts about herself go to `persona_canon`, and after
-   commit the client passport update is queued (it also reads the plan's `remember` facts,
-   docs/leads.md), the messages are queued for sending and the generations for running. A
-   turn that queues nothing (silence, block, failure, dropped plan) cancels the status."""
+   are written in plan order, `canon` facts about herself go to `persona_canon`, the plan's
+   `remember` facts go to today's «заметки дня» (`chat.day_notes`, seen by the next turn at
+   once; the passport is updated at night, docs/memory.md), and after commit the messages are
+   queued for sending and the generations for running. A turn that queues nothing (silence,
+   block, failure, dropped plan) cancels the status."""
 from __future__ import annotations
 
 import logging
@@ -32,19 +35,21 @@ from sim.db.models import Chat, Client, Persona, ReplyRun
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import EventKind, LlmPurpose, RunStatus
+from sim.domain.memory import with_notes
 from sim.domain.plan import ReplyPlan
 from sim.domain.presence import THINKING
 from sim.events import append_event
 from sim.ports import ChatMessage, ChatPart, PortError
 from sim.services.actions import ActionContext, ApplyResult, handler_for
-from sim.services.context.builder import ContextBuilder, ReplyContext
+from sim.services.context.builder import ContextBuilder, ReplyContext, speakers_of
 from sim.services.context.facts import to_local
+from sim.services.context.window import local_day
 from sim.services.deps import Deps
 from sim.services.guard import Guard
 from sim.services.life.canon import add_canon
 from sim.services.life.store import load_days
 from sim.services.llm_log import describe_messages, logged_call
-from sim.services.passport import PASSPORT_DELAY_S
+from sim.services.memory.recall import Recollection, recollect
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.presence import mark_read, show_busy, stop_busy
 from sim.services.turn_state import Unanswered, ai_allowed, newer_client_message, unanswered
@@ -61,6 +66,8 @@ REPAIR_NOTE = ("Ответ не подошёл: {errors}. Верни испра�
                "без текста вокруг.")
 BLOCKED_NOTE = ("Проверка не пропустила этот ответ: {reason}. Напиши другой ответ без этой "
                 "ошибки, снова JSON-планом.")
+RECALLED_NOTE = ("recall: ты уже вспоминала в этом ходе — ответь собеседнику сообщениями "
+                 "по тому, что вспомнила")
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,7 @@ class _Turn:
     ctx: ReplyContext
     last_in_message_id: int | None = None
     plan_today: date | None = None          # today has no plan: ask the planner for it
+    recall: Recollection | None = None      # what she looked up this turn (once)
 
 
 @dataclass
@@ -211,6 +219,11 @@ class ReplyService:
         decision: _Decision | None = None
         for attempt in range(1, PLAN_ROUNDS + 1):
             plan, raw = await self._plan(turn, messages)
+            if plan.wants_recall and turn.recall is None:
+                messages = [*messages, _message("assistant", raw),
+                            _message("user", await self._recall(turn, plan))]
+                await show_busy(self.deps.tasks, turn.chat_id, THINKING)
+                plan, raw = await self._plan(turn, messages)
             if decision is None:
                 decision = _Decision(plan=plan)
             decision.plan, decision.attempts = plan, attempt
@@ -242,13 +255,33 @@ class ReplyService:
             return self._validate(turn, raw), raw
 
     def _validate(self, turn: _Turn, raw: str) -> ReplyPlan:
-        return validated_plan(raw, catalog=turn.ctx.catalog, caps=turn.ctx.capabilities)
+        plan = validated_plan(raw, catalog=turn.ctx.catalog, caps=turn.ctx.capabilities)
+        if plan.wants_recall and turn.recall is not None:
+            raise PlanError([RECALLED_NOTE])
+        return plan
+
+    async def _recall(self, turn: _Turn, plan: ReplyPlan) -> str:
+        """«А помнишь…?»: the days she looks up, as the «Вспомнила» block."""
+        assert plan.recall is not None
+        async with transaction(self.deps.sessions) as session:
+            chat = await session.get(Chat, turn.chat_id)
+            client = await session.get(Client, chat.client_id) if chat is not None else None
+            if client is None:
+                raise PlanError(["чат пропал"])
+            turn.recall = await recollect(session, turn.chat_id, plan.recall,
+                                          speakers_of(turn.persona, client),
+                                          self.deps.clock.now())
+        return turn.recall.text
 
     async def _call_model(self, turn: _Turn, messages: list[ChatMessage]) -> str:
         cfg = agent_config(turn.persona, AgentKey.REPLY)
+        request: dict[str, Any] = {"messages": describe_messages(messages),
+                                   "json_schema": "ReplyPlan"}
+        if turn.recall is not None:
+            request["recall"] = turn.recall.request     # the second call, after «Вспомнила»
         result = await logged_call(
             self.deps.sessions, purpose=LlmPurpose.REPLY, model=cfg.model,
-            request={"messages": describe_messages(messages), "json_schema": "ReplyPlan"},
+            request=request,
             call=lambda: self.deps.llm.chat(model=cfg.model, messages=messages,
                                             json_schema=PLAN_SCHEMA, max_tokens=cfg.max_tokens,
                                             label="reply", key_tier=cfg.key_tier),
@@ -285,7 +318,7 @@ class ReplyService:
                 return TurnResult(None, turn.run_id, "chat or run disappeared")
             persona = await session.get(Persona, chat.persona_id)
             client = await session.get(Client, chat.client_id)
-            self._record(run, decision)
+            self._record(run, decision, turn.recall)
             skip_reason = ""
             if await newer_client_message(session, chat.id, run.trigger_event_id or 0):
                 skip_reason, requeue = "пришло новое сообщение, ответ пересобран", True
@@ -296,13 +329,12 @@ class ReplyService:
                 run.error = skip_reason
                 run.finished_at = self.deps.clock.now()
             else:
-                await self._apply(session, turn, decision, prepared, result, run)
+                await self._apply(session, chat, turn, decision, prepared, result, run)
         if requeue and persona is not None:
             await self.deps.tasks.reply(turn.chat_id, float(persona.reply_delay_s))
             return TurnResult(RunStatus.SKIPPED, turn.run_id, "newer client message")
         if run.status == RunStatus.SKIPPED:
             return TurnResult(RunStatus.SKIPPED, turn.run_id, run.error or "")
-        await self.deps.tasks.update_passport(turn.chat_id, PASSPORT_DELAY_S)
         for message_id in result.message_ids:
             await self.deps.tasks.send(message_id, turn.chat_id)
         for generation_id in result.generation_ids:
@@ -312,8 +344,9 @@ class ReplyService:
         return TurnResult(RunStatus.SENT, turn.run_id,
                           outgoing=len(result.message_ids) + len(result.generation_ids))
 
-    async def _apply(self, session: AsyncSession, turn: _Turn, decision: _Decision,
-                     prepared: list[Any], result: ApplyResult, run: ReplyRun) -> None:
+    async def _apply(self, session: AsyncSession, chat: Chat, turn: _Turn,
+                     decision: _Decision, prepared: list[Any], result: ApplyResult,
+                     run: ReplyRun) -> None:
         actx = self._action_context(turn)
         for action, ready in zip(decision.plan.messages, prepared, strict=True):
             await handler_for(action).apply(session, action, ready, actx, result)
@@ -322,16 +355,23 @@ class ReplyService:
             await add_canon(session, persona_id=turn.persona.id,
                             facts=[fact.fact for fact in decision.plan.canon],
                             chat_id=turn.chat_id, event_id=run.trigger_event_id)
+        if decision.plan.remember:
+            # «Заметки дня»: seen by the next turn at once, read by the night summary.
+            chat.day_notes = with_notes(chat.day_notes, local_day(now, turn.persona.timezone),
+                                        [fact.fact for fact in decision.plan.remember])
         await self._journal_blocks(session, turn, decision)
         run.status = RunStatus.SENT
         run.error = "; ".join(result.notes) or None
         run.finished_at = now
 
     @staticmethod
-    def _record(run: ReplyRun, decision: _Decision) -> None:
+    def _record(run: ReplyRun, decision: _Decision, recall: Recollection | None) -> None:
         run.plan = decision.plan.model_dump(mode="json")
         run.guard_verdicts = list(decision.verdicts)
         run.attempts = decision.attempts
+        if recall is not None:
+            run.context = {**(run.context or {}), "recall": recall.request,
+                           "recall_text": recall.text}
 
     async def _journal_blocks(self, session: AsyncSession, turn: _Turn,
                               decision: _Decision) -> None:
@@ -349,7 +389,7 @@ class ReplyService:
             run = await session.get(ReplyRun, turn.run_id)
             if chat is None or run is None:
                 return
-            self._record(run, decision)
+            self._record(run, decision, turn.recall)
             last = decision.verdicts[-1] if decision.verdicts else {}
             reason = str(last.get("reason", ""))
             run.status = RunStatus.BLOCKED
