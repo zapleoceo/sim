@@ -2,9 +2,10 @@ import type { BrokerModel, Persona } from '@/lib/types';
 
 export type ModelField =
   | 'model_reply' | 'model_guard' | 'model_vision' | 'model_transcribe' | 'model_memory'
-  | 'model_tts' | 'model_image' | 'model_video' | 'model_live';
+  | 'model_tts' | 'model_image' | 'model_video' | 'model_live' | 'model_life';
 
-export type ModelPurpose = 'reply' | 'guard' | 'memory' | 'vision' | 'transcribe' | 'tts' | 'image' | 'video' | 'live';
+export type ModelPurpose =
+  | 'reply' | 'guard' | 'memory' | 'vision' | 'transcribe' | 'tts' | 'image' | 'video' | 'live' | 'life';
 
 export interface PurposeInfo {
   purpose: ModelPurpose;
@@ -24,6 +25,7 @@ export const MODEL_PURPOSES: readonly PurposeInfo[] = [
   { purpose: 'image', field: 'model_image', label: 'Фото', hint: 'Генерирует фото по референсам внешности.' },
   { purpose: 'video', field: 'model_video', label: 'Видео', hint: 'Генерирует видео.' },
   { purpose: 'live', field: 'model_live', label: 'Звонки', hint: 'Живой голосовой разговор.' },
+  { purpose: 'life', field: 'model_life', label: 'Жизнь (план дня)', hint: 'Раз в день планирует её день: события, одежду, истории.' },
 ];
 
 const has = (list: readonly string[] | null | undefined, value: string): boolean =>
@@ -37,6 +39,7 @@ export function matchesPurpose(model: BrokerModel, purpose: ModelPurpose): boole
     case 'reply':
     case 'guard':
     case 'memory':
+    case 'life':
       return has(input, 'text') && has(output, 'text');
     case 'vision':
       return has(input, 'image') || has(input, 'video');

@@ -13,6 +13,10 @@ import { chatsApi } from './api';
 /** Context blocks in the order the model reads them (docs/context.md §2); unknown keys follow. */
 const CONTEXT_LABELS: [string, string][] = [
   ['facts', 'Факты от кода'],
+  ['routine', 'Распорядок'],
+  ['now', 'Точные данные на сейчас'],
+  ['arcs', 'Истории'],
+  ['canon', 'Канон'],
   ['client', 'Карточка клиента'],
   ['client_card', 'Карточка клиента'],
   ['summary', 'Сводка'],
