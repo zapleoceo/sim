@@ -175,9 +175,10 @@ def compute_facts(inp: FactsInput) -> Facts:
     if inp.capabilities is not None:
         caps = inp.capabilities
         values["capabilities"] = caps.as_dict()
+        notes = caps.video and caps.video_note
         lines.append(
             f"Сейчас можно: голосовые — {_yes(caps.voice)}; фото из каталога — "
             f"{_yes(caps.photo)}; новые фото — {_yes(caps.photo_generate)}; видео из каталога"
-            f" (и кружком) — {_yes(caps.video)}; новые видео и кружки — "
-            f"{_yes(caps.video_generate)}.")
+            f" — {_yes(caps.video)}; новые видео — {_yes(caps.video_generate)}; кружки — "
+            f"{_yes(notes)}{'' if caps.video_note else ' (в этом мессенджере их нет)'}.")
     return Facts(lines=tuple(lines), values=values)

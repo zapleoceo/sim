@@ -66,12 +66,18 @@ may_leave_read, after_missed_call, night_dnd}`; `{}` — всё по умолч�
 (`canon` плана, без дублей); активные видны во всех чатах; владелец правит и отклоняет.
 
 ### `channel`
-Аккаунт мессенджера, через который говорит персонаж: `persona_id`, `kind` (`telegram_user`),
-`title`, `status` (`new | connected | error | disabled`), `account_id`, `account_label`,
-`credentials_enc` (Fernet: api_id, api_hash, сессия, прокси), `last_error`,
-`last_activity_at`. Входящие сообщения приходят с `channel_id` (`Inbox`). `credentials_enc`
-пишет вход по QR из дашборда (`sim/api/routes/channels.py`); процесс `telegram` берёт каналы
-активных персонажей с учётными данными и статусом не `disabled`.
+Аккаунт мессенджера, через который говорит персонаж: `persona_id`, `kind` (`telegram_user |
+instagram | whatsapp`, с `0009`), `title`, `status` (`new | connected | error | disabled |
+pending | challenge`; `pending` — идёт вход, `challenge` — мессенджер требует войти заново, оба
+с `0009`), `account_id` (id аккаунта: Telegram user id, Instagram `ds_user_id`, телефон
+WhatsApp — один аккаунт работает только у одного персонажа), `account_label`,
+`credentials_enc` (Fernet JSON; Telegram: api_id, api_hash, сессия, прокси; Instagram: дамп
+настроек instagrapi, прокси, username, язык и смещение часового пояса устройства; WhatsApp:
+имя инстанса Evolution и секрет вебхука), `last_error`, `last_activity_at`. Входящие
+сообщения приходят с `channel_id` (`Inbox`). `credentials_enc` пишет вход из дашборда
+(`sim/api/routes/channels.py`); процесс `telegram` берёт каналы Telegram активных персонажей
+с учётными данными и статусом не `disabled`, воркер опрашивает подключённые Instagram
+([channels.md](channels.md)). У персонажа по одному каналу каждого вида.
 
 ## Люди и чаты
 
@@ -91,12 +97,16 @@ next_step, updated_at, locked_fields}` ([leads.md](leads.md)), `last_seen_at`.
 `access_hash` (последний увиденный; у каждого аккаунта он свой — для отправки берётся
 `chat.peer_access_hash`). Уникально `(channel_kind, external_id)` — один человек в двух
 мессенджерах или у двух персонажей остаётся одним клиентом. `Inbox.resolve_chat` ищет
-клиента по этой таблице.
+клиента по этой таблице. `external_id`: Telegram — user id, Instagram — pk пользователя,
+WhatsApp — jid телефона (`…@s.whatsapp.net`), а если WhatsApp его не дал — `…@lid`.
+Отправка берёт идентичность того вида, что и канал чата (`sim/channels/delivery.peer_of`).
 
 ### `chat`
 Переписка клиента через канал: `persona_id` (= персонаж канала; он и отвечает в чате),
 `client_id`, `channel_id` (уникально `(channel_id, client_id)`), `peer_access_hash` (access hash
-клиента так, как его видит аккаунт этого чата; `0004`), `ai_enabled` (переключатель чата),
+клиента так, как его видит аккаунт этого чата; `0004`), `external_thread_id` (адрес переписки в
+мессенджере, где пишут в тред, а не человеку: id треда Instagram Direct, jid WhatsApp; у
+Telegram пусто; `0009`, пишет `Inbox`), `ai_enabled` (переключатель чата),
 `attention_instant` («Отвечать сразу» в этом чате, по умолчанию нет; `0006`,
 [attention.md](attention.md)), `no_refusals` («Без отказов», по умолчанию нет; `0008`,
 [writing.md](writing.md)), `needs_operator` (ставится после
@@ -206,7 +216,8 @@ attention`; `life` — планировщик дня, `0003`; `passport` — п�
 ## Очередь задач
 
 Таблицы `procrastinate_*` создаёт Procrastinate своей миграцией схемы. Там лежат задачи
-(`agent.*`, `telegram.*`) трёх очередей — `agent`, `media` (генерация), `telegram`, — их
+(`agent.*`, `telegram:*`, `channels:*`) четырёх очередей — `agent`, `media` (генерация),
+`telegram`, `channels` (Instagram и WhatsApp, [channels.md](channels.md)), — их
 блокировки (`lock`, `queueing_lock`) и история запусков. Порядок и блокировки описаны в
 `docs/reply.md`, п. 2; восстановление оборванных задач и застрявших строк — в
 `docs/deploy.md`.

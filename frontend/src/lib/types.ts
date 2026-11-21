@@ -173,6 +173,8 @@ export interface ChatRow {
   client: ChatRowClient;
   /** The persona that answers in this chat (the persona of its channel). */
   persona: PersonaBrief | null;
+  /** The messenger of the chat (Telegram, Instagram, WhatsApp). */
+  channel?: ChatChannel | null;
   ai_enabled: boolean;
   /** «Отвечать сразу»: this chat skips her phone checks (docs/attention.md). */
   attention_instant: boolean;
@@ -559,25 +561,57 @@ export interface CanonFact {
   created_at: string;
 }
 
+/** The messengers a persona can speak through (docs/channels.md). */
+export type ChannelKind = 'telegram_user' | 'instagram' | 'whatsapp';
+
+/** `pending` — a login in progress; `challenge` — the messenger wants a new login. */
+export type ChannelStatus = 'new' | 'connected' | 'error' | 'disabled' | 'pending' | 'challenge';
+
 export interface Channel {
   id: number;
   persona_id: number;
-  kind: string;
+  kind: ChannelKind | string;
   title: string;
-  status: 'new' | 'connected' | 'error' | 'disabled' | string;
+  status: ChannelStatus | string;
   account_label: string;
   last_error: string | null;
   last_activity_at: string | null;
 }
 
-/** One step of the QR login of a Telegram account (no secrets ever come back). */
-export type LoginStateName = 'qr' | 'password' | 'connected' | 'error' | 'none';
+/** What «Подключить» may offer on this server (`reason` says why a kind is not available). */
+export interface ChannelKindInfo {
+  kind: ChannelKind;
+  label: string;
+  available: boolean;
+  reason: string;
+}
+
+export interface ChannelList extends Items<Channel> {
+  kinds?: ChannelKindInfo[];
+}
+
+/** The messenger of a chat (chat rows and the chat header show its icon). */
+export interface ChatChannel {
+  id: number;
+  kind: ChannelKind | string;
+  title: string;
+}
+
+/**
+ * One step of connecting an account (no secrets ever come back): `qr` (Telegram, WhatsApp),
+ * `password` (Telegram 2FA), `code` (Instagram 2FA, `detail` = totp | sms), `device` (approve in
+ * the Instagram app, retried by itself), `challenge` (a code Instagram sent, `detail` = email |
+ * sms), `manual` (check in the app, then «Повторить»).
+ */
+export type LoginStateName =
+  | 'qr' | 'password' | 'code' | 'device' | 'challenge' | 'manual' | 'connected' | 'error' | 'none';
 
 export interface LoginView {
   state: LoginStateName;
   message: string;
-  /** SVG data URI of the QR code while `state` is `qr`. */
+  /** Data URI of the QR code while `state` is `qr`. */
   qr: string | null;
+  detail?: string | null;
 }
 
 export interface LoginResponse {

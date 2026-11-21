@@ -1,7 +1,8 @@
 """`python -m sim.apps.worker`: runs the `agent` queue — replies, understanding attachments,
-memory, phone checks — and the `media` queue — generation — as two Procrastinate workers in
-one process, each with its own concurrency: a few videos (minutes each) never take the slots
-of replies. Everything slow lives here so the telegram process stays responsive.
+memory, phone checks —, the `media` queue — generation — and the `channels` queue — Instagram
+and WhatsApp (docs/channels.md) — as Procrastinate workers in one process, each with its own
+concurrency: a few videos (minutes each) never take the slots of replies. Everything slow lives
+here so the telegram process stays responsive.
 
 SIGTERM / SIGINT stop both workers gracefully: each finishes its running jobs (the compose
 `stop_grace_period`), cancelling `run_worker_async` is Procrastinate's graceful stop."""
@@ -19,7 +20,7 @@ from sim.apps import run, setup_logging
 from sim.config import get_settings
 from sim.services.deps import set_deps
 from sim.tasks.app import POOL_SIZE
-from sim.tasks.queue import AGENT_QUEUE, MEDIA_QUEUE
+from sim.tasks.queue import AGENT_QUEUE, CHANNELS_QUEUE, MEDIA_QUEUE
 from sim.wiring import wire
 
 log = logging.getLogger("sim.worker")
@@ -34,6 +35,9 @@ class WorkerSpec:
 WORKERS = (
     WorkerSpec(AGENT_QUEUE, 6),     # parallel chats; one chat is serialized by its task lock
     WorkerSpec(MEDIA_QUEUE, 3),     # parallel generations
+    # Instagram / WhatsApp sends, receipts, statuses and polls (docs/channels.md). Idle without
+    # such channels: the runtime is built by the first job that needs it.
+    WorkerSpec(CHANNELS_QUEUE, 3),
 )
 
 

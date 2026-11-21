@@ -271,6 +271,12 @@ class RecordingQueue:
     async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
         self.calls.append(("chat_action", chat_id, action, seconds))
 
+    async def poll_instagram(self, channel_id: int, delay_s: float = 0) -> None:
+        self.calls.append(("poll_instagram", channel_id, delay_s))
+
+    async def whatsapp_catch_up(self, channel_id: int) -> None:
+        self.calls.append(("whatsapp_catch_up", channel_id))
+
     def actions(self) -> list[str]:
         """The chat actions asked for, in order."""
         return [call[2] for call in self.of("chat_action")]

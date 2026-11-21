@@ -44,6 +44,10 @@ async def test_channels_of_a_persona(api: ApiClient, world: World) -> None:
     assert (channel["kind"], channel["status"], channel["account_label"]) == (
         "telegram_user", "connected", "@marina")
     assert "credentials_enc" not in channel
+    # What «Подключить» offers here (the tests give the app a fake Evolution).
+    kinds = [(k["kind"], k["label"], k["available"]) for k in response.json()["kinds"]]
+    assert kinds == [("telegram_user", "Telegram", True), ("instagram", "Instagram", True),
+                     ("whatsapp", "WhatsApp", True)]
     assert (await api.get("/api/personas/999999/channels")).status_code == 404
 
 
@@ -53,9 +57,10 @@ async def test_qr_login_connects_the_account(api: ApiClient, world: World, db: A
     persona = await new_persona(db)
     started = await start(api, persona.id)
     channel = started["channel"]
-    assert channel["status"] == "new" and channel["persona_id"] == persona.id
+    # A login in progress: `pending` until it ends (docs/channels.md).
+    assert channel["status"] == "pending" and channel["persona_id"] == persona.id
     assert started["login"] == {"state": "qr", "qr": "svg:tg://login?token=T1",
-                                "message": started["login"]["message"]}
+                                "message": started["login"]["message"], "detail": None}
     assert login_factory.args == [(12345, "0123456789abcdef", "")]
     poll = f"/api/personas/{persona.id}/channels/{channel['id']}/login"
     assert (await api.get(poll)).json()["login"]["state"] == "qr"

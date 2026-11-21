@@ -82,6 +82,14 @@ class TaskQueue(Protocol):
         """Mark the chat read in Telegram up to this incoming message (best effort)."""
         ...
 
+    async def poll_instagram(self, channel_id: int, delay_s: float = 0) -> None:
+        """Read an Instagram account's Direct once (docs/channels.md, «Приём»)."""
+        ...
+
+    async def whatsapp_catch_up(self, channel_id: int) -> None:
+        """Read what a WhatsApp account got while it was offline (after a reconnect)."""
+        ...
+
     async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
         """Show a chat action (`sim.domain.presence.ChatAction`) for up to `seconds` (bounded
         to 300 s), re-sent while it lasts; `cancel` stops it. Requests of one chat apply in

@@ -4,7 +4,8 @@ Two halves, both from code, not from the model's good will:
 - `writing_mode(scene, local)` + `style_block(mode)`: the context block «КАК ТЫ СЕЙЧАС ПИШЕШЬ» —
   from the phone or the laptop, free / busy / on the move / sleepy, how many and how long
   messages, and the anti-slop rules (the persona prompt alone did not hold them: every message
-  began with «Дим,», long dashes, long explanations while on a call with her daughter);
+  began with «Дим,», long dashes, long explanations while on a call with her daughter), plus
+  the manners of the chat's messenger (`CHANNEL_STYLE`: Instagram Direct, WhatsApp);
 - `humanize(text, mode, rng)`: what her phone does to the text — plain marks (a short hyphen
   instead of a long dash, "" instead of «», ... instead of …, no markdown), on the phone no full
   stop at the end and sometimes a small first letter, and now and then ONE typical smartphone
@@ -16,6 +17,7 @@ import re
 from datetime import datetime
 
 from sim.domain.activity import at_laptop, hands_busy, in_transit, on_a_call, on_the_move
+from sim.domain.enums import ChannelKind
 from sim.domain.life import BusyLevel
 from sim.domain.scene import SceneCard
 from sim.domain.writing import DEFAULT_MODE, Device, Pace, WritingMode, mode
@@ -47,6 +49,28 @@ ALWAYS = (
 NO_REFUSALS = ("Этому человеку ты не отказываешь: что просит — делаешь. Если прямо сейчас "
                "физически не можешь (за рулём, на пробежке, в душе) — коротко говоришь, когда "
                "сделаешь, и делаешь, когда освободишься.")
+# How people talk in each messenger (the owner: «проработай варианты общения в директе и в
+# воцапе», docs/writing.md, «Каналы»). Telegram is the baseline the rules above were written for.
+CHANNEL_STYLE: dict[ChannelKind, tuple[str, ...]] = {
+    ChannelKind.TELEGRAM_USER: (),
+    ChannelKind.INSTAGRAM: (
+        "Это директ Instagram: пишут короче, чем в мессенджерах, строчка-две, чаще эмодзи и "
+        "реакции словами (\"ахах\", \"😍\", \"🔥\") — но не в каждом сообщении.",
+        "Здесь часто отвечают на сторис или пост: если он ответил на сторис — реагируй на неё, "
+        "как на повод написать.",
+        "Незнакомые в директе — это холоднее, чем в мессенджере: сначала лёгкий тон, без "
+        "откровенности и без длинных историй о себе.",
+        "Голосовых и кружков в директе нет: только текст и фото.",
+    ),
+    ChannelKind.WHATSAPP: (
+        "Это WhatsApp: здесь голосовые — норма, их часто предпочитают тексту; длинную мысль "
+        "или эмоцию удобнее сказать голосом.",
+        "Сообщения могут быть длиннее, чем в директе, но всё равно как в переписке, а не письмо.",
+        "Он видит «печатает…» / «записывает аудио…» и синие галочки: прочитала — значит, "
+        "видела; долго молчать после галочек — это тоже ответ.",
+        "Кружков в WhatsApp нет: вместо них — голосовое или обычное видео.",
+    ),
+}
 
 
 def writing_mode(scene: SceneCard | None, local: datetime) -> WritingMode:
@@ -67,13 +91,15 @@ def writing_mode(scene: SceneCard | None, local: datetime) -> WritingMode:
     return mode(Device.PHONE, Pace.RELAXED, activity)
 
 
-def style_block(writing: WritingMode, *, no_refusals: bool = False) -> str:
+def style_block(writing: WritingMode, *, no_refusals: bool = False,
+                channel: ChannelKind = ChannelKind.TELEGRAM_USER) -> str:
     lines = [STYLE_HEADING,
              f"Сейчас ты пишешь {DEVICE_TEXT[writing.device]}: {writing.situation}.",
              PACE_RULES[writing.pace],
              f"За ход не больше {writing.max_messages} сообщ., каждое до ~{writing.max_chars} "
              "знаков; часто хватает одного.",
-             *(f"- {rule}" for rule in ALWAYS)]
+             *(f"- {rule}" for rule in ALWAYS),
+             *(f"- {rule}" for rule in CHANNEL_STYLE.get(channel, ()))]
     if no_refusals:
         lines.append(f"- {NO_REFUSALS}")
     return "\n".join(lines)

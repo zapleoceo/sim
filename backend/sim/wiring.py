@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sim.adapters.broker import BrokerAdapters
 from sim.adapters.media_tools import FfmpegMediaTools
 from sim.adapters.storage import LocalMediaStorage
+from sim.channels.routing import DbChannelRouter
 from sim.clock import SystemClock
 from sim.config import Settings
 from sim.db.session import make_engine, make_sessionmaker
@@ -34,9 +35,10 @@ def wire(settings: Settings, *, pool_size: int = 5, tasks_pool_size: int = POOL_
     engine = make_engine(settings.database_url, pool_size=pool_size)
     broker = BrokerAdapters.from_settings(settings)
     tasks_app = make_app(settings, pool_size=tasks_pool_size)
+    sessions = make_sessionmaker(engine)
     deps = Deps(
         settings=settings,
-        sessions=make_sessionmaker(engine),
+        sessions=sessions,
         clock=SystemClock(),
         llm=broker.llm,
         transcriber=broker.transcriber,
@@ -46,6 +48,7 @@ def wire(settings: Settings, *, pool_size: int = 5, tasks_pool_size: int = POOL_
         live=broker.live,
         storage=LocalMediaStorage(settings.media_dir),
         tools=FfmpegMediaTools(),
-        tasks=ProcrastinateQueue(tasks_app),
+        # Sends, receipts and statuses go to the queue of the chat's messenger.
+        tasks=ProcrastinateQueue(tasks_app, router=DbChannelRouter(sessions)),
     )
     return Wired(deps=deps, tasks_app=tasks_app, broker=broker, engine=engine)

@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.config import Settings
-from sim.db.models import Call, Chat, ChatDay, ChatWeek, Client, Generation
+from sim.db.models import Call, Channel, Chat, ChatDay, ChatWeek, Client, Generation
 from sim.domain.enums import (
     CallDirection,
     CallStatus,
+    ChannelKind,
     DaySource,
     Direction,
     EventKind,
@@ -123,6 +124,20 @@ async def test_the_style_block_and_no_refusals(db: AsyncSession, clock: FixedClo
     chat.no_refusals = True
     await db.flush()
     assert NO_REFUSALS in user_text(await builder.for_reply(db, chat.id))
+
+
+async def test_the_chats_messenger_shapes_style_and_capabilities(
+        db: AsyncSession, clock: FixedClock, settings: Settings) -> None:
+    chat = await make_chat(db)
+    await add_message(db, chat, "привет", at=clock.now())
+    channel = await db.get(Channel, chat.channel_id)
+    assert channel is not None
+    channel.kind = ChannelKind.INSTAGRAM            # the same chat, as an Instagram Direct one
+    await db.flush()
+    ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
+    assert "директ Instagram" in user_text(ctx) and ctx.snapshot["channel"] == "instagram"
+    assert not ctx.capabilities.voice and not ctx.capabilities.video_note
+    assert "голосовые — нет" in user_text(ctx) and "в этом мессенджере их нет" in user_text(ctx)
 
 
 async def test_only_a_generation_still_in_progress_is_promised(db: AsyncSession, clock: FixedClock,

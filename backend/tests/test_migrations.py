@@ -38,9 +38,10 @@ leads = load("migration_0004", BACKEND / "migrations" / "versions" / "0004_perso
 agents = load("migration_0005", BACKEND / "migrations" / "versions" / "0005_persona_agents.py")
 attention = load("migration_0006", BACKEND / "migrations" / "versions" / "0006_attention.py")
 day_memory = load("migration_0007", BACKEND / "migrations" / "versions" / "0007_day_memory.py")
+channels = load("migration_0009", BACKEND / "migrations" / "versions" / "0009_channels.py")
 ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
                **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS,
-               **day_memory.ENUM_CHECKS}
+               **day_memory.ENUM_CHECKS, **channels.ENUM_CHECKS}
 # Tables in creation order over all revisions.
 TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
@@ -54,7 +55,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0008"
+    assert sim_head is not None and sim_head.revision == "0009"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -175,7 +176,7 @@ def test_check_values(definition, values):
 def test_expected_checks_cover_every_enum_column():
     expected = smoke.expected_checks(Base.metadata)
     assert expected[("channel", "ck_channel_channelstatus")] == {
-        "new", "connected", "error", "disabled"}
+        "new", "connected", "error", "disabled", "pending", "challenge"}
     assert ("chat_event", "ck_chat_event_eventkind") in expected
     assert len(expected) == len(ENUM_CHECKS)
 
@@ -220,3 +221,19 @@ def test_no_refusals_revision_follows_the_day_memory_one(scripts):
     revision = scripts.get_revision("0008")
     assert revision is not None and revision.down_revision == "0007"
     assert "no_refusals" in Base.metadata.tables["chat"].columns
+
+
+def test_channels_revision_follows_the_no_refusals_one(scripts):
+    revision = scripts.get_revision("0009")
+    assert revision is not None and revision.down_revision == "0008"
+    # Instagram and WhatsApp in both kind CHECKs, the two login statuses, appended.
+    assert channels.KINDS[:1] == channels.PREVIOUS_KINDS == \
+        initial.ENUM_CHECKS[("channel", "kind")][1]
+    assert channels.KINDS[1:] == ("instagram", "whatsapp")
+    assert channels.STATUSES[:4] == channels.PREVIOUS_STATUSES == \
+        initial.ENUM_CHECKS[("channel", "status")][1]
+    assert channels.STATUSES[4:] == ("pending", "challenge")
+    assert channels.ENUM_CHECKS[("client_identity", "channel_kind")] == ("channelkind",
+                                                                        channels.KINDS)
+    column = Base.metadata.tables["chat"].columns["external_thread_id"]
+    assert column.nullable and column.type.length == 128

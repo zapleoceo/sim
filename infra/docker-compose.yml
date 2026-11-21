@@ -2,8 +2,10 @@ name: sim
 
 # SIM v2 on the prod host (/var/www/sim, docs/deploy.md). Only the api is published, and only on
 # loopback: nginx serves the admin and proxies /api to it. Postgres stays inside the compose
-# network. No Redis and no Evolution/WhatsApp: the job queue (Procrastinate) and live updates
-# (LISTEN/NOTIFY) are in Postgres.
+# network. No Redis: the job queue (Procrastinate) and live updates (LISTEN/NOTIFY) are in
+# Postgres. WhatsApp (Evolution API) is OFF by default: its services are in the `whatsapp`
+# profile and start only when infra/.env has COMPOSE_PROFILES=whatsapp (docs/deploy.md,
+# «WhatsApp»). Instagram needs no service: the worker polls it (queue `channels`).
 #
 # Container and volume names are the v1 ones on purpose (sim-postgres for sim-backup.sh, sim_media
 # for the files), but v2 starts on a CLEAN sim_pgdata volume: the first rollout removes the v1
@@ -102,6 +104,71 @@ services:
     stop_grace_period: 30s
     mem_limit: 512m
 
+  # --- WhatsApp: only with the `whatsapp` profile (COMPOSE_PROFILES=whatsapp in infra/.env) ---
+
+  # Evolution keeps its own database `evolution` in the same Postgres; made once, idempotent.
+  evolution-init:
+    image: postgres:16.6-alpine
+    container_name: sim-evolution-init
+    profiles: ["whatsapp"]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-}
+    command: ["sh", "-c", "psql -h postgres -U sim -d sim -tAc \"SELECT 1 FROM pg_database WHERE datname = 'evolution'\" | grep -q 1 || psql -h postgres -U sim -d sim -c 'CREATE DATABASE evolution'"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    mem_limit: 64m
+    restart: "no"
+
+  # WhatsApp as a linked device (Baileys). Reached only inside the compose network: SIM calls
+  # http://evolution:8080 with the API key, Evolution posts events to http://api:8000/api/hooks.
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: sim-evolution
+    profiles: ["whatsapp"]
+    environment:
+      SERVER_URL: http://evolution:8080
+      # Not `:?`: compose interpolates every service, enabled or not, and a required variable
+      # would break the normal deploy without the profile. Set it in infra/.env (docs/deploy.md).
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      # connection_limit: Postgres has max_connections=60 for everything (SIM pools included).
+      DATABASE_CONNECTION_URI: postgresql://sim:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public&connection_limit=5
+      DATABASE_CONNECTION_CLIENT_NAME: sim
+      # Stored messages feed the catch-up after a reconnect (POST /chat/findMessages).
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      # The name in «Связанные устройства» on the phone: an unknown device there looks like a
+      # hijack and gets unlinked (docs/channels.md).
+      CONFIG_SESSION_PHONE_CLIENT: ${EVOLUTION_DEVICE_NAME:-SIM}
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "10"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      LOG_LEVEL: ERROR,WARN
+    volumes:
+      - sim_evolution:/evolution/instances
+    depends_on:
+      postgres: {condition: service_healthy}
+      evolution-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "3"}
+    mem_limit: 512m
+    restart: unless-stopped
+
 volumes:
   sim_pgdata:
   sim_media:
+  sim_evolution:

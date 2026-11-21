@@ -20,6 +20,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from sim.channels.delivery import RetryAfter
 from sim.domain.presence import ChatAction
 from sim.ports import OutboundMessage, Peer, PortError
 from sim.telegram.peers import input_peer
@@ -49,11 +50,11 @@ DEFAULT_NAMES = {"photo": "photo.jpg", "video": "video.mp4", "voice": "voice.ogg
                  "video_note": "video_note.mp4", "file": "file.bin"}
 
 
-class FloodWait(PortError):
+class FloodWait(RetryAfter):
     """Telegram asked to wait `seconds` before the next request."""
 
     def __init__(self, seconds: int) -> None:
-        super().__init__(f"telegram flood wait {seconds}s", retryable=True)
+        super().__init__(f"telegram flood wait {seconds}s", seconds)
         self.seconds = seconds
 
 

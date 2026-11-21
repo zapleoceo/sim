@@ -5,7 +5,11 @@ from enum import StrEnum
 
 
 class ChannelKind(StrEnum):
+    """What a channel speaks through; every kind has a row in `sim.domain.channels.SPECS`."""
+
     TELEGRAM_USER = "telegram_user"     # a personal Telegram account over MTProto (Telethon)
+    INSTAGRAM = "instagram"             # Instagram Direct over the private API (instagrapi)
+    WHATSAPP = "whatsapp"               # WhatsApp as a linked device (Evolution API, Baileys)
 
 
 class ChannelStatus(StrEnum):
@@ -13,6 +17,8 @@ class ChannelStatus(StrEnum):
     CONNECTED = "connected"
     ERROR = "error"
     DISABLED = "disabled"
+    PENDING = "pending"         # the login is in progress (QR shown, a code awaited)
+    CHALLENGE = "challenge"     # the messenger wants the owner to log in again
 
 
 class Direction(StrEnum):

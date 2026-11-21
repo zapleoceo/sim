@@ -10,11 +10,14 @@ from litestar.testing import AsyncTestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api.app import create_app
+from sim.channels.instagram.login import InstagramLogins
+from sim.channels.whatsapp.login import WhatsAppLogins
 from sim.clock import FixedClock
 from sim.config import Settings
 from sim.telegram.login import TelegramLogins
 from tests.api.fakes import FakeDeps
 from tests.api.helpers import BOT_TOKEN, ApiClient, World, login, make_admin, seed_world
+from tests.fakes.channels import FakeEvolution, FakeIgFactory
 from tests.fakes.telegram import LoginClientFactory
 
 
@@ -54,8 +57,23 @@ def logins(login_factory: LoginClientFactory) -> TelegramLogins:
 
 
 @pytest.fixture
-async def client(deps: FakeDeps, logins: TelegramLogins) -> AsyncIterator[ApiClient]:
-    app = create_app(deps, logins=logins)  # type: ignore[arg-type]
+def ig_factory() -> FakeIgFactory:
+    """Fake instagrapi clients for the Instagram login."""
+    return FakeIgFactory()
+
+
+@pytest.fixture
+def evolution() -> FakeEvolution:
+    """A fake Evolution API (WhatsApp); answers are set per test."""
+    return FakeEvolution()
+
+
+@pytest.fixture
+async def client(deps: FakeDeps, logins: TelegramLogins, ig_factory: FakeIgFactory,
+                 evolution: FakeEvolution) -> AsyncIterator[ApiClient]:
+    app = create_app(deps, logins=logins,  # type: ignore[arg-type]
+                     instagram=InstagramLogins(ig_factory, attempt_s=5),
+                     whatsapp=WhatsAppLogins(evolution, "http://api:8000/api"))
     async with AsyncTestClient(app=app) as test_client:
         yield test_client
 

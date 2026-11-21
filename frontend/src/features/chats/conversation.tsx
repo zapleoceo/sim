@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowLeft, CheckCircle2, MessageSquareDashed, StickyNote } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import {
@@ -111,7 +112,8 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
         >
           {name}
         </Link>
-        <span className="truncate text-xs text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
+          {chat.channel && <ChannelIcon kind={chat.channel.kind} />}
           {chat.persona && <span className="font-medium text-foreground/80">отвечает {chat.persona.name} · </span>}
           {chat.client.username ? `@${chat.client.username}` : 'без username'}
           {!chat.client.ai_enabled && ' · ИИ выключен у клиента'}

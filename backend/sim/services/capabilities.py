@@ -1,5 +1,6 @@
-"""What the persona may do this turn, from her switches and her agents' models. The same
-flags are shown to the reply model (facts) and enforced on its plan (plan_check)."""
+"""What the persona may do this turn, from her switches, her agents' models and the messenger of
+the chat (sim/domain/channels.py: Instagram has no voice notes, only Telegram has round videos).
+The same flags are shown to the reply model (facts) and enforced on its plan (plan_check)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
@@ -7,6 +8,8 @@ from typing import Any
 
 from sim.db.models import Persona
 from sim.domain.agents import AgentKey, agent_config
+from sim.domain.channels import spec_of
+from sim.domain.enums import ChannelKind, MessageKind
 from sim.domain.scene import CameraHold, SceneCard
 from sim.services.visual import camera_for
 
@@ -20,22 +23,28 @@ class Capabilities:
     video_generate: bool    # make new videos (photo by references -> video)
     # Why she can not film a video note right now (driving, running…), "" = she can.
     camera_block: str = ""
+    # The chat's messenger shows a round video message («кружок»); only Telegram does.
+    video_note: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def capabilities_of(persona: Persona) -> Capabilities:
-    photo = bool(persona.photo_enabled)
-    video = bool(persona.video_enabled)
+def capabilities_of(persona: Persona,
+                    channel: ChannelKind = ChannelKind.TELEGRAM_USER) -> Capabilities:
+    spec = spec_of(channel)
+    photo = bool(persona.photo_enabled) and spec.can_send(MessageKind.PHOTO)
+    video = bool(persona.video_enabled) and spec.can_send(MessageKind.VIDEO)
     tts, image, clip = (agent_config(persona, key).model
                         for key in (AgentKey.TTS, AgentKey.IMAGE, AgentKey.VIDEO))
+    voice = bool(persona.voice_enabled and persona.voice_id and tts)
     return Capabilities(
-        voice=bool(persona.voice_enabled and persona.voice_id and tts),
+        voice=voice and spec.can_send(MessageKind.VOICE),
         photo=photo,
         photo_generate=photo and bool(image),
         video=video,
         video_generate=video and bool(clip and image),
+        video_note=spec.can_send(MessageKind.VIDEO_NOTE),
     )
 
 

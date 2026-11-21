@@ -250,11 +250,15 @@ class Inbox:
         if chat is None:
             chat = Chat(persona_id=channel.persona_id, client_id=client.id,
                         channel_id=channel.id, ai_enabled=True, needs_operator=False,
-                        unread_count=0, peer_access_hash=peer.access_hash)
+                        unread_count=0, peer_access_hash=peer.access_hash,
+                        external_thread_id=peer.thread_id)
             session.add(chat)
             await session.flush()
-        elif peer.access_hash and chat.peer_access_hash != peer.access_hash:
-            chat.peer_access_hash = peer.access_hash    # this account's view of the client
+        else:
+            if peer.access_hash and chat.peer_access_hash != peer.access_hash:
+                chat.peer_access_hash = peer.access_hash    # this account's view of the client
+            if peer.thread_id and chat.external_thread_id != peer.thread_id:
+                chat.external_thread_id = peer.thread_id    # Instagram thread / WhatsApp jid
         return chat
 
     async def edited(self, channel_id: int, peer: Peer, external_id: str, text: str) -> None:

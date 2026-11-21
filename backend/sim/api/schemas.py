@@ -88,6 +88,29 @@ class PasswordIn(Struct):
     password: Annotated[str, Meta(min_length=1, max_length=256)]
 
 
+class InstagramLoginIn(Struct, forbid_unknown_fields=True):
+    """One way in (docs/channels.md): username + password, OR the browser's sessionid, OR an
+    instagrapi settings JSON; the proxy is required (or SIM_IG_DEFAULT_PROXY). Never logged."""
+
+    proxy: Annotated[str, Meta(max_length=300)] = ""
+    username: Annotated[str, Meta(max_length=64)] = ""
+    password: Annotated[str, Meta(max_length=256)] = ""
+    sessionid: Annotated[str, Meta(max_length=512)] = ""
+    settings_json: Annotated[str, Meta(max_length=200_000)] = ""
+
+
+class WhatsAppLoginIn(Struct, forbid_unknown_fields=True):
+    """Nothing is needed but the QR scan; `phone` is only a label until WhatsApp says it."""
+
+    phone: Annotated[str, Meta(max_length=32)] = ""
+
+
+class CodeIn(Struct):
+    """A 2FA / challenge code; empty = «Повторить» after approving in the app."""
+
+    code: Annotated[str, Meta(max_length=32)] = ""
+
+
 class PersonaPatchIn(Struct):
     """Every editable column of `persona` except her agents and the guard's rule list (both
     on `PUT /personas/{id}/agents`). Unknown keys (id, timestamps) are ignored, so the

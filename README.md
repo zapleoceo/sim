@@ -23,6 +23,8 @@ AI-персонажи (первая — Марина), каждый в своё�
 | [docs/auth.md](docs/auth.md) | Вход через Telegram, сессии, CSRF |
 | [docs/broker.md](docs/broker.md) | Клиент AI Broker |
 | [docs/telegram.md](docs/telegram.md) | Telegram userbot: приём и отправка |
+| [docs/channels.md](docs/channels.md) | Каналы: таблица мессенджеров, Instagram Direct (instagrapi) и WhatsApp (Evolution API) — вход, приём, отправка, лимиты, антибан |
+| [docs/writing.md](docs/writing.md) | Как она пишет: стиль по обстоятельствам и мессенджеру, «телефон» |
 | [docs/calls.md](docs/calls.md) | Звонки |
 | [docs/frontend.md](docs/frontend.md) | Дашборд |
 | [docs/deploy.md](docs/deploy.md) | Сервисы, переменные окружения, выкат |
@@ -31,8 +33,9 @@ AI-персонажи (первая — Марина), каждый в своё�
 
 | Процесс | Команда | Что делает |
 |---|---|---|
-| `api` | `uvicorn sim.apps.api:create_app --factory` | Дашборд и HTTP API (Litestar), вход в Telegram по QR |
-| `worker` | `python -m sim.apps.worker` | Проверки телефона (Внимание), ответы, распознавание, генерация, ночная память (итоги дней и недель, паспорт клиента), очередь `agent` |
+| `api` | `uvicorn sim.apps.api:create_app --factory` | Дашборд и HTTP API (Litestar), вход в Telegram, Instagram, WhatsApp; вебхук WhatsApp |
+| `worker` | `python -m sim.apps.worker` | Проверки телефона (Внимание), ответы, распознавание, генерация, ночная память (итоги дней и недель, паспорт клиента), очередь `agent`; Instagram и WhatsApp (очередь `channels`) |
+| `evolution` | профиль compose `whatsapp` | WhatsApp (Evolution API); по умолчанию не запущен |
 | `telegram` | `python -m sim.apps.telegram` | Сессия Telegram, приём, отправка, звонки (очередь `telegram`) |
 
 Очередь задач — Procrastinate в той же PostgreSQL. Живые обновления дашборда идут через

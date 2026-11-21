@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { AlertTriangle, MessagesSquare, Search } from 'lucide-react';
 import { useState } from 'react';
 import { Avatar } from '@/components/avatar';
+import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,6 +49,7 @@ function ChatListItem({ chat, active, showPersona }: { chat: ChatRow; active: bo
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
+            {chat.channel && <ChannelIcon kind={chat.channel.kind} className="translate-y-0.5" />}
             <span className={cn('min-w-0 flex-1 truncate text-sm', chat.unread_count > 0 ? 'font-semibold' : 'font-medium')}>
               {name}
             </span>

@@ -268,6 +268,10 @@ class Chat(Base):
     # Telegram's access hash of the client as THIS chat's account sees it (it differs between
     # accounts, so with many personas it lives on the chat, not on the identity).
     peer_access_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The conversation's address where a messenger addresses threads, not people: the
+    # Instagram Direct thread id, the WhatsApp jid (docs/channels.md). Written by Inbox; null
+    # for Telegram.
+    external_thread_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # «Отвечать сразу»: this chat skips the phone checks, as «Всегда сразу» (for tests).
     attention_instant: Mapped[bool] = mapped_column(Boolean, default=False,

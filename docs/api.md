@@ -32,6 +32,7 @@
 
 ```ts
 ChatRow = {id, client: {id, name, username, ai_enabled}, persona: PersonaBrief | null,
+           channel: {id, kind, title} | null,  // мессенджер чата: значок в списке и шапке
            ai_enabled, attention_instant, no_refusals, needs_operator, unread_count, last_message_at,
            last_message: {kind, direction, author, text} | null,
            persona_status: PersonaStatus}
@@ -116,27 +117,52 @@ Attention = {mode: "human"|"free_only"|"instant", pace: number /* 0.5…2 */,
 агента-запасного); `""` — агент не работает. Сохраняется только отличие от умолчания: уровень
 ключей и max_tokens, равные стандартным, и промт, равный стандартному, не хранятся.
 
-## Канал персонажа
+## Каналы персонажа
 
-Подключение аккаунта Telegram по QR — [personas.md](personas.md), п. 3. Ответы никогда не
-содержат api_hash, сессию и пароль.
+Telegram (вход по QR, [personas.md](personas.md), п. 3), Instagram Direct и WhatsApp
+([channels.md](channels.md)). У персонажа по одному каналу каждого вида; канал создаётся при
+первом входе. Ответы никогда не содержат api_hash, сессии, пароли, коды, sessionid, JSON сессии
+и секрет вебхука. Код: `sim/api/routes/channels.py`, потоки входа — `sim/api/channel_logins.py`.
 
 | Метод | Путь | |
 |---|---|---|
-| GET | `/personas/{id}/channels` | → `{items: [Channel]}` |
-| POST | `/personas/{id}/channels/telegram/login` | `{api_id, api_hash, proxy?}` → `LoginStep`; канал персонажа создаётся при первом входе |
-| GET | `/personas/{id}/channels/{cid}/login` | → `LoginStep` (дашборд спрашивает раз в 2 с, пока `state = qr`) |
-| POST | `/personas/{id}/channels/{cid}/login/password` | `{password}` — облачный пароль 2FA → `LoginStep` |
-| DELETE | `/personas/{id}/channels/{cid}/login` | отменить вход → 204 |
+| GET | `/personas/{id}/channels` | → `{items: [Channel], kinds: [ChannelKindInfo]}` |
+| POST | `/personas/{id}/channels/telegram/login` | `{api_id, api_hash, proxy?}` → `LoginStep` |
+| POST | `/personas/{id}/channels/instagram/login` | ровно один способ: `{username, password, proxy}`, или `{sessionid, proxy}`, или `{settings_json, proxy}`; прокси обязателен (или `SIM_IG_DEFAULT_PROXY`); лишнее поле → 400 → `LoginStep` |
+| POST | `/personas/{id}/channels/whatsapp/login` | `{phone?}` (только подпись) → `LoginStep` с QR; канал сразу `pending` и хранит инстанс и секрет вебхука |
+| GET | `/personas/{id}/channels/{cid}/login` | → `LoginStep`; дашборд спрашивает раз в 2 с, пока `state` = `qr` или `device` (Instagram повторяет вход сам) |
+| POST | `/personas/{id}/channels/{cid}/login/code` | `{code}` — код 2FA / подтверждения Instagram; пустой — «Повторить» / «Я подтвердил» → `LoginStep` |
+| POST | `/personas/{id}/channels/{cid}/login/password` | `{password}` — облачный пароль 2FA Telegram → `LoginStep` |
+| DELETE | `/personas/{id}/channels/{cid}/login` | отменить вход → 204; незавершённая привязка WhatsApp ещё и отвязывается в Evolution (logout + delete), канал снова `new` |
 | POST | `/personas/{id}/channels/{cid}/disable` | «Отключить»: статус `disabled` → `Channel` |
 
 ```ts
-Channel = {id, persona_id, kind, title, status: "new"|"connected"|"error"|"disabled",
+Channel = {id, persona_id, kind: "telegram_user" | "instagram" | "whatsapp", title,
+           status: "new" | "connected" | "error" | "disabled"
+                 | "pending"     // идёт вход: показан QR, ждём код
+                 | "challenge",  // мессенджер требует войти заново («нужен повторный вход»)
            account_label, last_error, last_activity_at}
+ChannelKindInfo = {kind, label, available, reason}   // reason: «Сервис WhatsApp не запущен на сервере»
 LoginStep = {channel: Channel,
-             login: {state: "qr"|"password"|"connected"|"error"|"none", message,
-                     qr: string | null /* SVG data URI */}}
+             login: {state: "none" | "qr" | "password" | "code" | "device" | "challenge"
+                          | "manual" | "connected" | "error",
+                     message,
+                     qr: string | null,      // data URI QR (Telegram, WhatsApp)
+                     detail: string | null}} // code: totp | sms; challenge: email | sms
 ```
+
+Статус канала во время входа: начатый вход переводит `new` / `error` / `challenge` в `pending`;
+ошибка или «вход устарел» возвращают `pending` в `new`; рабочий (`connected`) и выключенный
+канал вход не трогает, пока он не завершится.
+
+## Вебхуки
+
+`POST /api/hooks/evolution/{channel_id}` — события WhatsApp от Evolution API
+([channels.md](channels.md), «Приём»). Без входа в дашборд и без CSRF (`opt public`), но с
+заголовком `x-sim-webhook-secret`, равным секрету этого канала (хранится зашифрованным,
+сравнение за постоянное время): нет такого WhatsApp-канала → 404, секрет не тот → 403.
+Выключенный канал → 200 и ничего. Иначе → `{ok: true, stored: N}` — сколько новых сообщений
+клиентов принято. Тело не логируется.
 
 ## Жизнь персонажа
 

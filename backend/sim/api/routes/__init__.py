@@ -11,6 +11,7 @@ from sim.api.routes import (
     clients,
     diary,
     events,
+    hooks,
     life,
     media,
     persona,
@@ -19,4 +20,5 @@ from sim.api.routes import (
 API_ROUTES: list[Any] = [
     *auth.ROUTES, *chats.ROUTES, *persona.ROUTES, *life.ROUTES, *channels.ROUTES,
     *media.ROUTES, *clients.ROUTES, *events.ROUTES, *agents.ROUTES, *diary.ROUTES,
+    *hooks.ROUTES,
 ]

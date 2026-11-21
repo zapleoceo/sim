@@ -20,9 +20,9 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import Any
 
+from sim.channels.login import LoginResult, LoginState
 from sim.telegram.client import Credentials, build_client, parse_proxy
 
 log = logging.getLogger(__name__)
@@ -42,29 +42,10 @@ ERRORS = {
 LoginClientFactory = Callable[[int, str, str], Any]
 Monotonic = Callable[[], float]
 QrImage = Callable[[str], str]
-
-
-class LoginState(StrEnum):
-    QR = "qr"                   # waiting for the scan
-    # A login state name, not a secret.
-    PASSWORD = "password"  # noqa: S105
-    CONNECTED = "connected"     # signed in: `credentials` and `me` are set
-    ERROR = "error"             # the login is over; `message` says why
-    NONE = "none"               # nothing pending for this channel
-
-
-@dataclass
-class LoginResult:
-    state: LoginState
-    message: str = ""
-    qr: str | None = None                       # SVG data URI of tg://login?token=…
-    # Only for CONNECTED: {api_id, api_hash, session, proxy} — never returned by the API.
-    credentials: dict[str, Any] | None = field(default=None, repr=False)
-    me: Any = field(default=None, repr=False)
-
-    def view(self) -> dict[str, Any]:
-        """What the dashboard may see (no credentials)."""
-        return {"state": self.state.value, "message": self.message, "qr": self.qr}
+# The shared login step (sim/channels/login.py); CONNECTED carries `credentials` =
+# {api_id, api_hash, session, proxy} and `me`. Re-exported for the API and the tests.
+__all__ = ["LoginResult", "LoginState", "TelegramLogins", "error_message", "login_client",
+           "qr_data_uri"]
 
 
 @dataclass
