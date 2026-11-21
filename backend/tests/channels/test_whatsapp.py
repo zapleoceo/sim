@@ -143,6 +143,7 @@ async def test_qr_login_creates_the_instance_and_connects() -> None:
     stored = started.credentials
     assert stored is not None and stored["instance"] == "sim-5" and stored["webhook_secret"]
     _, path, body = api.requests[0]
+    assert path == "/instance/create"
     assert body is not None and body["instanceName"] == "sim-5" and body["groupsIgnore"]
     assert body["webhook"]["url"] == "http://api:8000/api/hooks/evolution/5"
     assert body["webhook"]["headers"][SECRET_HEADER] == stored["webhook_secret"]
