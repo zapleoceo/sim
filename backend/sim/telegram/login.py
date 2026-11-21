@@ -46,7 +46,7 @@ QrImage = Callable[[str], str]
 
 class LoginState(StrEnum):
     QR = "qr"                   # waiting for the scan
-    PASSWORD = "password"       # the account has a 2FA password
+    PASSWORD = "password"  # noqa: S105 - a login state name, not a secret
     CONNECTED = "connected"     # signed in: `credentials` and `me` are set
     ERROR = "error"             # the login is over; `message` says why
     NONE = "none"               # nothing pending for this channel

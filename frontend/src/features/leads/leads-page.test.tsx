@@ -41,7 +41,7 @@ describe('LeadsPage', () => {
     await renderWithApp(<LeadsPage />);
 
     const table = await screen.findByRole('table');
-    await within(table).findByText('Киев');
+    expect(await within(table).findAllByText('Киев')).toHaveLength(2); // both leads live there
     expect(within(table).getAllByRole('row')).toHaveLength(3); // header + 2
     for (const header of ['Персонаж', 'Стадия', 'Город', 'Возраст', 'Последний контакт', 'Сообщений']) {
       expect(within(table).getByRole('columnheader', { name: header })).toBeInTheDocument();
