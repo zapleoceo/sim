@@ -4,7 +4,9 @@ Procrastinate tasks are plain functions, so the process entrypoint registers the
 `Deps` with `set_deps()` and tasks read it with `get_deps()`."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import secrets
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -23,6 +25,10 @@ from sim.ports import (
 from sim.services.queue import TaskQueue
 
 
+def system_uniform() -> Callable[[], float]:
+    return secrets.SystemRandom().random
+
+
 @dataclass
 class Deps:
     settings: Settings
@@ -37,6 +43,8 @@ class Deps:
     storage: MediaStoragePort
     tools: MediaToolsPort
     tasks: TaskQueue
+    # A uniform number in [0, 1) for human-like delays (docs/attention.md); tests fix it.
+    uniform: Callable[[], float] = field(default_factory=system_uniform)
 
 
 _registry: dict[str, Deps] = {}

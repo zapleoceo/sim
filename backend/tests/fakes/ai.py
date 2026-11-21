@@ -235,6 +235,9 @@ class RecordingQueue:
     async def reply(self, chat_id: int, delay_s: float = 0) -> None:
         self.calls.append(("reply", chat_id, delay_s))
 
+    async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
+        self.calls.append(("phone_check", persona_id, delay_s))
+
     async def understand(self, media_id: int) -> None:
         self.calls.append(("understand", media_id))
 

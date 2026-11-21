@@ -1,11 +1,12 @@
 """One persona turn (docs/reply.md): task `agent.reply_chat` -> `ReplyService.run(chat_id)`.
 
 1. Start (transaction, chat row locked): skip when AI is off anywhere, the chat waits for an
-   operator or nothing is unanswered; wait for a burst of messages (`persona.reply_delay_s`),
-   for her to be free (sleep, a run, a meeting: `sim.services.life.busy.reply_delay`) and for
-   attachments still being understood (up to 90 s) by re-queueing the reply; otherwise
-   create `reply_run` with the context snapshot. The chat is marked read up to the newest
-   client message and the client sees «печатает» while the model thinks. A day without a plan
+   operator or nothing is unanswered; wait for a burst of messages (`persona.reply_delay_s`)
+   and for attachments still being understood (up to 90 s) by re-queueing the reply; otherwise
+   create `reply_run` with the context snapshot. WHEN a turn starts at all is decided before
+   it: by her phone check (docs/attention.md), or at once with «Всегда сразу». The chat is
+   marked read up to the newest client message and the client sees «печатает» while the
+   model thinks. A day without a plan
    asks the daily planner for one (task `agent.plan_day`).
 2. Decide (no transaction): the reply model returns a JSON plan (one repair retry when the
    JSON or the media choice is invalid); the guard checks it; on a block the model tries once
@@ -40,9 +41,8 @@ from sim.services.context.builder import ContextBuilder, ReplyContext
 from sim.services.context.facts import to_local
 from sim.services.deps import Deps
 from sim.services.guard import Guard
-from sim.services.life.busy import reply_delay
 from sim.services.life.canon import add_canon
-from sim.services.life.store import load_days, load_life
+from sim.services.life.store import load_days
 from sim.services.llm_log import describe_messages, logged_call
 from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.plan_check import PlanError, validated_plan
@@ -162,10 +162,9 @@ class ReplyService:
             if waiting is None:
                 return TurnResult(None, reason="nothing to answer")
             now = self.deps.clock.now()
-            wait_left = await self._wait_left(session, chat_id, persona, waiting, now)
+            wait_left = self._burst_left(persona, waiting, now)
             if wait_left > DEBOUNCE_SLACK_S:
-                return TurnResult(None, reason="client is still typing or she is busy",
-                                  requeue_s=wait_left)
+                return TurnResult(None, reason="client is still typing", requeue_s=wait_left)
             understanding_s = None
             if waiting.pending_since is not None:
                 understanding_s = (now - waiting.pending_since).total_seconds()
@@ -189,16 +188,11 @@ class ReplyService:
                          plan_today=await self._unplanned_today(session, persona, now))
 
     @staticmethod
-    async def _wait_left(session: AsyncSession, chat_id: int, persona: Persona,
-                         waiting: Unanswered, now: datetime) -> float:
-        """Seconds until she answers: the burst wait after the newest message, and her
-        business when the oldest unanswered one came (`reply_delay`, docs/persona-life.md)."""
-        first = waiting.first_in_at or waiting.last_in_at
-        life = await load_life(session, persona, first)
-        busy_until = first + timedelta(seconds=reply_delay(
-            first, life.agenda(), persona, key=f"{chat_id}:{first.isoformat()}"))
+    def _burst_left(persona: Persona, waiting: Unanswered, now: datetime) -> float:
+        """Seconds until the client has finished a burst of messages (`reply_delay_s` after
+        the newest one)."""
         burst_until = waiting.last_in_at + timedelta(seconds=persona.reply_delay_s)
-        return (max(busy_until, burst_until) - now).total_seconds()
+        return (burst_until - now).total_seconds()
 
     @staticmethod
     async def _unplanned_today(session: AsyncSession, persona: Persona,

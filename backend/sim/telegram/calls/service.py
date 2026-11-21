@@ -1,9 +1,9 @@
 """Incoming private calls answered by the persona's live voice (docs/calls.md).
 
   ring -> resolve the chat -> may she answer? (no: decline, recorded)
-       -> is she free? (asleep / running: it rings unanswered, missed; busy: she may decline;
-          either way the `call` event carries `life_busy` and she texts back later through the
-          normal reply flow — docs/persona-life.md)
+       -> is she free? (her availability after the attention settings, docs/attention.md:
+          away — it rings unanswered, missed; busy — she may decline; either way the `call`
+          event carries `life_busy` and her phone check decides when she texts back)
        -> wait a human ring delay -> open the Broker live session (before picking up: when the
           Broker refuses, nobody picked up) -> answer -> talk (AudioBridge) -> hang up
        -> Call row + `call` event in one transaction -> update the client's passport.
@@ -29,12 +29,15 @@ from sim.config import Settings
 from sim.db.models import Call, Chat, Client, Persona
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
+from sim.domain.attention import attention_settings
 from sim.domain.enums import CallDirection, CallStatus, EventKind
 from sim.domain.life import BusyLevel
 from sim.events import append_event
 from sim.ports import ClockPort, LivePort, LiveSession, Peer
-from sim.services.life.store import LifeState, load_life
-from sim.services.turn_state import LIFE_REFUSED_KEY
+from sim.services.attention.schedule import check_after_notice, queue_check
+from sim.services.attention.timing import Availability, availability
+from sim.services.life.store import load_life
+from sim.services.turn_state import LIFE_ACTIVITY_KEY, LIFE_REFUSED_KEY
 from sim.telegram.calls.backend import CallGone, IncomingCall
 from sim.telegram.calls.bridge import AudioBridge, Outcome
 
@@ -67,20 +70,17 @@ class CallTasks(Protocol):
 
     async def update_passport(self, chat_id: int, delay_s: float = 0) -> Any: ...
 
-    async def reply(self, chat_id: int, delay_s: float = 0) -> Any: ...
+    async def phone_check(self, persona_id: int, delay_s: float = 0) -> Any: ...
 
 
-def life_refusal(life: LifeState, uniform: Callable[[float, float], float]) -> Refusal | None:
-    """She does not pick up while away (asleep, running): a missed call; while busy she may
-    decline (`PARTIAL_DECLINE_SHARE`). Either way she writes later (docs/persona-life.md)."""
-    agenda = life.agenda()
-    slot = agenda.at(agenda.minute_of(life.local))
-    if slot is None:
-        return None
-    if slot.busy == BusyLevel.AWAY:
-        return Refusal(CallStatus.MISSED, slot.busy, slot.title)
-    if slot.busy == BusyLevel.PARTIAL and uniform(0.0, 1.0) < PARTIAL_DECLINE_SHARE:
-        return Refusal(CallStatus.DECLINED, slot.busy, slot.title)
+def life_refusal(av: Availability, uniform: Callable[[float, float], float]) -> Refusal | None:
+    """Decided at ring time from her availability after the attention settings
+    (docs/attention.md): away (asleep, running) — she does not pick up, a missed call; busy —
+    she may decline (`PARTIAL_DECLINE_SHARE`); free — she answers after the ring delay."""
+    if av.level == BusyLevel.AWAY:
+        return Refusal(CallStatus.MISSED, av.level, av.activity)
+    if av.level == BusyLevel.PARTIAL and uniform(0.0, 1.0) < PARTIAL_DECLINE_SHARE:
+        return Refusal(CallStatus.DECLINED, av.level, av.activity)
     return None
 
 
@@ -122,6 +122,9 @@ class Ring:
     status: CallStatus                 # RINGING = may answer; DECLINED / FAILED = recorded
     context: Any = None                # CallContext when RINGING
     life_busy: bool = False            # not taken because of her life: she writes later
+    persona_id: int | None = None
+    check_at: datetime | None = None   # her phone check this call asked for (life_busy)
+    rang_at: datetime | None = None
 
 
 class CallService:
@@ -190,11 +193,14 @@ class CallService:
             await call.decline()
 
     async def write_later(self, ring: Ring) -> None:
-        """The normal reply flow answers the call when she is free (turn_state, reply_delay)."""
+        """Her phone check sees the missed call and decides when she texts back
+        (docs/attention.md); the reply turn counts the call as unanswered (turn_state)."""
+        if ring.persona_id is None or ring.rang_at is None:
+            return
         try:
-            await self.tasks.reply(ring.chat_id, 0)
+            await queue_check(self.tasks, ring.persona_id, ring.check_at, ring.rang_at)
         except Exception:
-            log.exception("call %s: reply after the call not queued", ring.call_id)
+            log.exception("call %s: phone check after the call not queued", ring.call_id)
 
     async def talk(self, ring: Ring, call: IncomingCall, session: LiveSession,
                    max_seconds: int) -> CallStatus:
@@ -242,13 +248,9 @@ class CallService:
             session.add(row)
             await session.flush()
             if reason is None and persona is not None:
-                life = await load_life(session, persona, self.clock.now())
-                if (refusal := life_refusal(life, self.uniform)) is not None:
-                    await self.record(session, row, refusal.status,
-                                      error=f"{refusal.busy.value}: {refusal.activity}",
-                                      ended_at=self.clock.now(),
-                                      extra={LIFE_REFUSED_KEY: refusal.busy.value})
-                    return Ring(row.id, chat.id, refusal.status, life_busy=True)
+                refused = await self.refuse_by_life(session, row, persona, chat)
+                if refused is not None:
+                    return refused
             context = None
             if reason is None:
                 try:
@@ -263,6 +265,29 @@ class CallService:
                 status = CallStatus.DECLINED
             await self.record(session, row, status, error=reason, ended_at=self.clock.now())
             return Ring(row.id, chat.id, status)
+
+    async def refuse_by_life(self, session: AsyncSession, row: Call, persona: Persona,
+                             chat: Chat) -> Ring | None:
+        """Her life may keep her from the call (docs/attention.md, «Звонки»). A refused call
+        is closed here, and unless the owner turned it off («Писать после пропущенного
+        звонка») it asks for her phone check: she texts back when she can."""
+        now = self.clock.now()
+        settings = attention_settings(persona.attention)
+        av = availability(await load_life(session, persona, now), settings,
+                          instant=chat.attention_instant)
+        refusal = life_refusal(av, self.uniform)
+        if refusal is None:
+            return None
+        await self.record(session, row, refusal.status,
+                          error=f"{refusal.busy.value}: {refusal.activity}", ended_at=now,
+                          extra={LIFE_REFUSED_KEY: refusal.busy.value,
+                                 LIFE_ACTIVITY_KEY: refusal.activity})
+        check_at = None
+        if settings.after_missed_call:
+            check_at = await check_after_notice(session, persona, now,
+                                                self.uniform(0.0, 1.0), av=av)
+        return Ring(row.id, chat.id, refusal.status, life_busy=True, persona_id=persona.id,
+                    check_at=check_at, rang_at=now)
 
     async def mark_active(self, call_id: int, started_at: datetime) -> None:
         async with transaction(self.sessions) as session:

@@ -8,7 +8,10 @@ from datetime import date
 
 import procrastinate
 
+from sim.db.session import transaction
 from sim.ports import PortError
+from sim.services.attention.check import PhoneCheck
+from sim.services.attention.schedule import lost_checks
 from sim.services.deps import get_deps
 from sim.services.generation import GenerationService
 from sim.services.life.planner import LifePlanner
@@ -18,11 +21,14 @@ from sim.services.reply import ReplyService
 from sim.services.understanding import Understanding
 from sim.tasks.queue import (
     AGENT_QUEUE,
+    ATTENTION_TICK_CRON,
+    ATTENTION_TICK_TASK,
     GENERATE_TASK,
     LIFE_TICK_CRON,
     LIFE_TICK_TASK,
     MEMORY_TASK,
     PASSPORT_TASK,
+    PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
     REPLY_TASK,
     UNDERSTAND_TASK,
@@ -59,6 +65,21 @@ async def update_passport(chat_id: int) -> None:
     log.info("passport chat=%s updated=%s", chat_id, updated)
 
 
+async def phone_check(persona_id: int) -> None:
+    result = await PhoneCheck(get_deps()).run(persona_id)
+    log.info("phone check persona=%s status=%s decisions=%s next=%s", persona_id,
+             result.status, len(result.decisions), result.next_check)
+
+
+async def attention_tick(timestamp: int) -> None:
+    """Every 5 minutes: phone checks whose job was lost (a crash, a restart) run again."""
+    deps = get_deps()
+    async with transaction(deps.sessions) as session:
+        lost = await lost_checks(session, deps.clock.now())
+    for persona_id in lost:
+        await deps.tasks.phone_check(persona_id, 0)
+
+
 async def plan_day(persona_id: int, day: str, force: bool = False) -> None:
     outcome = await LifePlanner(get_deps()).plan(persona_id, date.fromisoformat(day),
                                                  force=force)
@@ -82,3 +103,6 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     app.task(name=PLAN_DAY_TASK, queue=AGENT_QUEUE, retry=RETRY)(plan_day)
     tick = app.task(name=LIFE_TICK_TASK, queue=AGENT_QUEUE)(life_tick)
     app.periodic(cron=LIFE_TICK_CRON, periodic_id="life")(tick)
+    app.task(name=PHONE_CHECK_TASK, queue=AGENT_QUEUE)(phone_check)
+    sweep = app.task(name=ATTENTION_TICK_TASK, queue=AGENT_QUEUE)(attention_tick)
+    app.periodic(cron=ATTENTION_TICK_CRON, periodic_id="attention")(sweep)
