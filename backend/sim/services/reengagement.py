@@ -22,7 +22,6 @@ from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, SessionStatus
 from sim.services import jobkinds
 from sim.services.guard import GuardError
-from sim.services.persona_clock import persona_facts
 from sim.services.prompt import extract_json_object, one_line
 from sim.services.reply_schedule import Incoming, answers_at_once, plan_reply, rules_from
 
@@ -138,7 +137,7 @@ class ReengagementService:
         return True
 
     async def analyze(self, dialog_id: int, revision: int, conversation: ConversationService) -> str:
-        from sim.services.conversation import history_turns
+        from sim.services.conversation import history_turns, with_persona_facts
 
         if not await try_lock(self.session, NS_REPLY, dialog_id):
             raise GuardError("dialog generation busy")
@@ -177,9 +176,7 @@ class ReengagementService:
                           "Передача оператору и отказ от контакта по-прежнему допустимы.")
         base_ctx, feedback, previous_draft = ctx, "", ""
         for _attempt in range(2):
-            now = self.clock()
-            ctx = replace(base_ctx, now=now, persona_facts=persona_facts(
-                persona.birth_date, persona.timezone, now, persona.routine))
+            ctx = replace(base_ctx, now=self.clock())
             prompt = await conversation.prompt(persona, strategy, history, ctx, whole_history=True)
             if feedback:
                 prompt = [*prompt, {"role": "assistant", "content": previous_draft},
@@ -200,13 +197,9 @@ class ReengagementService:
                 cfg = await conversation.config()
                 at = plan_reply(at, persona.routine, persona.timezone, [Incoming("", at)],
                                 rules_from(cfg), marked_urgent=answers_at_once(dialog, cfg)).at
-                ctx = replace(ctx, now=at, persona_facts=persona_facts(
-                    persona.birth_date, persona.timezone, at, persona.routine))
-                guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
-            elif control:
-                now = self.clock()
-                ctx = replace(ctx, now=now, persona_facts=persona_facts(
-                    persona.birth_date, persona.timezone, now, persona.routine))
+            if decision.reply or control:
+                # The text is checked for the moment it goes out; a bare control decision for now.
+                ctx = with_persona_facts(persona, replace(ctx, now=at or self.clock()))
                 guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
             if guard is None or guard.allowed:
                 break
@@ -226,7 +219,7 @@ class ReengagementService:
                         reason=decision.handoff_reason or reason)
         elif guard is not None and guard.allowed and at is not None:
             if control:
-                return (await conversation.apply(dialog, strategy, decision, result, guard,
+                return (await conversation.apply(dialog, persona, strategy, decision, result, guard,
                                                   followup=True)).status
             if not can_contact:
                 plan.update(reason="Повторно оценено: ждём ответа человека, повторный контакт запрещён")
