@@ -1,4 +1,4 @@
-import { Switch } from '@/components/ui/switch';
+import { MutationSwitch } from '@/components/mutation-switch';
 import { useUpdateClient } from './api';
 
 /** The client's «ИИ отвечает» switch. Same field and component in the table and on the card. */
@@ -9,20 +9,14 @@ export function ClientAiSwitch({ clientId, enabled, name, withLabel = false }: {
   withLabel?: boolean;
 }) {
   const update = useUpdateClient(clientId, (p) => (p.ai_enabled ? `ИИ включён: ${name}` : `ИИ выключен: ${name}`));
-  const checked = update.isPending && update.variables?.ai_enabled !== undefined ? update.variables.ai_enabled : enabled;
-  const control = (
-    <Switch
-      checked={checked}
-      disabled={update.isPending}
+  return (
+    <MutationSwitch
+      checked={enabled}
+      pending={update.isPending}
+      pendingValue={update.variables?.ai_enabled}
       onCheckedChange={(v) => update.mutate({ ai_enabled: v })}
+      label={withLabel ? 'ИИ отвечает этому клиенту' : undefined}
       aria-label={withLabel ? undefined : `ИИ отвечает клиенту ${name}`}
     />
-  );
-  if (!withLabel) return control;
-  return (
-    <label className="flex items-center gap-2 text-sm">
-      {control}
-      ИИ отвечает этому клиенту
-    </label>
   );
 }

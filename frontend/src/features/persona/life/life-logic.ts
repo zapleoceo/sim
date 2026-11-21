@@ -44,21 +44,6 @@ export function span(start: string, end: string): [number, number] | null {
   return [a, b > a ? b : b + DAY_MINUTES];
 }
 
-/** [0,1,2,3,4] -> «пн–пт»; all -> «ежедневно» (like the context block). */
-export function daysLabel(days: readonly number[]): string {
-  const sorted = [...new Set(days)].sort((a, b) => a - b);
-  if (sorted.length === 7) return 'ежедневно';
-  const runs: number[][] = [];
-  for (const d of sorted) {
-    const last = runs[runs.length - 1];
-    if (last && last[last.length - 1] === d - 1) last.push(d);
-    else runs.push([d]);
-  }
-  return runs
-    .flatMap((run) => (run.length >= 3 ? [`${DAY_CODES[run[0] ?? 0]}–${DAY_CODES[run[run.length - 1] ?? 0]}`] : run.map((d) => DAY_CODES[d] ?? '')))
-    .join(', ');
-}
-
 export function toggleDay(days: readonly number[], day: number): number[] {
   return days.includes(day) ? days.filter((d) => d !== day) : [...days, day].sort((a, b) => a - b);
 }
@@ -159,9 +144,4 @@ export function dayTitle(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   const date = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1));
   return `${WEEKDAYS[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
-}
-
-/** Same JSON = nothing to save. */
-export function sameJson(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }

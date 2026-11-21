@@ -1,5 +1,5 @@
 import { Lock, LockOpen, RotateCcw, Save } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { InlineError } from '@/components/empty-state';
 import { Field } from '@/components/field';
 import { Badge } from '@/components/ui/badge';
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
-import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useDraft } from '@/hooks/use-draft';
 import { formatDateTime } from '@/lib/format';
 import type { LeadStage, Passport, PassportField } from '@/lib/types';
 import { useUpdateClient } from './api';
@@ -43,26 +43,27 @@ function LockMark({ locked, label, onUnlock, busy }: { locked: boolean; label: s
  * operator changes are locked for the passport writer (a lock mark; click to unlock).
  */
 export function PassportEditor({ clientId, passport }: { clientId: number; passport: Passport }) {
-  const initial = useMemo(() => toPassportForm(passport), [passport]);
-  const [form, setForm] = useState<PassportForm>(initial);
+  const server = useMemo(() => toPassportForm(passport), [passport]);
+  // The baseline is the copy the edit started from: a live passport update never makes the
+  // untouched form «changed», and Save sends (and so locks) only what the operator typed.
+  const { draft: form, setDraft: setForm, baseline, dirty, reset, commit } = useDraft<PassportForm>(server, { guardName: 'Паспорт' });
   const [errors, setErrors] = useState<string[]>([]);
   const update = useUpdateClient(clientId, (p) => (p.passport?.locked_fields ? 'Поле снова ведёт паспортистка' : 'Паспорт сохранён'));
-  const changed = passportPatch(form, initial);
-  const dirty = Object.keys(changed).length > 0;
-  useUnsavedGuard(dirty);
-
-  // A fresh passport from the server replaces the form unless the operator is editing it.
-  useEffect(() => {
-    if (!dirty) setForm(initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial]);
+  const changed = passportPatch(form, baseline);
 
   const locked = new Set(passport.locked_fields);
   const set = (key: keyof PassportForm, value: string): void => setForm((f) => ({ ...f, [key]: value }));
   const save = (): void => {
     const problems = passportFormErrors(form);
     setErrors(problems);
-    if (problems.length === 0 && dirty) update.mutate({ passport: changed }, { onSuccess: () => setErrors([]) });
+    if (problems.length > 0 || Object.keys(changed).length === 0) return;
+    update.mutate({ passport: changed }, {
+      onSuccess: (client) => {
+        setErrors([]);
+        // The server's passport after the save: the edit plus whatever the writer changed meanwhile.
+        commit(toPassportForm(client.passport));
+      },
+    });
   };
 
   return (
@@ -94,7 +95,7 @@ export function PassportEditor({ clientId, passport }: { clientId: number; passp
             />
           );
           return (
-            <Field key={field} id={id} label={<span className="flex items-center gap-1.5">{label}{lock}</span>}>
+            <Field key={field} id={id} label={label} labelAction={locked.has(field) ? lock : undefined}>
               {field === 'stage' ? (
                 <NativeSelect id={id} value={form.stage} onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value as LeadStage }))}>
                   {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -127,7 +128,7 @@ export function PassportEditor({ clientId, passport }: { clientId: number; passp
             Поля с замком паспортистка не меняет
           </span>
         )}
-        <Button variant="ghost" disabled={!dirty || update.isPending} onClick={() => setForm(initial)}>
+        <Button variant="ghost" disabled={!dirty || update.isPending} onClick={() => { reset(); setErrors([]); }}>
           <RotateCcw />
           Отменить
         </Button>

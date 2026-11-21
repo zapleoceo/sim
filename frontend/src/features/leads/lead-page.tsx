@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { lastMessagePreview } from '@/features/chats/timeline-logic';
-import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { UnsavedChangesProvider, useUnsavedSection } from '@/components/unsaved-changes';
 import { formatDateTime, formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { ClientDetail, ClientPatch } from '@/lib/types';
@@ -42,7 +42,7 @@ function ProfileForm({ client }: { client: ClientDetail }) {
   const form = useForm<ProfileValues>({ defaultValues: toValues(client) });
   const { register, handleSubmit, formState, reset } = form;
   const update = useUpdateClient(client.id, () => 'Карточка лида сохранена');
-  useUnsavedGuard(formState.isDirty);
+  useUnsavedSection('Профиль', formState.isDirty);
 
   // A live update (e.g. the name changed elsewhere) refreshes the form unless it is being edited.
   useEffect(() => {
@@ -174,7 +174,12 @@ export function LeadPage() {
         </div>
       )}
       {client.isError && <ErrorState title="Лид не найден" onRetry={() => void client.refetch()} />}
-      {client.data && <LeadCard client={client.data} />}
+      {client.data && (
+        // One «leave without saving?» for the passport, the profile and the days.
+        <UnsavedChangesProvider>
+          <LeadCard client={client.data} />
+        </UnsavedChangesProvider>
+      )}
     </Page>
   );
 }

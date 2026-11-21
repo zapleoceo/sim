@@ -9,8 +9,9 @@ import { chatsApi } from './api';
 import { STATUS_REFRESH_MS, TEAM_ONLY, TONE_CLASS, statusText, untilLine } from './persona-status-logic';
 
 /**
- * «Статус Марины» in a chat-list row: one colored line under the client's name, the reason in
- * the tooltip. Team-only (docs/attention.md, «Статус для команды»).
+ * «Статус Марины» in a chat-list row: one colored line under the client's name with the reason
+ * after the title (cut to the row; readable on touch and by a screen reader, not only on hover),
+ * the whole text in the tooltip. Team-only (docs/attention.md, «Статус для команды»).
  */
 export function PersonaStatusPill({ status }: { status: PersonaStatus }) {
   return (
@@ -31,7 +32,10 @@ export function PersonaStatusPill({ status }: { status: PersonaStatus }) {
       >
         <span aria-hidden className="size-1.5 flex-none rounded-full bg-current" />
         <span className="sr-only">Статус для команды: </span>
-        <span className="truncate">{status.title}</span>
+        <span className="truncate">
+          {status.title}
+          {status.detail && <span className="font-normal opacity-80"> · {status.detail}</span>}
+        </span>
       </span>
     </Tip>
   );

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DayEvent, PersonaLife } from '@/lib/types';
 import {
-  addDays, currentEventIndex, dayErrors, dayTitle, daysLabel, EMPTY_LIFE, EMPTY_LOOK, joinNames, newDayEvent, newRoutineSlot, sameJson,
-  span,
+  addDays, currentEventIndex, dayErrors, dayTitle, EMPTY_LIFE, EMPTY_LOOK, joinNames, newDayEvent, newRoutineSlot, span,
   splitNames, toMinutes, toggleDay, worldErrors,
 } from './life-logic';
 
@@ -16,10 +15,7 @@ describe('time helpers', () => {
     expect(span('x', '06:30')).toBeNull();
   });
 
-  it('labels weekdays like the context block', () => {
-    expect(daysLabel([0, 1, 2, 3, 4, 5, 6])).toBe('ежедневно');
-    expect(daysLabel([4, 0, 1, 2, 3])).toBe('пн–пт');
-    expect(daysLabel([0, 2, 4, 5])).toBe('пн, ср, пт, сб');
+  it('toggles weekdays in order', () => {
     expect(toggleDay([0, 2], 1)).toEqual([0, 1, 2]);
     expect(toggleDay([0, 2], 2)).toEqual([0]);
   });
@@ -67,10 +63,5 @@ describe('checks before saving', () => {
     expect(currentEventIndex(events, 19 * 60 + 30)).toBe(1);
     expect(currentEventIndex(events, 12 * 60)).toBe(-1);
     expect(currentEventIndex(events, 23 * 60 + 30)).toBe(2);
-  });
-
-  it('dirty check by JSON', () => {
-    expect(sameJson({ a: [1] }, { a: [1] })).toBe(true);
-    expect(sameJson({ a: [1] }, { a: [2] })).toBe(false);
   });
 });

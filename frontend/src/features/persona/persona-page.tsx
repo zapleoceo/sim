@@ -10,6 +10,7 @@ import { BackLink, Page } from '@/components/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { UnsavedChangesProvider } from '@/components/unsaved-changes';
 import { qk } from '@/lib/query';
 import type { Persona } from '@/lib/types';
 import { positiveInt } from '@/lib/utils';
@@ -22,6 +23,7 @@ import { MediaLibrarySection } from './media-library';
 import { PersonaEditor } from './persona-editor';
 import { PersonaIdProvider } from './persona-scope';
 import { avatarUrl } from './personas-page';
+import { usePersonaList } from './use-persona-list';
 
 const route = getRouteApi('/_app/personas/$personaId');
 
@@ -38,10 +40,11 @@ const TOC: { id: string; label: string }[] = [
 ];
 
 /** Name, archive state and the two persona-wide actions: «Клонировать» and archive / restore. */
-function PersonaHeader({ persona }: { persona: Persona }) {
+export function PersonaHeader({ persona }: { persona: Persona }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const confirm = useConfirm();
+  const personas = usePersonaList();
   const [cloning, setCloning] = useState(false);
   const archive = useMutation({
     mutationFn: (isActive: boolean) => personaApi.setActive(persona.id, isActive),
@@ -90,6 +93,7 @@ function PersonaHeader({ persona }: { persona: Persona }) {
       </div>
       <CloneDialog
         source={persona}
+        takenNames={personas.rows.map((p) => p.name)}
         open={cloning}
         onOpenChange={setCloning}
         onCloned={(clone) => void navigate({ to: '/personas/$personaId', params: { personaId: String(clone.id) } })}
@@ -106,7 +110,7 @@ export function PersonaPage() {
   const voices = useQuery({ queryKey: qk.voices, queryFn: personaApi.voices, staleTime: Infinity });
 
   return (
-    <Page width="wide" className="max-w-[1400px] pb-0 sm:pb-0">
+    <Page width="wide" className="max-w-[1400px]">
       <BackLink to="/personas">Все персонажи</BackLink>
       {id === 0 && <ErrorState title="Персонаж не найден" />}
       {persona.isError && <ErrorState title="Персонаж не загрузился" onRetry={() => void persona.refetch()} />}
@@ -132,14 +136,16 @@ export function PersonaPage() {
                 ))}
               </ul>
             </nav>
-            <div className="flex min-w-0 flex-col gap-4">
-              <PersonaEditor persona={persona.data} voices={voices.data?.items ?? []}>
+            {/* Every section saves itself; one guard names the unsaved ones («Не сохранено: Агенты, Мир»). */}
+            <UnsavedChangesProvider>
+              <div className="flex min-w-0 flex-col gap-4">
+                <PersonaEditor persona={persona.data} voices={voices.data?.items ?? []} />
                 <AgentsSection />
                 <LifeSection />
                 <ChannelSection />
                 <MediaLibrarySection />
-              </PersonaEditor>
-            </div>
+              </div>
+            </UnsavedChangesProvider>
           </div>
         </PersonaIdProvider>
       )}

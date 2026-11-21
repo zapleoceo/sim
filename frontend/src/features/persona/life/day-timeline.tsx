@@ -1,17 +1,17 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Loader2, Pencil, RefreshCw, Save, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { InlineError } from '@/components/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useDraft } from '@/hooks/use-draft';
 import { qk } from '@/lib/query';
 import type { DayEvent, PersonaDay } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
-import { busyLabel, currentEventIndex, dayErrors, dayTitle, newDayEvent, sameJson } from './life-logic';
+import { busyLabel, currentEventIndex, dayErrors, dayTitle, newDayEvent } from './life-logic';
 import { RowsEditor, type Column } from './rows-editor';
 
 const EVENT_COLUMNS: Column<DayEvent>[] = [
@@ -63,12 +63,17 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
 }) {
   const queryClient = useQueryClient();
   const personaId = usePersonaId();
-  const [editing, setEditing] = useState<DayEvent[] | null>(null);
+  const events = useMemo(() => day?.events ?? [], [day]);
+  // A re-plan arriving while the table is open but untouched shows up in it; an edit is kept.
+  const { draft, setDraft, dirty, reset, commit } = useDraft<DayEvent[]>(events, { guardName: 'День' });
+  const [editing, setEditing] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
-  const events = day?.events ?? [];
-  const dirty = editing !== null && !sameJson(editing, events);
-  useUnsavedGuard(dirty);
   const current = nowMinute === null ? -1 : currentEventIndex(events, nowMinute);
+  const close = (): void => {
+    reset();
+    setErrors([]);
+    setEditing(false);
+  };
 
   const plan = useMutation({
     mutationFn: () => lifeApi.planDay(personaId, date),
@@ -79,8 +84,9 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
   });
   const save = useMutation({
     mutationFn: (next: DayEvent[]) => lifeApi.saveDay(personaId, date, next),
-    onSuccess: async () => {
-      setEditing(null);
+    onSuccess: async (saved) => {
+      commit(saved.events);
+      setEditing(false);
       await queryClient.invalidateQueries({ queryKey: qk.days(personaId) });
       toast.success('День сохранён');
     },
@@ -88,18 +94,19 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
   const titleId = `day-${date}`;
 
   return (
-    <section aria-labelledby={titleId} className="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
+    // An open table needs the whole width: it spans both columns of the days grid.
+    <section aria-labelledby={titleId} className={cn('flex min-w-0 flex-col gap-2 rounded-lg border p-3', editing && 'col-span-full')}>
       <header className="flex flex-wrap items-center gap-2">
         <h3 id={titleId} className="text-sm font-semibold">{label}: {dayTitle(date)}</h3>
         {sourceBadge(day)}
         <div className="ml-auto flex gap-1">
-          {editing === null && (
-            <Button variant="ghost" size="sm" onClick={() => { setEditing(events); setErrors([]); }}>
+          {!editing && (
+            <Button variant="ghost" size="sm" onClick={() => { reset(); setErrors([]); setEditing(true); }}>
               <Pencil />
               Изменить
             </Button>
           )}
-          <Button variant="outline" size="sm" disabled={plan.isPending || editing !== null} onClick={() => plan.mutate()}>
+          <Button variant="outline" size="sm" disabled={plan.isPending || editing} onClick={() => plan.mutate()}>
             {plan.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
             Спланировать заново
           </Button>
@@ -107,7 +114,7 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
       </header>
       {day?.error && <InlineError>{day.error}</InlineError>}
       {day?.summary && <p className="text-sm text-muted-foreground">Как прошёл: {day.summary}</p>}
-      {editing === null ? (
+      {!editing ? (
         events.length ? (
           <ol className="flex flex-col gap-1">
             {events.map((event, i) => <EventRow key={`${event.start}-${i}`} event={event} current={i === current} />)}
@@ -120,11 +127,11 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
         )
       ) : (
         <>
-          <RowsEditor title={`События: ${label}`} rows={editing} columns={EVENT_COLUMNS} onChange={setEditing}
+          <RowsEditor title={`События: ${label}`} rows={draft} columns={EVENT_COLUMNS} onChange={setDraft}
             newRow={newDayEvent} addLabel="Добавить событие" emptyText="Событий нет." />
           {errors.length > 0 && <InlineError>{errors.join('; ')}</InlineError>}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
+            <Button variant="ghost" size="sm" onClick={close}>
               <X />
               Отменить
             </Button>
@@ -132,9 +139,9 @@ export function DayCard({ label, date, day, nowMinute, onPlanned }: {
               size="sm"
               disabled={!dirty || save.isPending}
               onClick={() => {
-                const found = dayErrors(editing);
+                const found = dayErrors(draft);
                 setErrors(found);
-                if (!found.length) save.mutate(editing);
+                if (!found.length) save.mutate(draft);
               }}
             >
               <Save />

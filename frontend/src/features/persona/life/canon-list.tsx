@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useDraft } from '@/hooks/use-draft';
 import { formatDateTime } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { CanonFact } from '@/lib/types';
@@ -14,30 +15,36 @@ import { lifeApi } from './life-api';
 function CanonRow({ item }: { item: CanonFact }) {
   const personaId = usePersonaId();
   const queryClient = useQueryClient();
-  const [text, setText] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const { draft: text, setDraft: setText, dirty, reset, commit } = useDraft(item.fact, { guardName: 'Канон' });
+  const close = (): void => {
+    reset();
+    setEditing(false);
+  };
   const update = useMutation({
     mutationFn: (patch: Partial<Pick<CanonFact, 'fact' | 'status'>>) => lifeApi.updateCanon(personaId, item.id, patch),
-    onSuccess: async () => {
-      setText(null);
+    onSuccess: async (saved) => {
+      commit(saved.fact);
+      setEditing(false);
       await queryClient.invalidateQueries({ queryKey: qk.canon(personaId) });
     },
   });
   const rejected = item.status === 'rejected';
-  if (text !== null) {
+  if (editing) {
     return (
       <li className="py-2">
         <form
           className="flex items-center gap-1.5"
           onSubmit={(e) => {
             e.preventDefault();
-            if (text.trim().length >= 3) update.mutate({ fact: text.trim() });
+            if (dirty && text.trim().length >= 3) update.mutate({ fact: text.trim() });
           }}
         >
           <Input aria-label="Факт канона" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
-          <Button type="submit" variant="ghost" size="icon-sm" disabled={update.isPending || text.trim().length < 3} aria-label="Сохранить факт">
+          <Button type="submit" variant="ghost" size="icon-sm" disabled={update.isPending || !dirty || text.trim().length < 3} aria-label="Сохранить факт">
             <Check />
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => setText(null)} aria-label="Отменить">
+          <Button variant="ghost" size="icon-sm" onClick={close} aria-label="Отменить">
             <X />
           </Button>
         </form>
@@ -54,7 +61,7 @@ function CanonRow({ item }: { item: CanonFact }) {
         </span>
       </div>
       {rejected && <Badge variant="muted">отклонён</Badge>}
-      <Button variant="ghost" size="icon-sm" onClick={() => setText(item.fact)} aria-label={`Изменить: ${item.fact}`}>
+      <Button variant="ghost" size="icon-sm" onClick={() => setEditing(true)} aria-label={`Изменить: ${item.fact}`}>
         <Pencil />
       </Button>
       {rejected ? (
@@ -77,7 +84,8 @@ export function CanonList({ items }: { items: readonly CanonFact[] }) {
   }
   return (
     <ul className="flex flex-col divide-y">
-      {items.map((item) => <CanonRow key={`${item.id}-${item.status}-${item.fact}`} item={item} />)}
+      {/* Keyed by id only: a fact changed on the server reaches the row's draft instead of remounting it. */}
+      {items.map((item) => <CanonRow key={item.id} item={item} />)}
     </ul>
   );
 }

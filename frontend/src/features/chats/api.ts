@@ -1,4 +1,6 @@
+import type { QueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { qk } from '@/lib/query';
 import type { ChatDetail, ChatRow, Items, PersonaStatus, ReplyRun, TimelineItem } from '@/lib/types';
 
 export const CHATS_PAGE = 50;
@@ -34,3 +36,13 @@ export const chatsApi = {
   operatorDone: (id: number) => api.post<ChatRow>(`/chats/${id}/operator-done`),
   replyRun: (id: number) => api.get<ReplyRun>(`/reply-runs/${id}`),
 };
+
+/**
+ * After the operator changed a chat (AI, a header switch, «Оператор разобрался»): re-read its
+ * header, «Статус Марины», timeline and the chat lists, without waiting for the live event.
+ */
+export function invalidateChat(queryClient: QueryClient, chatId: number): void {
+  for (const queryKey of [qk.chat(chatId), qk.chatStatus(chatId), qk.timeline(chatId), qk.chatLists]) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
+}

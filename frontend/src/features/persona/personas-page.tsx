@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Copy, Smile } from 'lucide-react';
@@ -9,11 +8,10 @@ import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Page, PageHeader } from '@/components/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { qk } from '@/lib/query';
 import type { PersonaRow } from '@/lib/types';
-import { personaApi } from './api';
 import { channelStatus } from './channel-logic';
 import { CloneDialog } from './clone-dialog';
+import { usePersonaList } from './use-persona-list';
 
 export const avatarUrl = (mediaId: number | null): string | null => (mediaId ? `/api/media/${mediaId}/file` : null);
 
@@ -89,9 +87,8 @@ function columns(onClone: (row: PersonaRow) => void): ColumnDef<PersonaRow, unkn
 /** «Персонажи»: every persona with her channel, leads and AI state; a click opens her page. */
 export function PersonasPage() {
   const navigate = useNavigate();
-  const personas = useQuery({ queryKey: qk.personaList, queryFn: personaApi.list });
+  const { query: personas, rows } = usePersonaList();
   const [source, setSource] = useState<PersonaRow | null>(null);
-  const rows = useMemo(() => personas.data?.items ?? [], [personas.data]);
   const cols = useMemo(() => columns(setSource), []);
 
   return (

@@ -1,9 +1,11 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { Lead, Passport, PersonaRow } from '@/lib/types';
 import { fakeApi, reply } from '@/test/fake-api';
-import { renderWithApp } from '@/test/render';
+import { renderAtRoute, renderWithApp } from '@/test/render';
+import { parseLeadsSearch } from '@/router';
 import { profilePatch } from './lead-page';
 import { LeadsPage } from './leads-page';
 import { PassportEditor } from './passport-editor';
@@ -30,6 +32,21 @@ const PERSONAS: PersonaRow[] = [
   { id: 2, name: 'Оля', avatar_media_id: null, is_active: true, ai_enabled: true, leads_count: 1, channels: [] },
 ];
 
+/** The passport card with a button that plays the passport writer's live update. */
+function LivePassport() {
+  const [current, setCurrent] = useState(passport({ city: 'Киев', text: 'Кто он: Дима' }));
+  return (
+    <>
+      <button type="button" onClick={() => setCurrent(passport({ city: 'Львов', text: 'Кто он: Дима, переехал', updated_at: '2026-11-22T03:00:00Z' }))}>
+        паспортистка обновила
+      </button>
+      <PassportEditor clientId={7} passport={current} />
+    </>
+  );
+}
+
+const renderLeads = (url = '/leads') => renderAtRoute(<LeadsPage />, { path: '/leads', url, validateSearch: parseLeadsSearch });
+
 describe('LeadsPage', () => {
   it('renders the full-width table with persona, stage, city, age and messages', async () => {
     fakeApi({
@@ -38,7 +55,7 @@ describe('LeadsPage', () => {
         items: [lead({}), lead({ id: 2, name: '', username: 'anna', ai_enabled: false, persona: { id: 2, name: 'Оля', avatar_media_id: null } })],
       },
     });
-    await renderWithApp(<LeadsPage />);
+    await renderLeads();
 
     const table = await screen.findByRole('table');
     expect(await within(table).findAllByText('Киев')).toHaveLength(2); // both leads live there
@@ -53,9 +70,9 @@ describe('LeadsPage', () => {
     expect(screen.getByRole('switch', { name: 'ИИ отвечает клиенту @anna' })).not.toBeChecked();
   });
 
-  it('filters by persona and stage and searches', async () => {
+  it('filters by persona and stage and searches, keeping the filters in the address', async () => {
     const log = fakeApi({ 'GET /api/personas': { items: PERSONAS }, 'GET /api/clients': { items: [] } });
-    await renderWithApp(<LeadsPage />);
+    const { router } = await renderLeads();
     expect(await screen.findByText('Лидов пока нет')).toBeInTheDocument();
     await screen.findByRole('option', { name: 'Оля' });
 
@@ -69,6 +86,23 @@ describe('LeadsPage', () => {
       ).toBe(true),
     );
     expect(await screen.findByText('Никого не нашли')).toBeInTheDocument();
+    expect(router.state.location.search).toEqual({ persona: 2, stage: 'hot', q: 'ann' });
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Стадия' }), '');
+    await waitFor(() => expect(router.state.location.search).toEqual({ persona: 2, q: 'ann' }));
+  });
+
+  it('opens with the filters of the address (a link, «назад» from a card)', async () => {
+    const log = fakeApi({ 'GET /api/personas': { items: PERSONAS }, 'GET /api/clients': { items: [] } });
+    await renderLeads('/leads?persona=2&stage=warm&q=anna');
+    await screen.findByRole('option', { name: 'Оля' });
+    expect(screen.getByRole('combobox', { name: 'Персонаж' })).toHaveValue('2');
+    expect(screen.getByRole('combobox', { name: 'Стадия' })).toHaveValue('warm');
+    expect(screen.getByRole('searchbox', { name: 'Поиск лидов' })).toHaveValue('anna');
+    await waitFor(() =>
+      expect(log.some((r) => r.path === '/api/clients' && r.query.get('persona_id') === '2' && r.query.get('stage') === 'warm'
+        && r.query.get('q') === 'anna')).toBe(true),
+    );
   });
 
   it('toggles AI inline with PATCH {ai_enabled}', async () => {
@@ -77,14 +111,14 @@ describe('LeadsPage', () => {
       'GET /api/clients': { items: [lead({ ai_enabled: false })] },
       'PATCH /api/clients/1': lead({ ai_enabled: true }),
     });
-    await renderWithApp(<LeadsPage />);
+    await renderLeads();
     await userEvent.click(await screen.findByRole('switch', { name: 'ИИ отвечает клиенту Дима' }));
     await waitFor(() => expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ ai_enabled: true }));
   });
 
   it('shows an error state with retry', async () => {
     fakeApi({ 'GET /api/personas': { items: [] }, 'GET /api/clients': reply(500, { error: 'база недоступна' }) });
-    await renderWithApp(<LeadsPage />);
+    await renderLeads();
     expect(await screen.findByRole('button', { name: 'Повторить' })).toBeInTheDocument();
   });
 });
@@ -106,10 +140,34 @@ describe('PassportEditor', () => {
     expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ passport: { stage: 'hot', city: 'Львов' } });
   });
 
+  it('follows a live passport update while untouched: nothing to save, nothing locked', async () => {
+    const log = fakeApi({ 'PATCH /api/clients/7': lead({ id: 7 }) });
+    await renderWithApp(<LivePassport />);
+    await userEvent.click(screen.getByRole('button', { name: 'паспортистка обновила' }));
+    expect(screen.getByLabelText('Город')).toHaveValue('Львов');
+    expect(screen.getByLabelText('Паспорт')).toHaveValue('Кто он: Дима, переехал');
+    expect(screen.getByRole('button', { name: 'Сохранить паспорт' })).toBeDisabled();
+    expect(log.filter((r) => r.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('keeps an edit through a live update and sends (locks) only the edited field', async () => {
+    const log = fakeApi({ 'PATCH /api/clients/7': lead({ id: 7 }) });
+    await renderWithApp(<LivePassport />);
+    await userEvent.selectOptions(screen.getByLabelText('Стадия'), 'hot');
+    await userEvent.click(screen.getByRole('button', { name: 'паспортистка обновила' }));
+    expect(screen.getByLabelText('Стадия')).toHaveValue('hot');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить паспорт' }));
+    await waitFor(() => expect(log.filter((r) => r.method === 'PATCH')).toHaveLength(1));
+    expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ passport: { stage: 'hot' } });
+  });
+
   it('shows locks and unlocks a field', async () => {
     const log = fakeApi({ 'PATCH /api/clients/7': lead({ id: 7 }) });
-    await renderWithApp(<PassportEditor clientId={7} passport={passport({ stage: 'hot', locked_fields: ['stage', 'city'] })} />);
+    await renderWithApp(<PassportEditor clientId={7} passport={passport({ stage: 'hot', city: 'Киев', locked_fields: ['stage', 'city'] })} />);
     expect(screen.getByRole('button', { name: 'Снять замок: Город' })).toBeInTheDocument();
+    // The lock button sits next to the label, not inside it: the field's name stays «Город».
+    expect(screen.getByRole('textbox', { name: 'Город' })).toHaveValue('Киев');
     await userEvent.click(screen.getByRole('button', { name: 'Снять замок: Стадия' }));
     await waitFor(() => expect(log.find((r) => r.method === 'PATCH')?.body).toEqual({ passport: { locked_fields: ['city'] } }));
   });
