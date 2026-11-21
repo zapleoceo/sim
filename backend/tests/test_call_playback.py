@@ -83,16 +83,16 @@ async def test_delivery_is_what_the_transport_accepted_across_replies():
 
 @pytest.mark.parametrize("verdict", [GuardOutcome(BLOCKED, "x", ["Неверный день"]),
                                      GuardOutcome("rewritten", "Исправлено", ["Причина"])])
-async def test_a_rejected_reply_ends_the_call_and_drops_what_is_left(verdict):
+async def test_a_guard_remark_is_noted_and_the_call_goes_on(verdict):
     async def review(history, draft):
         return GuardOutcome(verdict.verdict, verdict.text, verdict.violations)
 
     playback = CallPlayback(review, clock=lambda: NOW)
     out, trace = output()
-    await playback.run(FakeSession(speech_events(PCM)), out, 24000, trace)   # the session stays open
-    assert playback.failure and len(out) == 0
+    await playback.run(FakeSession(speech_events(PCM), end_after_events=True), out, 24000, trace)
+    assert not playback.failure and out.pop_frame() == PCM      # the guard advises, never stops her
     assert playback.turns[-1].guard.verdict == verdict.verdict
-    assert any("запрещена" in s and "звонок завершается" in s for s in trace.steps)
+    assert any("замечание охранника" in s and "звонок продолжается" in s for s in trace.steps)
 
 
 @pytest.mark.parametrize("mode", ["error", "timeout", "context"])
@@ -149,16 +149,17 @@ async def test_real_call_path_streams_her_reply_and_records_the_verdict(containe
     assert (answer.delivery, answer.guard_verdict) == (Delivery.SENT, "ok")
 
 
-async def test_real_call_path_ends_on_a_rejected_reply_without_handoff(container, world, fake_llm):
+async def test_real_call_path_keeps_talking_after_a_guard_remark(container, world, fake_llm):
     did = await chatting_world(container, world)
     fake_llm.guard_replies = [guard_json("block", ["Неверный день"], "")]
-    session = FakeSession(speech_events(b"\x02\x00" * 2400))
+    session = FakeSession(speech_events(b"\x02\x00" * 2400), end_after_events=True)
     call = FakeCall(frames=1000, gap=0.05)
     await asyncio.wait_for(service(container, FakeLive(session)).handle(world.channel.id, call), 10)
-    assert call.hung_up
+    assert len(call.played) == 10 and call.hung_up
     rows = await dialog_messages(container, did)
-    assert rows[-1].guard_verdict == BLOCKED
-    assert "Неверный день" in next(row for row in rows if row.media_kind == "call").error
+    assert (rows[-1].delivery, rows[-1].guard_verdict) == (Delivery.SENT, BLOCKED)
+    assert rows[-1].guard_violations == ["Неверный день"]
+    assert not next(row for row in rows if row.media_kind == "call").error
     assert not any(row.handoff_reason for row in rows)
     async with container.factory() as s:
         d = await s.get(Dialog, did)

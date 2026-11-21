@@ -7,9 +7,8 @@ callers heard «Алло» and then silence, and hung up.
 
 Each finished reply is still reviewed by the guard, in the background, with the call so far as
 history. The verdict, its time and the model are steps of «Ход звонка» (`CallTrace.step`) and the
-verdict is stored on the reply's message. A reply the guard rejects ends the call at once (no
-more of it is heard, the call is journaled as a technical problem); a review that fails
-technically is noted and the call goes on.
+verdict is stored on the reply's message. The guard only advises: a remark never stops the call
+(it is a note for the record and the owner), and a review that fails technically is noted too.
 
 Delivery is counted by what the transport accepted: the pacer reports every speech frame it
 sent (`acknowledge`), and a reply cut by the caller talking over her is recorded as partly heard."""
@@ -110,7 +109,6 @@ class CallPlayback:
                   trace: CallTrace) -> None:
         current: PlaybackTurn | None = None
         text: list[str] = []
-        stop = asyncio.Event()
 
         async def review(turn: PlaybackTurn, history: list[Turn]) -> None:
             started = self.clock()
@@ -133,12 +131,9 @@ class CallPlayback:
                 trace.step("voice_review", f"Её реплика {said}: проверка {took} — разрешена"
                            f"{', модель ' + verdict.model if verdict.model else ''}", allowed=True)
                 return
-            why = "; ".join(verdict.violations) or "Контролёр изменил голосовую реплику"
-            trace.step("voice_review", f"Её реплика {said}: проверка {took} — запрещена ({why}); "
-                       "звонок завершается", allowed=False)
-            self.failure = self.failure or why
-            self.drop_queued(out)
-            stop.set()
+            why = "; ".join(verdict.violations) or "Контролёр предложил другую реплику"
+            trace.step("voice_review", f"Её реплика {said}: проверка {took} — замечание охранника "
+                       f"({why}); звонок продолжается", allowed=False)
 
         async def receive() -> None:
             nonlocal current
@@ -181,16 +176,7 @@ class CallPlayback:
             if current is not None:          # the session ended mid-reply
                 current.text = "".join(text).strip()
 
-        reader = asyncio.create_task(receive())
-        stopper = asyncio.create_task(stop.wait())
-        try:
-            done, _ = await asyncio.wait((reader, stopper), return_when=asyncio.FIRST_COMPLETED)
-            if reader in done:
-                await reader
-        finally:
-            for task in (reader, stopper):
-                task.cancel()
-            await asyncio.gather(reader, stopper, return_exceptions=True)
+        await receive()
 
     async def settle(self) -> None:
         """After the call: her last verdicts still reach the record (each within `timeout`)."""
