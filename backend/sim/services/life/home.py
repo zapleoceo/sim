@@ -30,8 +30,8 @@ HOME_WORDS = ("дом", "квартир", "home")
 HOME_SOUNDS = frozenset({Ambience.QUIET_HOME, Ambience.KITCHEN})
 # «дома у Сони», «у мамы», «домик на даче», «по дороге домой» are not her apartment.
 NOT_HER_HOME = re.compile(
-    r"\bу\s+(?:[А-ЯЁ]|мам|пап|сестр|брат|подруг|друз|бабушк|дед|доч|сын|сосед|коллег)"
-    r"|домик|дач|домой")
+    r"\bу\s+(?:[А-ЯЁ]|(?i:мам|пап|сестр|брат|подруг|друз|бабушк|дед|доч|сын|сосед|"
+    r"коллег))|(?i:домик|дач|домой)")
 
 
 def _stem(word: str) -> str:
@@ -62,7 +62,7 @@ def find_room(home: Home, text: str) -> Room | None:
 def at_home(home: Home, place: str) -> bool:
     """True when the scene's place is her own apartment (or one of its rooms)."""
     text = place.lower()
-    if not text or NOT_HER_HOME.search(text):
+    if not text or NOT_HER_HOME.search(place):     # the original case: «у Сони» is a name
         return False
     if guess_ambience(text) not in HOME_SOUNDS:          # «кофейня у дома», «рынок»
         return False

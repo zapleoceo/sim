@@ -21,7 +21,10 @@ async def test_life_round_trip_and_validation(api: ApiClient, world: World,
                                               db: AsyncSession) -> None:
     empty = await api.get(pp(world, "/life"))
     assert empty.status_code == 200
-    assert empty.json() == {"routine": [], "people": [], "hobbies": [], "places": []}
+    assert empty.json() == {"routine": [], "people": [], "hobbies": [], "places": [],
+                            "look": {"nails": "", "earrings": "", "jewelry": "", "hair": "",
+                                     "other": ""},
+                            "home": {"details": "", "rooms": []}}
 
     saved = await api.put(pp(world, "/life"), json=SEED["life"])
     assert saved.status_code == 200, saved.text
