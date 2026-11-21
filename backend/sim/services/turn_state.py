@@ -17,8 +17,10 @@ from sim.db.models import Chat, ChatEvent, Client, MediaAsset, Message, Persona,
 from sim.domain.enums import EventKind, RunStatus, UnderstandingStatus
 
 CONSUMED_RUNS = (RunStatus.SENT, RunStatus.BLOCKED)
-# `chat_event.data` key of a call she did not take because of her life (docs/persona-life.md).
+# `chat_event.data` keys of a call she did not take because of her life (docs/attention.md):
+# her busy level then, and what she was doing.
 LIFE_REFUSED_KEY = "life_busy"
+LIFE_ACTIVITY_KEY = "life_activity"
 
 
 def ai_allowed(persona: Persona | None, client: Client | None, chat: Chat) -> bool:

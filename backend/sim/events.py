@@ -14,10 +14,13 @@ from sim.domain.enums import EventKind
 
 NOTIFY_CHANNEL = "sim_events"
 
-# Kinds the agent never sees (operator-only journal lines).
+# Kinds the agent does not see by default (operator-only journal lines). An attention decision
+# is shown to the agent only when it carries a note for the reply (a missed call she was too
+# busy for), so its writer passes `in_context` explicitly.
 HIDDEN_FROM_AGENT = frozenset({
     EventKind.GUARD_BLOCKED, EventKind.OPERATOR_NEEDED, EventKind.AI_TOGGLED,
     EventKind.CLIENT_UPDATED, EventKind.MEMORY_UPDATED, EventKind.MEDIA_UNDERSTOOD,
+    EventKind.ATTENTION,
 })
 
 
@@ -25,10 +28,12 @@ async def append_event(
     session: AsyncSession, *, chat_id: int, kind: EventKind, actor: str = "system",
     message_id: int | None = None, media_id: int | None = None, call_id: int | None = None,
     generation_id: int | None = None, reply_run_id: int | None = None,
-    data: dict[str, Any] | None = None,
+    data: dict[str, Any] | None = None, in_context: bool | None = None,
 ) -> ChatEvent:
+    """`in_context` None = by kind (`HIDDEN_FROM_AGENT`)."""
+    visible = kind not in HIDDEN_FROM_AGENT if in_context is None else in_context
     event = ChatEvent(
-        chat_id=chat_id, kind=kind, actor=actor, in_context=kind not in HIDDEN_FROM_AGENT,
+        chat_id=chat_id, kind=kind, actor=actor, in_context=visible,
         message_id=message_id, media_id=media_id, call_id=call_id,
         generation_id=generation_id, reply_run_id=reply_run_id, data=data or {},
     )

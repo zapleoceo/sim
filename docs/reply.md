@@ -27,6 +27,8 @@ Procrastinate (`ProcrastinateQueue`). Задачи ставятся по име�
 | `agent.update_passport(chat_id)` | `agent` | `lock=passport:<id>`, `queueing_lock=passport:<id>`, через ~5 с | паспорт клиента ([leads.md](leads.md)) |
 | `agent.plan_day(persona_id, day, force)` | `agent` | `queueing_lock=life:<persona>:<day>` | спланировать день её жизни (`docs/persona-life.md`) |
 | `agent.life_tick(timestamp)` | `agent` | периодическая, `*/30 * * * *` | какие дни пора планировать → `plan_day` |
+| `agent.phone_check(persona_id)` | `agent` | без блокировок: какая задача — та самая проверка, решает `persona.attention_check_at` | она смотрит на телефон: что делать с каждым чатом ([attention.md](attention.md)) |
+| `agent.attention_tick(timestamp)` | `agent` | периодическая, `*/5 * * * *` | проверки телефона, чья задача потерялась → `phone_check` |
 | `telegram.send_message(message_id)` | `telegram` | `lock=send:<chat_id>` | отправка (процесс `telegram`) |
 | `telegram:mark_read(message_id)` | `telegram` | `queueing_lock=mark-read:<id>` | «прочитано» до сообщения клиента |
 | `telegram:chat_action(chat_id, action, seconds)` | `telegram` | `lock=chat-action:<chat_id>` | живой статус: «печатает», «записывает кружок»… (`docs/telegram.md`) |
@@ -57,10 +59,14 @@ Procrastinate (`ProcrastinateQueue`). Задачи ставятся по име�
    `skipped` (например, анимированный стикер TGS).
 4. `message` (`direction=in`, `status=received`) + событие `message_in`; `unread_count + 1`,
    `chat.last_message_at`, `client.last_seen_at`.
-5. После коммита: `understand(media_id)` для вложения и `reply(chat_id, persona.reply_delay_s)`,
-   если ИИ включён у персонажа, клиента и чата.
+5. Если ИИ включён у персонажа, клиента и чата — её реакция ([attention.md](attention.md)):
+   в той же транзакции код назначает проверку телефона (когда она посмотрит — по её занятости;
+   выигрывает более ранняя), после коммита — `understand(media_id)` для вложения и
+   `phone_check(persona_id, задержка)`. С «Всегда сразу» у персонажа или «Отвечать сразу» в
+   чате — как раньше: `reply(chat_id, persona.reply_delay_s)`.
 
-`edited` пишет `message_edited` (было → стало) и обновляет текст. `deleted` пишет
+`edited` пишет `message_edited` (было → стало) и обновляет текст; правка — тоже уведомление:
+она просит проверку телефона (в «Всегда сразу» — ничего, как раньше). `deleted` пишет
 `message_deleted` по каждому найденному сообщению канала (Telegram не сообщает чат); повторное
 удаление того же сообщения второго события не даёт.
 
@@ -78,14 +84,13 @@ Procrastinate (`ProcrastinateQueue`). Задачи ставятся по име�
 - неотвеченных сообщений нет.
 
 Неотвеченным считается и звонок, который она не взяла из-за своей жизни (спала, была занята:
-событие `call` с `life_busy`) — она напишет, когда освободится.
+событие `call` с `life_busy`) — она напишет, когда посмотрит на телефон.
 
-Ход откладывается (задача переставляет себя), если:
+КОГДА ход начинается, решено до него: его ставит проверка телефона ([attention.md](attention.md);
+она ждёт, пока персонаж спит или занят) или «Всегда сразу». Сам ход ждёт только клиента и
+вложения — он откладывается (задача переставляет себя), если:
 
 - последнее сообщение пришло меньше `persona.reply_delay_s` назад — клиент ещё пишет;
-- она занята: `reply_delay(now, day, persona)` (`sim/services/life/busy.py`) от прихода самого
-  раннего неотвеченного сообщения — `partial` 3–15 минут (не позже конца события), `away`
-  (сон, пробежка) до конца события + 1–5 минут (`docs/persona-life.md`, «Занятость»);
 - у неотвеченного сообщения вложение ещё распознаётся и с его прихода прошло меньше 90 с —
   проверка повторяется каждые 5 с. После 90 с ход идёт без описания: в ленте
   `[фото, ещё не успела посмотреть]`, а при ошибке распознавания — `[фото, не удалось рассмотреть]`.

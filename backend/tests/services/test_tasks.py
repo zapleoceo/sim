@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -9,17 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.clock import FixedClock
 from sim.config import Settings
 from sim.db.models import Client
+from sim.services.attention.schedule import request_check
 from sim.services.deps import Deps, get_deps, reset_deps, set_deps
 from sim.services.voices import GEMINI_VOICES, VOICE_IDS, is_voice
 from sim.tasks import agent
 from sim.tasks.app import conninfo, make_app
 from sim.tasks.queue import (
+    ATTENTION_TICK_TASK,
     CHAT_ACTION_TASK,
     GENERATE_TASK,
     LIFE_TICK_TASK,
     MARK_READ_TASK,
     MEMORY_TASK,
     PASSPORT_TASK,
+    PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
     REPLY_TASK,
     SEND_TASK,
@@ -189,6 +193,39 @@ async def test_life_tick_plans_every_active_persona(db: AsyncSession, deps: Deps
         reset_deps()
     planned = {call[1] for call in fakes.tasks.of("plan_day")}
     assert planned == {marina.id, olya.id}
+
+
+async def test_phone_checks_are_never_absorbed_and_are_registered() -> None:
+    app = FakeApp()
+    queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
+    await queue.phone_check(3, 600)
+    await queue.phone_check(3, 20)                    # earlier: must not wait or be absorbed
+    assert app.deferred == [
+        (PHONE_CHECK_TASK, {"persona_id": 3}, {"queue": "agent",
+                                               "schedule_in": {"seconds": 600}}),
+        (PHONE_CHECK_TASK, {"persona_id": 3}, {"queue": "agent",
+                                               "schedule_in": {"seconds": 20}}),
+    ]
+    real = make_app(Settings(env="test"))
+    assert {PHONE_CHECK_TASK, ATTENTION_TICK_TASK} <= set(real.tasks)
+    assert real.tasks[PHONE_CHECK_TASK].queue == "agent"
+    assert any(ATTENTION_TICK_TASK in str(key)
+               for key in real.periodic_registry.periodic_tasks)
+
+
+async def test_attention_tasks_run_the_check_and_the_sweep(db: AsyncSession, deps: Deps,
+                                                           fakes: Fakes,
+                                                           clock: FixedClock) -> None:
+    persona = await make_persona(db)
+    lost = await make_persona(db, name="Оля")
+    await request_check(db, lost.id, clock.now() - timedelta(minutes=30), clock.now())
+    set_deps(deps)
+    try:
+        await agent.phone_check(persona.id)             # nothing due: a stale job
+        await agent.attention_tick(0)
+    finally:
+        reset_deps()
+    assert fakes.tasks.calls == [("phone_check", lost.id, 0)]
 
 
 async def test_plan_day_queue_and_registration() -> None:

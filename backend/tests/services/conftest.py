@@ -55,12 +55,17 @@ def sessions(db: AsyncSession) -> async_sessionmaker[AsyncSession]:
                               join_transaction_mode="create_savepoint")
 
 
+# Human-like delays take their median in service tests (docs/attention.md).
+MEDIAN = 0.5
+
+
 def make_deps(settings: Settings, sessions: async_sessionmaker[AsyncSession],
               clock: FixedClock, fakes: Fakes) -> Deps:
     return Deps(settings=settings, sessions=sessions, clock=clock, llm=fakes.llm,
                 transcriber=fakes.transcriber, speech=fakes.speech,
                 image_gen=fakes.image_gen, video_gen=fakes.video_gen, live=fakes.live,
-                storage=fakes.storage, tools=fakes.tools, tasks=fakes.tasks)
+                storage=fakes.storage, tools=fakes.tools, tasks=fakes.tasks,
+                uniform=lambda: MEDIAN)
 
 
 @pytest.fixture

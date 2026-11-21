@@ -22,6 +22,7 @@
 | GET | `/chats/{id}/timeline?before_id=&limit=50` | → `{items: [TimelineItem]}` от новых к старым |
 | POST | `/chats/{id}/messages` | `{text}` или multipart (`file`, `caption`) — пишет оператор от имени персонажа → `TimelineItem` |
 | POST | `/chats/{id}/ai` | `{enabled}` → `ChatRow` |
+| POST | `/chats/{id}/attention-instant` | `{enabled}` — «Отвечать сразу» в этом чате (без проверок телефона, [attention.md](attention.md)) → `ChatRow` |
 | POST | `/chats/{id}/read` | → 204 (обнуляет `unread_count`) |
 | POST | `/chats/{id}/notes` | `{text}` — заметка для агента (`operator_note`) → `TimelineItem` |
 | POST | `/chats/{id}/operator-done` | снимает «нужен оператор» → `ChatRow` |
@@ -29,7 +30,7 @@
 
 ```ts
 ChatRow = {id, client: {id, name, username, ai_enabled}, persona: PersonaBrief | null,
-           ai_enabled, needs_operator, unread_count, last_message_at,
+           ai_enabled, attention_instant, needs_operator, unread_count, last_message_at,
            last_message: {kind, direction, author, text} | null}
 PersonaBrief = {id, name, avatar_media_id}     // персонаж, который отвечает в этом чате
 TimelineItem = {id, kind, actor, created_at, in_context, reply_run_id,
@@ -79,8 +80,8 @@ ClonePart = "basics"|"prompt"|"agents"|"voice"|"guard"|"appearance"|"world"|"arc
 |---|---|---|
 | GET | `/agents/registry` | → `AgentRegistry`: группы, агенты, значения по умолчанию, промты, фильтры моделей |
 | GET | `/personas/{id}/agents` | → `PersonaAgents`; 404 — нет персонажа |
-| PUT | `/personas/{id}/agents` | `{agents: {key: AgentIn}, guard_rules?}` → `PersonaAgents`. Присланные агенты заменяют свои настройки целиком, остальные не трогаются. 400: неизвестный агент, неизвестный `key_tier`, `max_tokens` вне 64…16384 или у агента без лимита, промт у агента без промта, лишнее поле, модель, которой нет в читаемом непустом каталоге Broker (проверяются только изменённые модели; недоступная сейчас модель сохраняется) |
-| POST | `/personas/{id}/agents/{key}/reset` | всё у агента по умолчанию → `PersonaAgents`; 404 — неизвестный агент |
+| PUT | `/personas/{id}/agents` | `{agents: {key: AgentIn}, guard_rules?, attention?: Attention}` → `PersonaAgents`. Присланные агенты заменяют свои настройки целиком, остальные не трогаются; `attention` (все поля) заменяет настройки Внимания. 400: неизвестный агент, `attention` не по схеме (режим, темп вне 0.5…2, нет поля, лишнее поле), неизвестный `key_tier`, `max_tokens` вне 64…16384 или у агента без лимита, промт у агента без промта, лишнее поле, модель, которой нет в читаемом непустом каталоге Broker (проверяются только изменённые модели; недоступная сейчас модель сохраняется) |
+| POST | `/personas/{id}/agents/{key}/reset` | всё у агента по умолчанию (у `attention` — и его настройки) → `PersonaAgents`; 404 — неизвестный агент |
 
 ```ts
 KeyTier = "auto"|"paid"|"free"
@@ -95,7 +96,10 @@ AgentIn = {model?: string|null /* null — по умолчанию, "" — не 
            max_tokens?: number|null}
 PersonaAgents = {agents: {key: {model: string|null, key_tier: KeyTier, prompt: string,
                                 max_tokens: number|null, effective_model: string}},
-                 guard_rules: string}
+                 guard_rules: string, attention: Attention}
+Attention = {mode: "human"|"free_only"|"instant", pace: number /* 0.5…2 */,
+             may_leave_read: boolean, after_missed_call: boolean, night_dnd: boolean}
+                 // docs/attention.md; GET всегда отдаёт все поля (по умолчанию — human, 1, да, да, да)
 ```
 
 `effective_model` — модель, которой агент реально пойдёт (по умолчанию или модель

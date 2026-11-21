@@ -32,6 +32,7 @@ from sim.domain.enums import (
     MessageStatus,
     UnderstandingStatus,
 )
+from sim.events import HIDDEN_FROM_AGENT
 
 _seq = itertools.count(1)
 
@@ -121,11 +122,9 @@ async def make_media(db: AsyncSession, persona_id: int | None, *,
 
 async def add_event(db: AsyncSession, chat: Chat, kind: EventKind, *, at: datetime,
                     message: Message | None = None, data: dict[str, Any] | None = None,
-                    **refs: Any) -> ChatEvent:
-    hidden = kind in (EventKind.GUARD_BLOCKED, EventKind.OPERATOR_NEEDED, EventKind.AI_TOGGLED,
-                      EventKind.CLIENT_UPDATED, EventKind.MEMORY_UPDATED,
-                      EventKind.MEDIA_UNDERSTOOD)
-    event = ChatEvent(chat_id=chat.id, kind=kind, in_context=not hidden, created_at=at,
+                    in_context: bool | None = None, **refs: Any) -> ChatEvent:
+    visible = kind not in HIDDEN_FROM_AGENT if in_context is None else in_context
+    event = ChatEvent(chat_id=chat.id, kind=kind, in_context=visible, created_at=at,
                       message_id=message.id if message is not None else None,
                       media_id=message.media_id if message is not None else None,
                       actor="system", data=data or {}, **refs)

@@ -16,6 +16,8 @@ import { agentApi, personaApi } from '../api';
 import { usePersonaId } from '../persona-scope';
 import { AgentCard } from './agent-card';
 import { type AgentsDraft, defaultSettings, draftErrors, effectiveModel, sameDraft, toDraft, toPatch } from './agents-logic';
+import { AttentionBlock } from './attention-block';
+import { ATTENTION_AGENT } from './attention-logic';
 
 const GUARD = 'guard';
 
@@ -47,8 +49,12 @@ export function AgentsEditor({ registry, saved, models }: { registry: AgentRegis
       adopt(result);
       const next = toDraft(result);
       setBaseline(next);
-      // The other agents keep their unsaved edits.
-      setDraft((d) => ({ ...d, agents: { ...d.agents, [key]: next.agents[key] } }));
+      // The other agents keep their unsaved edits; «Внимание» resets its settings too.
+      setDraft((d) => ({
+        ...d,
+        agents: { ...d.agents, [key]: next.agents[key] },
+        attention: key === ATTENTION_AGENT ? next.attention : d.attention,
+      }));
       toast.success('Агент вернулся к настройкам по умолчанию');
     },
   });
@@ -58,7 +64,9 @@ export function AgentsEditor({ registry, saved, models }: { registry: AgentRegis
   const askReset = async (key: string, title: string) => {
     const ok = await confirm({
       title: `${title}: всё по умолчанию?`,
-      message: 'Модель, ключи, промт и max_tokens этого агента станут стандартными. Сохраняется сразу.',
+      message: key === ATTENTION_AGENT
+        ? 'Модель, ключи, промт, max_tokens, режим, темп и переключатели станут стандартными. Сохраняется сразу.'
+        : 'Модель, ключи, промт и max_tokens этого агента станут стандартными. Сохраняется сразу.',
       confirmLabel: 'Сбросить',
     });
     if (ok) reset.mutate(key);
@@ -90,6 +98,9 @@ export function AgentsEditor({ registry, saved, models }: { registry: AgentRegis
                   onReset={() => void askReset(key, spec.title)}
                   resetting={reset.isPending}
                 >
+                  {key === ATTENTION_AGENT && (
+                    <AttentionBlock value={draft.attention} onChange={(attention) => setDraft((d) => ({ ...d, attention }))} />
+                  )}
                   {key === GUARD && (
                     <Field id="agent-guard-rules" label="Запреты" hint="Что Охранник не должен пропускать. Одно правило на строку.">
                       <Textarea

@@ -10,6 +10,7 @@ from litestar.exceptions import ClientException
 from msgspec import UNSET, Meta, Struct, UnsetType
 
 from sim.domain.agents import MAX_MAX_TOKENS, MAX_PROMPT_CHARS, MIN_MAX_TOKENS
+from sim.domain.attention import PACE_MAX, PACE_MIN
 from sim.domain.enums import ClonePart, LeadStage
 
 Text4k = Annotated[str, Meta(min_length=1, max_length=4000)]
@@ -150,12 +151,24 @@ class AgentIn(Struct, forbid_unknown_fields=True):
     max_tokens: Annotated[int, Meta(ge=MIN_MAX_TOKENS, le=MAX_MAX_TOKENS)] | None = None
 
 
+class AttentionIn(Struct, forbid_unknown_fields=True):
+    """«Внимание» settings (docs/attention.md), edited on its agent card; all fields sent."""
+
+    mode: Literal["human", "free_only", "instant"]
+    pace: Annotated[float, Meta(ge=PACE_MIN, le=PACE_MAX)]
+    may_leave_read: bool
+    after_missed_call: bool
+    night_dnd: bool
+
+
 class AgentsIn(Struct):
     """`PUT /personas/{id}/agents`: the agents sent replace their stored settings (the others
-    stay); `guard_rules` is the guard's rule list, edited on its card."""
+    stay); `guard_rules` is the guard's rule list and `attention` the «Внимание» settings,
+    both edited on their cards."""
 
     agents: Annotated[dict[str, AgentIn], Meta(max_length=32)]
     guard_rules: Annotated[str, Meta(max_length=20_000)] | UnsetType = UNSET
+    attention: AttentionIn | UnsetType = UNSET
 
 
 PERSONA_FIELDS: tuple[str, ...] = PersonaPatchIn.__struct_fields__

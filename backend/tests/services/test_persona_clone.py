@@ -30,7 +30,7 @@ async def source(db: AsyncSession, **fields: Any) -> Persona:
         db, timezone="Europe/Berlin", language="uk", birth_date=date(1990, 1, 2),
         appearance="green eyes", life=LIFE,
         models={"life": "life-model", "passport": "passport-model"}, reply_delay_s=20,
-        video_enabled=False, **fields)
+        video_enabled=False, attention={"mode": "free_only", "pace": 1.5}, **fields)
 
 
 def fields_of(part: ClonePart) -> tuple[str, ...]:

@@ -50,6 +50,19 @@ describe('TimelineEntry', () => {
     expect(screen.queryByRole('button', { name: 'Почему так' })).not.toBeInTheDocument();
   });
 
+  it('her phone check is a small gray line with the reason', () => {
+    show(item({
+      kind: 'attention', actor: 'persona', in_context: false,
+      data: { action: 'reply_later', who: 'Марина', later: '18:40', reason: 'после рынка', until_event_id: 3 },
+    }));
+    const line = screen.getByText(/Марина: прочитала, ответит позже в 18:40 \(после рынка\)/);
+    expect(line).toHaveClass('text-muted-foreground');
+    expect(systemLine(item({ kind: 'attention', data: { action: 'leave_unread', who: 'Марина' } }))?.text)
+      .toBe('Марина: не открыла');
+    expect(systemLine(item({ kind: 'attention', data: { action: 'call_back', reason: 'проснулась' } }))?.text)
+      .toBe('Она: напишет после пропущенного звонка (проснулась)');
+  });
+
   it('a failed send is red with the error', () => {
     show(item({
       kind: 'send_failed',

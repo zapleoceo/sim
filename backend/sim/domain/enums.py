@@ -116,6 +116,7 @@ class LlmPurpose(StrEnum):
     MEMORY = "memory"
     LIFE = "life"           # the daily planner of the persona's life (docs/persona-life.md)
     PASSPORT = "passport"   # the client passport writer, «паспортистка» (docs/leads.md)
+    ATTENTION = "attention"  # «Внимание»: when she reacts to notifications (docs/attention.md)
 
 
 class ArcStatus(StrEnum):
@@ -159,7 +160,7 @@ class ClonePart(StrEnum):
 
     BASICS = "basics"               # gender, language, time zone, birth date
     PROMPT = "prompt"
-    AGENTS = "agents"               # every agent: model, key tier, prompt, max_tokens
+    AGENTS = "agents"               # every agent: model, key tier, prompt, max_tokens; «Внимание»
     VOICE = "voice"                 # voice, manner of speech, background in voice notes
     GUARD = "guard"                 # the guard's rules
     APPEARANCE = "appearance"
@@ -189,3 +190,4 @@ class EventKind(StrEnum):
     OPERATOR_NOTE = "operator_note"         # a note for the agent typed by the operator
     CLIENT_UPDATED = "client_updated"       # profile fields changed (name, phone, notes)
     MEMORY_UPDATED = "memory_updated"       # the chat summary was refreshed
+    ATTENTION = "attention"                 # she looked at the chat: read, later, now…

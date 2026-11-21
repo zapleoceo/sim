@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from sim.domain.agent_prompts import (
+    ATTENTION_PROMPT,
     GUARD_PROMPT,
     VISION_PROMPT,
     VISION_SECTIONS,
@@ -35,7 +36,7 @@ def test_registry_covers_every_agent_once_in_the_owners_groups() -> None:
     assert [spec.key for spec in AGENTS] == list(AgentKey)
     groups = {group: [s.key.value for s in AGENTS if s.group == group] for group in AgentGroup}
     assert groups == {
-        AgentGroup.REPLY: ["reply", "guard", "vision", "transcribe", "tts"],
+        AgentGroup.REPLY: ["attention", "reply", "guard", "vision", "transcribe", "tts"],
         AgentGroup.MEDIA: ["image", "video"],
         AgentGroup.CALLS: ["live"],
         AgentGroup.BACKGROUND: ["life", "passport", "memory", "appearance"],
@@ -76,6 +77,19 @@ def test_fallback_models_follow_the_chain() -> None:
     seeing = persona({"vision": {"model": "v"}})
     assert agent_config(seeing, AgentKey.APPEARANCE).model == "v"
     assert agent_config(seeing, AgentKey.VISION).model == "v"
+
+
+def test_attention_runs_on_a_cheap_fast_model_with_its_own_prompt() -> None:
+    config = agent_config(persona(None), AgentKey.ATTENTION)
+    assert (config.model, config.key_tier, config.max_tokens) == (
+        "gemini/gemini-3.5-flash-lite", KeyTier.PAID, 1500)
+    assert config.prompt == ATTENTION_PROMPT and "{name}" in ATTENTION_PROMPT
+    assert REGISTRY["attention"].placeholders == ("name",)
+    for action in ("reply_now", "reply_later", "read_only", "leave_unread",
+                   "text_after_missed_call", "call_back"):
+        assert action in ATTENTION_PROMPT
+    # «Не использовать» is possible: it has a default model.
+    assert agent_config(persona({"attention": {"model": ""}}), AgentKey.ATTENTION).model == ""
 
 
 def test_the_planner_can_be_switched_off() -> None:

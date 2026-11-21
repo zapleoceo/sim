@@ -1,7 +1,9 @@
 """Incoming side of a chat (docs/reply.md, «Входящие»). The messenger process hands every
 client message here: it is stored once (idempotent by chat + direction + external id), its
 attachment goes to the media library, a `message_in` event is written and, after commit, the
-attachment is queued for understanding and the chat for a reply (when AI is on everywhere).
+attachment is queued for understanding and, when AI is on everywhere, her reaction: a phone
+check when her life lets her look (docs/attention.md), or with «Всегда сразу» a reply after
+the burst pause as before.
 
 First contact creates the client (AI off by default, spec §3.2), the identity and the chat. The
 chat belongs to the persona of the channel the message came through (`channel.persona_id`);
@@ -10,6 +12,8 @@ answered by this channel's persona (docs/personas.md)."""
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Channel, Chat, ChatEvent, Client, ClientIdentity, Message, Persona
 from sim.db.session import transaction
+from sim.domain.attention import attention_settings
 from sim.domain.enums import (
     Author,
     Direction,
@@ -28,6 +33,7 @@ from sim.domain.enums import (
 )
 from sim.events import append_event
 from sim.ports import InboundAttachment, InboundMessage, Peer
+from sim.services.attention.schedule import check_after_notice, queue_check
 from sim.services.deps import Deps
 from sim.services.media_library import add_media, kind_from_mime
 from sim.services.turn_state import ai_allowed
@@ -52,6 +58,25 @@ UNDERSTANDABLE_PREFIXES = ("image/", "video/", "audio/", "application/pdf", "tex
 
 class ChannelNotFound(LookupError):
     pass
+
+
+@dataclass(frozen=True)
+class Reaction:
+    """What a notification starts after commit: a reply after the burst pause («Всегда
+    сразу», `reply_delay_s`) or her phone check (`check_at`; None = an earlier one covers it)."""
+
+    persona_id: int
+    now: datetime
+    reply_delay_s: float | None = None
+    check_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class _Stored:
+    message_id: int
+    chat_id: int
+    media_id: int | None            # an attachment to understand
+    reaction: Reaction | None       # None = AI is off somewhere: stored, not answered
 
 
 def message_kind(attachment: InboundAttachment | None) -> MessageKind:
@@ -81,15 +106,34 @@ class Inbox:
             return None
         if stored is None:
             return None
-        message_id, chat_id, media_id, reply_delay = stored
-        if media_id is not None:
-            await self.deps.tasks.understand(media_id)
-        if reply_delay is not None:
-            await self.deps.tasks.reply(chat_id, reply_delay)
-        return message_id
+        if stored.media_id is not None:
+            await self.deps.tasks.understand(stored.media_id)
+        await self._react(stored.chat_id, stored.reaction)
+        return stored.message_id
 
-    async def _store(self, session: AsyncSession,
-                     msg: InboundMessage) -> tuple[int, int, int | None, float | None] | None:
+    async def _react(self, chat_id: int, reaction: Reaction | None) -> None:
+        """After commit: «Всегда сразу» answers like before (after the burst pause), otherwise
+        her phone check is deferred (docs/attention.md)."""
+        if reaction is None:
+            return
+        if reaction.reply_delay_s is not None:
+            await self.deps.tasks.reply(chat_id, reaction.reply_delay_s)
+        else:
+            await queue_check(self.deps.tasks, reaction.persona_id, reaction.check_at,
+                              reaction.now)
+
+    async def _reaction(self, session: AsyncSession, persona: Persona | None,
+                        client: Client | None, chat: Chat) -> Reaction | None:
+        """How she reacts to a new notification in `chat` (inside its transaction)."""
+        if persona is None or not ai_allowed(persona, client, chat):
+            return None
+        now = self.deps.clock.now()
+        if attention_settings(persona.attention).is_instant(chat.attention_instant):
+            return Reaction(persona.id, now, reply_delay_s=float(persona.reply_delay_s))
+        check_at = await check_after_notice(session, persona, now, self.deps.uniform())
+        return Reaction(persona.id, now, check_at=check_at)
+
+    async def _store(self, session: AsyncSession, msg: InboundMessage) -> _Stored | None:
         chat = await self.resolve_chat(session, msg.channel_id, msg.peer)
         if await self._find(session, chat.id, msg.external_id) is not None:
             return None
@@ -129,12 +173,11 @@ class Inbox:
         persona = await session.get(Persona, chat.persona_id)
         if client is not None:
             client.last_seen_at = now
-        answer = ai_allowed(persona, client, chat)
         media_to_understand = None
         if media is not None and media.understanding == UnderstandingStatus.PENDING:
             media_to_understand = media.id
-        reply_delay = float(persona.reply_delay_s) if answer and persona is not None else None
-        return message.id, chat.id, media_to_understand, reply_delay
+        return _Stored(message.id, chat.id, media_to_understand,
+                       await self._reaction(session, persona, client, chat))
 
     async def _find(self, session: AsyncSession, chat_id: int,
                     external_id: str) -> Message | None:
@@ -189,6 +232,8 @@ class Inbox:
         return chat
 
     async def edited(self, channel_id: int, peer: Peer, external_id: str, text: str) -> None:
+        """An edit is journaled and is a notification too: in «Всегда сразу» nothing more
+        happens (as before), otherwise her phone shows it at the next check."""
         async with transaction(self.deps.sessions) as session:
             chat = await self.resolve_chat(session, channel_id, peer)
             message = await self._find(session, chat.id, external_id)
@@ -199,6 +244,10 @@ class Inbox:
             await append_event(session, chat_id=chat.id, kind=EventKind.MESSAGE_EDITED,
                                actor="client", message_id=message.id,
                                data={"old": old, "new": text})
+            reaction = await self._reaction(session, await session.get(Persona, chat.persona_id),
+                                            await session.get(Client, chat.client_id), chat)
+        if reaction is not None and reaction.reply_delay_s is None:
+            await self._react(chat.id, reaction)
 
     async def deleted(self, channel_id: int, external_ids: list[str]) -> None:
         """Telegram does not say whose chat a deletion belongs to: match by channel + ids."""

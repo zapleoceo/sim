@@ -73,7 +73,7 @@ async def test_a_client_of_one_persona_writing_to_another(db: AsyncSession, deps
     """The client stays the first persona's lead; the new chat is answered by the persona of
     the channel he wrote to — never by «the first persona»."""
     marina_channel = await channel(db)
-    olya = await make_persona(db, name="Оля", reply_delay_s=3)
+    olya = await make_persona(db, name="Оля", reply_delay_s=3, attention={"mode": "instant"})
     olya_channel = await make_channel(db, olya)
     inbox = Inbox(deps)
     await inbox.ingest(inbound(marina_channel.id, clock, external_id="1"))
@@ -89,7 +89,7 @@ async def test_a_client_of_one_persona_writing_to_another(db: AsyncSession, deps
     assert chats[marina_channel.id].persona_id == marina_channel.persona_id
     assert chats[olya_channel.id].client_id == client.id
     assert chats[olya_channel.id].peer_access_hash == "hash-1"   # her account's view of him
-    # Оля's own pause decides when she answers.
+    # Оля answers «Всегда сразу»: her own pause decides when.
     assert fakes.tasks.calls == [("reply", chats[olya_channel.id].id, 3.0)]
     olya.is_active = False                              # archived: stored, not answered
     await db.flush()
@@ -108,8 +108,10 @@ async def test_ingest_is_idempotent(db: AsyncSession, deps: Deps, clock: FixedCl
     assert len(await all_rows(db, select(Client))) == 1
 
 
-async def test_reply_is_queued_when_ai_is_on(db: AsyncSession, deps: Deps, fakes: Fakes,
-                                             clock: FixedClock) -> None:
+async def test_her_phone_check_is_queued_when_ai_is_on(db: AsyncSession, deps: Deps,
+                                                       fakes: Fakes, clock: FixedClock) -> None:
+    """She is a living person by default: not a reply, but a look at her phone soon
+    (docs/attention.md; the check itself: tests/services/test_attention_check.py)."""
     ch = await channel(db)
     inbox = Inbox(deps)
     await inbox.ingest(inbound(ch.id, clock, external_id="1"))
@@ -120,7 +122,7 @@ async def test_reply_is_queued_when_ai_is_on(db: AsyncSession, deps: Deps, fakes
     await inbox.ingest(inbound(ch.id, clock, external_id="2"))
 
     chat = await the_chat(db)
-    assert fakes.tasks.calls == [("reply", chat.id, 8.0)]
+    assert fakes.tasks.calls == [("phone_check", ch.persona_id, 20.0)]
     assert chat.unread_count == 2
 
 

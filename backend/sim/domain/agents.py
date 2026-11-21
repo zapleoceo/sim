@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 from sim.domain.agent_prompts import (
     APPEARANCE_PROMPT,
+    ATTENTION_PROMPT,
     GUARD_PROMPT,
     MEMORY_PROMPT,
     PASSPORT_PROMPT,
@@ -43,6 +44,7 @@ class KeyTier(StrEnum):
 class AgentKey(StrEnum):
     """The keys of `persona.agents`; also the order of the registry."""
 
+    ATTENTION = "attention"
     REPLY = "reply"
     GUARD = "guard"
     VISION = "vision"
@@ -121,6 +123,11 @@ GROUP_TITLES: dict[AgentGroup, tuple[str, str]] = {
 }
 
 AGENTS: tuple[AgentSpec, ...] = (
+    AgentSpec(AgentKey.ATTENTION, "Внимание", AgentGroup.REPLY,
+              "Решает, когда она берёт телефон и что делает с уведомлениями: отвечает сразу, "
+              "позже, только читает или не открывает.",
+              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.PAID, model="gemini/gemini-3.5-flash-lite",
+              prompt=ATTENTION_PROMPT, placeholders=("name",), max_tokens=1500),
     AgentSpec(AgentKey.REPLY, "Собеседник", AgentGroup.REPLY,
               "Пишет ответ клиенту: JSON-план из текстов, голосовых, фото и видео.",
               BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.PAID, max_tokens=4096),

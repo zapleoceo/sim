@@ -12,6 +12,12 @@ class TaskQueue(Protocol):
         already waiting is absorbed by it (the reply task re-checks the chat when it starts)."""
         ...
 
+    async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
+        """She looks at her phone (docs/attention.md). Every request is a job; only the one
+        whose time matches `persona.attention_check_at` does the check, the others find
+        nothing due and finish."""
+        ...
+
     async def understand(self, media_id: int) -> None:
         """Describe / transcribe an incoming attachment."""
         ...

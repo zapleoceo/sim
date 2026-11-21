@@ -1,5 +1,6 @@
 """«Агенты» of a persona (docs/agents.md, docs/api.md): the registry of every AI function and one
-persona's settings of each — model, key tier, prompt, max_tokens — plus the guard's rule list.
+persona's settings of each — model, key tier, prompt, max_tokens — plus the guard's rule list
+and the «Внимание» settings (docs/attention.md).
 
 Model ids are checked against the Broker catalog only when it can be read and is not empty, and
 only the ids that changed: a model the catalog lists as unavailable (or with unknown
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api.context import ApiContext
 from sim.api.queries import persona_or_404
-from sim.api.schemas import AgentIn, AgentsIn
+from sim.api.schemas import AgentIn, AgentsIn, AttentionIn, sent_fields
 from sim.db.models import Persona
 from sim.domain.agents import (
     AGENTS,
@@ -32,6 +33,7 @@ from sim.domain.agents import (
     own_model,
     own_prompt,
 )
+from sim.domain.attention import attention_settings
 from sim.ports import LlmPort
 from sim.services.context.instructions import CALL_RULES, FORMAT_RULES
 
@@ -100,8 +102,10 @@ def agent_view(persona: Persona, spec: AgentSpec) -> Json:
 
 
 def agents_view(persona: Persona) -> Json:
+    """Every agent, the guard's rule list and the «Внимание» settings (defaults applied)."""
     return {"agents": {spec.key.value: agent_view(persona, spec) for spec in AGENTS},
-            "guard_rules": persona.guard_rules}
+            "guard_rules": persona.guard_rules,
+            "attention": attention_settings(persona.attention).as_json()}
 
 
 def checked(key: str, data: AgentIn) -> tuple[AgentSpec, dict[str, Any]]:
@@ -148,17 +152,22 @@ async def update_agents(persona_id: int, data: AgentsIn, ctx: ApiContext,
     persona.agents = current
     if isinstance(data.guard_rules, str):
         persona.guard_rules = data.guard_rules
+    if isinstance(data.attention, AttentionIn):
+        persona.attention = attention_settings(sent_fields(data.attention)).as_json()
     await db.flush()
     return agents_view(persona)
 
 
 @post("/personas/{persona_id:int}/agents/{key:str}/reset", status_code=200)
 async def reset_agent(persona_id: int, key: str, db: AsyncSession) -> Json:
-    """Back to the registry defaults: model, tier, prompt and max_tokens."""
+    """Back to the registry defaults: model, tier, prompt and max_tokens (and, for «Внимание»,
+    its settings)."""
     if key not in REGISTRY:
         raise NotFoundException(detail=f"Неизвестный агент: {key}")
     persona = await persona_or_404(db, persona_id)
     persona.agents = {k: v for k, v in (persona.agents or {}).items() if k != key}
+    if key == AgentKey.ATTENTION:
+        persona.attention = {}
     await db.flush()
     return agents_view(persona)
 

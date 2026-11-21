@@ -9,7 +9,9 @@ Ordering and de-duplication:
 - `queueing_lock = life:<persona>:<day>`: one waiting plan per day of the persona's life;
 - `lock` and `queueing_lock = passport:<chat id>`: a burst of turns makes one passport update,
   and one chat's updates never overlap;
-- `lock = chat-action:<chat id>` applies one chat's status requests in order."""
+- `lock = chat-action:<chat id>` applies one chat's status requests in order;
+- phone checks have no lock: the database decides which job is the persona's pending check
+  (docs/attention.md)."""
 from __future__ import annotations
 
 import logging
@@ -31,6 +33,9 @@ PASSPORT_TASK = "agent.update_passport"
 PLAN_DAY_TASK = "agent.plan_day"
 LIFE_TICK_TASK = "agent.life_tick"     # periodic: which days need a plan
 LIFE_TICK_CRON = "*/30 * * * *"
+PHONE_CHECK_TASK = "agent.phone_check"
+ATTENTION_TICK_TASK = "agent.attention_tick"    # periodic: phone checks whose job was lost
+ATTENTION_TICK_CRON = "*/5 * * * *"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
@@ -63,6 +68,12 @@ class ProcrastinateQueue:
         await self._defer(REPLY_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
                           lock=chat_lock(chat_id), queueing_lock=f"reply:{chat_id}",
                           delay_s=delay_s)
+
+    async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
+        # Neither lock nor queueing lock: an earlier check must never wait behind (or be
+        # absorbed by) a later one; `persona.attention_check_at` makes stale jobs no-ops.
+        await self._defer(PHONE_CHECK_TASK, queue=AGENT_QUEUE,
+                          kwargs={"persona_id": persona_id}, delay_s=delay_s)
 
     async def understand(self, media_id: int) -> None:
         await self._defer(UNDERSTAND_TASK, queue=AGENT_QUEUE, kwargs={"media_id": media_id},

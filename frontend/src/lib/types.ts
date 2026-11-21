@@ -15,7 +15,8 @@ export type EventKind =
   | 'ai_toggled'
   | 'operator_note'
   | 'client_updated'
-  | 'memory_updated';
+  | 'memory_updated'
+  | 'attention';
 
 export type Direction = 'in' | 'out';
 export type Author = 'client' | 'persona' | 'operator';
@@ -156,6 +157,8 @@ export interface ChatRow {
   /** The persona that answers in this chat (the persona of its channel). */
   persona: PersonaBrief | null;
   ai_enabled: boolean;
+  /** «Отвечать сразу»: this chat skips her phone checks (docs/attention.md). */
+  attention_instant: boolean;
   needs_operator: boolean;
   unread_count: number;
   last_message_at: string | null;
@@ -355,16 +358,31 @@ export interface AgentSettings {
   max_tokens: number | null;
 }
 
+/** How she treats notifications (docs/attention.md). */
+export type AttentionMode = 'human' | 'free_only' | 'instant';
+
+/** «Внимание» settings of a persona, edited on its agent card. */
+export interface AttentionSettings {
+  mode: AttentionMode;
+  /** One multiplier on every sampled delay, 0.5–2. */
+  pace: number;
+  may_leave_read: boolean;
+  after_missed_call: boolean;
+  night_dnd: boolean;
+}
+
 /** GET /personas/{id}/agents. */
 export interface PersonaAgents {
   agents: Record<string, AgentSettings & { effective_model: string }>;
   guard_rules: string;
+  attention: AttentionSettings;
 }
 
 /** PUT /personas/{id}/agents. */
 export interface PersonaAgentsPatch {
   agents: Record<string, AgentSettings>;
   guard_rules: string;
+  attention: AttentionSettings;
 }
 
 export interface Voice {

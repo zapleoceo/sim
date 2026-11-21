@@ -1,6 +1,7 @@
 import type { AgentRegistry, AgentSettings, AgentSpec, PersonaAgents, PersonaAgentsPatch } from '@/lib/types';
 
-/** The draft of the «Агенты» section: every agent's settings and the guard's rule list. */
+/** The draft of the «Агенты» section: every agent's settings, the guard's rule list and the
+ * «Внимание» settings. */
 export type AgentsDraft = PersonaAgentsPatch;
 
 /** Select values that are not model ids. */
@@ -14,7 +15,7 @@ export function toDraft(saved: PersonaAgents): AgentsDraft {
   for (const [key, { model, key_tier, prompt, max_tokens }] of Object.entries(saved.agents)) {
     agents[key] = { model, key_tier, prompt, max_tokens };
   }
-  return { agents, guard_rules: saved.guard_rules };
+  return { agents, guard_rules: saved.guard_rules, attention: { ...saved.attention } };
 }
 
 export function sameDraft(a: AgentsDraft, b: AgentsDraft): boolean {
@@ -83,11 +84,12 @@ export function promptValue(text: string, spec: AgentSpec): string {
   return text.trim() === '' || text.trim() === (spec.prompt ?? '').trim() ? '' : text;
 }
 
-/** Only the agents that differ from the saved ones, plus the rule list (one PUT). */
+/** Only the agents that differ from the saved ones, plus the rule list and the «Внимание»
+ * settings (one PUT). */
 export function toPatch(draft: AgentsDraft, saved: AgentsDraft): PersonaAgentsPatch {
   const agents: Record<string, AgentSettings> = {};
   for (const [key, settings] of Object.entries(draft.agents)) {
     if (JSON.stringify(settings) !== JSON.stringify(saved.agents[key])) agents[key] = settings;
   }
-  return { agents, guard_rules: draft.guard_rules };
+  return { agents, guard_rules: draft.guard_rules, attention: draft.attention };
 }

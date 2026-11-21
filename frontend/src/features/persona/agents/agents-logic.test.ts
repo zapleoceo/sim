@@ -16,14 +16,21 @@ describe('agents draft', () => {
     expect(sameDraft(draft, { ...draft, guard_rules: '' })).toBe(false);
   });
 
-  it('patches only the changed agents and always sends the rule list', () => {
+  it('patches only the changed agents and always sends the rule list and «Внимание»', () => {
     const saved = toDraft(SAVED);
     const draft = { ...saved, agents: { ...saved.agents, guard: { ...saved.agents.guard!, key_tier: 'free' as const } } };
     expect(toPatch(draft, saved)).toEqual({
       agents: { guard: { model: null, key_tier: 'free', prompt: '', max_tokens: 400 } },
       guard_rules: 'Не называть фамилию.',
+      attention: SAVED.attention,
     });
-    expect(toPatch(saved, saved)).toEqual({ agents: {}, guard_rules: 'Не называть фамилию.' });
+    expect(toPatch(saved, saved)).toEqual({ agents: {}, guard_rules: 'Не называть фамилию.', attention: SAVED.attention });
+  });
+
+  it('a changed «Внимание» setting makes the draft dirty', () => {
+    const saved = toDraft(SAVED);
+    expect(saved.attention).not.toBe(SAVED.attention);                  // a copy, not the cache object
+    expect(sameDraft({ ...saved, attention: { ...saved.attention, pace: 1.5 } }, saved)).toBe(false);
   });
 
   it('defaults of an agent', () => {

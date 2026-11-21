@@ -21,8 +21,8 @@ from sim.ports import PortError
 from sim.services.actions.base import ActionContext, ActionHandler, ApplyResult
 from sim.services.actions.text import enqueue_text
 from sim.services.deps import Deps
-from sim.services.life.busy import stable_seed
 from sim.services.life.scene import voice_ambience
+from sim.services.life.stable import stable_seed
 from sim.services.life.store import load_life
 from sim.services.llm_log import logged_call
 from sim.services.media_library import add_media

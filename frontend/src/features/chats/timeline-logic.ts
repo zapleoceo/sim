@@ -63,6 +63,25 @@ function str(data: Record<string, unknown>, ...keys: string[]): string {
 
 const withReason = (base: string, reason: string): string => (reason ? `${base}: ${reason}` : base);
 
+/** What she did with the chat at a phone check (docs/attention.md). */
+export const ATTENTION_ACTION_TEXT: Record<string, string> = {
+  reply_now: 'прочитала, отвечает',
+  reply_later: 'прочитала, ответит позже',
+  read_only: 'прочитала, не отвечает',
+  leave_unread: 'не открыла',
+  text_after_missed_call: 'напишет после пропущенного звонка',
+  call_back: 'напишет после пропущенного звонка',
+};
+
+/** «Марина: прочитала, ответит позже в 18:40 (после рынка)». */
+export function attentionLine(data: Record<string, unknown>): string {
+  const who = str(data, 'who') || 'Она';
+  const action = ATTENTION_ACTION_TEXT[str(data, 'action')] ?? 'посмотрела чат';
+  const later = str(data, 'later');
+  const reason = str(data, 'reason');
+  return `${who}: ${action}${later ? ` в ${later}` : ''}${reason ? ` (${reason})` : ''}`;
+}
+
 /**
  * Journal events shown as a small centred line (not a bubble). Null for kinds rendered
  * otherwise (messages, calls, generations) or not shown at all (`media_understood` only
@@ -92,6 +111,8 @@ export function systemLine(item: TimelineItem): SystemLine | null {
       return { text: 'Карточка клиента обновлена', tone: 'muted' };
     case 'memory_updated':
       return { text: 'Сводка переписки обновлена', tone: 'muted' };
+    case 'attention':
+      return { text: attentionLine(d), tone: 'muted' };
     default:
       return null;
   }

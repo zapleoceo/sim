@@ -10,10 +10,13 @@ const spec = (key: string, title: string, group: string, extra: Partial<AgentSpe
 
 export const REGISTRY: AgentRegistry = {
   groups: [
-    { key: 'reply', title: 'Ответ', description: 'Должны отвечать быстро.', agents: ['reply', 'guard', 'tts'] },
+    { key: 'reply', title: 'Ответ', description: 'Должны отвечать быстро.', agents: ['attention', 'reply', 'guard', 'tts'] },
     { key: 'background', title: 'Фон', description: 'Ответа никто не ждёт.', agents: ['life', 'memory'] },
   ],
   agents: [
+    spec('attention', 'Внимание', 'reply', {
+      model: 'gemini/gemini-3.5-flash-lite', prompt: 'Ты внимание {name}.', placeholders: ['name'], max_tokens: 1500,
+    }),
     spec('reply', 'Собеседник', 'reply', { max_tokens: 4096, readonly_prompt: '# Как отвечать' }),
     spec('guard', 'Охранник', 'reply', {
       fallback: 'reply', prompt: 'Проверь ответ {name}.', placeholders: ['name', 'language'], max_tokens: 400,
@@ -34,6 +37,9 @@ export const REGISTRY: AgentRegistry = {
 
 export const SAVED: PersonaAgents = {
   agents: {
+    attention: {
+      model: null, key_tier: 'paid', prompt: '', max_tokens: 1500, effective_model: 'gemini/gemini-3.5-flash-lite',
+    },
     reply: { model: 'gpt-text', key_tier: 'paid', prompt: '', max_tokens: 4096, effective_model: 'gpt-text' },
     guard: { model: null, key_tier: 'paid', prompt: '', max_tokens: 400, effective_model: 'gpt-text' },
     tts: { model: 'retired-tts', key_tier: 'paid', prompt: '', max_tokens: null, effective_model: 'retired-tts' },
@@ -41,6 +47,7 @@ export const SAVED: PersonaAgents = {
     memory: { model: null, key_tier: 'auto', prompt: '', max_tokens: 4096, effective_model: 'gpt-text' },
   },
   guard_rules: 'Не называть фамилию.',
+  attention: { mode: 'human', pace: 1, may_leave_read: true, after_missed_call: true, night_dnd: true },
 };
 
 export const MODELS: BrokerModel[] = [

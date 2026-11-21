@@ -1,5 +1,6 @@
 """The persona's world and day as data: schema of the seed, day and outfit checks, the
-calendar, the agenda layers, the busy rules and the context blocks (pure, no database)."""
+calendar, the agenda layers, stable randomness and the context blocks (pure, no database).
+When she answers by how busy she is: tests/services/test_attention_timing.py."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -12,7 +13,6 @@ from sim.db.models import PersonaArc, PersonaCanon
 from sim.domain.enums import ArcStatus, CanonStatus
 from sim.domain.life import DayPlan, PersonaLife, day_errors, outfit_errors
 from sim.services.life.agenda import build_agenda
-from sim.services.life.busy import reply_delay, stable_fraction, stable_seed
 from sim.services.life.calendar import date_facts, easter, holiday, repentance_day
 from sim.services.life.render import (
     ARCS_HEADING,
@@ -22,6 +22,7 @@ from sim.services.life.render import (
     days_label,
     life_blocks,
 )
+from sim.services.life.stable import stable_fraction, stable_seed
 from sim.services.life.world import life_of
 from tests.services.life_seed import (
     SATURDAY,
@@ -30,11 +31,7 @@ from tests.services.life_seed import (
     event,
     life_state,
     persona,
-    utc,
 )
-
-SUNDAY = SATURDAY + timedelta(days=1)
-
 
 # --- schema ------------------------------------------------------------------------------------
 
@@ -127,27 +124,6 @@ def test_routine_alone_without_a_plan() -> None:
     assert not agenda.planned
     assert agenda.at(20 * 60 + 10).title == "созвон с Соней"  # type: ignore[union-attr]
     assert agenda.at(19 * 60) is None
-
-
-@pytest.mark.parametrize(("hhmm", "day", "low", "high"), [
-    ("19:30", SATURDAY, 8, 8),                         # free time: the usual delay
-    ("20:10", SATURDAY, 180, 20 * 60),                 # partial: 3-15 min, before 20:30
-    ("20:25", SATURDAY, 8, 5 * 60),                    # partial: the call ends in 5 min
-    ("02:00", SUNDAY, 4.5 * 3600 + 60, 4.5 * 3600 + 300),   # asleep until 06:30, +1-5 min
-    ("23:30", SATURDAY, 7 * 3600 + 60, 7 * 3600 + 300),     # asleep, the night ahead
-])
-def test_reply_delay_by_busy_level(hhmm: str, day: date, low: float, high: float) -> None:
-    who = persona()
-    agenda = build_agenda(day, life_of(who), {})
-    delay = reply_delay(utc(day, hhmm), agenda, who, key="chat:1")
-    assert low <= delay <= high
-    assert delay == reply_delay(utc(day, hhmm), agenda, who, key="chat:1")   # stable
-
-
-def test_partial_delay_is_bounded_by_the_event_end() -> None:
-    who = persona()
-    agenda = build_agenda(SATURDAY, life_of(who), {})
-    assert reply_delay(utc(SATURDAY, "20:28"), agenda, who, key="k") == 120.0
 
 
 def test_stable_randomness() -> None:

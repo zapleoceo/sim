@@ -1,5 +1,6 @@
 """`/api/chats/*` and `/api/reply-runs/{id}`: the chat list, one chat's timeline, what the
-operator does in a chat (write as the persona, AI on/off, notes, read, done)."""
+operator does in a chat (write as the persona, AI on/off, «Отвечать сразу», notes, read,
+done)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -117,6 +118,15 @@ async def toggle_ai(chat_id: int, data: AiToggleIn, db: AsyncSession,
     return await chat_row(db, chat)
 
 
+@post("/chats/{chat_id:int}/attention-instant", status_code=200)
+async def toggle_attention_instant(chat_id: int, data: AiToggleIn, db: AsyncSession) -> Json:
+    """«Отвечать сразу» in this chat only: no phone checks, she answers like «Всегда сразу»
+    (docs/attention.md; for testing)."""
+    chat = await get_or_404(db, Chat, chat_id, "Чат")
+    chat.attention_instant = data.enabled
+    return await chat_row(db, chat)
+
+
 @post("/chats/{chat_id:int}/read", status_code=204)
 async def mark_read(chat_id: int, db: AsyncSession) -> None:
     chat = await get_or_404(db, Chat, chat_id, "Чат")
@@ -146,5 +156,5 @@ async def get_reply_run(run_id: int, db: AsyncSession) -> Json:
     return views.reply_run_view(run, calls)
 
 
-ROUTES = [list_chats, get_chat, get_timeline, send_message, toggle_ai, mark_read, add_note,
-          operator_done, get_reply_run]
+ROUTES = [list_chats, get_chat, get_timeline, send_message, toggle_ai,
+          toggle_attention_instant, mark_read, add_note, operator_done, get_reply_run]

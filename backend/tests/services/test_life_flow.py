@@ -1,5 +1,6 @@
 """The persona's life against the database: the daily planner, the context blocks, canon from
-the reply plan, busy replies, continuity references and the voice-note background."""
+the reply plan, turns at night and after missed calls, continuity references and the
+voice-note background."""
 from __future__ import annotations
 
 import json
@@ -234,20 +235,21 @@ async def test_reply_stores_new_canon_without_duplicates_and_asks_for_todays_pla
     assert fakes.tasks.of("plan_day") == [("plan_day", persona.id, "2026-11-21", False)]
 
 
-async def test_reply_waits_while_she_is_asleep(db: AsyncSession, deps: Deps, fakes: Fakes,
-                                               clock: FixedClock) -> None:
+async def test_a_started_turn_does_not_wait_for_her_life(db: AsyncSession, deps: Deps,
+                                                        fakes: Fakes,
+                                                        clock: FixedClock) -> None:
+    """WHEN she answers is decided before the turn — by her phone check, which waits while
+    she sleeps (tests/services/test_attention_check.py). A turn that starts answers."""
     clock.at = utc(SUNDAY, "02:00")
     persona = await life_persona(db, models={"life": ""})
     chat = await make_chat(db, persona)
-    await add_message(db, chat, "спишь?", at=clock.now() - timedelta(seconds=30))
+    last, _ = await add_message(db, chat, "спишь?", at=clock.now() - timedelta(seconds=30))
+    fakes.llm.script("reply-model", reply_with_canon()).script("guard-model", ok_verdict())
 
     result = await ReplyService(deps).run(chat.id)
 
-    assert result.status is None and result.requeue_s is not None
-    assert 4.5 * 3600 + 30 <= result.requeue_s <= 4.5 * 3600 + 300
-    [(_, chat_id, delay)] = fakes.tasks.of("reply")
-    assert chat_id == chat.id and delay == result.requeue_s
-    assert fakes.tasks.of("mark_read") == []            # she has not read it
+    assert result.status == RunStatus.SENT
+    assert fakes.tasks.of("mark_read") == [("mark_read", last.id)]
 
 
 async def test_a_missed_call_is_answered_by_text_when_she_is_free(

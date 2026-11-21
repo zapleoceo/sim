@@ -169,6 +169,20 @@ async def test_ai_toggle_writes_event(api: ApiClient, world: World, db: AsyncSes
     assert (await api.post("/api/chats/999999/ai", json={"enabled": True})).status_code == 404
 
 
+async def test_answer_at_once_switch_of_one_chat(api: ApiClient, world: World,
+                                                 db: AsyncSession) -> None:
+    listed = (await api.get("/api/chats")).json()["items"][0]
+    assert listed["attention_instant"] is False
+    response = await api.post(f"/api/chats/{world.chat_id}/attention-instant",
+                              json={"enabled": True})
+    assert response.status_code == 200
+    assert response.json()["attention_instant"] is True
+    chat = await db.get(Chat, world.chat_id)
+    assert chat is not None and chat.attention_instant is True
+    assert (await api.post("/api/chats/999999/attention-instant",
+                           json={"enabled": True})).status_code == 404
+
+
 async def test_read_resets_unread(api: ApiClient, world: World, db: AsyncSession) -> None:
     response = await api.post(f"/api/chats/{world.chat_id}/read")
     assert response.status_code == 204
