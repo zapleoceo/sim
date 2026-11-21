@@ -6,7 +6,7 @@ import pytest
 
 from sim.domain.life import BusyLevel
 from sim.domain.plan import TextAction, VideoNoteAction
-from sim.domain.scene import CameraHold, ShotType
+from sim.domain.scene import CameraHold, Light, ShotType
 from sim.services.capabilities import Capabilities, with_camera
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.visual import PROPPED_FRAMING, SELFIE_FRAMING, camera_for, media_prompt
@@ -69,3 +69,37 @@ def test_she_films_when_she_can() -> None:
     assert free.camera_block == ""
     plan = validated_plan(plan_json(NOTE), catalog={}, caps=free)
     assert isinstance(plan.messages[0], VideoNoteAction)
+
+
+# --- ordinary phone quality ------------------------------------------------------------------
+
+
+def test_photos_look_like_ordinary_phone_photos() -> None:
+    evening = media_prompt(stage="image", action="улыбается", scene=scene(),
+                           shot=ShotType.FRONT_SELFIE)
+    assert "amateur smartphone photo" in evening and "no retouching" in evening
+    assert "noise and grain" in evening                      # the evening lamp light
+    walking = media_prompt(stage="image", action="улыбается", shot=ShotType.FRONT_SELFIE,
+                           scene=scene(activity="гуляет вдоль Эльбы", light=Light.DAYLIGHT,
+                                       indoors=False))
+    assert "motion blur" in walking and "overexposed window" in walking
+    bare = media_prompt(stage="image", action="у окна", scene=None, shot=ShotType.FRONT_SELFIE)
+    assert "amateur smartphone photo" in bare and "Light quality" not in bare
+
+
+def test_video_shakes_in_her_hand_and_bounces_on_the_move() -> None:
+    walking = media_prompt(stage="video", action="машет", shot=ShotType.FRONT_SELFIE,
+                           scene=scene(activity="идёт по рынку"), speech="Привет!",
+                           language="ru", round_note=True)
+    assert "hand shake" in walking and "bounces with her steps" in walking
+    cooking = media_prompt(stage="video", action="машет", shot=ShotType.FRONT_SELFIE,
+                           scene=scene(activity="готовит драники"), speech="Привет!",
+                           language="ru", round_note=True)
+    assert "slightly crooked" in cooking and "hand shake" not in cooking
+
+
+def test_right_after_a_run_she_is_out_of_breath() -> None:
+    after = scene(activity="вернулась после пробежки, пьёт воду")
+    clip = media_prompt(stage="video", action="машет", shot=ShotType.FRONT_SELFIE, scene=after,
+                        speech="Привет!", language="ru", round_note=True)
+    assert "out of breath" in clip and "flushed cheeks" in clip

@@ -63,6 +63,58 @@ AMBIENCE_SOUNDS = {
     Ambience.TRANSPORT: "tram rumble and quiet passengers",
     Ambience.OFFICE: "quiet office hum",
 }
+# Ordinary phone quality instead of a studio look (owner's request): generated media must look
+# like what a real person sends, not like an advert.
+PHONE_PHOTO = (
+    "Quality: an ordinary amateur smartphone photo, not a professional shoot — no studio "
+    "lighting, no retouching, natural skin texture with pores and small imperfections, "
+    "slightly imperfect casual framing (a little tilt or off-centre), mild front-camera "
+    "wide-angle distortion, light JPEG compression.")
+PHONE_VIDEO = (
+    "Quality: an ordinary smartphone clip, not a cinematic shot — no stabilizer, no studio "
+    "light, autofocus and auto-exposure adjusting a little as she moves.")
+LIGHT_QUALITY = {
+    Light.EVENING_LAMP: "low indoor light: visible noise and grain, slightly soft focus, "
+                        "warm uneven lamp light",
+    Light.NIGHT: "very low light: strong noise and grain, soft focus, a single dim lamp",
+    Light.DAYLIGHT: "window light: a slightly overexposed window, uneven shadows",
+    Light.MORNING_DAYLIGHT: "soft morning light, slightly flat colours",
+    Light.GOLDEN_HOUR: "low sun: lens flare, one side of the face in shadow",
+}
+HANDHELD_MOTION = "Natural hand shake and small framing jumps of a phone held in one hand."
+PROPPED_MOTION = ("The phone stands still but the frame is slightly crooked; exposure shifts "
+                  "when she leans in or moves away.")
+_ON_THE_MOVE = re.compile(r"\b(ид[её]т|идёт|гуля|едет|шага|по дороге|на ходу|возвраща)",
+                          re.IGNORECASE)
+_AFTER_SPORT = re.compile(r"\b(после пробежк|после трениров|пробежк|бег)", re.IGNORECASE)
+
+
+def realism_lines(scene: SceneCard | None, *, video: bool,
+                  camera: Camera | None = None) -> list[str]:
+    """How ordinary the picture looks, from the scene: low light gives grain, walking gives a
+    bounce or a little motion blur, right after a run she is flushed and out of breath."""
+    lines = [PHONE_VIDEO if video else PHONE_PHOTO]
+    if scene is None:
+        return lines
+    lines.append(f"Light quality: {LIGHT_QUALITY[scene.light]}.")
+    activity = scene.activity.lower()
+    moving = bool(_ON_THE_MOVE.search(activity))
+    if _AFTER_SPORT.search(activity):
+        lines.append("She has just finished running: flushed cheeks, messy hair, a little "
+                     "sweat" + (", out of breath, speaking with short pauses." if video
+                                else "."))
+    if video:
+        hold = camera.hold if camera is not None else None
+        if hold == CameraHold.PROPPED:
+            lines.append(PROPPED_MOTION)
+        else:
+            lines.append(HANDHELD_MOTION + (" The frame bounces with her steps." if moving
+                                            else ""))
+    elif moving:
+        lines.append("A little motion blur: she is on the move.")
+    return lines
+
+
 IDENTITY = ("The same woman as in the first {n} reference image(s): the same face, eye colour, "
             "hair and build.")
 CONTINUITY = ("Reference image(s) {first}–{last}: the same room and the same clothes as this "
@@ -81,7 +133,8 @@ Stage = Literal["image", "video"]
 
 # Word starts in her current activity that decide how a video note can be filmed.
 _CANNOT_FILM = re.compile(
-    r"\b(за рул|вед[уёе]т машин|веду машин|бе[гж]и|бегает|бежит|пробежк|тренировк|плава|душ\b|"
+    r"\b(за рул|вед[уёе]т машин|веду машин|бе[гж]и|бегает|бежит|(?<!после )пробежк|"
+    r"(?<!после )тренировк|плава|душ\b|"
     r"ванн|сон\b|сплю|спит|спать)", re.IGNORECASE)
 _HANDS_BUSY = re.compile(
     r"\b(готов|жар|варит|печ[её]т|печь|режет|мо[ею]т посуд|ужина|обеда|завтрака|работа|"
@@ -148,6 +201,7 @@ def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: Sh
         lines.append(CONTINUITY.format(first=identity_refs + 1,
                                        last=identity_refs + continuity_refs))
     lines.append(f"Pose, action and expression: {action}")
+    lines += realism_lines(scene, video=False)
     if scene is not None:
         lines.append(FIXED_SCENE)
     lines.append(NEGATIVE)
@@ -169,5 +223,6 @@ def _video(action: str, scene: SceneCard | None, shot: ShotType, *, speech: str,
     if words:
         lines.append(SPEECH_LINE.format(
             language=LANGUAGE_NAMES.get(language, "the chat language"), speech=words))
+    lines += realism_lines(scene, video=True, camera=camera)
     lines += [NO_OVERLAYS, VIDEO_NEGATIVE]
     return "\n".join(lines)
