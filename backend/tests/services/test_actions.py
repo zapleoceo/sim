@@ -99,6 +99,9 @@ async def test_voice_handler_tts_to_ogg_to_library(db: AsyncSession, deps: Deps,
     assert (media.kind, media.source, media.mime) == (MediaKind.AUDIO, MediaSource.GENERATED,
                                                       "audio/ogg")
     assert media.description == "приветик, ну как ты?" and media.duration_s == 2.0
+    assert fakes.storage.files[media.storage_key] == prepared.data
+    calls = await all_rows(db, select(LlmCall).where(LlmCall.reply_run_id == ctx.reply_run_id))
+    assert [c.purpose for c in calls] == [LlmPurpose.TTS]
 
 
 async def test_voice_mood_goes_before_the_usual_manner(db: AsyncSession, deps: Deps,
@@ -113,9 +116,6 @@ def test_tts_style_is_short_and_skips_blanks() -> None:
     assert tts_style("тепло", "") == "тепло"
     assert tts_style("", " устало ") == "устало"
     assert len(tts_style("а" * 60, "б" * 40)) == 80
-    assert fakes.storage.files[media.storage_key] == prepared.data
-    calls = await all_rows(db, select(LlmCall).where(LlmCall.reply_run_id == ctx.reply_run_id))
-    assert [c.purpose for c in calls] == [LlmPurpose.TTS]
 
 
 async def test_voice_failure_falls_back_to_text(db: AsyncSession, deps: Deps,
