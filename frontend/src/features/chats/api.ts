@@ -20,6 +20,9 @@ export const chatsApi = {
     return api.post<TimelineItem>(`/chats/${id}/messages`, form);
   },
   setAi: (id: number, enabled: boolean) => api.post<ChatRow>(`/chats/${id}/ai`, { enabled }),
+  /** «Отвечать сразу» in this chat only (docs/attention.md). */
+  setAttentionInstant: (id: number, enabled: boolean) =>
+    api.post<ChatRow>(`/chats/${id}/attention-instant`, { enabled }),
   markRead: (id: number) => api.post<void>(`/chats/${id}/read`),
   addNote: (id: number, text: string) => api.post<TimelineItem>(`/chats/${id}/notes`, { text }),
   operatorDone: (id: number) => api.post<ChatRow>(`/chats/${id}/operator-done`),

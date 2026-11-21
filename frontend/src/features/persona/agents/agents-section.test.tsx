@@ -1,7 +1,7 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import type { PersonaAgents } from '@/lib/types';
+import type { PersonaAgents, PersonaAgentsPatch } from '@/lib/types';
 import { fakeApi, type FakeRequest } from '@/test/fake-api';
 import { renderWithApp } from '@/test/render';
 import { PersonaIdProvider } from '../persona-scope';
@@ -15,6 +15,14 @@ function backend(extra: Record<string, (req: FakeRequest) => unknown> = {}): Fak
     'GET /api/models': { items: MODELS },
     ...extra,
   });
+}
+
+/** PUT /personas/1/agents as the backend answers it: the sent agents, rules and «Внимание». */
+function saveHandler(req: FakeRequest): PersonaAgents {
+  const body = req.body as PersonaAgentsPatch;
+  const agents = { ...SAVED.agents };
+  for (const [key, value] of Object.entries(body.agents)) agents[key] = { ...value, effective_model: value.model ?? 'gpt-text' };
+  return { agents, guard_rules: body.guard_rules, attention: body.attention };
 }
 
 const render = () => renderWithApp(<PersonaIdProvider id={1}><AgentsSection /></PersonaIdProvider>);
@@ -54,12 +62,7 @@ describe('AgentsSection', () => {
 
   it('saves the changed agents and the guard rules with one Save', async () => {
     const log = backend({
-      'PUT /api/personas/1/agents': (req) => {
-        const body = req.body as { agents: PersonaAgents['agents']; guard_rules: string };
-        const agents = { ...SAVED.agents };
-        for (const [key, value] of Object.entries(body.agents)) agents[key] = { ...value, effective_model: value.model ?? 'gpt-text' };
-        return { agents, guard_rules: body.guard_rules };
-      },
+      'PUT /api/personas/1/agents': saveHandler,
     });
     await render();
     const guard = within(await screen.findByRole('article', { name: 'Охранник' }));
@@ -80,6 +83,30 @@ describe('AgentsSection', () => {
     expect(log.find((r) => r.method === 'PUT')?.body).toEqual({
       agents: { guard: { model: 'cheap-text', key_tier: 'free', prompt: '', max_tokens: 300 } },
       guard_rules: 'Без фамилий',
+      attention: SAVED.attention,
+    });
+    expect(await screen.findByText('Агенты сохранены')).toBeInTheDocument();
+  });
+
+  it('tunes «Внимание» on its card and saves it with the agents', async () => {
+    const log = backend({ 'PUT /api/personas/1/agents': saveHandler });
+    await render();
+    const attention = within(await screen.findByRole('article', { name: 'Внимание' }));
+    expect(attention.getByLabelText<HTMLSelectElement>('Модель').value).toBe('');      // by default
+    expect(attention.getByRole('option', { name: 'По умолчанию: gemini/gemini-3.5-flash-lite' })).toBeInTheDocument();
+    expect(attention.getByRole('button', { name: 'Как живой человек', pressed: true })).toBeInTheDocument();
+
+    await userEvent.click(attention.getByRole('button', { name: 'Только когда свободна' }));
+    fireEvent.change(attention.getByLabelText(/Темп/), { target: { value: '1.5' } });
+    await userEvent.click(attention.getByRole('switch', { name: 'Может оставить прочитанным' }));
+    expect(screen.getByText('Агенты изменены, не сохранены')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить агентов' }));
+    await waitFor(() => expect(log.filter((r) => r.method === 'PUT')).toHaveLength(1));
+    expect(log.find((r) => r.method === 'PUT')?.body).toEqual({
+      agents: {},
+      guard_rules: SAVED.guard_rules,
+      attention: { mode: 'free_only', pace: 1.5, may_leave_read: false, after_missed_call: true, night_dnd: true },
     });
     expect(await screen.findByText('Агенты сохранены')).toBeInTheDocument();
   });
