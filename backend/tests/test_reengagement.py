@@ -356,3 +356,21 @@ async def test_guard_refreshes_date_after_generation_crosses_midnight(container,
     guard = json.loads(fake_llm.guard_calls[0][0][1]["content"])
     assert "31 декабря 2026" in generator
     assert "1 января 2027" in guard["trusted_facts"]["persona_facts"]
+
+
+@pytest.mark.parametrize("change", ["refused", "no_followups", "channel_off"])
+async def test_sweep_skips_ineligible_dialogs_in_sql(container, world, change):
+    from sim.domain.enums import SessionStatus
+
+    did = await setup_dialog(container, world)
+    async with transaction(container.factory) as s:
+        d = await s.get(Dialog, did)
+        if change == "refused":
+            d.client.status = ClientStatus.REFUSED
+        elif change == "no_followups":
+            d.client.no_followups = True
+        else:
+            d.channel.status = SessionStatus.EXPIRED
+    assert await sweep(container) == 0
+    async with container.factory() as s:
+        assert (await s.get(Dialog, did)).reengagement_plan is None

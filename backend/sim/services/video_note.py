@@ -48,7 +48,6 @@ CHAT_AUDIO_VALIDATION = "chat-audio-v2"
 NOTE_FAILED = "[кружочек ИИ не создан]"
 ASPECT_RATIO = "9:16"                # portrait: the face stays inside the centre crop
 ENCODER_VERSION = 2                  # visible AI watermark; do not reuse unlabeled cached clips
-RESOLUTIONS = ("360p", "720p")
 MIN_DURATION_S, MAX_DURATION_S = 3, 15
 MAX_PROMPT_CHARS = 4000
 MAX_REFERENCE_BYTES = 4 * 1024 * 1024

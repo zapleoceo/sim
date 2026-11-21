@@ -8,7 +8,7 @@ from sim.adapters.db.models import Persona, Strategy
 from sim.api.schemas import PreviewIn, guard_out
 from sim.domain.voice import speaks
 from sim.ports.speech import SpeechError
-from sim.services.guard import GuardOutcome
+from sim.services.guard import BLOCKED, GuardOutcome
 from sim.services.persona_ambience import voice_ambience
 from sim.services.preview_stages import PreviewStages
 from sim.services.prompt import Turn
@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 
 
 def preview_guard(g: GuardOutcome | None) -> dict[str, object] | None:
-    """The draft the operator may want to see: the original of a rewrite, the blocked text."""
+    """The draft the operator may want to see: the blocked text."""
     if g is None:
         return None
-    draft = g.original_text if g.verdict == "rewritten" else (g.text if g.verdict == "blocked" else None)
+    draft = g.text if g.verdict == BLOCKED else None
     return guard_out(g.verdict, g.violations, g.model, draft)
 
 
