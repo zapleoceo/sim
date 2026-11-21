@@ -2,6 +2,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { Link, getRouteApi } from '@tanstack/react-router';
 import { AlertTriangle, MessagesSquare } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
+import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
@@ -55,6 +56,7 @@ function ChatListItem({ chat, active, showPersona, filters }: {
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
+            {chat.channel && <ChannelIcon kind={chat.channel.kind} className="translate-y-0.5" />}
             <span className={cn('min-w-0 flex-1 truncate text-sm', chat.unread_count > 0 ? 'font-semibold' : 'font-medium')}>
               {name}
             </span>

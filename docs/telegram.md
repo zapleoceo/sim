@@ -121,7 +121,10 @@
 
 ### Задача `telegram:send_message(message_id)`
 
-Очередь `telegram`, выполняет процесс `telegram`.
+Очередь `telegram`, выполняет процесс `telegram`. Сама доставка общая для всех мессенджеров —
+`sim/channels/delivery.py` ([channels.md](channels.md)); FloodWait — частный случай
+`RetryAfter`. Instagram и WhatsApp идут той же доставкой в очереди `channels`, но
+«эксклюзивно»: у них нет `random_id`.
 
 1. Загрузить `message`; если оно уже не `pending` или не исходящее — пропустить (повтор
    задачи безопасен).

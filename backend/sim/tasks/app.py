@@ -30,9 +30,12 @@ def make_app(settings: Settings, *, pool_size: int = POOL_SIZE) -> procrastinate
         connector=procrastinate.PsycopgConnector(conninfo=conninfo(settings.database_url),
                                                  min_size=pool_size))
     register_agent_tasks(app)
-    # Telegram tasks run only in the telegram process (queue `telegram`), but every process
-    # knows them so a defer by name is checked against one registry.
+    # Telegram tasks run only in the telegram process (queue `telegram`), the Instagram /
+    # WhatsApp ones in the worker (queue `channels`), but every process knows them so a defer
+    # by name is checked against one registry.
+    from sim.channels.tasks import register_channel_tasks
     from sim.telegram.tasks import NAMESPACE, blueprint
 
     app.add_tasks_from(blueprint, namespace=NAMESPACE)
+    register_channel_tasks(app)
     return app

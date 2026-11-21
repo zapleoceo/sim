@@ -93,6 +93,25 @@ describe('ChatList with many personas', () => {
     expect(screen.queryByText('Марина')).not.toBeInTheDocument();
   });
 
+  it('marks each chat with the icon of its messenger', async () => {
+    fakeApi({
+      'GET /api/personas': { items: [persona(1, 'Марина')] },
+      'GET /api/chats': {
+        items: [
+          { ...row(1, { id: 1, name: 'Марина' }), channel: { id: 3, kind: 'instagram', title: 'Марина' } },
+          { ...row(2, { id: 1, name: 'Марина' }), channel: { id: 4, kind: 'whatsapp', title: 'Марина' } },
+          row(3, { id: 1, name: 'Марина' }),
+        ],
+      },
+    });
+    await renderChats();
+    const list = await screen.findByRole('list', { name: 'Чаты' });
+    const [instagram, whatsapp, old] = within(list).getAllByRole('listitem');
+    expect(within(instagram).getByRole('img', { name: 'Instagram' })).toBeInTheDocument();
+    expect(within(whatsapp).getByRole('img', { name: 'WhatsApp' })).toBeInTheDocument();
+    expect(within(old).queryByRole('img', { name: 'Telegram' })).not.toBeInTheDocument();
+  });
+
   it('shows «Статус Марины» under the client name in every row', async () => {
     fakeApi({
       'GET /api/personas': { items: [persona(1, 'Марина')] },

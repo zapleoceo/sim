@@ -129,6 +129,10 @@ Telegram → сообщение сохранено → ждём 5–10 с (вд�
 сводки, распорядок, «опечатки», fallback и identity-модели, версии промта, аналитика,
 WhatsApp (контейнер Evolution тоже), Telegram-бот как канал, роли админов.
 
+Обновление 2026-11-22: Instagram Direct и WhatsApp вернулись как каналы общения персонажа
+(не контент и не воронка) — поверх ядра, по правилу «новый канал = новый адаптер»
+([channels.md](channels.md)). Evolution запускается только с профилем compose `whatsapp`.
+
 ## 5. Технологии
 
 Принцип — не писать своё там, где есть проверенная библиотека.
@@ -150,7 +154,7 @@ WhatsApp (контейнер Evolution тоже), Telegram-бот как кан�
 |---|---|
 | `api` | Дашборд и HTTP. Ничего тяжёлого. |
 | `telegram` | Держит сессию Telethon: приём, отправка, позже звонки. Работает в отдельной очереди и не делает ни одного долгого вызова модели, поэтому звук звонка не ждёт генерацию видео. |
-| `worker` | Вызовы моделей, генерация, распознавание, ffmpeg. |
+| `worker` | Вызовы моделей, генерация, распознавание, ffmpeg; Instagram и WhatsApp (очередь `channels`). |
 
 Процессы общаются через очередь Procrastinate и уведомления Postgres. Redis не нужен.
 
@@ -168,8 +172,8 @@ persona           id, name, gender, language, timezone, birth_date, avatar_media
                   ai_enabled, voice_enabled, photo_enabled, video_enabled, calls_enabled,
                   guard_rules, created_at, updated_at
 
-channel           id, persona_id, kind (telegram_user), title,
-                  status (new | connected | error | disabled),
+channel           id, persona_id, kind (telegram_user | instagram | whatsapp), title,
+                  status (new | connected | error | disabled | pending | challenge),
                   account_id, credentials_enc (Fernet), last_error, created_at
 
 client            id, persona_id, name, username, phone, notes, ai_enabled (default false),
@@ -235,7 +239,10 @@ backend/sim/
 - сервисы знают только порты, поэтому в тестах Broker и Telegram подменяются фейками;
 - одно действие плана = один обработчик (`TextAction`, `PhotoAction`, `VideoAction`,
   `VoiceAction`); новое действие не трогает остальные;
-- новый канал = новый адаптер `Messenger`;
+- новый канал = новый адаптер: строка в таблице видов `sim/domain/channels.py` (что умеет,
+  как приходят сообщения, какая очередь) + свой вход, `MessengerPort` и приём; доставка,
+  маршрутизация задач, возможности хода и стиль письма берут всё из этой таблицы. Так добавлены
+  Instagram Direct и WhatsApp ([channels.md](channels.md));
 - у каждого модуля есть документ в `docs/` с описанием его логики.
 
 ## 8. Тесты и CI

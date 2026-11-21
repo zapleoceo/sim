@@ -39,13 +39,15 @@ class MediaRule:
     generate: Callable[[Capabilities], bool]
 
 
-# A video note is a video cut to a circle: the video switches allow it (persona.video_enabled).
+# A video note is a video cut to a circle: the video switches allow it (persona.video_enabled),
+# and only where the messenger shows round videos (Telegram, sim/domain/channels.py).
 MEDIA_RULES: Mapping[type[MediaAction], MediaRule] = {
     PhotoAction: MediaRule("фото", "фото", MediaKind.PHOTO, lambda c: c.photo,
                            lambda c: c.photo_generate),
     VideoAction: MediaRule("видео", "видео", MediaKind.VIDEO, lambda c: c.video,
                            lambda c: c.video_generate),
-    VideoNoteAction: MediaRule("кружок", "кружки", MediaKind.VIDEO, lambda c: c.video,
+    VideoNoteAction: MediaRule("кружок", "кружки", MediaKind.VIDEO,
+                               lambda c: c.video and c.video_note,
                                lambda c: c.video_generate),
 }
 

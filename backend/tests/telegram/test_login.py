@@ -42,7 +42,9 @@ async def test_scan_then_connected_with_credentials(caplog: pytest.LogCaptureFix
     assert done.state == LoginState.CONNECTED
     assert done.credentials == {"api_id": 111, "api_hash": "hash-secret-123",
                                 "session": "SESSION-STRING", "proxy": ""}
-    assert done.view() == {"state": "connected", "message": done.message, "qr": None}
+    # The shared login step of every channel (sim/channels/login.py): no secrets in the view.
+    assert done.view() == {"state": "connected", "message": done.message, "qr": None,
+                           "detail": None}
     assert "hash-secret-123" not in repr(done) and "SESSION-STRING" not in repr(done)
     assert "hash-secret-123" not in caplog.text and "SESSION-STRING" not in caplog.text
     assert (await logins.poll(5)).state == LoginState.NONE

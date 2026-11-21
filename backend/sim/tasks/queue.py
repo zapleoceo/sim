@@ -2,8 +2,14 @@
 not run itself (e.g. the worker queues `telegram.send_message`).
 
 Queues: `agent` (replies, phone checks, memory, plans), `media` (generation: minutes per job,
-its own workers so queued videos never hold back a reply, sim/apps/worker.py) and `telegram`
-(the telegram process: sends, read receipts, live statuses).
+its own workers so queued videos never hold back a reply, sim/apps/worker.py), `telegram`
+(the telegram process: sends, read receipts, live statuses) and `channels` (Instagram and
+WhatsApp: the same three jobs plus the Instagram polls, run by the worker).
+
+A send, a read receipt and a live status go to the queue of the chat's messenger
+(`ChannelSpec.queue` / `namespace`, sim/domain/channels.py) asked of the `router`
+(sim/channels/routing.py); without one everything goes to Telegram. A messenger without read
+receipts or live statuses gets no job for them at all.
 
 Ordering and de-duplication:
 - `lock = chat:<id>` on reply jobs: one chat's turns run strictly in order;
@@ -30,16 +36,21 @@ Ordering and de-duplication:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 import procrastinate
 from procrastinate.exceptions import AlreadyEnqueued
 
+from sim.domain.channels import ChannelSpec, spec_of
+from sim.domain.enums import ChannelKind
+
 log = logging.getLogger(__name__)
 
+TELEGRAM = spec_of(ChannelKind.TELEGRAM_USER)
 AGENT_QUEUE = "agent"
 MEDIA_QUEUE = "media"
-TELEGRAM_QUEUE = "telegram"
+TELEGRAM_QUEUE = TELEGRAM.queue
+CHANNELS_QUEUE = spec_of(ChannelKind.INSTAGRAM).queue
 
 REPLY_TASK = "agent.reply_chat"
 UNDERSTAND_TASK = "agent.understand_media"
@@ -64,6 +75,21 @@ REAP_CRON = "*/2 * * * *"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
+# sim.channels.tasks blueprint, namespace "channels" (Instagram, WhatsApp; run by the worker).
+CHANNELS_SEND_TASK = "channels:send_message"
+CHANNELS_MARK_READ_TASK = "channels:mark_read"
+CHANNELS_CHAT_ACTION_TASK = "channels:chat_action"
+IG_POLL_TASK = "channels:poll_instagram"
+IG_TICK_TASK = "channels:instagram_tick"       # periodic: which Instagram accounts to poll
+IG_TICK_CRON = "* * * * *"
+WA_CATCH_UP_TASK = "channels:whatsapp_catch_up"
+
+
+class ChannelRouter(Protocol):
+    """The messenger of a chat / a message (sim/channels/routing.DbChannelRouter)."""
+
+    async def for_chat(self, chat_id: int) -> ChannelSpec: ...
+    async def for_message(self, message_id: int) -> ChannelSpec: ...
 
 
 def chat_lock(chat_id: int) -> str:
@@ -79,8 +105,17 @@ def phone_lock(persona_id: int) -> str:
 
 
 class ProcrastinateQueue:
-    def __init__(self, app: procrastinate.App) -> None:
+    def __init__(self, app: procrastinate.App, router: ChannelRouter | None = None) -> None:
         self.app = app
+        self.router = router
+
+    async def _chat_channel(self, chat_id: int) -> ChannelSpec:
+        return TELEGRAM if self.router is None else await self.router.for_chat(chat_id)
+
+    async def _message_channel(self, message_id: int, chat_id: int | None) -> ChannelSpec:
+        if chat_id is not None:
+            return await self._chat_channel(chat_id)
+        return TELEGRAM if self.router is None else await self.router.for_message(message_id)
 
     async def _defer(self, task: str, *, queue: str, kwargs: dict[str, Any],
                      lock: str | None = None, queueing_lock: str | None = None,
@@ -124,7 +159,9 @@ class ProcrastinateQueue:
                           queueing_lock=f"generation:{generation_id}")
 
     async def send(self, message_id: int, chat_id: int | None = None) -> None:
-        await self._defer(SEND_TASK, queue=TELEGRAM_QUEUE, kwargs={"message_id": message_id},
+        spec = await self._message_channel(message_id, chat_id)
+        await self._defer(f"{spec.namespace}:send_message", queue=spec.queue,
+                          kwargs={"message_id": message_id},
                           lock=f"send:{chat_id}" if chat_id is not None else None,
                           queueing_lock=f"send-message:{message_id}")
 
@@ -153,12 +190,32 @@ class ProcrastinateQueue:
                           queueing_lock=f"life:{persona_id}:{day}")
 
     async def mark_read(self, message_id: int) -> None:
-        await self._defer(MARK_READ_TASK, queue=TELEGRAM_QUEUE, kwargs={"message_id": message_id},
+        spec = await self._message_channel(message_id, None)
+        if not spec.read_receipts:
+            return
+        await self._defer(f"{spec.namespace}:mark_read", queue=spec.queue,
+                          kwargs={"message_id": message_id},
                           queueing_lock=f"mark-read:{message_id}")
 
     async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
+        spec = await self._chat_channel(chat_id)
+        if not spec.typing:
+            return                      # Instagram's private API has no typing status
         # No queueing lock: a `cancel` must never be absorbed by a waiting `typing`.
-        await self._defer(CHAT_ACTION_TASK, queue=TELEGRAM_QUEUE,
+        await self._defer(f"{spec.namespace}:chat_action", queue=spec.queue,
                           kwargs={"chat_id": chat_id, "action": action,
                                   "seconds": float(seconds)},
                           lock=f"chat-action:{chat_id}")
+
+    async def poll_instagram(self, channel_id: int, delay_s: float = 0) -> None:
+        """One poll of an Instagram account's Direct; one waiting poll per account, and one
+        account is never polled twice at once."""
+        await self._defer(IG_POLL_TASK, queue=CHANNELS_QUEUE, kwargs={"channel_id": channel_id},
+                          lock=f"instagram:{channel_id}",
+                          queueing_lock=f"instagram-poll:{channel_id}", delay_s=delay_s)
+
+    async def whatsapp_catch_up(self, channel_id: int) -> None:
+        """Read the messages a WhatsApp account got while it was offline."""
+        await self._defer(WA_CATCH_UP_TASK, queue=CHANNELS_QUEUE,
+                          kwargs={"channel_id": channel_id},
+                          queueing_lock=f"whatsapp-catch-up:{channel_id}")

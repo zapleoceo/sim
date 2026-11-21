@@ -137,6 +137,12 @@ class RecordingTasks:
     async def look_at_phone(self, persona_id: int) -> None:
         self.record("look_at_phone", persona_id)
 
+    async def poll_instagram(self, channel_id: int, delay_s: float = 0) -> None:
+        self.record("poll_instagram", channel_id, delay_s)
+
+    async def whatsapp_catch_up(self, channel_id: int) -> None:
+        self.record("whatsapp_catch_up", channel_id)
+
 
 @dataclass
 class FakeDeps:

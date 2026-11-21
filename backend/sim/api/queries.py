@@ -14,6 +14,7 @@ from sim.api import views
 from sim.db.models import (
     Base,
     Call,
+    Channel,
     Chat,
     ChatEvent,
     Client,
@@ -76,10 +77,12 @@ async def chat_rows(session: AsyncSession, pairs: Sequence[tuple[Chat, Client]],
     doing about it now (`persona_status`, team-only, batched)."""
     last = await last_messages(session, [chat.id for chat, _ in pairs])
     personas = await by_ids(session, Persona, (chat.persona_id for chat, _ in pairs))
+    channels = await by_ids(session, Channel, (chat.channel_id for chat, _ in pairs))
     statuses = await chat_statuses(
         session, [(chat, client, personas.get(chat.persona_id)) for chat, client in pairs], now)
     return [views.chat_row(chat, client, last.get(chat.id), personas.get(chat.persona_id),
-                           status=statuses[chat.id].as_json())
+                           status=statuses[chat.id].as_json(),
+                           channel=channels.get(chat.channel_id))
             for chat, client in pairs]
 
 

@@ -14,10 +14,13 @@
 | `postgres` | `sim-postgres` | PostgreSQL 16 | 384 МБ | База, очередь Procrastinate, LISTEN/NOTIFY |
 | `migrate` | `sim-migrate` | `alembic upgrade heads && python -m sim.seed` | 256 МБ | Схема и начальные данные; завершается до старта остальных |
 | `api` | `sim-api` | `uvicorn sim.apps.api:create_app --factory --loop uvloop` | 384 МБ | HTTP API дашборда, `127.0.0.1:8010` → 8000 |
-| `worker` | `sim-worker` | `python -m sim.apps.worker` | 768 МБ | Модели, распознавание, ffmpeg (очередь `agent`), генерация (очередь `media`) |
+| `worker` | `sim-worker` | `python -m sim.apps.worker` | 768 МБ | Модели, распознавание, ffmpeg (очередь `agent`), генерация (очередь `media`), Instagram и WhatsApp (очередь `channels`, [channels.md](channels.md)) |
 | `telegram` | `sim-telegram` | `python -m sim.apps.telegram` | 512 МБ | Telegram-аккаунт: приём, отправка, звонки. Строго один экземпляр |
+| `evolution-init` | `sim-evolution-init` | `psql … CREATE DATABASE evolution` | 64 МБ | Только с профилем `whatsapp`: база Evolution, один раз |
+| `evolution` | `sim-evolution` | `evoapicloud/evolution-api:v2.3.7` | 512 МБ | Только с профилем `whatsapp`: WhatsApp (Baileys), см. «WhatsApp» ниже |
 
-Сумма лимитов около 2.3 ГБ (на сервере 7.7 ГБ, общие с другими приложениями).
+Сумма лимитов около 2.3 ГБ (на сервере 7.7 ГБ, общие с другими приложениями); с WhatsApp —
+около 2.9 ГБ.
 
 - Тома: `sim_pgdata` (база), `sim_media` (файлы медиа, `/app/media` у api, worker, telegram,
   migrate). Полные имена в Docker: `sim_sim_pgdata`, `sim_sim_media`; сеть `sim_default`.
@@ -26,7 +29,48 @@
   Для `/api/events` (SSE) выключена буферизация и стоит долгий таймаут.
 - Healthcheck: у api — `GET /readyz` (есть связь с БД). worker и telegram HTTP не держат,
   их проверяет smoke деплоя: контейнер должен быть в состоянии `running`.
-- Evolution/WhatsApp, Redis и initdb-скрипты в v2 не используются.
+- Redis и initdb-скрипты в v2 не используются. Evolution (WhatsApp) — только с профилем
+  compose `whatsapp`: обычный выкат его не запускает. Instagram отдельного сервиса не требует —
+  его опрашивает воркер.
+
+### WhatsApp: как включить на сервере
+
+Пока профиль выключен, дашборд показывает WhatsApp недоступным («Сервис WhatsApp не запущен на
+сервере»), ничего не запущено и не опрашивается. Включить (один раз, руками на сервере):
+
+1. В `/var/www/sim/infra/.env` дописать:
+
+   ```
+   COMPOSE_PROFILES=whatsapp
+   EVOLUTION_API_KEY=<длинный случайный ключ, например openssl rand -hex 32>
+   SIM_EVOLUTION_URL=http://evolution:8080
+   SIM_EVOLUTION_API_KEY=<тот же ключ>
+   SIM_EVOLUTION_WEBHOOK_BASE=http://api:8000/api
+   # необязательно: имя устройства в «Связанные устройства» телефона
+   EVOLUTION_DEVICE_NAME=SIM
+   ```
+
+   `COMPOSE_PROFILES` в `.env` проекта читает сам docker compose, поэтому и каждый следующий
+   выкат (`docker compose up -d --remove-orphans` в job `deploy`) держит Evolution запущенным.
+   Пароль Postgres берётся из `POSTGRES_PASSWORD` (в URI базы Evolution; без символов `@:/?#`).
+2. Запустить:
+
+   ```
+   cd /var/www/sim/infra
+   docker compose --profile whatsapp up -d evolution-init evolution
+   docker compose up -d --force-recreate api worker   # подхватить SIM_EVOLUTION_*
+   docker compose ps evolution
+   ```
+
+3. Дашборд → Персонаж → Канал → «Подключить» → WhatsApp → «Показать QR-код», отсканировать в
+   WhatsApp на телефоне (Настройки → Связанные устройства).
+
+Выключить: убрать `COMPOSE_PROFILES` и `SIM_EVOLUTION_*` из `.env`, затем
+`docker compose --profile whatsapp stop evolution` и пересоздать api и worker. Том
+`sim_evolution` (сессии Baileys) и база `evolution` остаются.
+
+Порт Evolution наружу не публикуется: SIM ходит к нему внутри сети compose, события он шлёт на
+`http://api:8000/api/hooks/evolution/{id}` с секретом канала ([api.md](api.md), «Вебхуки»).
 
 ### Миграции
 
@@ -79,13 +123,22 @@ Compose сам задаёт `SIM_ENV=prod`, `SIM_DATABASE_URL`, `SIM_MEDIA_DIR`,
 | `SIM_CALL_RING_MIN_S` / `SIM_CALL_RING_MAX_S` | `3` / `7` | Сколько «звонит» перед ответом |
 | `SIM_CONTEXT_BUDGET_TOKENS` | `60000` | Бюджет контекста модели ответов (`docs/context.md`) |
 | `SIM_CONTEXT_KEEP_RECENT_EVENTS` | `60` | Сколько последних событий чата всегда в контексте |
+| `SIM_IG_POLL_INTERVAL_S` | `120` | Как часто опрашивать Direct одного аккаунта Instagram (+ до 20 % случайно) |
+| `SIM_IG_HOURLY_CAP` / `SIM_IG_DAILY_CAP` | `150` / `800` | Лимит отправок одного аккаунта Instagram в час / сутки |
+| `SIM_IG_DEFAULT_PROXY` | — | Прокси для входа в Instagram, если в форме не указан (вход без прокси запрещён) |
+| `SIM_EVOLUTION_URL` | — | Evolution API (WhatsApp), `http://evolution:8080`; пусто — WhatsApp недоступен |
+| `SIM_EVOLUTION_API_KEY` | — | Ключ Evolution (= `EVOLUTION_API_KEY` контейнера) |
+| `SIM_EVOLUTION_WEBHOOK_BASE` | `SIM_PUBLIC_URL` + `/api` | Куда Evolution шлёт события, как его видит контейнер: `http://api:8000/api` |
+| `COMPOSE_PROFILES` | — | `whatsapp` — запускать Evolution (читает docker compose) |
+| `EVOLUTION_API_KEY` / `EVOLUTION_DEVICE_NAME` | — / `SIM` | Ключ и имя устройства контейнера Evolution |
 
 Только для CI: `SIM_PG_TEST_URL` (одноразовая база, `postgresql+psycopg://…@127.0.0.1/…`) и
 `SIM_PG_DISPOSABLE=YES`. Секреты деплоя в GitHub: `SIM_DEPLOY_SSH_KEY`, `SIM_DEPLOY_KNOWN_HOSTS`,
 `SIM_DEPLOY_HOST`, `SIM_DEPLOY_PORT` (окружение `production`).
 
-Данные Telegram-аккаунта Марины (api_id, api_hash, StringSession, прокси) в окружении не
-хранятся: они в `channel.credentials_enc`, зашифрованы `SIM_SECRET_KEY`.
+Данные Telegram-аккаунта Марины (api_id, api_hash, StringSession, прокси), сессии Instagram и
+секреты вебхуков WhatsApp в окружении не хранятся: они в `channel.credentials_enc`, зашифрованы
+`SIM_SECRET_KEY`.
 
 ## Обычный выкат (CI, push в `main`)
 
@@ -107,7 +160,9 @@ Job `deploy` запускается только после зелёных `back
 телефон, а задача с `lock` (паспорт чата, отправка `send:<chat>`) держит все следующие с тем же
 замком (2026-11-21 Марина молчала 12 минут после выката; убитая отправка держала бы все
 следующие сообщения чата навсегда). Поэтому воркер раз в минуту (`agent.recover_stalled`,
-`sim/tasks/stalled.py`) берёт у Procrastinate задачи очередей `agent`, `media` и `telegram`, чей
+`sim/tasks/stalled.py`) берёт у Procrastinate задачи очередей `agent`, `media`, `telegram` и
+`channels` (Instagram, WhatsApp: отправка, «прочитано», статус, опрос, догонялка — все
+безопасны для повтора, [channels.md](channels.md)), чей
 воркер исчез или перестал слать heartbeat (менеджер задач видит все очереди, поэтому воркер
 подбирает и задачи процесса telegram), и:
 
@@ -148,12 +203,13 @@ Job `deploy` запускается только после зелёных `back
 
 ### Очереди воркера
 
-Процесс `worker` запускает два воркера Procrastinate (`sim/apps/worker.py`): очередь `agent`
-(ответы, проверки телефона, память, планы; до 6 задач параллельно) и очередь `media` (генерация
-фото и видео; до 3 параллельно). Несколько видео по 10–30 минут больше не занимают все места
-ответов. SIGTERM останавливает оба мягко: каждый доделывает свои задачи в пределах
-`stop_grace_period`. Пул соединений Procrastinate у воркера — 6 (по одному на LISTEN каждого
-воркера плюс запас), у остальных процессов — 4.
+Процесс `worker` запускает три воркера Procrastinate (`sim/apps/worker.py`): очередь `agent`
+(ответы, проверки телефона, память, планы; до 6 задач параллельно), очередь `media` (генерация
+фото и видео; до 3 параллельно) и очередь `channels` (Instagram и WhatsApp: отправка,
+«прочитано», статусы, опросы Direct; до 3 параллельно, [channels.md](channels.md)). Несколько
+видео по 10–30 минут больше не занимают все места ответов. SIGTERM останавливает все мягко:
+каждый доделывает свои задачи в пределах `stop_grace_period`. Пул соединений Procrastinate у
+воркера — 7 (по одному на LISTEN каждого воркера плюс запас), у остальных процессов — 4.
 
 ## Первый выкат: переезд с v1
 

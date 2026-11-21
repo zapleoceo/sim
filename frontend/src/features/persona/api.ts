@@ -1,6 +1,6 @@
 import { api } from '@/lib/api';
 import type {
-  AgentRegistry, BrokerModel, Channel, ClonePart, Items, LoginResponse, Media, Persona, PersonaAgents,
+  AgentRegistry, BrokerModel, Channel, ChannelList, ClonePart, Items, LoginResponse, Media, Persona, PersonaAgents,
   PersonaAgentsPatch, PersonaPatch, PersonaRow, Voice,
 } from '@/lib/types';
 
@@ -48,15 +48,35 @@ export const agentApi = {
     api.post<PersonaAgents>(personaPath(personaId, `/agents/${key}/reset`)),
 };
 
-/** The persona's channels and the QR login of a Telegram account. */
+/** One way into Instagram (docs/channels.md): password, the browser's sessionid or a session JSON. */
+export interface InstagramLogin {
+  proxy: string;
+  username?: string;
+  password?: string;
+  sessionid?: string;
+  settings_json?: string;
+}
+
+export interface WhatsAppLogin {
+  phone: string;
+}
+
+/** The persona's channels and connecting a Telegram, Instagram or WhatsApp account. */
 export const channelApi = {
-  list: (personaId: number) => api.get<Items<Channel>>(personaPath(personaId, '/channels')),
-  startLogin: (personaId: number, body: TelegramLogin) =>
+  list: (personaId: number) => api.get<ChannelList>(personaPath(personaId, '/channels')),
+  startTelegram: (personaId: number, body: TelegramLogin) =>
     api.post<LoginResponse>(personaPath(personaId, '/channels/telegram/login'), body),
+  startInstagram: (personaId: number, body: InstagramLogin) =>
+    api.post<LoginResponse>(personaPath(personaId, '/channels/instagram/login'), body),
+  startWhatsApp: (personaId: number, body: WhatsAppLogin) =>
+    api.post<LoginResponse>(personaPath(personaId, '/channels/whatsapp/login'), body),
   loginState: (personaId: number, channelId: number) =>
     api.get<LoginResponse>(personaPath(personaId, `/channels/${channelId}/login`)),
   password: (personaId: number, channelId: number, password: string) =>
     api.post<LoginResponse>(personaPath(personaId, `/channels/${channelId}/login/password`), { password }),
+  /** An Instagram 2FA / challenge code; '' = «Повторить» after approving in the app. */
+  code: (personaId: number, channelId: number, code: string) =>
+    api.post<LoginResponse>(personaPath(personaId, `/channels/${channelId}/login/code`), { code }),
   cancel: (personaId: number, channelId: number) =>
     api.delete(personaPath(personaId, `/channels/${channelId}/login`)),
   disable: (personaId: number, channelId: number) =>

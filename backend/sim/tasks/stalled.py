@@ -28,7 +28,13 @@ from procrastinate.jobs import Status
 from sim.tasks.queue import (
     AGENT_QUEUE,
     ATTENTION_TICK_TASK,
+    CHANNELS_CHAT_ACTION_TASK,
+    CHANNELS_MARK_READ_TASK,
+    CHANNELS_QUEUE,
+    CHANNELS_SEND_TASK,
     CHAT_ACTION_TASK,
+    IG_POLL_TASK,
+    IG_TICK_TASK,
     LIFE_TICK_TASK,
     LOOK_TASK,
     MARK_READ_TASK,
@@ -46,16 +52,21 @@ from sim.tasks.queue import (
     SUMMARIZE_DAY_TASK,
     TELEGRAM_QUEUE,
     UNDERSTAND_TASK,
+    WA_CATCH_UP_TASK,
 )
 
 log = logging.getLogger(__name__)
 
-RECOVERED_QUEUES = (AGENT_QUEUE, MEDIA_QUEUE, TELEGRAM_QUEUE)
+RECOVERED_QUEUES = (AGENT_QUEUE, MEDIA_QUEUE, TELEGRAM_QUEUE, CHANNELS_QUEUE)
+# Instagram / WhatsApp sends are safe to repeat too: `deliver` claims the message and skips it
+# once sent (sim/channels/delivery.py); a poll and a catch-up are deduplicated by the Inbox.
 RESTARTABLE = frozenset({
     REPLY_TASK, UNDERSTAND_TASK, MEMORY_TASK, PASSPORT_TASK, PLAN_DAY_TASK, PHONE_CHECK_TASK,
     LOOK_TASK, LIFE_TICK_TASK, ATTENTION_TICK_TASK, STALLED_TASK, NIGHT_TASK, SUMMARIZE_DAY_TASK,
     MEMORY_TICK_TASK, REAP_TASK,
     SEND_TASK, MARK_READ_TASK, CHAT_ACTION_TASK,
+    CHANNELS_SEND_TASK, CHANNELS_MARK_READ_TASK, CHANNELS_CHAT_ACTION_TASK, IG_POLL_TASK,
+    IG_TICK_TASK, WA_CATCH_UP_TASK,
 })
 
 

@@ -11,6 +11,8 @@ from procrastinate.testing import InMemoryConnector
 from sim.tasks.agent import register_agent_tasks
 from sim.tasks.queue import (
     AGENT_QUEUE,
+    CHANNELS_QUEUE,
+    CHANNELS_SEND_TASK,
     CHAT_ACTION_TASK,
     GENERATE_TASK,
     LOOK_TASK,
@@ -62,7 +64,7 @@ async def test_a_phone_check_left_doing_by_a_deploy_runs_again() -> None:
     assert failed == [80]
     assert manager.finished == [(80, Status.FAILED, False)]
     assert manager.asked == [{"queue": AGENT_QUEUE}, {"queue": MEDIA_QUEUE},
-                             {"queue": TELEGRAM_QUEUE}]
+                             {"queue": TELEGRAM_QUEUE}, {"queue": CHANNELS_QUEUE}]
 
 
 async def test_a_send_killed_mid_way_runs_again() -> None:
@@ -74,6 +76,13 @@ async def test_a_send_killed_mid_way_runs_again() -> None:
     retried, failed = await recover_stalled(manager)
     assert retried == [5, 6, 7] and failed == []
     assert manager.finished == []
+
+
+async def test_an_instagram_or_whatsapp_send_killed_mid_way_runs_again() -> None:
+    # The `channels` queue lives in the worker: a deploy can kill a send too. The repeat is
+    # safe: the send claims its message and skips it once it is sent (docs/channels.md).
+    manager = FakeManager({CHANNELS_QUEUE: [Job(8, CHANNELS_SEND_TASK)]})
+    assert await recover_stalled(manager) == ([8], [])
 
 
 async def test_nothing_stalled_changes_nothing() -> None:

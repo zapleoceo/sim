@@ -146,6 +146,9 @@ class Peer:
     name: str = ""
     username: str | None = None
     phone: str | None = None
+    # The conversation id where the messenger addresses threads, not people: the Instagram
+    # Direct thread id, the WhatsApp jid. None for Telegram (user id + access hash address it).
+    thread_id: str | None = None
 
 
 @dataclass(frozen=True)

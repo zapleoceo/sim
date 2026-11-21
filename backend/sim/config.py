@@ -40,6 +40,21 @@ class Settings(BaseSettings):
     # channel.credentials_enc (JSON), not in the environment.
     tg_min_send_interval_s: float = 1.5
 
+    # Instagram Direct (docs/channels.md): the session lives encrypted in the channel, like
+    # Telegram's. Poll pace and send caps per account; a default proxy for accounts without one.
+    ig_poll_interval_s: float = 120.0
+    ig_hourly_cap: int = 150
+    ig_daily_cap: int = 800
+    ig_default_proxy: str = ""
+
+    # WhatsApp through Evolution API v2 (infra/docker-compose.yml, profile `whatsapp`). Empty
+    # URL or key = the service is not installed: the dashboard says so instead of failing.
+    # `evolution_webhook_base` is where Evolution posts events, as seen from its container
+    # (http://api:8000/api in compose); empty = `public_url` + /api.
+    evolution_url: str = ""
+    evolution_api_key: str = ""
+    evolution_webhook_base: str = ""
+
     calls_enabled: bool = True
     call_max_seconds: int = 540
     call_ring_min_s: float = 3.0
@@ -56,6 +71,14 @@ class Settings(BaseSettings):
     @property
     def is_prod(self) -> bool:
         return self.env == "prod"
+
+    @property
+    def whatsapp_ready(self) -> bool:
+        return bool(self.evolution_url and self.evolution_api_key)
+
+    @property
+    def evolution_hooks_base(self) -> str:
+        return (self.evolution_webhook_base or f"{self.public_url.rstrip('/')}/api").rstrip("/")
 
 
 @lru_cache

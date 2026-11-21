@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.config import Settings
 from sim.db.models import (
     Call,
+    Channel,
     Chat,
     ChatEvent,
     Client,
@@ -32,6 +33,7 @@ from sim.db.models import (
 from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import (
     CallStatus,
+    ChannelKind,
     EventKind,
     MediaKind,
 )
@@ -99,6 +101,8 @@ class Knowledge:
     lines: list[TimelineLine]               # the part that fits the budget (newest)
     timeline_budget: int
     writing: WritingMode = DEFAULT_MODE     # how she types right now (docs/writing.md)
+    # The chat's messenger: what she can send and how people write there (docs/channels.md).
+    channel_kind: ChannelKind = ChannelKind.TELEGRAM_USER
 
     @property
     def summary(self) -> str:
@@ -142,6 +146,7 @@ class Knowledge:
             "event_ids": [line.event_id for line in self.lines], "trimmed": self.trimmed,
             "facts": list(self.facts.lines), "facts_values": self.facts.values,
             "now": self.life.now, "writing": asdict(self.writing),
+            "channel": self.channel_kind.value,
         }
 
 
@@ -327,7 +332,10 @@ class ContextBuilder:
         now = self.clock.now()
         speakers = speakers_of(persona, client)
         state = await load_life(session, persona, now, full=True)
-        caps = with_camera(capabilities_of(persona), state.scene() if state.has_life else None)
+        channel = await session.get(Channel, chat.channel_id)
+        kind = ChannelKind(channel.kind) if channel is not None else ChannelKind.TELEGRAM_USER
+        caps = with_camera(capabilities_of(persona, kind),
+                           state.scene() if state.has_life else None)
         facts = compute_facts(await self._facts_input(session, chat, persona, client, caps))
         card = client_card(client)
         life = life_blocks(state)
@@ -350,6 +358,7 @@ class ContextBuilder:
             lines=fit_newest(all_lines, budget), timeline_budget=budget,
             writing=writing_mode(state.scene() if state.has_life else None,
                                  to_local(now, persona.timezone)),
+            channel_kind=kind,
         )
 
     async def _facts_input(self, session: AsyncSession, chat: Chat, persona: Persona,
@@ -409,7 +418,8 @@ class ContextBuilder:
                                           frame.allowed)
         chat, persona = know.chat, know.persona
         stable = "\n\n".join([*know.shared_blocks(), know.timeline_block()])
-        style = style_block(know.writing, no_refusals=chat.no_refusals)
+        style = style_block(know.writing, no_refusals=chat.no_refusals,
+                            channel=know.channel_kind)
         user = "\n\n".join([stable, *know.volatile_blocks(), style,
                             f"# Каталог медиа\n{catalog}", REPLY_TURN])
         event_ids = [line.event_id for line in know.lines]

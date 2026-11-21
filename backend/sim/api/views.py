@@ -118,12 +118,20 @@ def client_view(client: Client) -> Json:
     }
 
 
+def channel_brief(channel: Channel | None) -> Json | None:
+    """Which messenger a chat is in (the dashboard shows its icon)."""
+    return None if channel is None else {"id": channel.id, "kind": channel.kind,
+                                         "title": channel.title}
+
+
 def chat_row(chat: Chat, client: Client, last: Message | None,
-             persona: Persona | None = None, *, status: Json | None = None) -> Json:
+             persona: Persona | None = None, *, status: Json | None = None,
+             channel: Channel | None = None) -> Json:
     """`persona_status` — what she is doing about this chat now, for the team only
-    (sim/services/persona_status.py)."""
+    (sim/services/persona_status.py); `channel` — the messenger of the chat."""
     return {
         "id": chat.id, "client": client_brief(client), "persona": persona_brief(persona),
+        "channel": channel_brief(channel),
         "ai_enabled": chat.ai_enabled, "attention_instant": chat.attention_instant,
         "no_refusals": chat.no_refusals,
         "needs_operator": chat.needs_operator, "unread_count": chat.unread_count,

@@ -13,27 +13,32 @@ from litestar.datastructures import State
 from litestar.exceptions import NotAuthorizedException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.api.channel_logins import ChannelLogins
 from sim.api.live import EventHub
 from sim.api.ratelimit import LoginRateLimiter
+from sim.channels.whatsapp.receiver import WhatsAppReceiver
 from sim.config import Settings
 from sim.services.deps import Deps
-from sim.telegram.login import TelegramLogins
+from sim.services.inbox import Inbox
 
 ADMIN_SCOPE_KEY = "sim_admin"
 NOT_LOGGED_IN = "Нужно войти"
 
 
 class ApiContext:
-    """Ports and settings (`deps`), the live-update hub, the login limiter and the pending
-    Telegram account logins (QR) of this process."""
+    """Ports and settings (`deps`), the live-update hub, the login limiter, the pending
+    messenger account logins of this process (Telegram QR, Instagram, WhatsApp QR) and the
+    WhatsApp webhook receiver."""
 
     def __init__(self, deps: Deps, *, hub: EventHub, limiter: LoginRateLimiter,
-                 logins: TelegramLogins) -> None:
+                 logins: ChannelLogins) -> None:
         self.deps = deps
         self.settings: Settings = deps.settings
         self.hub = hub
         self.limiter = limiter
         self.logins = logins
+        self.whatsapp = WhatsAppReceiver(deps.sessions, deps.settings.secret_key, Inbox(deps),
+                                         deps.clock, deps.tasks)
 
 
 class AdminContext:

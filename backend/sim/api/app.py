@@ -7,11 +7,14 @@ from litestar.datastructures import State
 from litestar.di import Provide
 
 from sim.api.auth import require_admin
+from sim.api.channel_logins import ChannelLogins
 from sim.api.context import ApiContext, provide_admin, provide_ctx, provide_db
 from sim.api.errors import EXCEPTION_HANDLERS
 from sim.api.live import EventHub, pg_listener
 from sim.api.ratelimit import LoginRateLimiter
 from sim.api.routes import API_ROUTES, system
+from sim.channels.instagram.login import InstagramLogins
+from sim.channels.whatsapp.login import WhatsAppLogins
 from sim.services.deps import Deps
 from sim.telegram.login import TelegramLogins
 
@@ -19,12 +22,15 @@ from sim.telegram.login import TelegramLogins
 MAX_REQUEST_BYTES = 200 * 1024 * 1024
 
 
-def create_app(deps: Deps, *, logins: TelegramLogins | None = None) -> Litestar:
-    """`logins`: the Telegram QR logins (a fake Telethon factory in tests)."""
+def create_app(deps: Deps, *, logins: TelegramLogins | None = None,
+               instagram: InstagramLogins | None = None,
+               whatsapp: WhatsAppLogins | None = None) -> Litestar:
+    """`logins` / `instagram` / `whatsapp`: the account logins (fakes in tests)."""
     settings = deps.settings
     hub = EventHub(pg_listener(settings.database_url))
-    logins = logins or TelegramLogins()
-    ctx = ApiContext(deps, hub=hub, limiter=LoginRateLimiter(), logins=logins)
+    channel_logins = ChannelLogins.from_settings(settings, telegram=logins, instagram=instagram,
+                                                 whatsapp=whatsapp)
+    ctx = ApiContext(deps, hub=hub, limiter=LoginRateLimiter(), logins=channel_logins)
     api = Router(path="/api", route_handlers=API_ROUTES, guards=[require_admin])
     return Litestar(
         route_handlers=[api, *system.ROUTES, *system.static_routes(settings.static_dir)],
@@ -35,7 +41,7 @@ def create_app(deps: Deps, *, logins: TelegramLogins | None = None) -> Litestar:
         },
         state=State({"ctx": ctx}),
         exception_handlers=EXCEPTION_HANDLERS,
-        on_shutdown=[hub.close, logins.close_all],
+        on_shutdown=[hub.close, channel_logins.close_all],
         openapi_config=None,
         request_max_body_size=MAX_REQUEST_BYTES,
     )
