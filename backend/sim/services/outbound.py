@@ -93,7 +93,6 @@ def guard_fields(guard: GuardOutcome | None) -> dict[str, object]:
         "guard_verdict": guard.verdict,
         "guard_violations": list(guard.violations),
         "guard_model": guard.model,
-        "original_text": guard.original_text,
     }
 
 
