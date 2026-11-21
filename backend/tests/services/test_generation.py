@@ -16,11 +16,9 @@ from sim.domain.plan import GenerateSpec
 from sim.ports import PortError
 from sim.services.deps import Deps
 from sim.services.generation import (
-    SELFIE_FRAMING,
     VIDEO_NOTE_GEN_S,
     GenerationService,
     start_generation,
-    video_prompt,
 )
 from tests.services.conftest import Fakes
 from tests.services.factories import all_rows, fresh, make_chat, make_media
@@ -122,7 +120,7 @@ async def test_video_note_is_a_spoken_selfie_cut_to_a_circle(db: AsyncSession, d
     assert "front camera" in call["prompt"]
     assert "«Дима, привет! Ну как ты там?»" in call["prompt"]
     assert "машу рукой на кухне" in call["prompt"]
-    assert fakes.image_gen.calls[0]["prompt"] == NOTE.prompt     # the first frame: the scene
+    assert NOTE.prompt in fakes.image_gen.calls[0]["prompt"]     # the first frame: the scene
     assert ("to_video_note", len(b"MP4:" + call["prompt"].encode())) in fakes.tools.calls
     photo, note = await generated_media(db, generation)
     assert photo.kind == MediaKind.PHOTO
@@ -155,18 +153,3 @@ async def test_a_circle_that_cannot_be_cut_fails_the_generation(db: AsyncSession
     fakes.tools.video_note_error = PortError("ffmpeg exited 1")
     assert await GenerationService(deps).run(generation.id) == GenerationStatus.FAILED
     assert await all_rows(db, select(Message).where(Message.chat_id == chat.id)) == []
-
-
-def test_video_prompt_template() -> None:
-    note = video_prompt("на кухне, вечер", speech="Дима, привет!", round_note=True,
-                        language="ru")
-    assert note.startswith(SELFIE_FRAMING)
-    assert "Scene: на кухне, вечер" in note
-    assert "She says in Russian, exactly: «Дима, привет!»" in note
-    assert "No subtitles, no music, no text on screen." in note
-    spoken = video_prompt("в парке", speech="Смотри, какой закат", round_note=False,
-                          language="xx")
-    assert spoken.startswith(SELFIE_FRAMING) and "«Смотри, какой закат»" in spoken
-    assert "in the chat language" in spoken
-    assert video_prompt("танцую дома", speech="  ", round_note=False,
-                        language="ru") == "танцую дома"

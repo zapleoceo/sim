@@ -21,6 +21,7 @@ import docx
 import filetype
 from pypdf import PdfReader
 
+from sim.adapters.ambience import voice_note_args
 from sim.ports import PortError, Probe
 
 log = logging.getLogger(__name__)
@@ -285,6 +286,17 @@ class FfmpegMediaTools:
         if not wav:
             raise PortError("ffmpeg: empty audio")
         ogg = await self._convert(wav, "audio/wav", "out.ogg", OGG_OPUS_ARGS)
+        duration = wav_duration(wav)
+        if duration is None:
+            duration = (await self.probe(ogg, OGG_MIME)).duration_s
+        return ogg, round(duration or 0.0, 2)
+
+    async def voice_note(self, wav: bytes, ambience: str, seed: int) -> tuple[bytes, float]:
+        """TTS WAV -> a voice note «recorded on a phone» in the scene's place
+        (sim/adapters/ambience.py); the same seed gives the same background."""
+        if not wav:
+            raise PortError("ffmpeg: empty audio")
+        ogg = await self._convert(wav, "audio/wav", "out.ogg", voice_note_args(ambience, seed))
         duration = wav_duration(wav)
         if duration is None:
             duration = (await self.probe(ogg, OGG_MIME)).duration_s

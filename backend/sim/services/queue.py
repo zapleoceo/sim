@@ -29,6 +29,11 @@ class TaskQueue(Protocol):
         """Compress the old part of the timeline into the summary and tidy the client memory."""
         ...
 
+    async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
+        """Plan one day (ISO date, her local calendar) of the persona's life. Without `force`
+        an existing plan is kept; `force` re-plans (the owner's «Спланировать заново»)."""
+        ...
+
     async def mark_read(self, message_id: int) -> None:
         """Mark the chat read in Telegram up to this incoming message (best effort)."""
         ...

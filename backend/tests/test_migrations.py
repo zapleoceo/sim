@@ -32,7 +32,10 @@ initial = load("migration_0001", BACKEND / "migrations" / "versions" / "0001_ini
 video_note = load("migration_0002",
                   BACKEND / "migrations" / "versions" / "0002_video_note_generation.py")
 # The enum values after every revision: 0001 as frozen, then what later revisions changed.
-ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS}
+life = load("migration_0003", BACKEND / "migrations" / "versions" / "0003_persona_life.py")
+ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS}
+# Tables in creation order over all revisions.
+TABLES = (*initial.TABLES, *life.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
@@ -44,7 +47,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0002"
+    assert sim_head is not None and sim_head.revision == "0003"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -62,9 +65,17 @@ def test_video_note_revision_follows_the_initial_one(scripts):
     assert set(video_note.PREVIOUS_KINDS) == set(initial.ENUM_CHECKS[("generation", "kind")][1])
 
 
-def test_initial_creates_every_model_table_in_fk_order():
-    assert set(initial.TABLES) == set(Base.metadata.tables)
-    position = {name: i for i, name in enumerate(initial.TABLES)}
+def test_life_revision_follows_the_video_note_one(scripts):
+    revision = scripts.get_revision("0003")
+    assert revision is not None and revision.down_revision == "0002"
+    purposes = life.ENUM_CHECKS[("llm_call", "purpose")][1]
+    assert purposes[-1] == "life" and purposes[:-1] == life.PREVIOUS_PURPOSES
+    assert life.PREVIOUS_PURPOSES == initial.ENUM_CHECKS[("llm_call", "purpose")][1]
+
+
+def test_revisions_create_every_model_table_in_fk_order():
+    assert set(TABLES) == set(Base.metadata.tables)
+    position = {name: i for i, name in enumerate(TABLES)}
     for table in Base.metadata.tables.values():
         for fk in table.foreign_keys:
             if fk.use_alter:

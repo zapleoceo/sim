@@ -3,7 +3,7 @@ partial update touches only what the dashboard changed."""
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from litestar.exceptions import ClientException
@@ -65,6 +65,9 @@ class PersonaPatchIn(Struct):
     model_image: ModelId | UnsetType = UNSET
     model_video: ModelId | UnsetType = UNSET
     model_live: ModelId | UnsetType = UNSET
+    model_life: ModelId | UnsetType = UNSET
+    appearance: Annotated[str, Meta(max_length=4000)] | UnsetType = UNSET
+    voice_ambience_enabled: bool | UnsetType = UNSET
     voice_id: Annotated[str, Meta(max_length=64)] | UnsetType = UNSET
     voice_style: Annotated[str, Meta(max_length=4000)] | UnsetType = UNSET
     guard_rules: Annotated[str, Meta(max_length=20_000)] | UnsetType = UNSET
@@ -74,6 +77,34 @@ class PersonaPatchIn(Struct):
     video_enabled: bool | UnsetType = UNSET
     calls_enabled: bool | UnsetType = UNSET
     reply_delay_s: Annotated[int, Meta(ge=0, le=600)] | UnsetType = UNSET
+
+
+ArcTitle = Annotated[str, Meta(min_length=1, max_length=200)]
+ArcText = Annotated[str, Meta(max_length=4000)]
+ArcStatusIn = Literal["active", "paused", "done"]
+
+
+class ArcIn(Struct):
+    title: ArcTitle
+    summary: ArcText = ""
+    stage: ArcText = ""
+    status: ArcStatusIn = "active"
+    started_on: date | None = None          # default: her local today
+    ends_on: date | None = None
+
+
+class ArcPatchIn(Struct):
+    title: ArcTitle | UnsetType = UNSET
+    summary: ArcText | UnsetType = UNSET
+    stage: ArcText | UnsetType = UNSET
+    status: ArcStatusIn | UnsetType = UNSET
+    started_on: date | UnsetType = UNSET
+    ends_on: date | UnsetType | None = UNSET
+
+
+class CanonPatchIn(Struct):
+    fact: Annotated[str, Meta(min_length=3, max_length=300)] | UnsetType = UNSET
+    status: Literal["active", "rejected"] | UnsetType = UNSET
 
 
 PERSONA_FIELDS: tuple[str, ...] = PersonaPatchIn.__struct_fields__

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.config import Settings
-from sim.ports import ModelInfo, PortError, Probe
+from sim.ports import ChatResult, ModelInfo, PortError, Probe, Usage
 
 # A valid 1x1 PNG.
 PNG = base64.b64decode(
@@ -36,14 +36,20 @@ class BorrowedSession:
 class FakeLlm:
     models: list[ModelInfo] = field(default_factory=list)
     fail: bool = False
+    # The only chat call of the API: describing the appearance by the reference photos.
+    answer: str | None = None
+    chats: list[dict[str, Any]] = field(default_factory=list)
 
     async def list_models(self) -> list[ModelInfo]:
         if self.fail:
             raise PortError("Broker недоступен", retryable=True)
         return list(self.models)
 
-    async def chat(self, **_: Any) -> Any:
-        raise AssertionError("the API never calls a chat model")
+    async def chat(self, **kwargs: Any) -> ChatResult:
+        if self.answer is None:
+            raise AssertionError("no chat answer scripted for the API test")
+        self.chats.append(kwargs)
+        return ChatResult(text=self.answer, usage=Usage(model=str(kwargs.get("model", ""))))
 
 
 class MemoryStorage:
@@ -67,6 +73,9 @@ class FakeTools:
         return Probe(mime=mime, width=1, height=1) if mime.startswith("image/") else Probe(mime)
 
     async def wav_to_ogg_opus(self, wav: bytes) -> tuple[bytes, float]:
+        return wav, 1.0
+
+    async def voice_note(self, wav: bytes, ambience: str, seed: int) -> tuple[bytes, float]:
         return wav, 1.0
 
     async def to_pcm16k(self, data: bytes, mime: str) -> bytes:
@@ -106,6 +115,9 @@ class RecordingTasks:
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.record("refresh_memory", chat_id)
+
+    async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
+        self.record("plan_day", persona_id, day, force)
 
     async def mark_read(self, message_id: int) -> None:
         self.record("mark_read", message_id)

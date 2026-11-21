@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from sim.adapters.media_tools import FfmpegMediaTools, run_process
+from sim.domain.life import Ambience
 from tests.adapters.helpers import png_bytes, wav_bytes
 
 pytestmark = pytest.mark.skipif(
@@ -26,6 +27,13 @@ async def test_wav_becomes_an_ogg_opus_voice_note() -> None:
     probe = await media.probe(ogg, "application/octet-stream")
     assert probe.mime == "audio/ogg"
     assert probe.duration_s == pytest.approx(0.5, abs=0.1)
+
+
+@pytest.mark.parametrize("ambience", [a.value for a in Ambience])
+async def test_every_scene_background_records_a_voice_note(ambience: str) -> None:
+    ogg, duration = await FfmpegMediaTools().voice_note(wav_bytes(0.5), ambience, 4242)
+    assert ogg.startswith(b"OggS") and b"OpusHead" in ogg[:200]
+    assert duration == pytest.approx(0.5)
 
 
 async def test_audio_to_pcm16k() -> None:

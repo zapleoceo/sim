@@ -1,4 +1,6 @@
 """`{"type": "voice"}`: TTS (Broker, WAV) -> OGG/Opus (ffmpeg) -> media library -> voice note.
+The recording gets the background sound of her current scene (`tools.voice_note`), unless the
+owner turned it off (`persona.voice_ambience_enabled`) or she has no life to take a scene from.
 
 Synthesis happens in `prepare`, before the turn's transaction, so the voice keeps its place in
 the plan order. If TTS fails the same words go out as a text message (noted in the run)."""
@@ -9,18 +11,41 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.db.models import Persona
+from sim.db.session import transaction
 from sim.domain.enums import Author, LlmPurpose, MediaKind, MediaSource, MessageKind
 from sim.domain.plan import VoiceAction, tts_style
 from sim.domain.presence import Busy, busy_with
 from sim.ports import PortError
 from sim.services.actions.base import ActionContext, ActionHandler, ApplyResult
 from sim.services.actions.text import enqueue_text
+from sim.services.deps import Deps
+from sim.services.life.busy import stable_seed
+from sim.services.life.scene import voice_ambience
+from sim.services.life.store import load_life
 from sim.services.llm_log import logged_call
 from sim.services.media_library import add_media
 from sim.services.outbox import enqueue_message
 
 VOICE_MIME = "audio/ogg"
 VOICE_FILE_NAME = "voice.ogg"
+
+
+async def voice_background(deps: Deps, persona: Persona) -> tuple[str, int] | None:
+    """(ambience, seed) of the scene she is in now, or None for a clean recording: the owner
+    turned the background off or she has no life to take a scene from. The seed comes from the
+    event, so every voice note of one event has the same background (docs/persona-life.md)."""
+    if not persona.voice_ambience_enabled:
+        return None
+    async with transaction(deps.sessions) as session:
+        life = await load_life(session, persona, deps.clock.now())
+    if not life.has_life:
+        return None
+    scene = life.scene()
+    ambience = voice_ambience(scene, life.local, enabled=True)
+    if ambience is None:
+        return None
+    return ambience.value, stable_seed(f"{scene.day.isoformat()}:{scene.event_id}")
 
 
 @dataclass(frozen=True)
@@ -53,7 +78,11 @@ class VoiceHandler(ActionHandler):
                                                     model=persona.model_tts),
                 chat_id=ctx.chat_id, reply_run_id=ctx.reply_run_id,
             )
-            ogg, duration = await deps.tools.wav_to_ogg_opus(audio.data)
+            background = await voice_background(deps, persona)
+            if background is None:
+                ogg, duration = await deps.tools.wav_to_ogg_opus(audio.data)
+            else:
+                ogg, duration = await deps.tools.voice_note(audio.data, *background)
         except PortError as exc:
             return VoiceFailed(str(exc) or type(exc).__name__)
         return Spoken(data=ogg, duration_s=duration)

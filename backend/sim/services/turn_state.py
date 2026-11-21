@@ -2,7 +2,9 @@
 and whether their attachments are still being understood (docs/reply.md, «Когда отвечать»).
 
 A client message is answered when a later turn consumed it (`reply_run` sent or blocked with a
-trigger event at or after it) or when an outgoing message (persona or operator) followed it."""
+trigger event at or after it) or when an outgoing message (persona or operator) followed it.
+A call she did not take because she was asleep or busy (`call` event with `life_busy`) waits
+for an answer the same way: she writes back when she is free."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,6 +17,8 @@ from sim.db.models import ChatEvent, MediaAsset, Message, ReplyRun
 from sim.domain.enums import EventKind, RunStatus, UnderstandingStatus
 
 CONSUMED_RUNS = (RunStatus.SENT, RunStatus.BLOCKED)
+# `chat_event.data` key of a call she did not take because of her life (docs/persona-life.md).
+LIFE_REFUSED_KEY = "life_busy"
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,7 @@ class Unanswered:
     pending_since: datetime | None          # oldest unanswered message still being understood
     count: int
     last_in_message_id: int | None = None   # the newest unanswered message (read receipt)
+    first_in_at: datetime | None = None     # when the oldest unanswered one arrived
 
 
 async def answered_until(session: AsyncSession, chat_id: int) -> int:
@@ -48,15 +53,25 @@ async def unanswered(session: AsyncSession, chat_id: int) -> Unanswered | None:
                ChatEvent.id > boundary)
         .order_by(ChatEvent.id)
     )).all()
-    if not rows:
+    # A call she did not take because of her life (asleep, busy) also waits for a text.
+    calls = list((await session.scalars(
+        select(ChatEvent)
+        .where(ChatEvent.chat_id == chat_id, ChatEvent.kind == EventKind.CALL,
+               ChatEvent.id > boundary, ChatEvent.data.has_key(LIFE_REFUSED_KEY))
+        .order_by(ChatEvent.id)
+    )).all())
+    if not rows and not calls:
         return None
     arrivals = [(message.sent_at or event.created_at, media) for event, message, media in rows]
+    arrivals += [(event.created_at, None) for event in calls]
     pending = [at for at, media in arrivals
                if media is not None and media.understanding == UnderstandingStatus.PENDING]
+    event_ids = [event.id for event, _, _ in rows]
+    event_ids += [event.id for event in calls]
     return Unanswered(
-        last_in_event_id=rows[-1][0].id, last_in_message_id=rows[-1][1].id,
-        last_in_at=max(at for at, _ in arrivals),
-        pending_since=min(pending) if pending else None, count=len(rows),
+        last_in_event_id=max(event_ids), last_in_message_id=rows[-1][1].id if rows else None,
+        last_in_at=max(at for at, _ in arrivals), first_in_at=min(at for at, _ in arrivals),
+        pending_since=min(pending) if pending else None, count=len(rows) + len(calls),
     )
 
 
