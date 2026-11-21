@@ -148,48 +148,22 @@ async def run_send(c: Container, s: AsyncSession, payload: dict[str, Any]) -> No
 
 
 async def send_reengagement(c: Container, s: AsyncSession, payload: dict[str, Any]) -> None:
-    """Fresh time review, then the serialized transport boundary. No rewrite sent invisibly."""
+    """The serialized transport boundary of a planned message. Its text was reviewed when it
+    was planned; here only the plan is checked (same revision, still eligible, on time)."""
     from sim.adapters.db.models import OutboundSendIntent
     from sim.domain.enums import Delivery
-    from sim.ports.llm import LLMResult
-    from sim.services.conversation import history_turns, with_persona_facts
     from sim.services.dialog_state import apply_message
-    from sim.services.prompt import Decision
 
     message = await s.get(Message, int(payload["message_id"]))
-    if message is None or message.delivery in (Delivery.SENT, Delivery.CANCELLED, Delivery.FAILED):
+    if message is None or message.delivery is not Delivery.QUEUED:
         return
+    await lock(s, NS_DIALOG, message.dialog_id)
     conv = c.conversation(s)
-    dialog = await conv.dialogs.get(message.dialog_id)
-    service = ReengagementService(s, clock=c.clock)
-    revision = int(payload["reengagement_revision"])
-    if dialog is None:
-        return
-    if not await service.send_valid(dialog, message, revision, cancel=False):
-        await lock(s, NS_DIALOG, dialog.id)
-        dialog = await conv.reload(dialog.id)
-        await s.refresh(message)
-        await service.send_valid(dialog, message, revision)
-        return
-    persona = await conv.personas.get(dialog.client.persona_id)
-    recent, ctx = await conv.memory(dialog.id, await conv.dialog_context(dialog, persona),
-                                     refresh_summary=False)
-    ctx = with_persona_facts(persona, ctx)
-    guard = await conv.review(await conv.strategy_for(persona.id), history_turns(recent),
-        Decision(message.text), LLMResult(text=message.text, model=message.model), ctx, dialog.id)
-    await lock(s, NS_DIALOG, dialog.id)
-    dialog = await conv.reload(dialog.id)
+    dialog = await conv.reload(message.dialog_id)
     await s.refresh(message)
-    await s.refresh(persona)
-    if message.delivery is not Delivery.QUEUED:
-        return
-    if not await service.send_valid(dialog, message, revision):
-        return
-    if not guard.allowed or guard.text != message.text:
-        message.delivery = Delivery.CANCELLED
-        dialog.reengagement_plan = {**dialog.reengagement_plan, "status": "outdated",
-                                    "reason": "Перед отправкой требуется обновить текст"}
-        dialog.activity_revision += 1
+    service = ReengagementService(s, clock=c.clock)
+    if message.delivery is not Delivery.QUEUED or not await service.send_valid(
+            dialog, message, int(payload["reengagement_revision"])):
         return
     await c.outbound(s).deliver(message.id)
     plan = dict(dialog.reengagement_plan)

@@ -54,8 +54,7 @@ async def test_guard_feedback_regenerates_full_plan(container, world, fake_llm, 
         decision_json(reply=corrected, plan_reason="Исправленный план",
                       send_at="2026-11-16T14:00:00Z" if corrected else None),
     ]
-    fake_llm.guard_replies = [guard_json("rewrite", ["Неверное обещание и передача"], "Не отправлять"),
-                              guard_json("ok")]
+    fake_llm.guard_replies = [guard_json("rewrite", ["Неверное обещание и передача"], "Не отправлять")]
     assert await sweep(container) == 1
     await Worker(container).tick()
     assert len(fake_llm.gen_calls) == 2
@@ -124,7 +123,7 @@ async def test_delivery_reassessed_after_silence_without_spam(container, world, 
 
 @pytest.mark.parametrize("flag", ["handoff_to_operator", "stop_contact", "refused"])
 @pytest.mark.parametrize("verdict", ["ok", "block", "rewrite", "superseded"])
-async def test_empty_control_decision_guarded_without_send(container, world, fake_llm, connector, flag, verdict):
+async def test_empty_control_decision_applied_after_advice_without_send(container, world, fake_llm, connector, flag, verdict):
     from tests.conftest import guard_json
 
     did = await setup_dialog(container, world)
@@ -132,7 +131,7 @@ async def test_empty_control_decision_guarded_without_send(container, world, fak
         send_at=None, handoff_reason="Требуется специалист", **{flag: True})]
     if verdict in ("block", "rewrite"):
         fake_llm.replies *= 2
-        fake_llm.guard_replies = [guard_json(verdict, ["Проверка решения"], "Неожиданный текст")] * 2
+        fake_llm.guard_replies = [guard_json(verdict, ["Проверка решения"], "Неожиданный текст")]
     elif verdict == "superseded":
         original = fake_llm.chat
 
@@ -149,7 +148,7 @@ async def test_empty_control_decision_guarded_without_send(container, world, fak
     assert data["decision"][flag] is True
     async with container.factory() as s:
         d = await s.get(Dialog, did)
-        applied = verdict == "ok"
+        applied = verdict != "superseded"   # remarks lead to one rewrite, then it applies
         assert d.needs_operator is (applied and flag == "handoff_to_operator")
         assert d.ai_paused is (applied and flag == "handoff_to_operator")
         assert d.client.no_followups is (applied and flag == "stop_contact")
@@ -216,24 +215,6 @@ async def test_threshold_and_no_send_decision(container, world, fake_llm):
     assert await sweep(container) == 0
     async with container.factory() as s:
         assert (await s.get(Dialog, did)).reengagement_plan["status"] == "no_send"
-
-
-async def test_message_during_final_review_blocks_transport(container, world, fake_llm, connector):
-    did, payload = await plan(container, world, fake_llm)
-    original = fake_llm.chat
-    container.clock = lambda: NOW + timedelta(hours=1)
-
-    async def interleave(messages, **kw):
-        if kw.get("workflow") == "guard":
-            await ingest(container, world.channel.id, inbound("Новый вопрос", ext="during-send", at=container.clock()))
-        return await original(messages, **kw)
-
-    fake_llm.chat = interleave
-    async with transaction(container.factory) as s:
-        await run_send(container, s, payload)
-    assert connector.port.sent == []
-    async with container.factory() as s:
-        assert (await s.get(Dialog, did)).reengagement_plan["status"] == "outdated"
 
 
 async def test_uncertain_send_does_not_retry_transport(container, world, fake_llm, connector):
@@ -374,3 +355,25 @@ async def test_sweep_skips_ineligible_dialogs_in_sql(container, world, change):
     assert await sweep(container) == 0
     async with container.factory() as s:
         assert (await s.get(Dialog, did)).reengagement_plan is None
+
+
+async def test_guard_outage_does_not_hold_the_plan_and_send_is_not_reviewed_again(
+    container, world, fake_llm, connector,
+):
+    from sim.ports.llm import LLMError
+
+    did = await setup_dialog(container, world)
+    fake_llm.replies = [decision_json(reply="Как растут цветы?", plan_reason="Тема паспорта",
+                                      send_at="2026-11-16T13:00:00Z")]
+    fake_llm.guard_replies = [LLMError("guard down")]
+    assert await sweep(container) == 1
+    await Worker(container).tick()
+    async with container.factory() as s:
+        assert (await s.get(Dialog, did)).reengagement_plan["status"] == "scheduled"
+        payload = dict((await s.scalar(select(Job).where(Job.kind == jobkinds.SEND))).payload)
+    guard_calls = len(fake_llm.guard_calls)
+    container.clock = lambda: NOW + timedelta(hours=1)
+    async with transaction(container.factory) as s:
+        await run_send(container, s, payload)
+    assert connector.port.sent == [("chat-1", "Как растут цветы?")]
+    assert len(fake_llm.guard_calls) == guard_calls      # no second review at send time
