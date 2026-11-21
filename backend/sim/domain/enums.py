@@ -114,6 +114,29 @@ class LlmPurpose(StrEnum):
     VIDEO = "video"
     LIVE = "live"
     MEMORY = "memory"
+    LIFE = "life"           # the daily planner of the persona's life (docs/persona-life.md)
+
+
+class ArcStatus(StrEnum):
+    """A story arc of the persona's life (`persona_arc`)."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DONE = "done"
+
+
+class DaySource(StrEnum):
+    """Who wrote a planned day (`persona_day`)."""
+
+    MODEL = "model"         # the daily planner
+    EDITED = "edited"       # changed by the owner in the dashboard; never re-planned by itself
+
+
+class CanonStatus(StrEnum):
+    """A fact the persona invented about herself (`persona_canon`)."""
+
+    ACTIVE = "active"
+    REJECTED = "rejected"   # rejected by the owner: hidden from the agent, never added again
 
 
 class EventKind(StrEnum):

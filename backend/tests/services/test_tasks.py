@@ -15,15 +15,23 @@ from sim.tasks.app import conninfo, make_app
 from sim.tasks.queue import (
     CHAT_ACTION_TASK,
     GENERATE_TASK,
+    LIFE_TICK_TASK,
     MARK_READ_TASK,
     MEMORY_TASK,
+    PLAN_DAY_TASK,
     REPLY_TASK,
     SEND_TASK,
     UNDERSTAND_TASK,
     ProcrastinateQueue,
 )
 from tests.services.conftest import Fakes
-from tests.services.factories import add_message, make_chat, ok_verdict, plan_json
+from tests.services.factories import (
+    add_message,
+    make_chat,
+    make_persona,
+    ok_verdict,
+    plan_json,
+)
 
 
 class _Deferrer:
@@ -129,3 +137,28 @@ async def test_reply_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: 
     finally:
         reset_deps()
     assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action", "send"]
+
+
+async def test_plan_day_queue_and_registration() -> None:
+    app = FakeApp()
+    queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
+    await queue.plan_day(1, "2026-11-22")
+    await queue.plan_day(1, "2026-11-22", True)       # one waiting plan per day
+    assert app.deferred == [(PLAN_DAY_TASK, {"persona_id": 1, "day": "2026-11-22",
+                                             "force": False},
+                             {"queue": "agent", "queueing_lock": "life:1:2026-11-22"})]
+    real = make_app(Settings(env="test"))
+    assert {PLAN_DAY_TASK, LIFE_TICK_TASK} <= set(real.tasks)
+    assert any(LIFE_TICK_TASK in str(key) for key in real.periodic_registry.periodic_tasks)
+
+
+async def test_life_tasks_run_the_planner(db: AsyncSession, deps: Deps, fakes: Fakes) -> None:
+    persona = await make_persona(db, model_life="life-model", timezone="Europe/Berlin")
+    set_deps(deps)
+    try:
+        await agent.life_tick(0)
+        await agent.plan_day(999_999, "2026-11-21")    # unknown persona: nothing to do
+    finally:
+        reset_deps()
+    assert fakes.tasks.of("plan_day") == [("plan_day", persona.id, "2026-11-21", False),
+                                          ("plan_day", persona.id, "2026-11-22", False)]

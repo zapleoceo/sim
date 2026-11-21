@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api';
 import { qk } from '@/lib/query';
 import { personaApi } from './api';
+import { LifeSection } from './life/life-section';
 import { MediaLibrarySection } from './media-library';
 import { PersonaEditor } from './persona-editor';
 import { ChannelSection, FormatRulesSection } from './readonly-sections';
@@ -12,10 +13,12 @@ import { ChannelSection, FormatRulesSection } from './readonly-sections';
 const TOC: { id: string; label: string }[] = [
   { id: 'basics', label: 'Основное' },
   { id: 'prompt', label: 'Промт' },
+  { id: 'appearance', label: 'Внешность' },
   { id: 'models', label: 'Модели' },
   { id: 'voice', label: 'Голос' },
   { id: 'guard', label: 'Проверка' },
   { id: 'switches', label: 'Переключатели' },
+  { id: 'life', label: 'Жизнь' },
   { id: 'format', label: 'Правила формата' },
   { id: 'channel', label: 'Канал' },
   { id: 'media', label: 'Медиатека' },
@@ -57,6 +60,7 @@ export function PersonaPage() {
               modelsError={models.isError ? `Каталог моделей недоступен: ${errorMessage(models.error)}` : undefined}
               voices={voices.data?.items ?? []}
             >
+              <LifeSection />
               <FormatRulesSection />
               <ChannelSection />
               <MediaLibrarySection />

@@ -28,6 +28,8 @@ export const personaSchema = z.object({
   model_image: text,
   model_video: text,
   model_live: text,
+  model_life: text,
+  appearance: text,
   voice_id: text,
   voice_style: text,
   guard_rules: text,
@@ -36,6 +38,7 @@ export const personaSchema = z.object({
   photo_enabled: flag,
   video_enabled: flag,
   calls_enabled: flag,
+  voice_ambience_enabled: flag,
   reply_delay_s: z.string().refine((v) => {
     const n = Number(v);
     return v.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= REPLY_DELAY_MAX;
@@ -62,6 +65,8 @@ export function toFormValues(p: Persona): PersonaFormValues {
     model_image: p.model_image,
     model_video: p.model_video,
     model_live: p.model_live,
+    model_life: p.model_life,
+    appearance: p.appearance,
     voice_id: p.voice_id,
     voice_style: p.voice_style,
     guard_rules: p.guard_rules,
@@ -70,6 +75,7 @@ export function toFormValues(p: Persona): PersonaFormValues {
     photo_enabled: p.photo_enabled,
     video_enabled: p.video_enabled,
     calls_enabled: p.calls_enabled,
+    voice_ambience_enabled: p.voice_ambience_enabled,
     reply_delay_s: String(p.reply_delay_s),
   };
 }

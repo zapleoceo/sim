@@ -47,6 +47,10 @@ export const qk = {
   voices: ['voices'] as const,
   instructions: ['instructions'] as const,
   channels: ['channels'] as const,
+  life: ['life', 'world'] as const,
+  arcs: ['life', 'arcs'] as const,
+  days: ['life', 'days'] as const,
+  canon: ['life', 'canon'] as const,
   media: ['media'] as const,
   mediaList: (source: string, kind: string) => ['media', source, kind] as const,
 

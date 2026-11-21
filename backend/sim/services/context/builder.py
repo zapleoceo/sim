@@ -41,6 +41,8 @@ from sim.services.context.render import (
     one_line,
     render_events,
 )
+from sim.services.life.render import LifeBlocks, life_blocks
+from sim.services.life.store import load_life
 from sim.services.media_library import catalog_for_chat
 
 MIN_TIMELINE_TOKENS = 2_000
@@ -65,6 +67,7 @@ class Knowledge:
     facts: Facts
     capabilities: Capabilities
     client_card: str
+    life: LifeBlocks                        # routine, now, story arcs, canon
     summary: str
     all_lines: list[TimelineLine]           # whole timeline after the summary boundary
     lines: list[TimelineLine]               # the part that fits the budget (newest)
@@ -213,13 +216,15 @@ class ContextBuilder:
         caps = capabilities_of(persona)
         facts = compute_facts(await self._facts_input(session, chat, persona, client, caps))
         card = client_card(client)
+        life = life_blocks(await load_life(session, persona, self.clock.now(), full=True))
         events = await load_events(session, chat.id, chat.summary_until_event_id)
         all_lines = render_events(events, await load_related(session, events), speakers)
-        fixed = fixed_tokens + estimate_tokens(facts.text + card + chat.summary)
+        fixed = fixed_tokens + estimate_tokens(
+            facts.text + card + chat.summary + "\n\n".join(life.texts()))
         budget = max(self.settings.context_budget_tokens - fixed, MIN_TIMELINE_TOKENS)
         return Knowledge(
             persona=persona, client=client, chat=chat, speakers=speakers, facts=facts,
-            capabilities=caps, client_card=card, summary=chat.summary.strip(),
+            capabilities=caps, client_card=card, life=life, summary=chat.summary.strip(),
             all_lines=all_lines, lines=fit_newest(all_lines, budget), timeline_budget=budget,
         )
 
@@ -282,7 +287,8 @@ class ContextBuilder:
         know, system, catalog, allowed = (frame.knowledge, frame.system, frame.catalog,
                                           frame.allowed)
         chat, persona = know.chat, know.persona
-        blocks = [f"# Факты\n{know.facts.text}", f"# Собеседник\n{know.client_card}"]
+        blocks = [f"# Факты\n{know.facts.text}", *know.life.texts(),
+                  f"# Собеседник\n{know.client_card}"]
         if know.summary:
             blocks.append(f"# Сводка прошлой переписки\n{know.summary}")
         timeline = "\n".join(line.text for line in know.lines) or "(сообщений пока нет)"
@@ -296,6 +302,7 @@ class ContextBuilder:
         snapshot = {
             "facts": list(know.facts.lines),
             "facts_values": know.facts.values,
+            **know.life.snapshot(),
             "client": know.client_card,
             "summary": know.summary,
             "summary_until_event_id": know.chat.summary_until_event_id,
@@ -325,7 +332,8 @@ class ContextBuilder:
             raise ChatNotFound(f"chat {chat_id} has no persona")
         head = f"{persona.prompt.strip()}\n\n{CALL_RULES}".strip()
         know = await self.knowledge(session, chat_id, fixed_tokens=estimate_tokens(head))
-        blocks = [head, f"# Факты\n{know.facts.text}", f"# Собеседник\n{know.client_card}"]
+        blocks = [head, f"# Факты\n{know.facts.text}", *know.life.texts(),
+                  f"# Собеседник\n{know.client_card}"]
         if know.summary:
             blocks.append(f"# Сводка прошлой переписки\n{know.summary}")
         timeline = "\n".join(line.text for line in know.lines)

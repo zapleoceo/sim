@@ -202,6 +202,19 @@ async def test_wav_to_ogg_opus_command() -> None:
     assert runner.limits == [7.0]
 
 
+async def test_voice_note_records_the_scene_background() -> None:
+    runner = FakeRunner(output=b"OggS...")
+    ogg, duration = await tools(runner).voice_note(wav_bytes(0.25), "cafe", 42)
+    assert ogg == b"OggS..." and duration == pytest.approx(0.25)
+    command = runner.calls[0]
+    assert command[command.index("-i") + 1].endswith("input.wav")
+    assert "-filter_complex" in command and "libopus" in command
+    assert command[-1].endswith("out.ogg")
+    assert any(part.endswith("cafe_chatter.ogg") for part in command)
+    with pytest.raises(PortError):
+        await tools(runner).voice_note(b"", "none", 1)
+
+
 async def test_wav_to_ogg_opus_probes_when_header_is_odd() -> None:
     runner = FakeRunner(output=b"OggS...", probe={"format": {"duration": "1.234"}})
     _, duration = await tools(runner).wav_to_ogg_opus(b"RIFF????")

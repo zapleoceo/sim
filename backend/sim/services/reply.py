@@ -1,10 +1,12 @@
 """One persona turn (docs/reply.md): task `agent.reply_chat` -> `ReplyService.run(chat_id)`.
 
 1. Start (transaction, chat row locked): skip when AI is off anywhere, the chat waits for an
-   operator or nothing is unanswered; wait for a burst of messages (`persona.reply_delay_s`)
-   and for attachments still being understood (up to 90 s) by re-queueing the reply; otherwise
+   operator or nothing is unanswered; wait for a burst of messages (`persona.reply_delay_s`),
+   for her to be free (sleep, a run, a meeting: `sim.services.life.busy.reply_delay`) and for
+   attachments still being understood (up to 90 s) by re-queueing the reply; otherwise
    create `reply_run` with the context snapshot. The chat is marked read up to the newest
-   client message and the client sees «печатает» while the model thinks.
+   client message and the client sees «печатает» while the model thinks. A day without a plan
+   asks the daily planner for one (task `agent.plan_day`).
 2. Decide (no transaction): the reply model returns a JSON plan (one repair retry when the
    JSON or the media choice is invalid); the guard checks it; on a block the model tries once
    more with the reason; a second block -> run blocked, chat needs an operator.
@@ -12,13 +14,15 @@
    announced by its Telegram status («записывает голосовое», «записывает кружок»...).
 4. Commit (transaction, chat row locked): if a newer client message arrived meanwhile the plan
    is dropped (run skipped) and the reply is re-queued; else pending messages / generations
-   are written in plan order, `remember` facts go to `client.memory`, and after commit the
+   are written in plan order, `remember` facts go to `client.memory`, `canon` facts about
+   herself to `persona_canon`, and after commit the
    messages are queued for sending and the generations for running. A turn that queues
    nothing (silence, block, failure, dropped plan) cancels the status."""
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,12 +37,16 @@ from sim.ports import ChatMessage, ChatPart, PortError
 from sim.services.actions import ActionContext, ApplyResult, handler_for
 from sim.services.client_memory import add_facts
 from sim.services.context.builder import ContextBuilder, ReplyContext
+from sim.services.context.facts import to_local
 from sim.services.deps import Deps
 from sim.services.guard import Guard
+from sim.services.life.busy import reply_delay
+from sim.services.life.canon import add_canon
+from sim.services.life.store import load_days, load_life
 from sim.services.llm_log import describe_messages, logged_call
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.presence import mark_read, show_busy, stop_busy
-from sim.services.turn_state import newer_client_message, unanswered
+from sim.services.turn_state import Unanswered, newer_client_message, unanswered
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +81,7 @@ class _Turn:
     persona: Persona
     ctx: ReplyContext
     last_in_message_id: int | None = None
+    plan_today: date | None = None          # today has no plan: ask the planner for it
 
 
 @dataclass
@@ -105,6 +114,9 @@ class ReplyService:
                 await self.deps.tasks.reply(chat_id, started.requeue_s)
             return started
         turn = started
+        if turn.plan_today is not None:
+            # This turn uses the routine; the next ones get the planned day.
+            await self.deps.tasks.plan_day(turn.persona.id, turn.plan_today.isoformat())
         # The persona "reads" the chat and starts typing while the model thinks.
         await mark_read(self.deps.tasks, turn.last_in_message_id)
         await show_busy(self.deps.tasks, turn.chat_id, THINKING)
@@ -155,9 +167,10 @@ class ReplyService:
             if waiting is None:
                 return TurnResult(None, reason="nothing to answer")
             now = self.deps.clock.now()
-            burst_left = persona.reply_delay_s - (now - waiting.last_in_at).total_seconds()
-            if burst_left > DEBOUNCE_SLACK_S:
-                return TurnResult(None, reason="client is still typing", requeue_s=burst_left)
+            wait_left = await self._wait_left(session, chat_id, persona, waiting, now)
+            if wait_left > DEBOUNCE_SLACK_S:
+                return TurnResult(None, reason="client is still typing or she is busy",
+                                  requeue_s=wait_left)
             understanding_s = None
             if waiting.pending_since is not None:
                 understanding_s = (now - waiting.pending_since).total_seconds()
@@ -177,7 +190,30 @@ class ReplyService:
             run.context = ctx.snapshot
             await session.flush()
             return _Turn(run_id=run.id, chat_id=chat_id, persona=persona, ctx=ctx,
-                         last_in_message_id=waiting.last_in_message_id)
+                         last_in_message_id=waiting.last_in_message_id,
+                         plan_today=await self._unplanned_today(session, persona, now))
+
+    @staticmethod
+    async def _wait_left(session: AsyncSession, chat_id: int, persona: Persona,
+                         waiting: Unanswered, now: datetime) -> float:
+        """Seconds until she answers: the burst wait after the newest message, and her
+        business when the oldest unanswered one came (`reply_delay`, docs/persona-life.md)."""
+        first = waiting.first_in_at or waiting.last_in_at
+        life = await load_life(session, persona, first)
+        busy_until = first + timedelta(seconds=reply_delay(
+            first, life.agenda(), persona, key=f"{chat_id}:{first.isoformat()}"))
+        burst_until = waiting.last_in_at + timedelta(seconds=persona.reply_delay_s)
+        return (max(busy_until, burst_until) - now).total_seconds()
+
+    @staticmethod
+    async def _unplanned_today(session: AsyncSession, persona: Persona,
+                               now: datetime) -> date | None:
+        """Today's local date when the planner is on and today has no plan yet."""
+        if not persona.model_life:
+            return None
+        today = to_local(now, persona.timezone).date()
+        rows = await load_days(session, persona.id, today, today)
+        return None if rows.get(today) is not None else today
 
     # --- 2. decide ------------------------------------------------------------------------
 
@@ -297,6 +333,10 @@ class ReplyService:
             client.memory = add_facts(client.memory or [],
                                       [fact.fact for fact in decision.plan.remember],
                                       event_id=run.trigger_event_id, at=now)
+        if decision.plan.canon:
+            await add_canon(session, persona_id=turn.persona.id,
+                            facts=[fact.fact for fact in decision.plan.canon],
+                            chat_id=turn.chat_id, event_id=run.trigger_event_id)
         await self._journal_blocks(session, turn, decision)
         run.status = RunStatus.SENT
         run.error = "; ".join(result.notes) or None

@@ -222,6 +222,10 @@ export interface Persona {
   model_image: string;
   model_video: string;
   model_live: string;
+  model_life: string;
+  /** Exact look in English for image models (eyes, hair, face, build). */
+  appearance: string;
+  voice_ambience_enabled: boolean;
   voice_id: string;
   voice_style: string;
   guard_rules: string;
@@ -247,6 +251,103 @@ export interface BrokerModel {
 export interface Voice {
   id: string;
   label: string;
+}
+
+// --- persona life (docs/persona-life.md) -------------------------------------------------------
+
+export type BusyLevel = 'free' | 'partial' | 'away';
+export type Ambience =
+  | 'none' | 'quiet_home' | 'kitchen' | 'street' | 'park' | 'cafe' | 'car' | 'transport' | 'office';
+
+export interface RoutineSlot {
+  /** 0 = Monday … 6 = Sunday. */
+  days: number[];
+  start: string;
+  end: string;
+  activity: string;
+  place: string;
+  with_whom: string[];
+  busy: BusyLevel;
+  outfit: string;
+  ambience: Ambience | null;
+}
+
+export interface LifePerson {
+  name: string;
+  relation: string;
+  traits: string;
+  contact: string;
+  notes: string;
+}
+
+export interface Hobby {
+  name: string;
+  details: string;
+  frequency: string;
+}
+
+export interface Place {
+  name: string;
+  kind: string;
+  details: string;
+}
+
+export interface PersonaLife {
+  routine: RoutineSlot[];
+  people: LifePerson[];
+  hobbies: Hobby[];
+  places: Place[];
+}
+
+export type ArcStatus = 'active' | 'paused' | 'done';
+
+export interface Arc {
+  id: number;
+  title: string;
+  summary: string;
+  stage: string;
+  status: ArcStatus;
+  started_on: string;
+  ends_on: string | null;
+  updated_at: string;
+}
+
+export interface DayEvent {
+  start: string;
+  end: string;
+  title: string;
+  place: string;
+  with_whom: string[];
+  busy: BusyLevel;
+  details: string;
+  outfit: string;
+  ambience: Ambience;
+}
+
+export interface PersonaDay {
+  day: string;
+  events: DayEvent[];
+  summary: string;
+  source: 'model' | 'edited';
+  model: string;
+  error: string | null;
+  updated_at: string;
+}
+
+export interface DaysResponse {
+  /** Her local today (YYYY-MM-DD) and minute of the day. */
+  today: string;
+  now_minute: number;
+  items: PersonaDay[];
+}
+
+export interface CanonFact {
+  id: number;
+  fact: string;
+  status: 'active' | 'rejected';
+  chat_id: number | null;
+  event_id: number | null;
+  created_at: string;
 }
 
 export interface Channel {

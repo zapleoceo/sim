@@ -29,11 +29,14 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sim.domain.enums import (
+    ArcStatus,
     Author,
     CallDirection,
     CallStatus,
+    CanonStatus,
     ChannelKind,
     ChannelStatus,
+    DaySource,
     Direction,
     EventKind,
     GenerationKind,
@@ -129,6 +132,15 @@ class Persona(Base):
     calls_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Seconds to wait for a burst of client messages before answering.
     reply_delay_s: Mapped[int] = mapped_column(Integer, default=8)
+    # Her static world: routine, people, hobbies, places (sim/domain/life.PersonaLife).
+    life: Mapped[dict[str, Any]] = jsonb_dict()
+    # The daily planner of her life (docs/persona-life.md); "" = days are not planned.
+    model_life: Mapped[str] = mapped_column(String(160), default="", server_default=text("''"))
+    # Exact look in English for image models: eyes, hair, face, skin, build, make-up.
+    appearance: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
+    # Voice notes get the background sound of her current scene.
+    voice_ambience_enabled: Mapped[bool] = mapped_column(Boolean, default=True,
+                                                         server_default=text("true"))
 
 
 class Channel(Base):
@@ -146,6 +158,55 @@ class Channel(Base):
     credentials_enc: Mapped[str | None] = mapped_column(Text, nullable=True)    # Fernet token
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True)
+
+
+# --- the persona's life (docs/persona-life.md) -----------------------------------------------
+
+
+class PersonaArc(Base):
+    """A slow story of her life (a bathroom renovation, a daughter's exhibition)."""
+
+    __tablename__ = "persona_arc"
+
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"),
+                                            index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    stage: Mapped[str] = mapped_column(Text, default="")        # where the story is now
+    status: Mapped[ArcStatus] = enum_col(ArcStatus, default=ArcStatus.ACTIVE)
+    started_on: Mapped[date] = mapped_column(Date)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class PersonaDay(Base):
+    """One planned day of her life, in her local calendar. Planned once, never re-planned by
+    itself; the owner's edits mark it `edited`."""
+
+    __tablename__ = "persona_day"
+    __table_args__ = (UniqueConstraint("persona_id", "day"),)
+
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"))
+    day: Mapped[date] = mapped_column(Date)
+    # [DayEvent] (sim/domain/life.py), in time order.
+    events: Mapped[list[dict[str, Any]]] = jsonb_list()
+    summary: Mapped[str] = mapped_column(Text, default="")      # how the day went
+    source: Mapped[DaySource] = enum_col(DaySource, default=DaySource.MODEL)
+    model: Mapped[str] = mapped_column(String(160), default="")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PersonaCanon(Base):
+    """A durable fact she invented about herself in a chat; shown in every chat."""
+
+    __tablename__ = "persona_canon"
+
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"),
+                                            index=True)
+    fact: Mapped[str] = mapped_column(Text)
+    chat_id: Mapped[int | None] = mapped_column(ForeignKey("chat.id", ondelete="SET NULL"),
+                                                nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[CanonStatus] = enum_col(CanonStatus, default=CanonStatus.ACTIVE)
 
 
 # --- people and chats ------------------------------------------------------------------------
@@ -308,6 +369,9 @@ class Generation(Base):
     caption: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list[str]] = jsonb_list()
     ref_media_ids: Mapped[list[int]] = jsonb_list()
+    # The scene it was made in: {day, event_id, place, outfit, ambience} (sim/domain/scene.py);
+    # later photos of the same event use its photo as a continuity reference.
+    scene: Mapped[dict[str, Any]] = jsonb_dict()
     status: Mapped[GenerationStatus] = enum_col(GenerationStatus, default=GenerationStatus.QUEUED)
     model: Mapped[str] = mapped_column(String(160), default="")
     result_media_id: Mapped[int | None] = mapped_column(

@@ -6,6 +6,7 @@ Ordering and de-duplication:
 - `queueing_lock` per chat for replies: while a reply is waiting to start, a new request is
   absorbed by it (the reply task re-checks the chat and waits for a burst when it starts);
 - `lock = send:<chat id>` keeps one chat's outgoing messages in order;
+- `queueing_lock = life:<persona>:<day>`: one waiting plan per day of the persona's life;
 - `lock = chat-action:<chat id>` applies one chat's status requests in order."""
 from __future__ import annotations
 
@@ -24,6 +25,9 @@ REPLY_TASK = "agent.reply_chat"
 UNDERSTAND_TASK = "agent.understand_media"
 GENERATE_TASK = "agent.run_generation"
 MEMORY_TASK = "agent.refresh_memory"
+PLAN_DAY_TASK = "agent.plan_day"
+LIFE_TICK_TASK = "agent.life_tick"     # periodic: which days need a plan
+LIFE_TICK_CRON = "*/30 * * * *"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
@@ -74,6 +78,11 @@ class ProcrastinateQueue:
     async def refresh_memory(self, chat_id: int) -> None:
         await self._defer(MEMORY_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
                           lock=chat_lock(chat_id), queueing_lock=f"memory:{chat_id}")
+
+    async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
+        await self._defer(PLAN_DAY_TASK, queue=AGENT_QUEUE,
+                          kwargs={"persona_id": persona_id, "day": day, "force": force},
+                          queueing_lock=f"life:{persona_id}:{day}")
 
     async def mark_read(self, message_id: int) -> None:
         await self._defer(MARK_READ_TASK, queue=TELEGRAM_QUEUE, kwargs={"message_id": message_id},

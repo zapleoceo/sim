@@ -17,6 +17,9 @@ from sim.db.models import (
     MediaAsset,
     Message,
     Persona,
+    PersonaArc,
+    PersonaCanon,
+    PersonaDay,
     ReplyRun,
 )
 from sim.domain.enums import EventKind
@@ -137,6 +140,23 @@ def reply_run_view(run: ReplyRun, llm_calls: list[LlmCall]) -> Json:
 def persona_view(persona: Persona) -> Json:
     """All columns of `persona` except the audit timestamps."""
     return {"id": persona.id, **{f: getattr(persona, f) for f in PERSONA_FIELDS}}
+
+
+def arc_view(arc: PersonaArc) -> Json:
+    return {"id": arc.id, "title": arc.title, "summary": arc.summary, "stage": arc.stage,
+            "status": arc.status, "started_on": arc.started_on, "ends_on": arc.ends_on,
+            "updated_at": arc.updated_at}
+
+
+def day_view(row: PersonaDay) -> Json:
+    return {"day": row.day, "events": list(row.events or []), "summary": row.summary,
+            "source": row.source, "model": row.model, "error": row.error,
+            "updated_at": row.updated_at}
+
+
+def canon_view(item: PersonaCanon) -> Json:
+    return {"id": item.id, "fact": item.fact, "status": item.status, "chat_id": item.chat_id,
+            "event_id": item.event_id, "created_at": item.created_at}
 
 
 def channel_view(channel: Channel) -> Json:

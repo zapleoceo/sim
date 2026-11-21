@@ -2,11 +2,14 @@
 
 `start_generation` (inside the reply turn) creates the `generation` row with the persona's
 appearance references and writes `generation_started`; the `agent.run_generation` task then
-calls `GenerationService.run`:
+calls `GenerationService.run`. When it starts, the scene of this moment is fixed on the row
+(`generation.scene`, sim/services/life/scene.py) and the prompt is built by ONE function
+(`sim.services.visual.media_prompt`): appearance + scene + shot type + the model's pose line;
+the latest photos of the same event are added as continuity references (docs/persona-life.md).
 - photo: image model with the references -> media library (generated, caption, tags) -> send;
 - video: first a photo by the references (also kept in the library), then the video model
-  animates that photo (`video_prompt`: selfie framing and her exact words when she speaks)
-  -> media library -> send;
+  animates that photo (selfie framing and her exact words when she speaks, the sound of the
+  scene) -> media library -> send;
 - video note: like a video (always a spoken selfie, at most `VIDEO_NOTE_GEN_S`), then
   `tools.to_video_note` cuts it to a 640x640 circle -> media library (video) -> `video_note`.
 While it runs the client sees «отправляет фото / видео», «записывает кружок»; a failure marks the
@@ -33,17 +36,19 @@ from sim.domain.enums import (
 )
 from sim.domain.plan import GenerateSpec
 from sim.domain.presence import busy_with
+from sim.domain.scene import SceneCard
 from sim.events import append_event
 from sim.ports import MediaResult, PortError
 from sim.services.deps import Deps
+from sim.services.life.store import load_life
 from sim.services.llm_log import logged_call
 from sim.services.media_library import add_media, normalize_tags
 from sim.services.outbox import enqueue_message
 from sim.services.presence import show_busy, stop_busy
+from sim.services.visual import APPEARANCE_REFS, CONTINUITY_REFS, choose_shot, media_prompt
 
 log = logging.getLogger(__name__)
 
-MAX_REFERENCES = 8
 VIDEO_GEN_S = 5                 # a plain video clip
 VIDEO_NOTE_GEN_S = 8            # a round video message: one or two spoken sentences
 VIDEO_NOTE_MIME = "video/mp4"
@@ -54,28 +59,6 @@ VIDEO_KINDS = (GenerationKind.VIDEO, GenerationKind.VIDEO_NOTE)
 # What the result is sent as.
 MESSAGE_KINDS = {GenerationKind.PHOTO: MessageKind.PHOTO, GenerationKind.VIDEO: MessageKind.VIDEO,
                  GenerationKind.VIDEO_NOTE: MessageKind.VIDEO_NOTE}
-LANGUAGE_NAMES = {"ru": "Russian", "uk": "Ukrainian", "en": "English", "de": "German",
-                  "es": "Spanish", "fr": "French", "it": "Italian", "pl": "Polish"}
-
-SELFIE_FRAMING = (
-    "Vertical selfie video filmed on her phone's front camera, held at arm's length. She looks "
-    "straight into the lens. Natural light of the place she is in, casual and warm, slight "
-    "handheld movement.")
-SPEECH_LINE = ("She says in {language}, exactly: «{speech}». Her lips are in sync with the "
-               "words. No subtitles, no music, no text on screen.")
-
-
-def video_prompt(scene: str, *, speech: str, round_note: bool, language: str) -> str:
-    """The Broker video prompt. A video note, or a video in which she speaks, is a selfie
-    filmed for this person with her exact words; a silent video is just the scene."""
-    words = " ".join(speech.split())
-    if not round_note and not words:
-        return scene
-    lines = [SELFIE_FRAMING, f"Scene: {scene.strip()}"]
-    if words:
-        lines.append(SPEECH_LINE.format(language=LANGUAGE_NAMES.get(language, "the chat language"),
-                                        speech=words))
-    return "\n".join(lines)
 
 
 async def reference_ids(session: AsyncSession, persona_id: int) -> list[int]:
@@ -85,9 +68,25 @@ async def reference_ids(session: AsyncSession, persona_id: int) -> list[int]:
         .where(MediaAsset.persona_id == persona_id, MediaAsset.source == MediaSource.LIBRARY,
                MediaAsset.kind == MediaKind.PHOTO, MediaAsset.is_reference.is_(True))
         .order_by(MediaAsset.id)
-        .limit(MAX_REFERENCES)
+        .limit(APPEARANCE_REFS)
     )
     return list(rows.scalars())
+
+
+async def continuity_ids(session: AsyncSession, persona_id: int, scene: SceneCard) -> list[int]:
+    """The latest generated photos of the SAME event (same day, same event id), oldest first.
+    A new event is a new scene: older photos are never used."""
+    rows = await session.scalars(
+        select(MediaAsset.id)
+        .join(Generation, Generation.id == MediaAsset.generation_id)
+        .where(Generation.persona_id == persona_id,
+               Generation.status == GenerationStatus.DONE,
+               MediaAsset.kind == MediaKind.PHOTO,
+               Generation.scene["day"].astext == scene.day.isoformat(),
+               Generation.scene["event_id"].astext == scene.event_id)
+        .order_by(MediaAsset.id.desc())
+        .limit(CONTINUITY_REFS))
+    return list(reversed(list(rows)))
 
 
 async def start_generation(session: AsyncSession, *, persona: Persona, chat_id: int | None,
@@ -99,6 +98,7 @@ async def start_generation(session: AsyncSession, *, persona: Persona, chat_id: 
         prompt=spec.prompt, speech=spec.speech.strip() if kind in VIDEO_KINDS else "",
         caption=spec.caption.strip(), tags=normalize_tags(spec.tags),
         ref_media_ids=await reference_ids(session, persona.id),
+        scene={"shot_hint": spec.shot} if spec.shot else {},
         status=GenerationStatus.QUEUED, model=model,
     )
     session.add(generation)
@@ -121,9 +121,8 @@ class _Job:
     persona_id: int
     chat_id: int | None
     reply_run_id: int | None
-    prompt: str
-    speech: str
-    language: str
+    image_prompt: str
+    video_prompt: str
     caption: str
     tags: list[str]
     model_image: str
@@ -184,36 +183,58 @@ class GenerationService:
             if persona is None:
                 return None
             generation.status = GenerationStatus.RUNNING
-            refs = []
-            for media_id in generation.ref_media_ids or []:
-                asset = await session.get(MediaAsset, media_id)
-                if asset is None:
-                    continue
-                data = await self.deps.storage.get(asset.storage_key)
-                refs.append(await self.deps.tools.image_for_model(data, asset.mime))
+            life = await load_life(session, persona, self.deps.clock.now())
+            scene = life.scene() if life.has_life else None
+            identity = list(generation.ref_media_ids or [])
+            continuity = (await continuity_ids(session, persona.id, scene)
+                          if scene is not None else [])
+            spoken = generation.kind == GenerationKind.VIDEO_NOTE or bool(generation.speech)
+            hint = str((generation.scene or {}).get("shot_hint", ""))
+            shot = choose_shot(scene, hint, spoken=spoken)
+            generation.scene = {**(scene.as_json() if scene is not None else {}),
+                                "shot": shot.value, **({"shot_hint": hint} if hint else {})}
+            generation.ref_media_ids = identity + continuity
+            refs = await self._references(session, identity + continuity)
+            prompt_args = {"action": generation.prompt, "scene": scene, "shot": shot}
             return _Job(
                 id=generation.id, kind=generation.kind, persona_id=generation.persona_id,
                 chat_id=generation.chat_id, reply_run_id=generation.reply_run_id,
-                prompt=generation.prompt, speech=generation.speech or "",
-                language=persona.language or "", caption=generation.caption,
-                tags=list(generation.tags or []), model_image=persona.model_image,
-                model_video=persona.model_video, references=refs,
+                image_prompt=media_prompt(
+                    stage="image", appearance=persona.appearance, identity_refs=len(identity),
+                    continuity_refs=len(continuity), **prompt_args),
+                video_prompt=media_prompt(
+                    stage="video", speech=generation.speech or "",
+                    language=persona.language or "",
+                    round_note=generation.kind == GenerationKind.VIDEO_NOTE, **prompt_args),
+                caption=generation.caption, tags=list(generation.tags or []),
+                model_image=persona.model_image, model_video=persona.model_video,
+                references=refs,
             )
+
+    async def _references(self, session: AsyncSession,
+                          media_ids: list[int]) -> list[tuple[bytes, str]]:
+        refs = []
+        for media_id in media_ids:
+            asset = await session.get(MediaAsset, media_id)
+            if asset is None:
+                continue
+            data = await self.deps.storage.get(asset.storage_key)
+            refs.append(await self.deps.tools.image_for_model(data, asset.mime))
+        return refs
 
     async def _image(self, job: _Job) -> MediaResult:
         return await logged_call(
             self.deps.sessions, purpose=LlmPurpose.IMAGE, model=job.model_image,
-            request={"prompt": job.prompt, "references": len(job.references),
+            request={"prompt": job.image_prompt, "references": len(job.references),
                      "generation_id": job.id},
             call=lambda: self.deps.image_gen.generate_image(
-                prompt=job.prompt, references=job.references, model=job.model_image),
+                prompt=job.image_prompt, references=job.references, model=job.model_image),
             chat_id=job.chat_id, reply_run_id=job.reply_run_id,
         )
 
     async def _video(self, job: _Job, first_frame: MediaResult) -> MediaResult:
         round_note = job.kind == GenerationKind.VIDEO_NOTE
-        prompt = video_prompt(job.prompt, speech=job.speech, round_note=round_note,
-                              language=job.language)
+        prompt = job.video_prompt
         duration = VIDEO_NOTE_GEN_S if round_note else VIDEO_GEN_S
         return await logged_call(
             self.deps.sessions, purpose=LlmPurpose.VIDEO, model=job.model_video,

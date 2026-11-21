@@ -211,6 +211,17 @@ docker compose logs --tail 50 telegram
 
 После проверки: `rm -rf /root/sim-v1-export /root/sim-v2-src && docker image rm sim-backend:v2-export`.
 
+**Жизнь персонажа** ([persona-life.md](persona-life.md)) из готового JSON (`{"life": {...},
+"arcs": [...]}`), идемпотентно — мир заменяется, истории обновляются по названию:
+
+```sh
+docker compose run --rm --no-deps -v /root/life.json:/import/life.json:ro api \
+  python scripts/load_life.py /import/life.json --persona-id 1
+```
+
+Потом в «Персонаж → Модели» выбрать «Жизнь (план дня)» — планировщик сам спланирует сегодня
+и (с 03:00) завтра.
+
 ### 6. Приёмка (ТЗ, п. 2)
 
 Клиенты v1 не переносятся. Новый клиент создаётся с выключенным ИИ: после первого сообщения

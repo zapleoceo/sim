@@ -11,6 +11,7 @@
 | [docs/spec-v2.md](docs/spec-v2.md) | ТЗ: что входит, критерий готовности, этапы |
 | [docs/context.md](docs/context.md) | Контекст агента и журнал событий |
 | [docs/reply.md](docs/reply.md) | Ход персонажа: план ответа, проверка, действия |
+| [docs/persona-life.md](docs/persona-life.md) | Жизнь персонажа: распорядок, план дня, истории, канон, занятость, сцена и непрерывность фото и звука |
 | [docs/database.md](docs/database.md) | Таблицы и кто их пишет |
 | [docs/api.md](docs/api.md) | HTTP API дашборда |
 | [docs/auth.md](docs/auth.md) | Вход через Telegram, сессии, CSRF |
@@ -35,7 +36,8 @@
 
 ```
 backend/sim/
-  domain/     перечисления, схема плана ответа, статусы в чате (presence.py)
+  domain/     перечисления, схема плана ответа, статусы в чате (presence.py), жизнь и сцена
+              персонажа (life.py, scene.py)
   ports.py    интерфейсы внешнего мира (Broker, Telegram, хранилище, ffmpeg, часы)
   db/         схема БД и сессии
   events.py   запись в журнал чата

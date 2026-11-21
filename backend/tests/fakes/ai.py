@@ -192,6 +192,10 @@ class FakeMediaTools:
         self.calls.append(("wav_to_ogg_opus", len(wav)))
         return b"OGG" + wav, 2.0
 
+    async def voice_note(self, wav: bytes, ambience: str, seed: int) -> tuple[bytes, float]:
+        self.calls.append(("voice_note", ambience, seed))
+        return b"OGG" + wav, 2.0
+
     async def to_pcm16k(self, data: bytes, mime: str) -> bytes:
         return data
 
@@ -235,6 +239,9 @@ class RecordingQueue:
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.calls.append(("refresh_memory", chat_id))
+
+    async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
+        self.calls.append(("plan_day", persona_id, day, force))
 
     async def mark_read(self, message_id: int) -> None:
         self.calls.append(("mark_read", message_id))

@@ -1,0 +1,45 @@
+"""The scene she is in right now: one source of truth for every photo, video, video note and voice
+note (docs/persona-life.md, «Сцена и непрерывность»). Computed by code from the day plan (or the
+routine) and the clock, never invented per generation."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+from enum import StrEnum
+from typing import Any
+
+from sim.domain.life import Ambience, BusyLevel
+
+
+class Light(StrEnum):
+    MORNING_DAYLIGHT = "morning_daylight"
+    DAYLIGHT = "daylight"
+    GOLDEN_HOUR = "golden_hour"
+    EVENING_LAMP = "evening_lamp"
+    NIGHT = "night"
+
+
+class ShotType(StrEnum):
+    FRONT_SELFIE = "front_selfie"       # her phone's front camera at arm's length
+    MIRROR_SELFIE = "mirror_selfie"     # the phone is seen only in the mirror
+    TAKEN_BY_OTHER = "taken_by_other"   # someone she is with took it
+
+
+@dataclass(frozen=True)
+class SceneCard:
+    day: date
+    event_id: str               # stable within one event: same id = same room, same clothes
+    place: str
+    place_details: str
+    activity: str
+    with_whom: tuple[str, ...]
+    outfit: str
+    light: Light
+    ambience: Ambience
+    busy: BusyLevel
+    indoors: bool
+
+    def as_json(self) -> dict[str, Any]:
+        """What a generation row keeps (`generation.scene`) to find same-scene photos later."""
+        return {"day": self.day.isoformat(), "event_id": self.event_id, "place": self.place,
+                "outfit": self.outfit, "ambience": self.ambience.value}

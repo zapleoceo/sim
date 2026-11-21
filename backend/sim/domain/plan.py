@@ -17,7 +17,11 @@ class GenerateSpec(_Strict):
     """Ask for a new photo / video of the persona, made from her reference photos."""
 
     prompt: str = Field(min_length=3, max_length=2000,
-                        description="What the picture shows: scene, pose, clothes, light, mood.")
+                        description="Only her pose, action, expression and mood. The place, "
+                                    "clothes and light come from her current scene.")
+    shot: Literal["", "selfie", "mirror", "by_other"] = Field(
+        default="", description="How the picture is taken: a front-camera selfie (default), a "
+                                "mirror selfie, or taken by someone who is with her now.")
     caption: str = Field(min_length=3, max_length=300,
                          description="One line: what it is, saved to the media library.")
     tags: list[str] = Field(default_factory=list, max_length=12,
@@ -82,12 +86,20 @@ class ClientFact(_Strict):
     fact: str = Field(min_length=3, max_length=300)
 
 
+class SelfFact(_Strict):
+    fact: str = Field(min_length=3, max_length=300,
+                      description="A new durable fact she invented about herself in this answer.")
+
+
 class ReplyPlan(_Strict):
     """`messages` empty = stay silent this turn (allowed, e.g. the client said goodbye)."""
 
     messages: list[Action] = Field(default_factory=list, max_length=8)
     # New durable facts about the client learned from the latest messages (name, city, ...).
     remember: list[ClientFact] = Field(default_factory=list, max_length=10)
+    # New durable facts about HERSELF invented in this answer (the neighbour's dog is Rex):
+    # kept in `persona_canon` and shown in every chat (docs/persona-life.md, «Канон»).
+    canon: list[SelfFact] = Field(default_factory=list, max_length=5)
 
 
 def media_choice_errors(plan: ReplyPlan) -> list[str]:

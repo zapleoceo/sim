@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RotateCcw, Save } from 'lucide-react';
+import { Loader2, RotateCcw, Save, Sparkles } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { qk } from '@/lib/query';
 import type { BrokerModel, Persona, Voice } from '@/lib/types';
 import { personaApi } from './api';
+import { lifeApi } from './life/life-api';
 import { MODEL_PURPOSES } from './model-filter';
 import { ModelSelect } from './model-select';
 import {
@@ -59,6 +60,14 @@ export function PersonaEditor({ persona, models, modelsError, voices, children }
       queryClient.setQueryData(qk.persona, saved);
       reset(toFormValues(saved));
       toast.success('Настройки персонажа сохранены');
+    },
+  });
+
+  const describe = useMutation({
+    mutationFn: lifeApi.describeAppearance,
+    onSuccess: ({ text, references }) => {
+      form.setValue('appearance', text, { shouldDirty: true });
+      toast.success(`Описала по ${references} фото — проверьте и сохраните`);
     },
   });
 
@@ -118,6 +127,22 @@ export function PersonaEditor({ persona, models, modelsError, voices, children }
           </Field>
         </Section>
 
+        <Section
+          id="appearance"
+          title="Внешность"
+          description="Точное описание по-английски для генерации фото и видео: глаза, волосы, лицо, фигура. Уходит в каждый кадр."
+          actions={
+            <Button variant="outline" size="sm" disabled={describe.isPending} onClick={() => describe.mutate()}>
+              {describe.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              Описать по референсам
+            </Button>
+          }
+        >
+          <Field id="persona-appearance" label={<span className="sr-only">Внешность</span>} hint="После описания проверьте текст и сохраните форму.">
+            <Textarea id="persona-appearance" className="min-h-24" {...register('appearance')} />
+          </Field>
+        </Section>
+
         <Section id="models" title="Модели" description="Списки из каталога Broker, отфильтрованы по тому, что модель умеет.">
           {modelsError && <InlineError>{modelsError}</InlineError>}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -139,6 +164,25 @@ export function PersonaEditor({ persona, models, modelsError, voices, children }
               <Textarea id="persona-voice-style" className="min-h-9" rows={2} {...register('voice_style')} />
             </Field>
           </div>
+          <SwitchRow
+            id="persona-voice_ambience_enabled"
+            label="Фон в голосовых"
+            hint="Голосовое звучит как записанное на телефон там, где она сейчас: кафе, улица, кухня. Ночью дома — тишина."
+          >
+            <Controller
+              control={control}
+              name="voice_ambience_enabled"
+              render={({ field }) => (
+                <Switch
+                  id="persona-voice_ambience_enabled"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  onBlur={field.onBlur}
+                  ref={field.ref}
+                />
+              )}
+            />
+          </SwitchRow>
         </Section>
 
         <Section id="guard" title="Проверка" description="Что проверка перед отправкой не должна пропускать. Одно правило на строку.">

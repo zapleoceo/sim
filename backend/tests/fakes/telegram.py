@@ -277,9 +277,13 @@ class FakeContextBuilder:
 @dataclass
 class FakeTasks:
     memory: list[int] = field(default_factory=list)
+    replies: list[int] = field(default_factory=list)
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.memory.append(chat_id)
+
+    async def reply(self, chat_id: int, delay_s: float = 0) -> None:
+        self.replies.append(chat_id)
 
 
 @dataclass
