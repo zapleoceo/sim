@@ -178,7 +178,7 @@ describe('SettingsPage', () => {
       'PUT /api/settings/call_rules': (r) => ({ ...call, value: (r.body as { value: string }).value, is_default: false }) });
     await renderApp('/settings');
     expect(await screen.findByRole('heading', { name: 'Общие правила' })).toBeInTheDocument();
-    expect([...document.querySelectorAll('section[aria-label]')].map((section) => section.getAttribute('aria-label'))).toEqual(
+    expect([...document.querySelectorAll('section[id^="group-"]')].map((section) => section.getAttribute('aria-label'))).toEqual(
       [PROMPT_GROUPS.reply, 'Промпт · 3. Звонок', PROMPT_GROUPS.guard, 'Стиль']);
     expect(screen.getByText(/Модель сначала получает промпт персонажа/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '«Помощники»' })).toHaveAttribute('href', '/agents#setting-guard_prompt');
