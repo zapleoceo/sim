@@ -151,7 +151,9 @@ PersonaLife = {routine: [{days: number[] /* 0 = пн */, start: "ЧЧ:ММ", end
                activity, place, with_whom: string[], busy: "free"|"partial"|"away",
                outfit, ambience: Ambience | null}],
                people: [{name, relation, traits, contact, notes}],
-               hobbies: [{name, details, frequency}], places: [{name, kind, details}]}
+               hobbies: [{name, details, frequency}], places: [{name, kind, details}],
+               look: {nails, earrings, jewelry, hair, other},
+               home: {details, rooms: [{name, details}]}}
 Ambience = "none"|"quiet_home"|"kitchen"|"street"|"park"|"cafe"|"car"|"transport"|"office"
 Arc = {id, title, summary, stage, status: "active"|"paused"|"done", started_on, ends_on,
        updated_at}

@@ -11,6 +11,7 @@ import type { Hobby, LifePerson, PersonaLife, Place, RoutineSlot } from '@/lib/t
 import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
 import { newHobby, newPerson, newPlace, newRoutineSlot, sameJson, worldErrors } from './life-logic';
+import { HomeEditor, LookEditor } from './look-home-editor';
 import { RowsEditor, type Column } from './rows-editor';
 
 const ROUTINE_COLUMNS: Column<RoutineSlot>[] = [
@@ -40,7 +41,7 @@ const PLACE_COLUMNS: Column<Place>[] = [
   { key: 'details', label: 'Подробности', kind: 'textarea', width: 'minmax(12rem,3fr)' },
 ];
 
-/** Распорядок, Люди, Увлечения, Места: one document (`persona.life`), one Save. */
+/** Распорядок, Люди, Увлечения, Места, Облик, Дом: one document (`persona.life`), one Save. */
 export function WorldEditor({ life }: { life: PersonaLife }) {
   const queryClient = useQueryClient();
   const personaId = usePersonaId();
@@ -69,6 +70,8 @@ export function WorldEditor({ life }: { life: PersonaLife }) {
           <TabsTrigger value="people">Люди ({draft.people.length})</TabsTrigger>
           <TabsTrigger value="hobbies">Увлечения ({draft.hobbies.length})</TabsTrigger>
           <TabsTrigger value="places">Места ({draft.places.length})</TabsTrigger>
+          <TabsTrigger value="look">Облик</TabsTrigger>
+          <TabsTrigger value="home">Дом ({draft.home.rooms.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="routine">
           <RowsEditor title="Распорядок" rows={draft.routine} columns={ROUTINE_COLUMNS} onChange={set('routine')}
@@ -85,6 +88,12 @@ export function WorldEditor({ life }: { life: PersonaLife }) {
         <TabsContent value="places">
           <RowsEditor title="Места" rows={draft.places} columns={PLACE_COLUMNS} onChange={set('places')}
             newRow={newPlace} addLabel="Добавить место" emptyText="Мест нет." />
+        </TabsContent>
+        <TabsContent value="look">
+          <LookEditor look={draft.look} onChange={set('look')} />
+        </TabsContent>
+        <TabsContent value="home">
+          <HomeEditor home={draft.home} onChange={set('home')} />
         </TabsContent>
       </Tabs>
       {errors.length > 0 && <InlineError>{errors.join('; ')}</InlineError>}

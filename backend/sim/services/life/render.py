@@ -116,6 +116,28 @@ def world_lines(life: PersonaLife) -> list[str]:
             kind = f" ({one_line(place.kind)})" if place.kind.strip() else ""
             what = f": {one_line(place.details)}" if place.details.strip() else ""
             lines.append(f"- {place.name}{kind}{what}")
+    return lines + home_lines(life)
+
+
+LOOK_NAMES = {"nails": "маникюр", "earrings": "серьги", "jewelry": "украшения и часы",
+              "hair": "укладка", "other": "ещё"}
+
+
+def home_lines(life: PersonaLife) -> list[str]:
+    """Her constant details and her one apartment: what she says about them in chat matches
+    what her photos show (docs/persona-life.md, «Облик и дом»)."""
+    lines: list[str] = []
+    details = life.look.details()
+    if details:
+        lines.append("Твои постоянные детали (так на всех фото): "
+                     + "; ".join(f"{LOOK_NAMES[key]} — {value}" for key, value in details))
+    home = life.home
+    if home.details.strip() or home.rooms:
+        flat = f": {one_line(home.details)}" if home.details.strip() else ""
+        lines.append(f"Твоя квартира (всегда одна и та же){flat}")
+        for room in home.rooms:
+            what = f": {one_line(room.details)}" if room.details.strip() else ""
+            lines.append(f"- {room.name}{what}")
     return lines
 
 

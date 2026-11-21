@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { DayEvent, PersonaLife } from '@/lib/types';
 import {
-  addDays, currentEventIndex, dayErrors, dayTitle, daysLabel, joinNames, newDayEvent, newRoutineSlot, sameJson, span,
+  addDays, currentEventIndex, dayErrors, dayTitle, daysLabel, EMPTY_LIFE, EMPTY_LOOK, joinNames, newDayEvent, newRoutineSlot, sameJson,
+  span,
   splitNames, toMinutes, toggleDay, worldErrors,
 } from './life-logic';
 
@@ -41,14 +42,17 @@ describe('checks before saving', () => {
       people: [{ name: ' ', relation: '', traits: '', contact: '', notes: '' }],
       hobbies: [],
       places: [],
+      look: EMPTY_LOOK,
+      home: { details: '', rooms: [{ name: '', details: 'кровать' }] },
     };
     expect(worldErrors(life)).toEqual([
       'Распорядок, строка 1: выберите дни',
       'Распорядок, строка 1: что она делает',
       'Распорядок, строка 2: начало и конец совпадают',
       'Люди, строка 1: укажите название',
+      'Комнаты, строка 1: укажите название',
     ]);
-    expect(worldErrors({ routine: [{ ...newRoutineSlot(), activity: 'кофе' }], people: [], hobbies: [], places: [] })).toEqual([]);
+    expect(worldErrors({ ...EMPTY_LIFE, routine: [{ ...newRoutineSlot(), activity: 'кофе' }] })).toEqual([]);
   });
 
   it('day: order, overlaps and midnight', () => {
