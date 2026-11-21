@@ -106,6 +106,8 @@ async def test_an_answered_call_is_bridged_transcribed_and_recorded(db, sessions
     ({"live_model": ""}, {}, "no live model"),
     ({"client_ai": False}, {}, "AI is off for this client"),
     ({"chat_ai": False}, {}, "AI is off in this chat"),
+    # The AI gate is the same as for messages: a chat waiting for an operator is silent.
+    ({"needs_operator": True}, {}, "the chat waits for an operator"),
 ])
 async def test_calls_she_must_not_take_are_declined_and_recorded(db, sessions, clock, seed,
                                                                  config, reason):
@@ -237,7 +239,7 @@ def test_refuse_reason_order():
     persona = SimpleNamespace(id=1, is_active=True, ai_enabled=True, calls_enabled=True,
                               agents=LIVE)
     client = SimpleNamespace(ai_enabled=True)
-    chat = SimpleNamespace(ai_enabled=True, persona_id=1)
+    chat = SimpleNamespace(ai_enabled=True, persona_id=1, needs_operator=False)
     off = "persona AI is off (or the persona is archived)"
     assert refuse_reason(calls_enabled=True, persona=persona, client=client, chat=chat) is None
     assert refuse_reason(calls_enabled=True, persona=SimpleNamespace(
@@ -251,6 +253,17 @@ def test_refuse_reason_order():
     assert refuse_reason(calls_enabled=True, persona=other, client=client, chat=chat) == off
     assert refuse_reason(calls_enabled=True, persona=persona, client=None,
                          chat=chat) == "AI is off for this client"
+    waiting = SimpleNamespace(ai_enabled=True, persona_id=1, needs_operator=True)
+    assert refuse_reason(calls_enabled=True, persona=persona, client=client,
+                         chat=waiting) == "the chat waits for an operator"
+    # The AI gate comes before her own call settings: a call-less persona in a chat waiting
+    # for an operator is declined for the operator.
+    no_calls = SimpleNamespace(id=1, is_active=True, ai_enabled=True, calls_enabled=False,
+                               agents=LIVE)
+    assert refuse_reason(calls_enabled=True, persona=no_calls, client=client,
+                         chat=waiting) == "the chat waits for an operator"
+    assert refuse_reason(calls_enabled=False, persona=persona, client=client,
+                         chat=waiting) == "calls are disabled (SIM_CALLS_ENABLED)"
 
 
 def test_fake_context_matches_the_shared_contract():

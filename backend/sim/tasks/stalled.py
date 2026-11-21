@@ -1,8 +1,9 @@
 """Jobs a stopped worker left half-done (docs/deploy.md, «Оборванные задачи»).
 
 A deploy stops the worker; a job that was running then stays `doing` for ever: a phone check
-that never ends keeps the persona from looking at her phone, and a job holding a `lock` (the
-passport of a chat) blocks every later job with the same lock. Found 2026-11-21: Marina did
+that never ends keeps the persona from looking at her phone (its `phone:<persona>` lock holds
+back her next checks), and a job holding a `lock` (the passport of a chat) blocks every later
+job with the same lock. Found 2026-11-21: Marina did
 not answer for 12 minutes after a deploy.
 
 Every minute the worker asks Procrastinate for jobs of the `agent` queue whose worker is gone or
@@ -23,6 +24,7 @@ from sim.tasks.queue import (
     AGENT_QUEUE,
     ATTENTION_TICK_TASK,
     LIFE_TICK_TASK,
+    LOOK_TASK,
     MEMORY_TASK,
     MEMORY_TICK_TASK,
     NIGHT_TASK,
@@ -39,7 +41,7 @@ log = logging.getLogger(__name__)
 
 RESTARTABLE = frozenset({
     REPLY_TASK, UNDERSTAND_TASK, MEMORY_TASK, PASSPORT_TASK, PLAN_DAY_TASK, PHONE_CHECK_TASK,
-    LIFE_TICK_TASK, ATTENTION_TICK_TASK, STALLED_TASK, NIGHT_TASK, SUMMARIZE_DAY_TASK,
+    LOOK_TASK, LIFE_TICK_TASK, ATTENTION_TICK_TASK, STALLED_TASK, NIGHT_TASK, SUMMARIZE_DAY_TASK,
     MEMORY_TICK_TASK,
 })
 

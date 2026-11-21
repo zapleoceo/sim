@@ -126,6 +126,26 @@ async def test_her_phone_check_is_queued_when_ai_is_on(db: AsyncSession, deps: D
     assert chat.unread_count == 2
 
 
+async def test_a_chat_waiting_for_an_operator_asks_for_no_check(db: AsyncSession, deps: Deps,
+                                                               fakes: Fakes,
+                                                               clock: FixedClock) -> None:
+    """The AI gate (sim/domain/ai_gate.py): she is silent until «Оператор разобрался», which
+    then wakes the chat itself (services/ai_switch)."""
+    ch = await channel(db)
+    inbox = Inbox(deps)
+    await inbox.ingest(inbound(ch.id, clock, external_id="1"))
+    [client] = await all_rows(db, select(Client))
+    client.ai_enabled = True
+    chat = await the_chat(db)
+    chat.needs_operator = True
+    await db.flush()
+
+    await inbox.ingest(inbound(ch.id, clock, external_id="2"))
+
+    assert fakes.tasks.calls == []
+    assert (await the_chat(db)).unread_count == 2
+
+
 async def test_attachment_goes_to_the_library_and_is_understood(db: AsyncSession, deps: Deps,
                                                                 fakes: Fakes,
                                                                 clock: FixedClock) -> None:
