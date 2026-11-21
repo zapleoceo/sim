@@ -40,8 +40,7 @@ IDENTITY_BOUNDARY = (
 )
 
 REPAIR_NUDGE = "Повтори полный JSON-ответ по фактам разговора (тип: {code})."
-
-NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
+GUARD_ADVICE_NOTE = "Рекомендации контролёра, учти их:"
 
 # ---- 2. persona reply: the dynamic context ----------------------------------------------------
 ROUTINE_HEADER = (
@@ -186,6 +185,8 @@ reply пуст, send_at null, plan_reason объясняет почему. Не 
 REENGAGEMENT_NO_REPLY = ("После прошлого контакта человек не ответил. Оцени контекст заново, "
                          "но не отправляй ещё сообщение: reply пустой, send_at null. "
                          "Передача оператору и отказ от контакта по-прежнему допустимы.")
+REENGAGEMENT_GUARD_FEEDBACK = ("Контролёр отклонил черновик: {feedback}. Пересоздай полный JSON, "
+                               "включая send_at, plan_reason и управляющие поля.")
 
 # ---- 6. photos and video notes ----------------------------------------------------------------
 NO_MEDIA = (
@@ -256,7 +257,7 @@ DEFAULTS: Mapping[str, str] = {
     "unified_boundaries": UNIFIED_BOUNDARIES,
     "identity_boundary": IDENTITY_BOUNDARY,
     "repair_nudge": REPAIR_NUDGE,
-    "neutral_handoff_reply": NEUTRAL_HANDOFF_REPLY,
+    "guard_advice_note": GUARD_ADVICE_NOTE,
     "routine_header": ROUTINE_HEADER,
     "facts_header": FACTS_HEADER,
     "delay_pause_note": DELAY_PAUSE_NOTE,
@@ -287,6 +288,7 @@ DEFAULTS: Mapping[str, str] = {
     "followup_event": FOLLOWUP_EVENT,
     "reengagement_instruction": REENGAGEMENT_INSTRUCTION,
     "reengagement_no_reply": REENGAGEMENT_NO_REPLY,
+    "reengagement_guard_feedback": REENGAGEMENT_GUARD_FEEDBACK,
     "media_none": NO_MEDIA,
     "media_brief": MEDIA_BRIEF,
     "media_report": MEDIA_REPORT,

@@ -21,7 +21,7 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import Author, ClientStatus, Delivery, Direction, SessionStatus
 from sim.services import instructions, jobkinds
-from sim.services.guard import GuardError
+from sim.services.guard import GUARD_WORKFLOW, OK, GuardError, GuardOutcome
 from sim.services.prompt import extract_json_object, one_line
 from sim.services.reply_schedule import Incoming, answers_at_once, plan_reply, rules_from
 
@@ -134,7 +134,7 @@ class ReengagementService:
         return True
 
     async def analyze(self, dialog_id: int, revision: int, conversation: ConversationService) -> str:
-        from sim.services.conversation import history_turns, with_persona_facts
+        from sim.services.conversation import history_turns
 
         if not await try_lock(self.session, NS_REPLY, dialog_id):
             raise GuardError("dialog generation busy")
@@ -170,14 +170,16 @@ class ReengagementService:
         if not can_contact:
             ctx = replace(ctx, instruction=ctx.instruction
                           + "\n" + instructions.text("reengagement_no_reply"))
-        base_ctx, feedback, previous_draft = ctx, "", ""
+        base_ctx, feedback = ctx, ""
         for _attempt in range(2):
             ctx = replace(base_ctx, now=self.clock())
             prompt = await conversation.prompt(persona, strategy, history, ctx, whole_history=True)
             if feedback:
-                prompt = [*prompt, {"role": "assistant", "content": previous_draft},
-                          {"role": "system", "content": "Контролёр отклонил черновик: " + feedback
-                           + ". Пересоздай полный JSON, включая send_at, plan_reason и управляющие поля."}]
+                # The remarks only, never the rejected draft as her turn: a request must not end
+                # with a model turn (Gemini rejects it), and a rejected text is not history.
+                prompt = [*prompt,
+                          {"role": "system",
+                           "content": instructions.fill("reengagement_guard_feedback", feedback=feedback)}]
             decision, result = await conversation.ask(prompt, persona, workflow="reengagement", dialog_id=dialog_id)
             obj = extract_json_object(result.text) or {}
             if decision is None:
@@ -193,14 +195,21 @@ class ReengagementService:
                 cfg = await conversation.config()
                 at = plan_reply(at, persona.routine, persona.timezone, [Incoming("", at)],
                                 rules_from(cfg), marked_urgent=answers_at_once(dialog, cfg)).at
-            if decision.reply or control:
-                # The text is checked for the moment it goes out; a bare control decision for now.
-                ctx = with_persona_facts(persona, replace(ctx, now=at or self.clock()))
-                guard = await conversation.review(strategy, history, decision, result, ctx, dialog_id)
-            if guard is None or guard.allowed:
+            if not (decision.reply or control):
                 break
-            previous_draft = result.text[:4000]
+            if feedback:   # the rewrite after the guard's remarks goes ahead, remarks recorded
+                guard = GuardOutcome(OK, decision.reply, [feedback], None)
+                break
+            # The guard advises on the text for the moment it goes out (a bare control decision
+            # for now); its outage holds nothing.
+            ctx = replace(ctx, now=at or self.clock())
+            guard = await conversation.advise(persona, strategy, history, decision, result, ctx,
+                                              dialog_id, GUARD_WORKFLOW)
+            if guard.allowed:
+                break
             feedback = one_line("; ".join(guard.violations) or "Решение отклонено", 500)
+        if guard is not None:
+            guard = replace(guard, verdict=OK)
         await lock(self.session, NS_DIALOG, dialog_id)
         dialog = await conversation.reload(dialog_id)
         await self.session.refresh(persona)
@@ -209,11 +218,11 @@ class ReengagementService:
             return "superseded"
         plan = {**contact, "revision": revision, "signature": sig, "reason": reason, "text": "",
                 "at": None, "status": "no_send", "analyzed_at": self.clock().isoformat() + "Z"}
-        if guard is not None and guard.allowed and control and not decision.reply and not guard.text:
+        if guard is not None and control and not decision.reply:
             await conversation.apply_control(dialog, decision, guard)
             plan.update(revision=dialog.activity_revision, signature=signature(dialog, persona),
                         reason=decision.handoff_reason or reason)
-        elif guard is not None and guard.allowed and at is not None:
+        elif guard is not None and at is not None:
             if control:
                 return (await conversation.apply(dialog, persona, strategy, decision, result, guard,
                                                   followup=True)).status
@@ -230,8 +239,6 @@ class ReengagementService:
                             status="scheduled", message_id=message.id)
                 job = await self.jobs.pending_by_key(jobkinds.send_key(message.id))
                 job.payload = {**job.payload, "reengagement_revision": dialog.activity_revision}
-        elif guard is not None:
-            plan.update(status="blocked", reason="; ".join(guard.violations))
         dialog.reengagement_plan = plan
         return str(plan["status"])
 

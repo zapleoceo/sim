@@ -230,19 +230,27 @@ that some speech may not have played; unconnected attempts and causes stay in
 audit. Actual delivered conversation remains intact. Known system
 boilerplate is projected out of derived passport/summary text without rewriting
 stored data. Standalone internal next-step assignments to transfer or pause AI
-are omitted at read time; mixed steps and participant quotes stay intact. A rejected reply is regenerated from clean context and a bounded
-repair category, not a previous unapproved draft or free-form guard explanation.
-The new draft is checked again. Superseded attempts still send nothing, and their
+are omitted at read time; mixed steps and participant quotes stay intact. A draft the guard
+objected to is rewritten from clean context plus the guard's remarks as recommendations,
+never the previous draft itself (see «Guard advises»). Superseded attempts still send nothing, and their
 worker detail now distinguishes a revision change from a newer inbound ID.
 
-### Guard independence preserves objections
+### Guard advises, it never blocks
 
-A primary guard objection (block, legacy rewrite or contradictory ok) returns to
-the generator even when that guard used the generator's model. Only a clean ok
-requires a second independent rotation. Its approval cannot erase an earlier
-objection. A repaired complete decision is checked anew before any send or handoff.
-Regression coverage uses synthetic media-refusal decisions and both verdict orders;
-no live models or channel messages are used.
+Every AI reply (chat, follow-up, preview, simulator) is reviewed once. A clean `ok`
+goes out as is. With remarks (block, legacy rewrite or a contradictory ok, also from
+the generator's own model, which is never overruled by another rotation) she rewrites
+ONCE with the remarks as recommendations, and that rewrite is sent without a second
+blocking review; the remarks stay recorded on the message (`guard_verdict` ok,
+`guard_violations`). A guard that fails or returns no usable verdict holds nothing: the
+draft goes out with the note «контролёр недоступен…». There is no canned reply and no
+operator handoff because of the guard. Only a model that gives no usable reply twice
+hands the dialog to the operator; nothing is sent to the client then. Silence
+reengagement follows the same rule through `ConversationService.advise`: its text is advised
+for the moment it is scheduled, rewritten once on remarks and not reviewed again when the
+send job delivers it (that job checks only the plan: same revision, still eligible, on
+time). The repair request carries only the remarks, not the rejected draft as her turn.
+Phone calls keep their own review.
 
 Guard and passport use the shared `LLMResult.truncated` property for provider endings
 `length` and `max_tokens` (case/whitespace normalized without changing audit metadata).
@@ -444,11 +452,11 @@ API и воркера) публикует тексты (`instructions.publish`),
 
 | Группа | Ключи → где применяется |
 |---|---|
-| 1. Ответ в чате: правила | `link_contract`, `unified_boundaries`, `output_contract`, `identity_boundary` — системный промпт ответа (и звонка, кроме формата); `retry_nudge` — повтор при неразобранном JSON; `repair_nudge` — вторая попытка после отклонения; `neutral_handoff_reply` — ответ клиенту при передаче оператору |
+| 1. Ответ в чате: правила | `link_contract`, `unified_boundaries`, `output_contract`, `identity_boundary` — системный промпт ответа (и звонка, кроме формата); `retry_nudge` — повтор при неразобранном JSON; `repair_nudge`, `guard_advice_note` — вторая попытка после неразобранного ответа или замечаний охранника |
 | 2. Ответ в чате: контекст | `routine_header`, `facts_header`, `delay_pause_note`, `delay_routine_hint`, `delay_pause_hint`, `context_header`, `known_contact_rule`, `handoff_links_header`, `contact_profile_note`, `contact_photo_note`, `passport_header`, `summary_header`, `journal_header`, `history_trimmed`, `attachment_note`, `attachment_failed_note` — заголовки и правила блоков динамического контекста и вложений |
 | 3. Звонок | `call_rules`, `call_identity`, `call_greeting`, `call_history_header`, `call_history_trimmed`, `call_issue_fact` — промпт голосовой модели, первая реплика, факт журнала о сбое звонка |
 | 4. Проверка охранником | `guard_control`, `guard_fact_control`, `guard_voice_control`, `guard_media_control`, `guard_identity_rule` — после `guard_prompt` («Помощники»); последнее правило начинается с `identity_boundary` |
-| 5. Напоминания и продолжения | `followup_event` — плановое напоминание; `reengagement_instruction`, `reengagement_no_reply` — план продолжения после тишины |
+| 5. Напоминания и продолжения | `followup_event` — плановое напоминание; `reengagement_instruction`, `reengagement_no_reply`, `reengagement_guard_feedback` — план продолжения после тишины |
 | 6. Фото и кружочки | `media_none`, `media_brief`, `media_report`, `media_priority`, `media_earlier` — контекст ответа; `neutral_media_scene`, `photo_frame`, `video_note_frame`, `shot_person`, `shot_light`, `shot_rules` — запрос модели фото/кружочка |
 | 7. Вложения и подписи постов | `vision_prompt` — описание картинки в превью; `caption_intro`, `caption_rules`, `caption_request`, `caption_default_idea` — подпись поста Instagram |
 

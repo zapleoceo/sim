@@ -317,16 +317,16 @@ async def test_guard_rewrite_requires_a_fresh_model_decision(container, fake_llm
         decision_json(reply="Хорошо", media=ASK),
         decision_json(reply="Я на кухне", media=ASK),
     ]
-    fake_llm.guard_replies = [guard_json("rewrite", fixed="Я на кухне"), guard_json()]
+    fake_llm.guard_replies = [guard_json("rewrite", fixed="Я на кухне")]
     await run_reply(container)
     reviewed = [json.loads(call[0][-1]["content"])["decision"]["media"]["scene"]
                 for call in fake_llm.guard_calls]
-    assert reviewed == [NEUTRAL_MEDIA_SCENE, SCENE]
+    assert reviewed == [NEUTRAL_MEDIA_SCENE]          # the rewrite goes out unreviewed
     (job,) = await media_jobs(container)
     assert job.payload["scene"] == SCENE
 
 
-@pytest.mark.parametrize("disposition", ["decline", "later", "handoff", "guard"])
+@pytest.mark.parametrize("disposition", ["decline", "later", "handoff"])
 async def test_generic_request_does_not_open_media_when_existing_control_stops_it(
     container, world, fake_llm, studio, disposition,
 ):
@@ -335,11 +335,8 @@ async def test_generic_request_does_not_open_media_when_existing_control_stops_i
         first.text = "Пришли фото"
     if disposition in {"decline", "later"}:
         raw = decision_json(media={"kind": "photo", "decision": disposition, "reason": "Не сейчас"})
-    elif disposition == "handoff":
-        raw = decision_json(media=ASK, handoff_to_operator=True, handoff_reason="Нужен оператор")
     else:
-        raw = decision_json(media=ASK)
-        fake_llm.guard_replies = [guard_json("block", ["неверно"])] * 2
+        raw = decision_json(media=ASK, handoff_to_operator=True, handoff_reason="Нужен оператор")
     fake_llm.replies = [raw, raw]
     await run_reply(container)
     assert not await media_jobs(container)

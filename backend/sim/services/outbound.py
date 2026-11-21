@@ -187,29 +187,6 @@ class OutboundService:
         )
         return message
 
-    async def store_blocked(
-        self, dialog: Dialog, result: LLMResult | None, guard: GuardOutcome
-    ) -> Message:
-        """The guard blocked the draft: keep it for the operator, never send it. The message does
-        not touch the dialog preview / unread counters and has no SEND job."""
-        message = Message(
-            dialog_id=dialog.id,
-            direction=Direction.OUT,
-            author=Author.AI,
-            text=guard.text,
-            delivery=Delivery.CANCELLED,
-            error=("blocked by the guard: " + "; ".join(guard.violations))[:500],
-            created_at=self.clock(),
-            model=result.model if result else None,
-            provider=result.provider if result else None,
-            tokens_in=result.tokens_in if result else None,
-            tokens_out=result.tokens_out if result else None,
-            cost_usd=result.cost_usd if result else None,
-            **guard_fields(guard),
-        )
-        await self.messages.add(message)
-        return message
-
     async def send_manual(
         self, dialog: Dialog, operator_id: int, text: str, *, request_id: str | None = None,
         media_kind: str | None = None, media_url: str | None = None,

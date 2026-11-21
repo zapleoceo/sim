@@ -227,37 +227,36 @@ async def test_debug_off_hides_the_footer(api, container, tg, world, fake_llm):
     assert "включена" in tg.last_text()
 
 
-async def test_guard_block_shows_the_draft_and_violations(api, container, tg, world, fake_llm):
+async def test_guard_remarks_are_recorded_on_the_rewrite(api, container, tg, world, fake_llm):
     await start_branch(api, container, world)
-    fake_llm.replies = [decision_json(reply="Заработаете миллион за месяц!")] * 2
-    fake_llm.guard_replies = [guard_json("block", ["обещает доход"])] * 2
+    fake_llm.replies = [decision_json(reply="Заработаете миллион за месяц!"),
+                        decision_json(reply="Всё зависит от вас")]
+    fake_llm.guard_replies = [guard_json("block", ["обещает доход"])]
     await send(api, container, msg_update("Сколько заработаю?"))
     await run_jobs(container)
-    answer = tg.last_text()
-    assert "заблокировал" in answer and "Заработаете миллион за месяц!" in answer
-    assert "обещает доход" in answer and "guard: заблокировано" in answer
+    assert tg.last_text().startswith("Всё зависит от вас")
     async with container.factory() as s:
         ai = (await s.scalars(select(SimMessage).where(SimMessage.role == "ai"))).one()
-    assert ai.guard_verdict == "blocked" and ai.guard_violations == ["обещает доход"]
+    assert ai.guard_verdict == "ok" and ai.guard_violations == ["обещает доход"]
 
 
 async def test_simulation_guard_objection_returns_to_generator(api, container, tg, world, fake_llm):
     await start_branch(api, container, world)
     fake_llm.replies = [decision_json(reply="Точно заработаете"),
                         decision_json(reply="Многое зависит от вас")]
-    fake_llm.guard_replies = [guard_json("rewrite", ["обещание"], "Текст контролёра."),
-                              guard_json("ok")]
+    fake_llm.guard_replies = [guard_json("rewrite", ["обещание"], "Текст контролёра.")]
     await send(api, container, msg_update("Сколько заработаю?"))
     await run_jobs(container)
     assert tg.last_text().startswith("Многое зависит от вас")
     assert "guard: ok" in tg.last_text()
-    assert len(fake_llm.gen_calls) == len(fake_llm.guard_calls) == 2
+    assert len(fake_llm.gen_calls) == 2 and len(fake_llm.guard_calls) == 1
 
 
-async def test_a_blocked_draft_is_not_part_of_the_next_prompt(api, container, tg, world, fake_llm):
+async def test_a_rejected_draft_is_not_part_of_the_next_prompt(api, container, tg, world, fake_llm):
     await start_branch(api, container, world)
-    fake_llm.replies = [decision_json(reply="ЧЕРНОВИК-БЛОК")] * 2 + [decision_json(reply="ок")]
-    fake_llm.guard_replies = [guard_json("block", ["x"])] * 2
+    fake_llm.replies = [decision_json(reply="ЧЕРНОВИК-БЛОК"), decision_json(reply="исправлено"),
+                        decision_json(reply="ок")]
+    fake_llm.guard_replies = [guard_json("block", ["x"])]
     await send(api, container, msg_update("раз"))
     await run_jobs(container)
     await send(api, container, msg_update("два"))
@@ -413,7 +412,7 @@ async def test_webhook_registration_failure_is_logged_without_the_token(containe
 async def test_simulations_api_lists_and_shows_transcripts(api, container, tg, world, fake_llm):
     await start_branch(api, container, world)
     fake_llm.replies = [decision_json(reply="Привет"), decision_json(reply="Привет!")]
-    fake_llm.guard_replies = [guard_json("rewrite", ["тон"], "Текст контролёра."), guard_json("ok")]
+    fake_llm.guard_replies = [guard_json("rewrite", ["тон"], "Текст контролёра.")]
     await send(api, container, msg_update("здравствуйте"))
     await run_jobs(container)
     csrf = await login(api, OWNER[0])
@@ -427,7 +426,7 @@ async def test_simulations_api_lists_and_shows_transcripts(api, container, tg, w
     assert [m["role"] for m in detail["messages"]] == ["client", "ai"]
     ai = detail["messages"][1]
     assert ai["model"] == "fake-model" and ai["guard"]["verdict"] == "ok"
-    assert ai["guard"]["original_text"] is None and ai["guard"]["violations"] == []
+    assert ai["guard"]["original_text"] is None and ai["guard"]["violations"] == ["тон"]
     assert (await api.get("/api/simulations/9999")).status_code == 404
 
 
