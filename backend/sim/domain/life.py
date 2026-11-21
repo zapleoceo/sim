@@ -115,6 +115,41 @@ class Place(_Strict):
     details: str = Field(default="", max_length=1000)
 
 
+Detail = Annotated[str, Field(max_length=300)]
+
+
+class Look(_Strict):
+    """The constant details of her look, the same on every photo and video until the owner
+    changes them (docs/persona-life.md, «Облик и дом»). Free text, any language."""
+
+    nails: Detail = ""          # colour, shape and length of the manicure
+    earrings: Detail = ""
+    jewelry: Detail = ""        # rings, necklace, watch, bracelets
+    hair: Detail = ""           # usual styling, clips, hair ties
+    other: Detail = ""          # glasses, tattoos, a scar, perfume bottle on the shelf, ...
+
+    def details(self) -> list[tuple[str, str]]:
+        """(field, value) of the filled details, in a fixed order."""
+        return [(key, " ".join(value.split())) for key, value in self.model_dump().items()
+                if value.strip()]
+
+
+class Room(_Strict):
+    """One room of her apartment, described once so every picture of it is the same room."""
+
+    name: Name
+    details: str = Field(default="", max_length=1000)
+
+
+class Home(_Strict):
+    """Her own apartment: always the same place (owner: «чтобы не было ощущения, что она
+    вечно в новом помещении»). `details` — the whole flat; `rooms` — each room. The first room
+    is where she is at home when nothing points to another room."""
+
+    details: str = Field(default="", max_length=1000)
+    rooms: list[Room] = Field(default_factory=list, max_length=12)
+
+
 class PersonaLife(_Strict):
     """`persona.life`. Empty is valid: then there is no routine and nothing to plan from."""
 
@@ -122,6 +157,8 @@ class PersonaLife(_Strict):
     people: list[Person] = Field(default_factory=list, max_length=60)
     hobbies: list[Hobby] = Field(default_factory=list, max_length=40)
     places: list[Place] = Field(default_factory=list, max_length=40)
+    look: Look = Field(default_factory=Look)
+    home: Home = Field(default_factory=Home)
 
     @property
     def empty(self) -> bool:

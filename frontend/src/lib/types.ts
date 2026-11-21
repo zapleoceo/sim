@@ -479,11 +479,33 @@ export interface Place {
   details: string;
 }
 
+/** Constant details of her look (sim/domain/life.Look). */
+export interface Look {
+  nails: string;
+  earrings: string;
+  jewelry: string;
+  hair: string;
+  other: string;
+}
+
+export interface Room {
+  name: string;
+  details: string;
+}
+
+/** Her one apartment (sim/domain/life.Home). */
+export interface Home {
+  details: string;
+  rooms: Room[];
+}
+
 export interface PersonaLife {
   routine: RoutineSlot[];
   people: LifePerson[];
   hobbies: Hobby[];
   places: Place[];
+  look: Look;
+  home: Home;
 }
 
 export type ArcStatus = 'active' | 'paused' | 'done';

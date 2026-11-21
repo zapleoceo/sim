@@ -6,7 +6,10 @@ What the picture shows comes from code, not from the reply model:
 - where, in what clothes, in what light, who is around: the scene card of this moment;
 - how it is taken: the shot type chosen by code (`choose_shot`);
 - continuity: the latest photos of the same event are extra references, «same room, same
-  clothes as this photo».
+  clothes as this photo»;
+- her constant details (`persona.life.look`: nails, earrings, jewellery…) on every picture;
+- her home is one apartment: the room's description and its earlier photos as references
+  («the same room»), so she is never in a new flat (sim/services/life/home.py).
 The reply model's own `prompt` is used only for her pose, action, expression and mood; it can
 not move her to another place or change her clothes. Explicit negatives forbid a second phone
 and extra hands (seen in production)."""
@@ -15,11 +18,12 @@ from __future__ import annotations
 from typing import Literal
 
 from sim.domain.activity import after_sport, cannot_film, hands_busy, on_the_move
-from sim.domain.life import Ambience, BusyLevel
+from sim.domain.life import Ambience, BusyLevel, Home, Look, Room
 from sim.domain.scene import Camera, CameraHold, Light, SceneCard, ShotType
 
 APPEARANCE_REFS = 4
 CONTINUITY_REFS = 2
+ROOM_REFS = 2
 LANGUAGE_NAMES = {"ru": "Russian", "uk": "Ukrainian", "en": "English", "de": "German",
                   "es": "Spanish", "fr": "French", "it": "Italian", "pl": "Polish"}
 
@@ -119,6 +123,20 @@ CONTINUITY = ("Reference image(s) {first}–{last}: the same room and the same c
 CONTINUITY_CLOTHES = (
     "Reference image(s) {first}–{last}: the same clothes as in this photo (she is somewhere "
     "else now) — keep the outfit exactly as there.")
+LOOK_LABELS = {"nails": "nails (manicure)", "earrings": "earrings",
+               "jewelry": "jewellery and watch", "hair": "hair styling", "other": "also"}
+LOOK_LINE = ("Constant details, exactly the same on every photo and video of her — do not "
+             "change, add or remove them: {details}.")
+LOOK_SAME = ("Her manicure, earrings and jewellery are exactly the same as in the reference "
+             "images; do not invent new ones.")
+VIDEO_LOOK = ("Her manicure, earrings and jewellery stay exactly as in the first frame"
+              "{details}.")
+HOME_PLACE_LINE = ("Place: her own apartment — {room}{room_details}. The apartment: "
+                   "{home}.")
+ROOM_REFS_LINE = (
+    "Reference image(s) {first}–{last}: this same room of her apartment — keep the walls, "
+    "floor, furniture, windows, textiles and decor exactly as there; take only the room from "
+    "them, not her clothes or pose.")
 FIXED_SCENE = ("The place, the clothes and the light above are fixed; ignore any other place "
                "or clothes mentioned in the pose line.")
 NEGATIVE = ("Avoid: a second phone, a phone in the other hand, extra hands or fingers, a "
@@ -158,10 +176,28 @@ def choose_shot(scene: SceneCard | None, hint: str, *, spoken: bool) -> ShotType
     return ShotType.FRONT_SELFIE
 
 
-def _scene_lines(scene: SceneCard, shot: ShotType, *, video: bool) -> list[str]:
+def look_text(look: Look | None) -> str:
+    """«nails (manicure): short almond, nude-pink; earrings: small gold hoops»."""
+    if look is None:
+        return ""
+    return "; ".join(f"{LOOK_LABELS[key]}: {value}" for key, value in look.details())
+
+
+def _place_line(scene: SceneCard, room: Room | None, home: Home | None) -> str:
+    if room is not None:
+        details = " ".join(room.details.split())
+        flat = " ".join(home.details.split()) if home is not None else ""
+        return HOME_PLACE_LINE.format(room=room.name,
+                                      room_details=f": {details}" if details else "",
+                                      home=flat or scene.place_details or "the same as always")
     where = scene.place + (f" — {scene.place_details}" if scene.place_details else "")
+    return f"Place: {where}."
+
+
+def _scene_lines(scene: SceneCard, shot: ShotType, *, video: bool, room: Room | None = None,
+                 home: Home | None = None) -> list[str]:
     light = LIGHT_WORDS[scene.light][0 if scene.indoors else 1]
-    lines = [f"Place: {where}.", f"She is: {scene.activity}.",
+    lines = [_place_line(scene, room, home), f"She is: {scene.activity}.",
              f"She wears: {scene.outfit} — exactly this outfit.", f"Light: {light}."]
     if scene.with_whom and shot != ShotType.TAKEN_BY_OTHER:
         lines.append(f"With her now: {', '.join(scene.with_whom)} (they may stay out of frame).")
@@ -173,24 +209,33 @@ def _scene_lines(scene: SceneCard, shot: ShotType, *, video: bool) -> list[str]:
 def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: ShotType,
                  appearance: str = "", identity_refs: int = 0, continuity_refs: int = 0,
                  speech: str = "", language: str = "", round_note: bool = False,
-                 camera: Camera | None = None, continuity_same_place: bool = True) -> str:
+                 camera: Camera | None = None, continuity_same_place: bool = True,
+                 look: Look | None = None, room: Room | None = None, home: Home | None = None,
+                 room_refs: int = 0) -> str:
     """The Broker prompt: `image` = the photo (also the first frame of a video), `video` = the
-    clip made from that photo."""
+    clip made from that photo. `room` = the room of her apartment (home.home_room), its earlier
+    photos are the last `room_refs` references."""
     action = " ".join(action.split())
+    details = look_text(look)
     if stage == "video":
         return _video(action, scene, shot, speech=speech, language=language,
-                      round_note=round_note, camera=camera or camera_for(scene))
+                      round_note=round_note, camera=camera or camera_for(scene),
+                      details=details, room=room, home=home)
     lines = [IDENTITY.format(n=identity_refs) if identity_refs else "A photo of a young woman."]
     if appearance.strip():
         lines.append(f"Her appearance (keep exactly): {' '.join(appearance.split())}")
+    lines.append(LOOK_LINE.format(details=details) if details else LOOK_SAME)
     who = ", ".join(scene.with_whom) if scene is not None and scene.with_whom else "a friend"
     lines.append(SHOT_LINES[shot].format(who=who))
     if scene is not None:
-        lines += _scene_lines(scene, shot, video=False)
+        lines += _scene_lines(scene, shot, video=False, room=room, home=home)
     if continuity_refs:
         template = CONTINUITY if continuity_same_place else CONTINUITY_CLOTHES
         lines.append(template.format(first=identity_refs + 1,
                                      last=identity_refs + continuity_refs))
+    if room is not None and room_refs:
+        first = identity_refs + continuity_refs + 1
+        lines.append(ROOM_REFS_LINE.format(first=first, last=first + room_refs - 1))
     lines.append(f"Pose, action and expression: {action}")
     lines += realism_lines(scene, video=False)
     if scene is not None:
@@ -200,7 +245,8 @@ def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: Sh
 
 
 def _video(action: str, scene: SceneCard | None, shot: ShotType, *, speech: str, language: str,
-           round_note: bool, camera: Camera) -> str:
+           round_note: bool, camera: Camera, details: str = "", room: Room | None = None,
+           home: Home | None = None) -> str:
     words = " ".join(speech.split())
     # A video note or a video in which she speaks is filmed by her for this person: in her hand,
     # or propped up when her hands are busy (camera_for).
@@ -210,7 +256,8 @@ def _video(action: str, scene: SceneCard | None, shot: ShotType, *, speech: str,
         framing = PHOTO_CONTINUES
     lines = [framing, f"Scene: {action}"]
     if scene is not None:
-        lines += _scene_lines(scene, shot, video=True)
+        lines += _scene_lines(scene, shot, video=True, room=room, home=home)
+    lines.append(VIDEO_LOOK.format(details=f" ({details})" if details else ""))
     if words:
         lines.append(SPEECH_LINE.format(
             language=LANGUAGE_NAMES.get(language, "the chat language"), speech=words))

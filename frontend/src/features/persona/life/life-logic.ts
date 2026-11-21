@@ -1,4 +1,4 @@
-import type { Ambience, BusyLevel, DayEvent, Hobby, LifePerson, PersonaLife, Place, RoutineSlot } from '@/lib/types';
+import type { Ambience, BusyLevel, DayEvent, Hobby, Home, LifePerson, Look, PersonaLife, Place, Room, RoutineSlot } from '@/lib/types';
 
 /** Pure helpers of the «Жизнь» section (docs/frontend.md); mirrors sim/domain/life.py checks. */
 
@@ -84,7 +84,19 @@ export const newDayEvent = (): DayEvent => ({
   ambience: 'quiet_home',
 });
 
-export const EMPTY_LIFE: PersonaLife = { routine: [], people: [], hobbies: [], places: [] };
+export const newRoom = (): Room => ({ name: '', details: '' });
+export const EMPTY_LOOK: Look = { nails: '', earrings: '', jewelry: '', hair: '', other: '' };
+export const EMPTY_HOME: Home = { details: '', rooms: [] };
+export const EMPTY_LIFE: PersonaLife = { routine: [], people: [], hobbies: [], places: [], look: EMPTY_LOOK, home: EMPTY_HOME };
+
+/** The «Облик» fields, in the order of the form. */
+export const LOOK_FIELDS: readonly { key: keyof Look; label: string; placeholder: string }[] = [
+  { key: 'nails', label: 'Маникюр', placeholder: 'короткие миндалевидные, нюдово-розовый лак' },
+  { key: 'earrings', label: 'Серьги', placeholder: 'маленькие золотые кольца' },
+  { key: 'jewelry', label: 'Украшения и часы', placeholder: 'тонкая золотая цепочка, часы на левой руке' },
+  { key: 'hair', label: 'Укладка', placeholder: 'каре, пробор сбоку' },
+  { key: 'other', label: 'Прочее', placeholder: 'очки для чтения, тату, родинка…' },
+];
 
 /** What would make PUT /personas/{id}/life fail, in Russian, before sending it. */
 export function worldErrors(life: PersonaLife): string[] {
@@ -96,7 +108,7 @@ export function worldErrors(life: PersonaLife): string[] {
     else if (slot.start === slot.end) errors.push(`Распорядок, строка ${n}: начало и конец совпадают`);
     if (!slot.activity.trim()) errors.push(`Распорядок, строка ${n}: что она делает`);
   });
-  const named: [string, { name: string }[]][] = [['Люди', life.people], ['Увлечения', life.hobbies], ['Места', life.places]];
+  const named: [string, { name: string }[]][] = [['Люди', life.people], ['Увлечения', life.hobbies], ['Места', life.places], ['Комнаты', life.home.rooms]];
   for (const [title, rows] of named) {
     rows.forEach((row, i) => {
       if (!row.name.trim()) errors.push(`${title}, строка ${i + 1}: укажите название`);

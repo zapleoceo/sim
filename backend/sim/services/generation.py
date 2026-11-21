@@ -5,7 +5,9 @@ appearance references and writes `generation_started`; the `agent.run_generation
 calls `GenerationService.run`. When it starts, the scene of this moment is fixed on the row
 (`generation.scene`, sim/services/life/scene.py) and the prompt is built by ONE function
 (`sim.services.visual.media_prompt`): appearance + scene + shot type + the model's pose line;
-the latest photos of the same event are added as continuity references (docs/persona-life.md).
+the latest photos of the same event are added as continuity references, her constant details
+(`persona.life.look`) go into every prompt, and a picture at home names the room of her one
+apartment with that room's earlier photos as references (docs/persona-life.md, «Облик и дом»).
 - photo: image model with the references -> media library (generated, caption, tags) -> send;
 - video: first a photo by the references (also kept in the library), then the video model
   animates that photo (selfie framing and her exact words when she speaks, the sound of the
@@ -19,7 +21,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, Generation, MediaAsset, Persona
@@ -41,6 +43,7 @@ from sim.domain.scene import Camera, CameraHold, SceneCard
 from sim.events import append_event
 from sim.ports import MediaResult, PortError
 from sim.services.deps import Deps
+from sim.services.life.home import home_room
 from sim.services.life.store import load_life
 from sim.services.llm_log import logged_call
 from sim.services.media_library import add_media, normalize_tags
@@ -49,6 +52,7 @@ from sim.services.presence import show_busy, stop_busy
 from sim.services.visual import (
     APPEARANCE_REFS,
     CONTINUITY_REFS,
+    ROOM_REFS,
     camera_for,
     choose_shot,
     media_prompt,
@@ -97,15 +101,40 @@ async def continuity_ids(session: AsyncSession, persona_id: int, scene: SceneCar
     return list(reversed(list(rows)))
 
 
-async def same_place(session: AsyncSession, media_ids: list[int], scene: SceneCard) -> bool:
-    """True when every continuity photo was taken in the scene's place."""
+async def same_place(session: AsyncSession, media_ids: list[int], scene: SceneCard,
+                     room: str | None = None) -> bool:
+    """True when every continuity photo was taken in the scene's place (at home: in the same
+    room of her apartment)."""
     if not media_ids:
         return False
+    key, value = ("room", room) if room is not None else ("place", scene.place)
     places = set(await session.scalars(
-        select(Generation.scene["place"].astext)
+        select(Generation.scene[key].astext)
         .join(MediaAsset, MediaAsset.generation_id == Generation.id)
         .where(MediaAsset.id.in_(media_ids))))
-    return places == {scene.place}
+    return places == {value}
+
+
+def _room_photo(persona_id: int, room: str, skip: list[int], *,
+                latest: bool) -> Select[tuple[int]]:
+    return (select(MediaAsset.id)
+            .join(Generation, Generation.id == MediaAsset.generation_id)
+            .where(Generation.persona_id == persona_id,
+                   Generation.status == GenerationStatus.DONE,
+                   MediaAsset.kind == MediaKind.PHOTO,
+                   Generation.scene["room"].astext == room,
+                   MediaAsset.id.not_in(skip or [0]))
+            .order_by(MediaAsset.id.desc() if latest else MediaAsset.id)
+            .limit(1))
+
+
+async def room_ids(session: AsyncSession, persona_id: int, room: str,
+                   skip: list[int]) -> list[int]:
+    """Earlier generated photos of this room of her apartment: the FIRST one (it fixed how the
+    room looks) and the latest one, not already among `skip`."""
+    found = [await session.scalar(_room_photo(persona_id, room, skip, latest=latest))
+             for latest in (False, True)]
+    return list(dict.fromkeys(i for i in found if i is not None))[:ROOM_REFS]
 
 
 async def start_generation(session: AsyncSession, *, persona: Persona, chat_id: int | None,
@@ -205,9 +234,14 @@ class GenerationService:
             life = await load_life(session, persona, self.deps.clock.now())
             scene = life.scene() if life.has_life else None
             identity = list(generation.ref_media_ids or [])
-            continuity = (await continuity_ids(session, persona.id, scene)
-                          if scene is not None else [])
-            here = scene is not None and await same_place(session, continuity, scene)
+            room = home_room(life.life.home, scene, generation.prompt)
+            rooms = (await room_ids(session, persona.id, room.name, identity)
+                     if room is not None else [])
+            continuity = [media_id for media_id in (
+                await continuity_ids(session, persona.id, scene) if scene is not None else [])
+                if media_id not in rooms]
+            here = scene is not None and await same_place(
+                session, continuity, scene, room.name if room is not None else None)
             spoken = generation.kind == GenerationKind.VIDEO_NOTE or bool(generation.speech)
             hint = str((generation.scene or {}).get("shot_hint", ""))
             shot = choose_shot(scene, hint, spoken=spoken)
@@ -217,17 +251,19 @@ class GenerationService:
             generation.scene = {**(scene.as_json() if scene is not None else {}),
                                 "shot": shot.value, **({"shot_hint": hint} if hint else {}),
                                 **({"camera": camera.hold.value, "camera_reason": camera.reason}
-                                   if spoken else {})}
-            generation.ref_media_ids = identity + continuity
-            refs = await self._references(session, identity + continuity)
-            prompt_args = {"action": generation.prompt, "scene": scene, "shot": shot}
+                                   if spoken else {}),
+                                **({"room": room.name} if room is not None else {})}
+            generation.ref_media_ids = identity + continuity + rooms
+            refs = await self._references(session, identity + continuity + rooms)
+            prompt_args = {"action": generation.prompt, "scene": scene, "shot": shot,
+                           "look": life.life.look, "room": room, "home": life.life.home}
             return _Job(
                 id=generation.id, kind=generation.kind, persona_id=generation.persona_id,
                 chat_id=generation.chat_id, reply_run_id=generation.reply_run_id,
                 image_prompt=media_prompt(
                     stage="image", appearance=persona.appearance, identity_refs=len(identity),
                     continuity_refs=len(continuity), continuity_same_place=here,
-                    **prompt_args),
+                    room_refs=len(rooms), **prompt_args),
                 video_prompt=media_prompt(
                     stage="video", speech=generation.speech or "",
                     language=persona.language or "",
