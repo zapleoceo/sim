@@ -39,7 +39,7 @@ from sim.domain.enums import (
 from sim.domain.memory import notes_of
 from sim.domain.passport import passport_lines, passport_of
 from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
-from sim.services.capabilities import Capabilities, capabilities_of
+from sim.services.capabilities import Capabilities, capabilities_of, with_camera
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
 from sim.services.context.diary import Diary, load_diary, usable
 from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp
@@ -322,10 +322,11 @@ class ContextBuilder:
             raise ChatNotFound(f"chat {chat_id} has no persona or client")
         now = self.clock.now()
         speakers = speakers_of(persona, client)
-        caps = capabilities_of(persona)
+        state = await load_life(session, persona, now, full=True)
+        caps = with_camera(capabilities_of(persona), state.scene() if state.has_life else None)
         facts = compute_facts(await self._facts_input(session, chat, persona, client, caps))
         card = client_card(client)
-        life = life_blocks(await load_life(session, persona, now, full=True))
+        life = life_blocks(state)
         today = local_day(now, persona.timezone)
         notes = notes_of(chat.day_notes, today)
         diary, days = await load_diary(session, chat.id, today, chat.summary, notes)

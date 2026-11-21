@@ -9,7 +9,12 @@ Telegram message id: a deletion update (which carries ids only, no chat) maps st
 
 Messages of one person are handed to the inbox strictly in arrival order (a per-person lock):
 Telethon runs every update in its own task, and an album or a quick burst must not be stored
-out of order because one photo downloads slower."""
+out of order because one photo downloads slower.
+
+Catch-up: updates that arrive while the process is down (a deploy restart) are never pushed
+again. So on every connect, and then every few minutes, `catch_up` walks the private dialogs
+with unread incoming messages and hands those messages to the inbox too; the inbox ignores
+messages it already has (idempotent by external id)."""
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +29,9 @@ from sim.telegram.peers import is_person, peer_from_user
 log = logging.getLogger(__name__)
 
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
+CATCH_UP_DIALOGS = 50           # the most recent dialogs looked at
+CATCH_UP_PER_DIALOG = 50        # unread incoming messages taken per dialog at most
+CATCH_UP_EVERY_S = 300.0        # a periodic sweep while the account stays connected
 
 DEFAULT_MIME = {
     "photo": "image/jpeg", "voice": "audio/ogg", "video": "video/mp4", "video_note": "video/mp4",
@@ -110,9 +118,11 @@ class Receiver:
     """Telethon event handlers of every connected account; attach with `attach` (a runtime
     hook)."""
 
-    def __init__(self, inbox: InboxPort) -> None:
+    def __init__(self, inbox: InboxPort, *, every_s: float = CATCH_UP_EVERY_S) -> None:
         self.inbox = inbox
+        self.every_s = every_s
         self.locks: dict[tuple[int, int], asyncio.Lock] = {}
+        self.sweeps: dict[int, asyncio.Task[None]] = {}
 
     async def attach(self, channel_id: int, client: Any) -> None:
         from telethon import events
@@ -125,6 +135,46 @@ class Receiver:
         client.add_event_handler(bind(self.on_new_message), events.NewMessage(incoming=True))
         client.add_event_handler(bind(self.on_edited), events.MessageEdited(incoming=True))
         client.add_event_handler(bind(self.on_deleted), events.MessageDeleted())
+        old = self.sweeps.pop(channel_id, None)
+        if old is not None:
+            old.cancel()
+        self.sweeps[channel_id] = asyncio.get_running_loop().create_task(
+            self.sweep(channel_id, client), name=f"telegram-catch-up-{channel_id}")
+
+    async def sweep(self, channel_id: int, client: Any) -> None:
+        """Catch up at once, then every `every_s` while the account is connected."""
+        while True:
+            await self.catch_up(channel_id, client)
+            await asyncio.sleep(self.every_s)
+            connected = getattr(client, "is_connected", None)
+            if connected is None or not connected():
+                return
+
+    async def catch_up(self, channel_id: int, client: Any) -> int:
+        """Hand unread incoming private messages to the inbox (oldest first per dialog).
+        Returns how many were handed over; never raises."""
+        handed = 0
+        try:
+            async for dialog in client.iter_dialogs(limit=CATCH_UP_DIALOGS):
+                unread = int(getattr(dialog, "unread_count", 0) or 0)
+                entity = getattr(dialog, "entity", None)
+                if unread <= 0 or not getattr(dialog, "is_user", False) or not is_person(entity):
+                    continue
+                peer = peer_from_user(entity)
+                messages = [m async for m in client.iter_messages(
+                    entity, limit=min(unread, CATCH_UP_PER_DIALOG))]
+                lock = self.locks.setdefault((channel_id, int(dialog.id)), asyncio.Lock())
+                async with lock:
+                    for message in reversed(messages):              # oldest first
+                        if getattr(message, "out", False):
+                            continue
+                        await self.inbox.ingest(await build_inbound(channel_id, peer, message))
+                        handed += 1
+        except Exception:
+            log.exception("telegram channel %s: catch-up failed", channel_id)
+        if handed:
+            log.info("telegram channel %s: caught up %s unread message(s)", channel_id, handed)
+        return handed
 
     def lock_for(self, channel_id: int, event: Any) -> asyncio.Lock:
         key = (channel_id, int(getattr(event, "chat_id", 0) or 0))
