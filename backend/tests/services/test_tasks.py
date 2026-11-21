@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
+import procrastinate
 import pytest
 from procrastinate.exceptions import AlreadyEnqueued
+from procrastinate.testing import InMemoryConnector
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.call_scope import current_scope
 from sim.clock import FixedClock
 from sim.config import Settings
 from sim.db.models import Client
@@ -146,6 +150,35 @@ async def test_reply_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: 
     finally:
         reset_deps()
     assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action", "send"]
+
+
+async def test_broker_tasks_run_in_the_scope_of_their_job() -> None:
+    """Every attempt of one Procrastinate job sends the same Broker keys (docs/broker.md §2b)."""
+    seen: list[str | None] = []
+
+    async def work(chat_id: int) -> None:
+        scope = current_scope()
+        seen.append(f"{scope.name}:{chat_id}" if scope is not None else None)
+
+    task = agent.in_job_scope(work)
+    await task(SimpleNamespace(job=SimpleNamespace(id=42)), chat_id=7)
+    await task(SimpleNamespace(job=SimpleNamespace(id=42)), chat_id=7)     # its retry
+    await task(SimpleNamespace(job=SimpleNamespace(id=43)), chat_id=7)     # a new job
+    assert seen == ["job-42:7", "job-42:7", "job-43:7"]
+    assert current_scope() is None
+    assert task.__name__ == "work"
+
+
+def test_broker_tasks_are_registered_with_the_job_context() -> None:
+    # A bare app: `make_app` takes the Telegram blueprint, which a process can add only once.
+    app = procrastinate.App(connector=InMemoryConnector())
+    agent.register_agent_tasks(app)
+    broker_tasks = {REPLY_TASK, UNDERSTAND_TASK, GENERATE_TASK, MEMORY_TASK, PASSPORT_TASK,
+                    PLAN_DAY_TASK, PHONE_CHECK_TASK, NIGHT_TASK, SUMMARIZE_DAY_TASK}
+    assert all(app.tasks[name].pass_context for name in broker_tasks)
+    assert not app.tasks[LIFE_TICK_TASK].pass_context
+    assert app.tasks[REPLY_TASK].retry_strategy is not None
+    assert app.tasks[GENERATE_TASK].retry_strategy is None
 
 
 async def test_passport_queue_and_registration() -> None:
