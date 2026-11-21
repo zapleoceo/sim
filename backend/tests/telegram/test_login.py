@@ -49,7 +49,7 @@ async def test_scan_then_connected_with_credentials(caplog: pytest.LogCaptureFix
 
 
 async def test_password_step_and_wrong_password() -> None:
-    factory = LoginClientFactory(password="right")
+    factory = LoginClientFactory(twofa="right")
     logins = make(factory)
     await logins.start(5, 111, "hash-secret-123")
     factory.qr.need_password()

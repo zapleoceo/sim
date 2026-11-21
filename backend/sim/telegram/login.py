@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 LOGIN_TTL_S = 600.0
 QR_HINT = ("Откройте Telegram на телефоне: Настройки → Устройства → Подключить устройство, и "
            "отсканируйте QR-код. Код обновляется сам примерно раз в 30 секунд.")
-PASSWORD_HINT = "Введите пароль двухфакторной защиты Telegram (облачный пароль)."
+TWO_FA_HINT = "Введите пароль двухфакторной защиты Telegram (облачный пароль)."
 EXPIRED = "Вход не начат или устарел. Нажмите «Подключить» ещё раз."
 ERRORS = {
     "ApiIdInvalidError": "Неверная пара api_id / api_hash (my.telegram.org)",
@@ -143,7 +143,7 @@ class TelegramLogins:
         if login is None:
             return LoginResult(LoginState.NONE, EXPIRED)
         if login.needs_password:
-            return LoginResult(LoginState.PASSWORD, PASSWORD_HINT)
+            return LoginResult(LoginState.PASSWORD, TWO_FA_HINT)
         task = login.task
         if task is None or not task.done():
             return LoginResult(LoginState.QR, QR_HINT, qr=self.qr_image(login.qr.url))
@@ -158,7 +158,7 @@ class TelegramLogins:
         if exc is not None and type(exc).__name__ == "SessionPasswordNeededError":
             login.needs_password = True
             log.info("telegram login channel=%s: 2FA password needed", channel_id)
-            return LoginResult(LoginState.PASSWORD, PASSWORD_HINT)
+            return LoginResult(LoginState.PASSWORD, TWO_FA_HINT)
         if exc is not None:
             return await self.fail(channel_id, exc)
         return await self.finish(channel_id)

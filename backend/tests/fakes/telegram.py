@@ -501,9 +501,9 @@ class FakeQrLogin:
 class FakeLoginClient:
     """An unauthorized Telethon client for the QR login."""
 
-    def __init__(self, *, password: str = "secret-2fa", me: Any = None,
+    def __init__(self, *, twofa: str = "secret-2fa", me: Any = None,
                  connect_error: Exception | None = None) -> None:
-        self.password = password
+        self.twofa = twofa
         self.me = me or SimpleNamespace(id=777, username="olya", phone="", first_name="Оля")
         self.connect_error = connect_error
         self.connected = False
@@ -525,7 +525,7 @@ class FakeLoginClient:
 
     async def sign_in(self, *, password: str) -> Any:
         self.passwords.append(password)
-        if password != self.password:
+        if password != self.twofa:
             raise PasswordHashInvalidError("wrong")
         return self.me
 
