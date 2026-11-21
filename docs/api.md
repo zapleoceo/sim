@@ -194,6 +194,26 @@ PassportPatch = любые поля Passport, кроме updated_at; каждо�
 `timezone` клиента в профиле оставлен для совместимости: часовой пояс клиента правится в
 паспорте (`passport.timezone`), он и считается в фактах.
 
+## Дни (память чата)
+
+Логика — [memory.md](memory.md). Вкладка «Дни» карточки лида.
+
+| Метод | Путь | |
+|---|---|---|
+| GET | `/chats/{id}/days?limit=60` | → `{today, items: [ChatDay], weeks: [ChatWeek]}`: новые сначала, `limit` 1–120 дней, до 12 недель; `today` — её местная дата |
+| PUT | `/chats/{id}/days/{YYYY-MM-DD}` | `{summary, facts?}` — правка владельца → `ChatDay` с `source: "edited"` (ночная задача её не перезаписывает); пустой итог или лишнее поле — 400 |
+| POST | `/chats/{id}/days/{YYYY-MM-DD}/rebuild` | «Пересобрать день» → 202 `{queued, day}` (задача `agent.summarize_day(force)`: итог заново, потом паспорт); 400 — Летописец выключен или день ещё не закончился |
+| POST | `/chats/{id}/passport/refresh` | «Обновить паспорт сейчас» → 202 `{queued}` (задача `agent.update_passport` по сегодняшнему дню); 400 — Паспортистка выключена |
+
+```ts
+ChatDay = {day: "YYYY-MM-DD", summary, facts: string[], source: "model" | "edited", model,
+           error: string | null, first_event_id, last_event_id, updated_at}
+ChatWeek = ChatDay без day + {week: "YYYY-MM-DD" /* понедельник */}
+```
+
+`reply-runs/{id}.context.days` — какие итоги дней были в контексте хода (`[{day, summary,
+source}]`), `context.recall` — что персонаж вспоминал («А помнишь…?»).
+
 ## Живые обновления
 
 `GET /api/events` — Server-Sent Events. Каждое событие журнала:
