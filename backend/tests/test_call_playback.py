@@ -60,6 +60,7 @@ async def test_her_speech_reaches_the_call_before_the_review_finishes():
     assert out.pop_frame() == PCM                      # audible while the guard still reviews
     finish.set()
     await task
+    await playback.settle()
     turn = playback.turns[-1]
     assert (turn.role, turn.text, turn.released, turn.guard.verdict) == \
         ("assistant", "Да, привет! Слушаю.", True, "ok")
@@ -72,6 +73,7 @@ async def test_delivery_is_what_the_transport_accepted_across_replies():
     out, trace = output()
     events = [*speech_events(PCM + PCM[:100], text="Первая"), *speech_events(PCM, text="Вторая")]
     await playback.run(FakeSession(events, end_after_events=True), out, 24000, trace)
+    await playback.settle()
     first, second = [t for t in playback.turns if t.role == "assistant"]
     assert first.queued_bytes == 2 * FRAME            # the partial frame is padded with silence
     assert len(out) == 3 * FRAME
@@ -90,6 +92,7 @@ async def test_a_guard_remark_is_noted_and_the_call_goes_on(verdict):
     playback = CallPlayback(review, clock=lambda: NOW)
     out, trace = output()
     await playback.run(FakeSession(speech_events(PCM), end_after_events=True), out, 24000, trace)
+    await playback.settle()
     assert not playback.failure and out.pop_frame() == PCM      # the guard advises, never stops her
     assert playback.turns[-1].guard.verdict == verdict.verdict
     assert any("замечание охранника" in s and "звонок продолжается" in s for s in trace.steps)
@@ -107,6 +110,7 @@ async def test_a_review_that_fails_technically_keeps_the_call_going(mode):
     playback = CallPlayback(review, clock=lambda: NOW, timeout=0.01)
     out, trace = output()
     await playback.run(FakeSession(speech_events(PCM), end_after_events=True), out, 24000, trace)
+    await playback.settle()
     assert not playback.failure and out.pop_frame() == PCM
     assert playback.turns[-1].guard is None
     assert any("звонок продолжается" in s or "проверка пропущена" in s for s in trace.steps)
@@ -119,6 +123,7 @@ async def test_the_caller_talking_over_her_cuts_the_reply_without_a_problem():
               LiveVoiceEvent(AUDIO, pcm=PCM * 5), LiveVoiceEvent(INTERRUPTED),
               *speech_events(PCM, text="Да?")]
     await playback.run(FakeSession(events, end_after_events=True), out, 24000, trace)
+    await playback.settle()
     cut, answer = [t for t in playback.turns if t.role == "assistant"]
     assert cut.text == "Длинный рассказ" and cut.cancel_reason and not cut.delivered
     assert len(out) == FRAME and answer.text == "Да?"
@@ -136,6 +141,7 @@ async def test_history_of_a_review_is_the_call_so_far():
     playback = CallPlayback(review, clock=lambda: NOW)
     out, trace = output()
     await playback.run(FakeSession(speech_events(PCM), end_after_events=True), out, 24000, trace)
+    await playback.settle()
     assert seen == [[("user", "Алло, это Марина?")]]
 
 

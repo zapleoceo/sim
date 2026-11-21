@@ -179,10 +179,6 @@ class CallPlayback:
         await receive()
 
     async def settle(self) -> None:
-        """After the call: her last verdicts still reach the record (each within `timeout`)."""
-        pending = set(self.reviews)
-        if pending:
-            await asyncio.wait(pending, timeout=self.timeout)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        """After the call: her last verdicts still reach the record. Each review is bounded by
+        its own `timeout`, so this ends within it too."""
+        await asyncio.gather(*self.reviews, return_exceptions=True)
