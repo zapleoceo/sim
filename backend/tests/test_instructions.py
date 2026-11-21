@@ -149,7 +149,7 @@ def test_the_defaults_keep_the_former_wording():
     assert 'JSON поле "media": {"kind": "photo" или "video_note", "scene": "что в кадре' in brief
     assert brief.startswith("МЕДИА: к этому ответу ты можешь приложить своё фото или свой кружочек")
     assert guard_system_prompt("П").endswith(
-        instructions.IDENTITY_BOUNDARY + " ОБЯЗАТЕЛЬНО ДЛЯ КОНТРОЛЁРА: это исключение")
+        instructions.IDENTITY_BOUNDARY + " " + instructions.GUARD_IDENTITY_RULE)
     assert followup_instruction([1.0, 24.0], 1) == (
         "СОБЫТИЕ: плановое напоминание 2 из 2; клиент не отвечает примерно 24 ч. Последнее: да. "
         "Сформируй ответ по единому промпту агента.")
@@ -187,12 +187,13 @@ async def test_the_guard_request_uses_every_owner_rule(container, world, fake_ll
 
 
 async def test_the_settings_api_lists_every_instruction_and_nothing_fixed(api, world):
-    await login(api, OWNER[0])
+    csrf = await login(api, OWNER[0])
     body = (await api.get("/api/settings")).json()
     assert "fixed" not in body
     items = {item["key"]: item for item in body["items"]}
     for key, default in instructions.DEFAULTS.items():
         assert items[key]["value"] == default and items[key]["is_default"], key
-    saved = await api.put("/api/settings/guard_control", json={"value": "ПРАВИЛО"})
+    saved = await api.put("/api/settings/guard_control", json={"value": "ПРАВИЛО"},
+                          headers={"X-CSRF-Token": csrf})
     assert saved.status_code == 200 and saved.json()["value"] == "ПРАВИЛО"
     assert "ПРАВИЛО" in guard_system_prompt("П")
