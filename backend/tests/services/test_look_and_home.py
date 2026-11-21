@@ -111,7 +111,7 @@ async def _photo(db: AsyncSession, deps: Deps, chat: Chat, persona: Persona,
                  prompt: str) -> Generation:
     generation = await start_generation(
         db, persona=persona, chat_id=chat.id, reply_run_id=None, kind=GenerationKind.PHOTO,
-        spec=GenerateSpec(prompt=prompt, caption="", tags=[]))
+        spec=GenerateSpec(prompt=prompt, caption="фото дома", tags=[]))
     assert await GenerationService(deps).run(generation.id) == GenerationStatus.DONE
     return await fresh(db, generation)
 
