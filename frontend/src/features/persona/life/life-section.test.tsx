@@ -7,7 +7,7 @@ import { renderWithApp } from '@/test/render';
 import { contextBlocks } from '@/features/chats/reply-run-sheet';
 import { PersonaIdProvider } from '../persona-scope';
 import { LifeSection } from './life-section';
-import { newDayEvent } from './life-logic';
+import { EMPTY_HOME, EMPTY_LOOK, newDayEvent } from './life-logic';
 
 const ev = (start: string, end: string, title: string, extra: Partial<DayEvent> = {}): DayEvent => ({
   ...newDayEvent(), start, end, title, ...extra,
@@ -21,6 +21,8 @@ const LIFE: PersonaLife = {
   people: [{ name: 'Андрей', relation: 'муж', traits: '', contact: '', notes: '' }],
   hobbies: [],
   places: [],
+  look: EMPTY_LOOK,
+  home: EMPTY_HOME,
 };
 
 const DAYS: DaysResponse = {
@@ -112,6 +114,28 @@ describe('LifeSection', () => {
     expect(body.routine[0]?.days).toEqual([0, 1, 2, 3, 4, 5]);
     expect(body.people).toEqual(LIFE.people);
     expect(await screen.findByText('Мир сохранён')).toBeInTheDocument();
+  });
+
+  it('keeps her look and her home in the world', async () => {
+    const log = backend({ 'PUT /api/personas/1/life': (req) => req.body });
+    await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
+    await userEvent.click(await screen.findByRole('tab', { name: 'Мир' }));
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Облик' }));
+    await userEvent.type(screen.getByLabelText('Маникюр'), 'нюдовый лак');
+    await userEvent.type(screen.getByLabelText('Серьги'), 'золотые кольца');
+    await userEvent.click(screen.getByRole('tab', { name: 'Дом (0)' }));
+    await userEvent.type(screen.getByLabelText('Квартира целиком'), 'старый дом, 4 этаж');
+    await userEvent.click(screen.getByRole('button', { name: 'Добавить комнату' }));
+    await userEvent.type(screen.getByLabelText('Комната, строка 1'), 'спальня');
+    await userEvent.type(screen.getByLabelText('Как выглядит, строка 1'), 'белое бельё');
+    expect(screen.getByRole('tab', { name: 'Дом (1)' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить мир' }));
+
+    await waitFor(() => expect(log.filter((r) => r.method === 'PUT')).toHaveLength(1));
+    const body = log.find((r) => r.method === 'PUT')?.body as PersonaLife;
+    expect(body.look).toEqual({ ...EMPTY_LOOK, nails: 'нюдовый лак', earrings: 'золотые кольца' });
+    expect(body.home).toEqual({ details: 'старый дом, 4 этаж', rooms: [{ name: 'спальня', details: 'белое бельё' }] });
   });
 
   it('adds a story arc and rejects a canon fact', async () => {
