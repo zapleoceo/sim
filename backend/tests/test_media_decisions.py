@@ -16,10 +16,10 @@ from sim.domain.enums import Author, ChannelKind, Delivery, Direction, MediaKind
 from sim.ports.image import ImageError
 from sim.services import jobkinds, tracing
 from sim.services.conversation import decision_fields, history_turns
+from sim.services.instructions import MEDIA_EARLIER, MEDIA_REPORT, NO_MEDIA
 from sim.services.media_decisions import (
     BROKER_REFUSED,
     DECLINED,
-    EARLIER,
     ENDED,
     FAILED,
     GENERATED,
@@ -36,7 +36,6 @@ from sim.services.media_decisions import (
     load,
     reason_warning,
 )
-from sim.services.persona_media_tool import MEDIA_REPORT, NO_MEDIA
 from sim.services.prompt import Decision, MediaAsk, parse_media
 from sim.worker.handlers import HANDLERS, reply_detail
 from tests.conftest import decision_json
@@ -185,7 +184,7 @@ def test_a_record_reads_as_one_tagged_entry_with_what_was_asked_decided_and_came
 async def test_a_refusal_is_written_into_the_dialog_and_is_never_sent(container, world, fake_llm, photos):
     await say(container, world, "Пришли фото")
     outcome = await reply_with(container, fake_llm, reply="давай не сегодня", media=DECLINE)
-    assert MEDIA_REPORT in context_of(fake_llm) and EARLIER not in context_of(fake_llm)
+    assert MEDIA_REPORT in context_of(fake_llm) and MEDIA_EARLIER not in context_of(fake_llm)
     ((row, record),) = await records(container)
     assert outcome.status == "sent" and outcome.media == record
     assert (record.requested, record.kind, record.decision, record.outcome) == \
@@ -222,11 +221,11 @@ async def test_the_next_reply_is_reminded_of_the_refusal_and_its_reason(containe
     await say(container, world, "ну почему?")
     await run_reply(container)
     context = context_of(fake_llm)
-    assert EARLIER in context and "не противоречь" in EARLIER and "новых не придумывай" in EARLIER
+    assert MEDIA_EARLIER in context and "не противоречь" in MEDIA_EARLIER and "новых не придумывай" in MEDIA_EARLIER
     assert re.search(STAMP + "ранее ты решила не присылать фото, причина: «не хочу сейчас фоткаться»\\.",
                      context)
     # the block follows the offer and the instruction on how to report a decision
-    assert context.index("МЕДИА:") < context.index(MEDIA_REPORT) < context.index(EARLIER)
+    assert context.index("МЕДИА:") < context.index(MEDIA_REPORT) < context.index(MEDIA_EARLIER)
     for message in fake_llm.gen_calls[-1][0][:-1]:
         assert "Решение медиа" not in message["content"]
 
@@ -295,7 +294,7 @@ async def test_nothing_is_recorded_when_nobody_asked_for_media(container, world,
     assert "media" not in reply_detail(outcome)
     await say(container, world, "А сколько длится?")
     await run_reply(container)
-    assert EARLIER not in context_of(fake_llm)
+    assert MEDIA_EARLIER not in context_of(fake_llm)
 
 
 # ---- a decision to send: the record follows the generation -------------------------------------

@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import itertools
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -23,6 +23,7 @@ from sim.config import Settings
 from sim.domain.enums import ChannelKind, Role, SessionStatus
 from sim.ports.channel import ChannelPort, ConnectResult, InboundMessage, SendResult
 from sim.ports.llm import LLMError, LLMResult
+from sim.services import instructions
 from sim.wiring import Container, build_container
 
 PARTNER_SECRET = "partner-secret"
@@ -259,6 +260,14 @@ def make_settings(tmp_path) -> Settings:
         call_ring_max_s=0,
         _env_file=None,  # type: ignore[call-arg]
     )
+
+
+@pytest.fixture(autouse=True)
+def default_instructions() -> Iterator[None]:
+    """Owner texts published by one test (sim.services.instructions) never leak into the next."""
+    instructions.publish({})
+    yield
+    instructions.publish({})
 
 
 @pytest.fixture

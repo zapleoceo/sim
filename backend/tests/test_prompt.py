@@ -8,10 +8,8 @@ import pytest
 from sim.domain.enums import Stage
 from sim.persona_prompts import EVA_PROMPT, MARINA, MARINA_PROMPT, STRATEGY_PROMPT
 from sim.services.call_prompt import call_system_prompt
+from sim.services.instructions import IDENTITY_BOUNDARY, LINK_CONTRACT, UNIFIED_BOUNDARIES
 from sim.services.prompt import (
-    IDENTITY_BOUNDARY,
-    LINK_CONTRACT,
-    UNIFIED_BOUNDARIES,
     DialogContext,
     PersonaProfile,
     PromptTexts,
@@ -73,10 +71,10 @@ def test_system_prompt_parts_unified_structure():
     assert "\n\n".join(p.text for p in parts) == stable_system_prompt(PERSONA, STRATEGY, PromptTexts(contract="ФОРМАТ"))
     assert [(p.key, p.source, p.field) for p in parts] == [
         ("agent_prompt", "persona", "agent_prompt"),
-        ("link_contract", "code", ""),
-        ("unified_boundaries", "code", ""),
+        ("link_contract", "setting", "link_contract"),
+        ("unified_boundaries", "setting", "unified_boundaries"),
         ("output_contract", "setting", "output_contract"),
-        ("identity_boundary", "code", ""),
+        ("identity_boundary", "setting", "identity_boundary"),
     ]
     assert all(p.title and p.text for p in parts)
 

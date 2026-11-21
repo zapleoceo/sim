@@ -66,7 +66,7 @@ merge previously executed jobs with unknown external receipts. No migration rewr
 Shared settings and helpers use a wide grouped workspace: desktop group navigation,
 mobile section selector, explicit instruction editors, concise helper roles and current
 model controls. Existing setting/group hashes (including Back/Forward) and owner access
-are retained. Fixed guard/honesty text remains available in read-only details.
+are retained. There are no read-only or fixed texts: `/api/settings` returns only `items`.
 Save actions appear only for changed fields; reset requires confirmation. Drafts live
 only in the current query client's memory, survive SPA navigation and refetch, and are
 not written to browser storage. An app-level unload guard warns while any settings draft
@@ -89,10 +89,11 @@ selector applies to text conversation drafts/previews, including reviewed repair
 A conservative deterministic multilingual detector recognizes direct identity questions
 and short follow-ups; quotes and third-party questions remain on primary. It is a routing
 hint, not a disclosure policy: every model keeps the same mandatory honesty, financial
-boundaries and fresh guard. A fixed identity boundary follows editable generator
-instructions and format; the guard has the same boundary and must reject false human
-identity claims independently of the detector and model selection. These fixed layers
-are visible in settings/context and cannot be disabled by a persona or custom guard prompt.
+boundaries and fresh guard. The identity boundary (owner setting `identity_boundary`)
+follows the generator instructions and format; the guard gets the same text plus
+`guard_identity_rule` and must reject false human identity claims independently of the
+detector and model selection. Both are owner-editable on «Общие правила» (nothing is
+hidden in code); a persona prompt or custom guard prompt does not replace them.
 Ordinary conversation need not repeatedly mention AI. Live-call model
 selection is unchanged. Detection is deliberately not a claim of perfect language coverage.
 
@@ -409,7 +410,31 @@ Frontend build и health smoke не заменяют frontend tests, UX-пров
   рождения, возраст или распорядок, страница предупреждает.
 - Страница персонажа: «Профиль», «Промпт», «Распорядок», «Голос и звонки», «Модель и стратегия»,
   «Фото и кружочки». Собранного «Контекста модели» больше нет; общие куски правятся в «Общих
-  правилах» и «Помощниках».
+  правилах» и «Помощниках». Под полем «Промпт» — ссылка «Что ещё получает модель → Общие правила».
+
+### Все промпты к модели — в «Общих правилах»
+
+Кроме промпта персонажа и инструкций помощников (охранник, паспорт, саммари — «Помощники»),
+каждый текст, который код добавляет в запрос к модели, — настройка владельца (`app_setting`,
+дефолт — прежний текст из `sim/services/instructions.py`; поведение по умолчанию не менялось).
+Код подставляет только структурные значения (`{name}`, `{until}`, `{hours}`, `{kinds}`…);
+подстановка однопроходная, JSON-скобки в тексте экранировать не нужно. Фиксированных
+«нередактируемых» текстов нет. Чтение настроек (каждый ответ, звонок, превью, задача, старт
+API и воркера) публикует тексты (`instructions.publish`), так что правка действует со
+следующего запроса. Группы на странице идут в порядке действия:
+
+| Группа | Ключи → где применяется |
+|---|---|
+| 1. Ответ в чате: правила | `link_contract`, `unified_boundaries`, `output_contract`, `identity_boundary` — системный промпт ответа (и звонка, кроме формата); `retry_nudge` — повтор при неразобранном JSON; `repair_nudge` — вторая попытка после отклонения; `neutral_handoff_reply` — ответ клиенту при передаче оператору |
+| 2. Ответ в чате: контекст | `routine_header`, `facts_header`, `delay_pause_note`, `delay_routine_hint`, `delay_pause_hint`, `context_header`, `known_contact_rule`, `handoff_links_header`, `contact_profile_note`, `contact_photo_note`, `passport_header`, `summary_header`, `journal_header`, `history_trimmed`, `attachment_note`, `attachment_failed_note` — заголовки и правила блоков динамического контекста и вложений |
+| 3. Звонок | `call_rules`, `call_identity`, `call_greeting`, `call_history_header`, `call_history_trimmed`, `call_issue_fact` — промпт голосовой модели, первая реплика, факт журнала о сбое звонка |
+| 4. Проверка охранником | `guard_control`, `guard_fact_control`, `guard_voice_control`, `guard_media_control`, `guard_identity_rule` — после `guard_prompt` («Помощники»); последнее правило начинается с `identity_boundary` |
+| 5. Напоминания и продолжения | `followup_event` — плановое напоминание; `reengagement_instruction`, `reengagement_no_reply` — план продолжения после тишины |
+| 6. Фото и кружочки | `media_none`, `media_brief`, `media_report`, `media_priority`, `media_earlier` — контекст ответа; `neutral_media_scene`, `photo_frame`, `video_note_frame`, `shot_person`, `shot_light`, `shot_rules` — запрос модели фото/кружочка |
+| 7. Вложения и подписи постов | `vision_prompt` — описание картинки в превью; `caption_intro`, `caption_rules`, `caption_request`, `caption_default_idea` — подпись поста Instagram |
+
+Подписи данных (например «- Текущий этап:», строки часов и распорядка) остаются кодом: это
+формат фактов, а не инструкции.
 
 ## Звонки (Telegram-аккаунт, AIbroker /v1/live)
 

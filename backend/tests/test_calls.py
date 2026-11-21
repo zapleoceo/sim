@@ -45,7 +45,6 @@ from sim.ports.live_voice import (
     LiveVoiceSummary,
 )
 from sim.services.call_prompt import (
-    CALL_RULES,
     call_identity,
     call_system_prompt,
     chat_transcript,
@@ -53,6 +52,7 @@ from sim.services.call_prompt import (
 )
 from sim.services.call_trace import CallTrace
 from sim.services.calls import CALL_KIND, MAX_LAG_S, CallService, clock_text, language_code
+from sim.services.instructions import CALL_RULES
 from sim.services.journal import CALL_ISSUE, CALL_STEPS, CommunicationJournal
 from sim.services.prompt import (
     DialogContext,

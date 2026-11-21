@@ -18,6 +18,8 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+from sim.services import instructions
+
 DAY_CODES = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 EVERY_DAY = ("ежедневно", "каждый день", "*")
 LINE = re.compile(r"^\s*(\S+(?:\s+день)?)\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s+(.+?)\s*$")
@@ -162,14 +164,7 @@ def routine_facts(text: str, local: datetime) -> list[str]:
     ]
 
 
-ROUTINE_HEADER = (
-    "ТВОЙ РАСПОРЯДОК (где ты была, есть и будешь; отвечай об этом строго по нему и по блоку "
-    "\"ТВОИ ТОЧНЫЕ ДАННЫЕ НА СЕЙЧАС\", не придумывай другое; мелкие детали внутри этих дел "
-    "можно добавить, но потом не противоречь им):"
-)
-
-
 def routine_block(text: str) -> str:
     """The weekly routine for the stable system prompt (only the lines that parse)."""
     lines = [ln.strip() for ln in meaningful(text) if parse_line(ln) is not None]
-    return "\n".join([ROUTINE_HEADER, *lines]) if lines else ""
+    return "\n".join([instructions.text("routine_header"), *lines]) if lines else ""

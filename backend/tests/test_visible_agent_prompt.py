@@ -3,11 +3,15 @@ from datetime import datetime
 from sim.domain.enums import Stage
 from sim.services.call_prompt import call_system_prompt
 from sim.services.followup import followup_instruction
-from sim.services.guard import FACT_CONTROL, VOICE_CONTROL, guard_system_prompt
-from sim.services.prompt import (
+from sim.services.guard import guard_system_prompt
+from sim.services.instructions import (
+    FACT_CONTROL,
     IDENTITY_BOUNDARY,
     LINK_CONTRACT,
     UNIFIED_BOUNDARIES,
+    VOICE_CONTROL,
+)
+from sim.services.prompt import (
     DialogContext,
     PersonaProfile,
     PromptTexts,

@@ -34,7 +34,7 @@ from sim.adapters.db.repositories.conversations import MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import ClientStatus
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.dialog_state import turns
 from sim.services.journal import REPLY_DELAY, CommunicationJournal
@@ -220,13 +220,13 @@ def delay_note(delay: Mapping[str, Any] | None, arrived: datetime, now: datetime
     cls, until = delay.get("cls"), until_of(delay)
     routine = cls in WAS and until is not None
     if delay.get("pause"):
-        parts.append("В чате была пауза: ответы были остановлены, ты отвечаешь после её снятия.")
+        parts.append(instructions.text("delay_pause_note"))
     if routine:
         parts.append(f"По распорядку ты {WAS[cls]}: {delay.get('what', '')} "
                      f"(до {clock_text(until, tz, local_now)}).")
-        parts.append("Это обычная задержка, извиняться за неё не нужно.")
+        parts.append(instructions.text("delay_routine_hint"))
     elif delay.get("pause"):
-        parts.append("Учитывай, что прошло время; о паузе собеседнику не рассказывай.")
+        parts.append(instructions.text("delay_pause_hint"))
     else:
         return ""
     return " ".join(parts)

@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch, type Control, type FieldErrors } from 'react-hook-form';
+import { Link } from '@tanstack/react-router';
 import { Avatar } from '@/components/avatar';
 import { Field, FormGrid } from '@/components/field';
 import { LongText } from '@/components/long-text';
@@ -190,6 +191,10 @@ export function PersonaEditor({
           />
         </Field>
         <PromptDuplicates control={control} />
+        <p className="text-xs text-muted-foreground">
+          Что ещё получает модель (правила, формат ответа, звонок, охранник, медиа) →{' '}
+          <Link to="/settings" className="underline">Общие правила</Link>
+        </p>
         {persona && (
           <PersonaPromptVersions
             personaId={persona.id}

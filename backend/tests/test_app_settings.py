@@ -6,17 +6,16 @@ import pytest
 from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
-from sim.services.guard import (
+from sim.services.guard import GUARD_PROMPT, identity_control
+from sim.services.instructions import (
     FACT_CONTROL,
     GUARD_CONTROL,
-    GUARD_PROMPT,
-    IDENTITY_CONTROL,
+    IDENTITY_BOUNDARY,
     MEDIA_CONTROL,
     VOICE_CONTROL,
 )
 from sim.services.prompt import (
     HISTORY_LIMIT,
-    IDENTITY_BOUNDARY,
     OUTPUT_CONTRACT,
     RETRY_NUDGE,
     PersonaProfile,
@@ -53,10 +52,11 @@ async def test_set_validates_and_reset_returns_the_default(container):
 
 def test_shared_rules_come_in_the_order_they_act_and_owner_accounts_are_one_group():
     helpers = {"Охранник", "Паспортистка", "Саммари диалога"}
-    groups = list(dict.fromkeys(spec.group for spec in SPECS if spec.group not in helpers))
+    groups = list(dict.fromkeys(spec.group for spec in SPECS
+                                if spec.group not in helpers and not spec.group.startswith("Промпт ·")))
     assert groups == ["Входящие вложения", "Ответы", "Время ответа по распорядку", "Стиль сообщений",
-                      "Фото и кружочки персонажа", "Аккаунты владельца", "Служебные промпты",
-                      "Контент", "Журнал"]
+                      "Фото и кружочки персонажа", "Аккаунты владельца", "Журнал"]
+    assert SPECS[0].group.startswith("Промпт · 1.")   # the model's texts come first, in the order they act
     owner = [spec.key for spec in SPECS if spec.group == "Аккаунты владельца"]
     assert owner == ["contact_profile_channel_id", "instant_reply_telegram_ids", "video_note_owner_telegram_id"]
     assert BY_KEY["contact_profile_channel_id"].default == 0
@@ -107,7 +107,7 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
     assert 'FORMAT FROM DB: {"reply": "", "stage": ""}' in system and OUTPUT_CONTRACT not in system
     assert system.endswith(IDENTITY_BOUNDARY)
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
-    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
+    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{identity_control()}"
     assert guard_kwargs["capability"] == "chat:smart"
 
 
@@ -121,10 +121,12 @@ async def test_the_retry_nudge_comes_from_the_settings(container, world, fake_ll
     assert retry_messages[-1] == {"role": "system", "content": "NUDGE FROM DB"}
 
 
-async def test_api_exposes_fixed_honesty_and_guard_control(api, world):
+async def test_api_has_no_fixed_texts_and_the_honesty_boundary_is_editable(api, world):
     await login(api, OWNER[0])
-    fixed = (await api.get("/api/settings")).json()["fixed"]
-    assert fixed == {"persona": IDENTITY_BOUNDARY, "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"}
+    body = (await api.get("/api/settings")).json()
+    assert "fixed" not in body
+    keys = {item["key"] for item in body["items"]}
+    assert {"identity_boundary", "guard_control", "guard_identity_rule"} <= keys
     system = stable_system_prompt(PersonaProfile(name="Марина", agent_prompt="Ты Марина."), StrategyProfile())
     assert OUTPUT_CONTRACT in system and system.endswith(IDENTITY_BOUNDARY)
 

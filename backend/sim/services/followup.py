@@ -13,7 +13,7 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, utcnow
 from sim.domain.enums import ClientStatus, Direction
 from sim.domain.funnel import Actor
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.funnel import FunnelService
 
 if TYPE_CHECKING:
@@ -31,9 +31,8 @@ def step_delay_h(hours: list[float], step: int) -> float:
 
 def followup_instruction(hours: list[float], step: int) -> str:
     last = step + 1 >= len(hours)
-    return (f"СОБЫТИЕ: плановое напоминание {step + 1} из {len(hours)}; "
-            f"клиент не отвечает примерно {hours[step]:g} ч. Последнее: {'да' if last else 'нет'}. "
-            "Сформируй ответ по единому промпту агента.")
+    return instructions.fill("followup_event", step=step + 1, total=len(hours),
+                             hours=f"{hours[step]:g}", last="да" if last else "нет")
 
 
 class FollowupService:

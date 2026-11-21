@@ -23,7 +23,7 @@ from sim.domain.enums import Author, ClientStatus, Delivery, Direction, MediaKin
 from sim.domain.funnel import Actor, FunnelRuleError, advance_by_ai
 from sim.domain.voice import speaks
 from sim.ports.llm import LLMResult
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.ai_media import history_text
 from sim.services.app_settings import AppSettings, AppSettingsService
 from sim.services.call_prompt import call_system_prompt
@@ -36,7 +36,6 @@ from sim.services.humanize import bubbles, messenger_touches, typing_pause_s
 from sim.services.journal import HANDOFF, NEEDS, SYSTEM, THE_MODEL, CommunicationJournal
 from sim.services.llm_audit import AuditedLLM
 from sim.services.media_decisions import (
-    NEUTRAL_MEDIA_SCENE,
     MediaDecision,
     general_media_request_kind,
 )
@@ -66,7 +65,6 @@ log = logging.getLogger(__name__)
 
 REPLY_BUSY_S = 5          # another reply for this dialog is being produced: try again shortly
 MEDIA_WAIT_S = 3          # re-check interval while an attachment is still being processed
-NEUTRAL_HANDOFF_REPLY = "Я уточню и вернусь с ответом чуть позже."
 AI_PAUSED = "ai_paused"   # ReplyOutcome.reason: the dialog is paused and a client message waits
 
 
@@ -558,7 +556,7 @@ class ConversationService:
                                               [reason])
         await self.outbound.store_blocked(dialog, draft.result, blocked)
         message = await self.outbound.queue_ai(
-            dialog, NEUTRAL_HANDOFF_REPLY, None, final=True,
+            dialog, instructions.text("neutral_handoff_reply"), None, final=True,
         )
         return ReplyOutcome("needs_operator", draft.decision, message)
 
@@ -706,7 +704,7 @@ class ConversationService:
                     and decision.media.send and decision.media.kind is neutral_media_kind
                     and is_neutral_media_acknowledgement(decision.reply)
                     and not (decision.handoff_to_operator or decision.refused or decision.stop_contact)):
-                decision = replace(decision, media=replace(decision.media, scene=NEUTRAL_MEDIA_SCENE))
+                decision = replace(decision, media=replace(decision.media, scene=instructions.text("neutral_media_scene")))
             if decision is not None and decision.reply:
                 review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
                 guard = await self.review(
@@ -724,8 +722,7 @@ class ConversationService:
                 stable_prompt = await self.prompt(persona, strategy, history,
                     recovery_context(ctx), whole_history=whole_history)
                 # Do not turn rejected output or free-form diagnostics into history.
-                repair = {"role": "system", "content":
-                          f"Повтори полный JSON-ответ по фактам разговора (тип: {code})."}
+                repair = {"role": "system", "content": instructions.fill("repair_nudge", code=code)}
                 prompt = [*prompt, repair]
                 stable_prompt = [*stable_prompt, repair]
         return Draft(decision, result, guard, rejection)

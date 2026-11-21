@@ -8,7 +8,7 @@ How it works:
   or that she cannot send media now and must not promise it;
 - she asks with `{"kind": "photo" | "video_note", "scene": "..."}` (`prompt.MediaAsk`); when she
   is asked for media and will not send it (now), she says so with `"decision": "decline" |
-  "later"` and her reason (`MEDIA_REPORT`);
+  "later"` and her reason (owner setting `media_report`);
 - `decide()` writes her decision into the dialog (`sim.services.media_decisions`: what was
   asked, what she decided, her reason, the outcome), re-checks the offer and queues the
   `persona_media` job after her text. `context()` gives the next replies her latest decisions;
@@ -54,7 +54,7 @@ from sim.adapters.video_process import run_video_process
 from sim.clock import Clock, utcnow
 from sim.domain.enums import ClientStatus, Delivery, Direction, MediaKind
 from sim.ports.image import ImageError, ImagePort, ImageReference
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.ai_media import (
     AI_PHOTO_PREFIX,
     AI_VIDEO_PREFIX,
@@ -108,42 +108,7 @@ NOTE_RESOLUTION = "360p"
 TAG_STEM_MIN = 4                 # letters of a gallery tag compared with the scene
 
 KIND_NAMES = {MediaKind.PHOTO: "своё фото", MediaKind.VIDEO_NOTE: "свой кружочек (короткое видео)"}
-NO_MEDIA = (
-    "МЕДИА: сейчас ты не можешь отправить фото или кружочек. Не обещай их прислать и не пиши, "
-    "что отправила."
-)
-MEDIA_BRIEF = (
-    "МЕДИА: к этому ответу ты можешь приложить {kinds}. Решаешь сама: редко и только когда это "
-    "уместно в разговоре (попросили показать, или кадр скажет больше слов). Для этого добавь в "
-    "JSON поле \"media\": {{\"kind\": {values}, \"scene\": \"что в кадре: где ты, что делаешь, во "
-    "что одета, настроение; для кружочка ещё что говоришь\"}}. Кадр должен совпадать с блоком "
-    "ТВОИ ТОЧНЫЕ ДАННЫЕ НА СЕЙЧАС (время суток, где ты по распорядку) и с твоей жизнью. Только "
-    "приличные бытовые кадры, без других людей и документов. Медиа уйдёт отдельным сообщением "
-    "после текста и может не прийти: в reply не обещай его и не пиши, что отправила, текст должен "
-    "быть уместен сам по себе. Без повода поле media не добавляй."
-)
-MEDIA_PRIORITY = (
-    "ПРЕДПОЧТЕНИЕ КОНТАКТА: если собеседник просит допустимое доступное фото или кружочек, "
-    "выполни запрос через media со сценой. Не отказывай по настроению, из-за настойчивости, "
-    "занятости или темноты: допустимая синтетическая сцена может быть вечерней. "
-    "Это не отменяет безопасность, отказ от общения, ограничения канала, паузу между медиа "
-    "или недоступность генератора. При настоящем ограничении укажи его честно. "
-    "Не выдумывай реальную съёмку или уже выполненную отправку, не обещай результат; "
-    "маркировка синтетических медиа и правдивое раскрытие ИИ сохраняются."
-)
-MEDIA_REPORT = (
-    "РЕШЕНИЕ ПО МЕДИА: если собеседник просит фото или кружочек, а ты решила не присылать или "
-    "прислать позже, тоже добавь в JSON поле \"media\": {\"kind\": \"photo\" или \"video_note\", "
-    "\"decision\": \"decline\" (не пришлю) или \"later\" (пришлю позже), \"reason\": \"причина одной "
-    "фразой, та же, что ты называешь собеседнику\"}. Система записывает каждое твоё решение по "
-    "медиа и напоминает его тебе в следующих ответах."
-)
-FRAMES = {
-    MediaKind.PHOTO: "Живое любительское фото для личной переписки, снято на смартфон. Без "
-                     "текста, надписей и водяных знаков.",
-    MediaKind.VIDEO_NOTE: "Короткое видео-селфи для личной переписки (кружочек), снято на "
-                          "фронтальную камеру смартфона, лицо в центре кадра.",
-}
+FRAMES = {MediaKind.PHOTO: "photo_frame", MediaKind.VIDEO_NOTE: "video_note_frame"}  # setting keys
 WHO = {"female": "женщина", "male": "мужчина"}
 
 
@@ -156,8 +121,9 @@ class Offer:
     def brief(self) -> str:
         """The block of the reply's dynamic context."""
         if not self.kinds:
-            return NO_MEDIA
-        return MEDIA_BRIEF.format(
+            return instructions.text("media_none")
+        return instructions.fill(
+            "media_brief",
             kinds=" или ".join(KIND_NAMES[kind] for kind in self.kinds),
             values=" или ".join(f'"{kind.value}"' for kind in self.kinds),
         )
@@ -208,15 +174,12 @@ def shot_prompt(persona: Persona, ask: MediaAsk, environment: ShotEnvironment) -
     """What the image or video model gets: the kind of shot, who is in it (the references show
     how she looks), the scene she asked for and the planned synthetic lighting.
     The exact timestamp is metadata, not part of the provider prompt or its cache key."""
-    life = (f"условное освещение для синтетической сцены: {environment.light}; "
-            "фактическое место и занятие не подтверждены")
     return "\n".join([
-        FRAMES[ask.kind],
-        f"В кадре {who_is(persona, environment.at)}: тот же человек, что на приложенных фото. Лицо, "
-        "возраст, причёску и телосложение сохрани точно.",
+        instructions.text(FRAMES[ask.kind]),
+        instructions.fill("shot_person", who=who_is(persona, environment.at)),
         f"Сцена: {ask.scene}",
-        f"Постановка кадра: {life}.",
-        "Кадр приличный и бытовой: без обнажённости, без других узнаваемых людей, без документов.",
+        instructions.fill("shot_light", light=environment.light),
+        instructions.text("shot_rules"),
     ])
 
 
@@ -377,8 +340,10 @@ class PersonaMediaTool:
         decision not to send, and her latest decisions in this dialog."""
         earlier = await self.decisions.brief(dialog.id, persona.timezone)
         cfg = await self.settings.load()
-        preferred = MEDIA_PRIORITY if is_owner_account(dialog, cfg.media_priority_telegram_ids) else ""
-        return "\n\n".join(filter(None, [offer.brief(), MEDIA_REPORT, preferred, earlier]))
+        preferred = (instructions.text("media_priority")
+                     if is_owner_account(dialog, cfg.media_priority_telegram_ids) else "")
+        return "\n\n".join(filter(None, [offer.brief(), instructions.text("media_report"),
+                                       preferred, earlier]))
 
     # ---- her decision (the reply) --------------------------------------------------------
     async def decide(  # noqa: PLR0913

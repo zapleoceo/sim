@@ -434,11 +434,9 @@ export interface SimBranchDetail extends SimBranchRow {
   messages: SimMessage[];
 }
 
-/** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
-/** Fixed guard contract; persona is empty for backward compatibility. */
-export interface FixedPrompts { persona: string; guard: string }
 /** One saved text of a persona prompt; `author` and `note` may be empty. */
 export interface PersonaPromptVersion { id: number; text: string; author: string; note: string; created_at: string }
+/** Owner setting stored in the DB (/api/settings): shared prompt texts and tunables. */
 export interface AppSettingItem {
   key: string;
   group: string;

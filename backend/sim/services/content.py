@@ -13,7 +13,7 @@ from sim.adapters.db.repositories.jobs import JobRepo
 from sim.adapters.db.repositories.records import ContentRepo
 from sim.clock import Clock, to_naive_utc, utcnow
 from sim.domain.enums import ContentStatus
-from sim.services import jobkinds
+from sim.services import instructions, jobkinds
 from sim.services.llm_audit import AuditedLLM
 
 NOT_IMPLEMENTED = "Instagram publishing is disabled or no publisher is configured"
@@ -42,13 +42,11 @@ CAPTION_RULES = (
 def caption_prompt(
     persona: Persona, kind: str, idea: str, rules: str = CAPTION_RULES
 ) -> list[dict[str, Any]]:
-    system = (
-        f"Ты пишешь подписи к постам в Instagram для виртуального персонажа {persona.name}.\n"
-        f"Описание персонажа (её промпт):\n{persona.agent_prompt}\n"
-        f"Язык: {persona.language}\n"
-        f"{rules.strip()}"
-    )
-    user = f"Тип поста: {kind}.\nИдея или черновик: {idea or 'на твой выбор, про стратегическое мышление'}"
+    intro = instructions.fill("caption_intro", name=persona.name, agent_prompt=persona.agent_prompt,
+                              language=persona.language)
+    system = f"{intro}\n{rules.strip()}"
+    user = instructions.fill("caption_request", kind=kind,
+                             idea=idea or instructions.text("caption_default_idea"))
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 

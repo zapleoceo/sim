@@ -26,7 +26,6 @@ export const qk = {
   admins: ['admins'] as const,
   studio: ['studio'] as const,
   settings: ['settings'] as const,
-  settingsFixed: ['settings', 'fixed'] as const,
   personaMedia: (id: number) => ['persona-media', id] as const,
   /** Versions of a persona prompt: refreshed when the persona is saved or a version restored. */
   personaPromptVersions: (id: number) => ['persona-prompt', id, 'versions'] as const,

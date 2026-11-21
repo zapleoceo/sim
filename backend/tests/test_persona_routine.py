@@ -8,9 +8,9 @@ from sqlalchemy import select
 
 from sim.adapters.db.models import Persona
 from sim.adapters.db.session import transaction
+from sim.services.instructions import ROUTINE_HEADER
 from sim.services.persona_clock import persona_facts
 from sim.services.persona_routine import (
-    ROUTINE_HEADER,
     agenda,
     invalid_lines,
     parse_line,

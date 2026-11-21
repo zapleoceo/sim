@@ -36,6 +36,7 @@ from sim.config import Settings, parse_telegram_ids
 from sim.config import settings as get_settings
 from sim.services import live
 from sim.services.admin_bot import admin_bot_secret, register_webhook
+from sim.services.app_settings import publish_instructions
 from sim.wiring import Container, build_container
 
 log = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
             async with transaction(c.factory) as s:
                 if changed := await c.auth(s).sync_superadmins(ids):
                     log.info("superadmins synced from settings: %d changed", changed)
+        await publish_instructions(c.factory, cfg)
         await register_admin_bot_webhook(c)
         async with live.listen(c.engine):   # PostgreSQL NOTIFY -> open /api/events streams
             yield
