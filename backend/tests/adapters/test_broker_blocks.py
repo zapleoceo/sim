@@ -11,11 +11,11 @@ from sim.adapters.broker.blocks import (
     clamp_max_tokens,
     data_url,
     inline_refs,
-    structure_only,
     message_payload,
     pick_capability,
     response_format,
     schema_name,
+    structure_only,
     workflow_tag,
 )
 from sim.ports import ChatMessage, ChatPart, PortError
@@ -153,7 +153,7 @@ def test_recursive_references_are_refused() -> None:
 
 def test_value_constraints_are_not_sent_to_the_model() -> None:
     schema = {"type": "object", "title": "Plan", "properties": {
-        "later": {"anyOf": [{"type": "string", "pattern": "^\d\d:\d\d$"},
+        "later": {"anyOf": [{"type": "string", "pattern": r"^\d\d:\d\d$"},
                             {"type": "null"}]},
         "reason": {"type": "string", "maxLength": 120, "description": "why"},
         "items": {"type": "array", "maxItems": 50, "items": {"type": "integer", "minimum": 0}},
