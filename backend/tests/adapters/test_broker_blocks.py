@@ -11,6 +11,7 @@ from sim.adapters.broker.blocks import (
     clamp_max_tokens,
     data_url,
     inline_refs,
+    structure_only,
     message_payload,
     pick_capability,
     response_format,
@@ -148,3 +149,29 @@ def test_recursive_references_are_refused() -> None:
               "$ref": "#/$defs/N"}
     with pytest.raises(ValueError, match="recursive"):
         inline_refs(schema)
+
+
+def test_value_constraints_are_not_sent_to_the_model() -> None:
+    schema = {"type": "object", "title": "Plan", "properties": {
+        "later": {"anyOf": [{"type": "string", "pattern": "^\d\d:\d\d$"},
+                            {"type": "null"}]},
+        "reason": {"type": "string", "maxLength": 120, "description": "why"},
+        "items": {"type": "array", "maxItems": 50, "items": {"type": "integer", "minimum": 0}},
+        "format": {"type": "string", "format": "date-time"},   # a field called «format»
+    }, "required": ["reason"]}
+    flat = structure_only(schema)
+    text = json.dumps(flat)
+    for key in ("pattern", "maxLength", "maxItems", "minimum", '"title"', "date-time"):
+        assert key not in text
+    assert set(flat["properties"]) == {"later", "reason", "items", "format"}
+    assert flat["properties"]["reason"] == {"type": "string", "description": "why"}
+    assert flat["required"] == ["reason"]
+
+
+def test_every_schema_sent_is_structure_only() -> None:
+    from sim.domain.attention import AttentionPlan
+    from sim.domain.plan import ReplyPlan
+
+    for model in (ReplyPlan, AttentionPlan):
+        sent = json.dumps(response_format(model.model_json_schema(), "x")["json_schema"])
+        assert "maxLength" not in sent and "maxItems" not in sent and "$ref" not in sent
