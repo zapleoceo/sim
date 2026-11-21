@@ -322,12 +322,12 @@ async def test_guard_receives_code_time_and_context_on_rewrite(container, world,
     async with transaction(container.factory) as s:
         p = await s.get(type(world.persona), world.persona.id)
         p.timezone = "Europe/Berlin"
-    fake_llm.guard_replies = [guard_json("rewrite", ["неверная дата"], "С новым годом"), guard_json()]
+    fake_llm.guard_replies = [guard_json("rewrite", ["неверная дата"], "С новым годом")]
     async with transaction(container.factory) as s:
         p = await s.get(type(world.persona), world.persona.id)
         await container.conversation(s).preview(p, "Какой сегодня день?")
     payloads = [json.loads(messages[1]["content"]) for messages, _ in fake_llm.guard_calls]
-    assert len(payloads) == 2
+    assert len(payloads) == 1          # the rewrite after the remark is not reviewed again
     for data in payloads:
         assert data["trusted_facts"]["now_utc"] == "2026-12-31T23:30:00Z"
         assert "1 января 2027" in data["trusted_facts"]["persona_facts"]

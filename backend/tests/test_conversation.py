@@ -106,7 +106,7 @@ async def test_truncated_twice_marks_needs_operator(container, world, fake_llm):
     assert (await run_reply(container)).status == "needs_operator"
 
 
-async def test_invalid_json_twice_handoffs_with_neutral_reply(
+async def test_invalid_json_twice_hands_over_without_a_canned_reply(
     container, world, fake_llm
 ):
     fake_llm.replies = ["nope", "still nope"] * 2
@@ -114,11 +114,9 @@ async def test_invalid_json_twice_handoffs_with_neutral_reply(
     outcome = await run_reply(container)
     assert outcome.status == "needs_operator"
     _, dialog, messages, jobs = await state(container)
-    assert dialog.needs_operator and dialog.ai_paused and len(messages) == 3
-    assert messages[-1].text == "Я уточню и вернусь с ответом чуть позже."
-    assert messages[-1].delivery is Delivery.QUEUED
-    assert messages[-2].guard_verdict == "blocked"
-    assert [j.kind for j in jobs] == [jobkinds.REPLY, jobkinds.SEND]
+    assert dialog.needs_operator and dialog.ai_paused
+    assert [m.author for m in messages] == [Author.CLIENT]      # nothing is sent to the client
+    assert jobkinds.SEND not in [j.kind for j in jobs]
     assert (await run_reply(container)).status == "skipped"
 
 
@@ -150,7 +148,7 @@ async def test_empty_reply_sends_nothing(container, world, fake_llm):
     assert outcome.status == "needs_operator"
     client, dialog, messages, _ = await state(container)
     assert client.stage is Stage.FIRST_CONTACT and dialog.needs_operator
-    assert messages[-1].delivery is Delivery.QUEUED
+    assert all(m.author is Author.CLIENT for m in messages)
 
 
 async def test_handoff_pauses_ai(container, world, fake_llm):

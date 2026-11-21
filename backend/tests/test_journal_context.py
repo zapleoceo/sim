@@ -211,7 +211,7 @@ async def test_a_rejected_reply_hands_the_dialog_over_with_the_reason(container,
     assert (await run_reply(container)).status == "needs_operator"
     (handoff,) = await events_of(container)
     assert (handoff.kind, handoff.to_value, handoff.actor) == ("handoff", "operator", "system")
-    assert handoff.reason.startswith("модель не дала ответа, прошедшего проверку")
+    assert handoff.reason.startswith("модель не дала ответа: ")
 
 
 async def test_a_new_persona_model_and_strategy_text_reach_her_live_dialogs(api, container, world):
