@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.adapters.db.locks import NS_DIALOG, NS_REPLY, lock, try_lock
-from sim.adapters.db.models import Dialog, Message, Persona
+from sim.adapters.db.models import Channel, Client, Dialog, Message, Persona
 from sim.adapters.db.repositories.conversations import DialogRepo, MessageRepo
 from sim.adapters.db.repositories.jobs import JobRepo
 from sim.clock import Clock, to_naive_utc, utcnow
@@ -83,10 +83,17 @@ class ReengagementService:
 
     async def sweep(self) -> int:
         """Coalesce work after silence, including existing chats after rollout. No model calls."""
-        ids = (await self.session.scalars(select(Dialog.id).where(
-            Dialog.last_message_at <= self.clock() - SILENCE,
-            Dialog.ai_paused.is_(False), Dialog.needs_operator.is_(False),
-        ).order_by(Dialog.last_message_at.desc()))).all()
+        # The SQL pre-filter mirrors `eligible`, so ineligible dialogs cost no lock and no load.
+        ids = (await self.session.scalars(
+            select(Dialog.id)
+            .join(Client, Client.id == Dialog.client_id)
+            .join(Channel, Channel.id == Dialog.channel_id)
+            .where(
+                Dialog.last_message_at <= self.clock() - SILENCE,
+                Dialog.ai_paused.is_(False), Dialog.needs_operator.is_(False),
+                Client.status == ClientStatus.ACTIVE, Client.no_followups.is_(False),
+                Channel.status == SessionStatus.ACTIVE,
+            ).order_by(Dialog.last_message_at.desc()))).all()
         count = 0
         for dialog_id in ids:
             if not await try_lock(self.session, NS_DIALOG, dialog_id):
