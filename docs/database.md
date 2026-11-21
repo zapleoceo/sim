@@ -30,8 +30,29 @@ PostgreSQL 16. Модели — `backend/sim/db/models.py`, миграции Ale
 `guard_rules` — короткий список запретов для проверки. Переключатели `ai_enabled`,
 `voice_enabled`, `photo_enabled`, `video_enabled`, `calls_enabled`. `reply_delay_s` — сколько
 ждать пачку сообщений перед ответом.
+Жизнь (миграция `0003`, `docs/persona-life.md`): `life` (JSONB, `{}` — мира нет: распорядок,
+люди, увлечения, места по схеме `sim/domain/life.PersonaLife`), `model_life` (планировщик дня;
+пусто — дни не планируются), `appearance` (точное описание внешности по-английски для фото и
+видео), `voice_ambience_enabled` (фон сцены в голосовых, по умолчанию да).
 Кто использует: ответ и проверка (`reply.py`, `guard.py`), распознавание, генерация, память,
 `capabilities.py` (что можно в этом ходе).
+
+### `persona_arc`
+История её жизни (миграция `0003`): `persona_id`, `title`, `summary`, `stage` (где история
+сейчас), `status` (`active | paused | done`), `started_on`, `ends_on`. Правит владелец; `stage`
+и `status` двигает планировщик дня. Активные — в блоке контекста «Твои истории сейчас».
+
+### `persona_day`
+Спланированный день по её местному календарю (миграция `0003`): `persona_id`, `day`
+(уникально `(persona_id, day)` — день планируется один раз), `events` (`[DayEvent]`: `start`,
+`end`, `title`, `place`, `with_whom`, `busy`, `details`, `outfit`, `ambience`), `summary` (как
+прошёл), `source` (`model | edited`), `model`, `error` (план не получился — событий нет).
+Пишут планировщик (`sim/services/life/planner.py`) и дашборд (правка → `edited`).
+
+### `persona_canon`
+Факт о себе, который она придумала в переписке (миграция `0003`): `persona_id`, `fact`,
+`chat_id`, `event_id` (сообщение-триггер), `status` (`active | rejected`). Пишет ход ответа
+(`canon` плана, без дублей); активные видны во всех чатах; владелец правит и отклоняет.
 
 ### `channel`
 Аккаунт мессенджера, через который говорит персонаж: `persona_id`, `kind` (`telegram_user`),
@@ -103,7 +124,9 @@ JSON-план), `guard_verdicts` (`[{ok, reason, attempt}]`), `attempts` (ско
 Фото, видео или кружок, которые попросил персонаж: `persona_id`, `chat_id`, `reply_run_id`,
 `kind` (`photo | video | voice | video_note`; `video_note` — круглое видеосообщение, миграция
 `0002`), `prompt`, `speech` (точные слова, которые она говорит в кадре; пусто — без речи;
-`0002`), `caption`, `tags`, `ref_media_ids` (референсы внешности, до 8), `status`
+`0002`), `caption`, `tags`, `ref_media_ids` (референсы: до 4 фото внешности + до 2 фото той же
+сцены), `scene` (сцена, в которой сделано: `{day, event_id, place, outfit, ambience, shot}`,
+`0003`; по ней находятся фото того же события для непрерывности), `status`
 (`queued | running | done | failed`), `model`, `result_media_id`, `broker_job_id`, `cost_usd`,
 `error`, `finished_at`. Создаёт обработчик действия, выполняет задача `agent.run_generation`.
 Результат кружка — `media_asset` вида `video` (квадрат 640×640), сообщение вида `video_note`.
@@ -128,7 +151,8 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 
 ### `llm_call`
 Каждый вызов Broker: `reply_run_id` (если в рамках хода), `chat_id`, `purpose` (`reply | guard |
-vision | transcribe | document | tts | image | video | live | memory`), `model`, `request`
+vision | transcribe | document | tts | image | video | live | memory | life`; `life` —
+планировщик дня, `0003`), `model`, `request`
 (без байтов: вместо файлов mime и размер), `response`, `tokens_in`, `tokens_out`, `cost_usd`,
 `latency_ms`, `error`. Пишет `sim/services/llm_log.logged_call` в отдельной короткой транзакции.
 В дашборде — под каждым ответом персонажа («что ушло в модель и что вернулось»).

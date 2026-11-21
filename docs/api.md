@@ -53,7 +53,44 @@ LlmCall = {id, purpose, model, request, response, tokens_in, tokens_out, cost_us
 | GET | `/instructions` | → `{text}` правила формата ответа (только чтение) |
 | GET | `/channels` | → `{items: [{id, kind, title, status, account_label, last_error, last_activity_at}]}` |
 
-`Persona` — поля таблицы `persona` (`docs/database.md`), кроме служебных.
+`Persona` — поля таблицы `persona` (`docs/database.md`), кроме служебных и `life` (свой путь
+ниже); в том числе `model_life`, `appearance`, `voice_ambience_enabled`.
+
+| Метод | Путь | |
+|---|---|---|
+| POST | `/persona/appearance/describe` | модель распознавания описывает внешность по фото-референсам → `{text, references}`; ничего не сохраняет (текст правят и сохраняют через `PUT /persona` `{appearance}`); 400 — нет модели распознавания или референсов |
+
+## Жизнь персонажа
+
+Логика — [persona-life.md](persona-life.md).
+
+| Метод | Путь | |
+|---|---|---|
+| GET | `/persona/life` | → `PersonaLife` |
+| PUT | `/persona/life` | `PersonaLife` целиком → `PersonaLife`; 400 «Неверные данные: …» |
+| GET | `/persona/arcs` | → `{items: [Arc]}` |
+| POST | `/persona/arcs` | `{title, summary?, stage?, status?, started_on?, ends_on?}` → `Arc` (201; `started_on` по умолчанию — её сегодня) |
+| PATCH | `/persona/arcs/{id}` | любые поля `Arc` → `Arc` |
+| DELETE | `/persona/arcs/{id}` | → 204 |
+| GET | `/persona/days?from=&to=` | → `{today, now_minute, items: [Day]}`; по умолчанию вчера…завтра по её календарю, не больше 62 дней |
+| PUT | `/persona/days/{YYYY-MM-DD}` | `{events: [DayEvent], summary?}` → `Day` (`source = edited`; 400 — время не по порядку, наложения) |
+| POST | `/persona/days/{YYYY-MM-DD}/plan` | спланировать заново (задача `agent.plan_day`, `force`) → 202 `{queued, day}`; 400 — не выбрана модель «Жизнь» |
+| GET | `/persona/canon?status=active\|rejected` | → `{items: [Canon]}` от новых к старым |
+| PATCH | `/persona/canon/{id}` | `{fact?, status?}` → `Canon` |
+
+```ts
+PersonaLife = {routine: [{days: number[] /* 0 = пн */, start: "ЧЧ:ММ", end: "ЧЧ:ММ",
+               activity, place, with_whom: string[], busy: "free"|"partial"|"away",
+               outfit, ambience: Ambience | null}],
+               people: [{name, relation, traits, contact, notes}],
+               hobbies: [{name, details, frequency}], places: [{name, kind, details}]}
+Ambience = "none"|"quiet_home"|"kitchen"|"street"|"park"|"cafe"|"car"|"transport"|"office"
+Arc = {id, title, summary, stage, status: "active"|"paused"|"done", started_on, ends_on,
+       updated_at}
+DayEvent = {start, end, title, place, with_whom, busy, details, outfit, ambience}
+Day = {day, events: [DayEvent], summary, source: "model"|"edited", model, error, updated_at}
+Canon = {id, fact, status: "active"|"rejected", chat_id, event_id, created_at}
+```
 
 ## Медиатека
 
