@@ -80,7 +80,8 @@ services:
       retries: 3
     mem_limit: 384m
 
-  # Model calls, recognition, generation, ffmpeg (Procrastinate queue `agent`).
+  # Model calls, recognition, ffmpeg (Procrastinate queue `agent`) and generation (queue `media`,
+  # its own worker in the same process, sim/apps/worker.py).
   worker:
     <<: *app
     container_name: sim-worker

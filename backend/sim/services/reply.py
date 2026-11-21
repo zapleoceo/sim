@@ -20,8 +20,10 @@
    are written in plan order, `canon` facts about herself go to `persona_canon`, the plan's
    `remember` facts go to today's «заметки дня» (`chat.day_notes`, seen by the next turn at
    once; the passport is updated at night, docs/memory.md), and after commit the messages are
-   queued for sending and the generations for running. A turn that queues nothing (silence,
-   block, failure, dropped plan) cancels the status."""
+   queued for sending and the generations for running — best effort: a failing defer is only
+   logged and never turns the sent run into a failed one; the reaper (sim/services/reaper.py)
+   queues such rows again. A turn that queues nothing (silence, block, failure, dropped plan)
+   cancels the status."""
 from __future__ import annotations
 
 import logging
@@ -31,6 +33,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.call_scope import call_scope
 from sim.db.models import Chat, Client, Persona, ReplyRun
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
@@ -53,6 +56,7 @@ from sim.services.llm_log import describe_messages, logged_call
 from sim.services.memory.recall import Recollection, recollect
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.presence import mark_read, show_busy, stop_busy
+from sim.services.queue import after_commit
 from sim.services.turn_state import Unanswered, newer_client_message, unanswered
 
 log = logging.getLogger(__name__)
@@ -105,6 +109,11 @@ def _message(role: str, text: str) -> ChatMessage:
     return ChatMessage(role=role, parts=[ChatPart(text=text)])
 
 
+def turn_scope_name(chat_id: int, last_in_message_id: int | None) -> str:
+    """The idempotency scope of one turn: the chat and the newest client message it answers."""
+    return f"reply-{chat_id}-{last_in_message_id or 0}"
+
+
 class ReplyService:
     def __init__(self, deps: Deps) -> None:
         self.deps = deps
@@ -136,7 +145,12 @@ class ReplyService:
 
     async def _handle(self, turn: _Turn) -> TurnResult:
         try:
-            decision = await self._decide(turn)
+            # The model and guard calls of this turn are the same calls on a retry of the task,
+            # whatever the newer clock in the prompt: the Broker re-attaches them by position
+            # (docs/broker.md §2b). A newer client message is another turn, with new keys.
+            with call_scope(turn_scope_name(turn.chat_id, turn.last_in_message_id),
+                            sequential=True):
+                decision = await self._decide(turn)
             if decision.blocked:
                 await self._block(turn, decision)
                 return TurnResult(RunStatus.BLOCKED, turn.run_id, "guard blocked twice")
@@ -337,14 +351,25 @@ class ReplyService:
             return TurnResult(RunStatus.SKIPPED, turn.run_id, "newer client message")
         if run.status == RunStatus.SKIPPED:
             return TurnResult(RunStatus.SKIPPED, turn.run_id, run.error or "")
-        for message_id in result.message_ids:
-            await self.deps.tasks.send(message_id, turn.chat_id)
-        for generation_id in result.generation_ids:
-            await self.deps.tasks.generate(generation_id)
-        if turn.ctx.needs_compression:
-            await self.deps.tasks.refresh_memory(turn.chat_id)
+        await self._queue_committed(turn, result)
         return TurnResult(RunStatus.SENT, turn.run_id,
                           outgoing=len(result.message_ids) + len(result.generation_ids))
+
+    async def _queue_committed(self, turn: _Turn, result: ApplyResult) -> None:
+        """Best effort after the commit: the run is SENT and its rows are stored, so a failing
+        defer is only logged — it must never turn a sent run into a failed one. A pending
+        message or a queued generation left without a job is queued again by the reaper
+        (sim/services/reaper.py); a missed memory refresh comes with the next turn."""
+        tasks = self.deps.tasks
+        where = f"chat {turn.chat_id} run {turn.run_id}"
+        for message_id in result.message_ids:
+            await after_commit(f"{where}: send {message_id}",
+                               tasks.send(message_id, turn.chat_id))
+        for generation_id in result.generation_ids:
+            await after_commit(f"{where}: generation {generation_id}",
+                               tasks.generate(generation_id))
+        if turn.ctx.needs_compression:
+            await after_commit(f"{where}: memory", tasks.refresh_memory(turn.chat_id))
 
     async def _apply(self, session: AsyncSession, chat: Chat, turn: _Turn,
                      decision: _Decision, prepared: list[Any], result: ApplyResult,
@@ -406,8 +431,8 @@ class ReplyService:
         log.warning("chat %s run %s failed: %s", turn.chat_id, turn.run_id, error)
         async with transaction(self.deps.sessions) as session:
             run = await session.get(ReplyRun, turn.run_id)
-            if run is None:
-                return
+            if run is None or run.status != RunStatus.RUNNING:
+                return      # already finished (sent, skipped): an error after it changes nothing
             run.status = RunStatus.FAILED
             run.error = error[:2000]
             run.finished_at = self.deps.clock.now()

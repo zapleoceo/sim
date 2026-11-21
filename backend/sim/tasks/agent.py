@@ -1,13 +1,20 @@
-"""The worker's tasks (queue `agent`). Each opens its own sessions through the process-wide
-Deps (`set_deps` in the entrypoint) and calls one service. Only retryable Broker errors
-(PortError) are retried; everything else is recorded by the service and finishes the job."""
+"""The worker's tasks (queue `agent`; generation in queue `media`). Each opens its own
+sessions through the process-wide Deps (`set_deps` in the entrypoint) and calls one service.
+Only retryable Broker errors (PortError) are retried; everything else is recorded by the
+service and finishes the job.
+
+The tasks that call the Broker run in the idempotency scope of their Procrastinate job
+(`in_job_scope`, docs/broker.md §2b): a retry re-attaches to the Broker jobs it already paid for."""
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import date
+from typing import Any
 
 import procrastinate
 
+from sim.call_scope import call_scope
 from sim.db.session import transaction
 from sim.ports import PortError
 from sim.services.attention.check import PhoneCheck
@@ -28,6 +35,7 @@ from sim.tasks.queue import (
     LIFE_TICK_CRON,
     LIFE_TICK_TASK,
     LOOK_TASK,
+    MEDIA_QUEUE,
     MEMORY_TASK,
     MEMORY_TICK_CRON,
     MEMORY_TICK_TASK,
@@ -35,17 +43,40 @@ from sim.tasks.queue import (
     PASSPORT_TASK,
     PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
+    REAP_CRON,
+    REAP_TASK,
     REPLY_TASK,
     STALLED_CRON,
     STALLED_TASK,
     SUMMARIZE_DAY_TASK,
     UNDERSTAND_TASK,
 )
+from sim.tasks.reaper import reap_tick
 from sim.tasks.stalled import stalled_tick
 
 log = logging.getLogger(__name__)
 
 RETRY = procrastinate.RetryStrategy(max_attempts=3, wait=20, retry_exceptions={PortError})
+
+type Task = Callable[..., Awaitable[None]]
+
+
+def job_scope_name(job_id: int | None) -> str:
+    return f"job-{job_id}"
+
+
+def in_job_scope(task: Task) -> Task:
+    """`task` taking Procrastinate's job context and running in the call scope of its job: the
+    job id survives the retries and the re-queue of a stalled job, so every attempt sends the
+    same Broker idempotency keys; a deliberate re-run is a new job with new keys."""
+
+    async def run(context: procrastinate.JobContext, *args: Any, **kwargs: Any) -> None:
+        with call_scope(job_scope_name(context.job.id)):
+            await task(*args, **kwargs)
+
+    run.__name__ = run.__qualname__ = getattr(task, "__name__", run.__name__)
+    run.__doc__ = task.__doc__
+    return run
 
 
 async def reply_chat(chat_id: int) -> None:
@@ -130,21 +161,28 @@ async def memory_tick(timestamp: int) -> None:
 
 def register_agent_tasks(app: procrastinate.App) -> None:
     """Register under the exact shared names (no blueprint namespace prefix)."""
-    app.task(name=REPLY_TASK, queue=AGENT_QUEUE, retry=RETRY)(reply_chat)
-    app.task(name=UNDERSTAND_TASK, queue=AGENT_QUEUE, retry=RETRY)(understand_media)
-    app.task(name=GENERATE_TASK, queue=AGENT_QUEUE)(run_generation)
-    app.task(name=MEMORY_TASK, queue=AGENT_QUEUE, retry=RETRY)(refresh_memory)
-    app.task(name=PASSPORT_TASK, queue=AGENT_QUEUE, retry=RETRY)(update_passport)
-    app.task(name=PLAN_DAY_TASK, queue=AGENT_QUEUE, retry=RETRY)(plan_day)
+    def broker_task(name: str, task: Task, *, queue: str = AGENT_QUEUE,
+                    retry: procrastinate.RetryStrategy | bool = False) -> None:
+        app.task(name=name, queue=queue, retry=retry, pass_context=True)(
+            in_job_scope(task))
+
+    broker_task(REPLY_TASK, reply_chat, retry=RETRY)
+    broker_task(UNDERSTAND_TASK, understand_media, retry=RETRY)
+    broker_task(GENERATE_TASK, run_generation, queue=MEDIA_QUEUE)
+    broker_task(MEMORY_TASK, refresh_memory, retry=RETRY)
+    broker_task(PASSPORT_TASK, update_passport, retry=RETRY)
+    broker_task(PLAN_DAY_TASK, plan_day, retry=RETRY)
     tick = app.task(name=LIFE_TICK_TASK, queue=AGENT_QUEUE)(life_tick)
     app.periodic(cron=LIFE_TICK_CRON, periodic_id="life")(tick)
     app.task(name=PHONE_CHECK_TASK, queue=AGENT_QUEUE)(phone_check)
-    app.task(name=LOOK_TASK, queue=AGENT_QUEUE)(look_at_phone)
+    broker_task(LOOK_TASK, look_at_phone)
     sweep = app.task(name=ATTENTION_TICK_TASK, queue=AGENT_QUEUE)(attention_tick)
     app.periodic(cron=ATTENTION_TICK_CRON, periodic_id="attention")(sweep)
-    app.task(name=NIGHT_TASK, queue=AGENT_QUEUE, retry=RETRY)(night_memory)
-    app.task(name=SUMMARIZE_DAY_TASK, queue=AGENT_QUEUE, retry=RETRY)(summarize_day)
+    broker_task(NIGHT_TASK, night_memory, retry=RETRY)
+    broker_task(SUMMARIZE_DAY_TASK, summarize_day, retry=RETRY)
     night = app.task(name=MEMORY_TICK_TASK, queue=AGENT_QUEUE)(memory_tick)
     app.periodic(cron=MEMORY_TICK_CRON, periodic_id="memory")(night)
     stalled = app.task(name=STALLED_TASK, queue=AGENT_QUEUE, pass_context=True)(stalled_tick)
     app.periodic(cron=STALLED_CRON, periodic_id="stalled")(stalled)
+    reap = app.task(name=REAP_TASK, queue=AGENT_QUEUE)(reap_tick)
+    app.periodic(cron=REAP_CRON, periodic_id="reaper")(reap)

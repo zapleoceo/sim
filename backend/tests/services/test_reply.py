@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -7,6 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sim.call_scope import current_scope
 from sim.clock import FixedClock
 from sim.db.models import (
     Chat,
@@ -36,7 +38,7 @@ from sim.domain.plan import ReplyPlan
 from sim.events import append_event
 from sim.ports import PortError
 from sim.services.deps import Deps
-from sim.services.reply import ReplyService
+from sim.services.reply import ReplyService, turn_scope_name
 from tests.services.conftest import Fakes
 from tests.services.factories import (
     add_message,
@@ -124,6 +126,31 @@ async def test_guard_block_then_retry_ok(db: AsyncSession, deps: Deps, fakes: Fa
     assert run.attempts == 2 and [v["ok"] for v in run.guard_verdicts] == [False, True]
     assert (await events_of(db, chat)).count(EventKind.GUARD_BLOCKED) == 1
     assert not (await fresh(db, chat)).needs_operator
+
+
+async def test_turn_calls_share_one_sequential_scope(db: AsyncSession, deps: Deps,
+                                                     fakes: Fakes, clock: FixedClock) -> None:
+    """The model and guard calls of a turn are keyed by position (docs/broker.md §2b), so a
+    retried turn re-attaches to the Broker jobs of its first attempt."""
+    chat = await make_chat(db, await make_persona(db))
+    message, _ = await add_message(db, chat, "привет", at=clock.now() - timedelta(seconds=60))
+    seen: list[tuple[str, bool]] = []
+
+    def answering(text: str) -> Callable[[dict[str, Any]], str]:
+        def answer(record: dict[str, Any]) -> str:
+            scope = current_scope()
+            assert scope is not None
+            seen.append((scope.name, scope.sequential))
+            return text
+        return answer
+
+    fakes.llm.script("reply-model", answering(plan_json(TEXT)))
+    fakes.llm.script("guard-model", answering(ok_verdict()))
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+    assert seen == [(turn_scope_name(chat.id, message.id), True)] * 2
+    assert turn_scope_name(chat.id, message.id) == f"reply-{chat.id}-{message.id}"
+    assert current_scope() is None
 
 
 async def test_second_block_needs_an_operator(db: AsyncSession, deps: Deps, fakes: Fakes,
@@ -474,3 +501,30 @@ async def test_a_video_note_without_speech_is_repaired(db: AsyncSession, deps: D
     assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
     repair = fakes.llm.calls_for("reply-model")[1]["messages"][-1].parts[0].text or ""
     assert "generate.speech" in repair
+
+
+async def test_a_failing_defer_after_the_commit_keeps_the_run_sent(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    chat = await setup_chat(db, clock)
+    more = {"type": "text", "text": "как ты?"}
+    fakes.llm.script("reply-model", plan_json(TEXT, more)).script("guard-model", ok_verdict())
+    deferred: list[int] = []
+
+    async def flaky(message_id: int, chat_id: int | None = None) -> None:
+        deferred.append(message_id)
+        if len(deferred) == 1:
+            raise OSError("queue unreachable")
+
+    monkeypatch.setattr(fakes.tasks, "send", flaky)
+
+    result = await ReplyService(deps).run(chat.id)
+
+    # The run is committed SENT: a defer failing after it is logged, not a failed turn.
+    assert result.status == RunStatus.SENT and result.outgoing == 2
+    run = (await runs(db, chat))[0]
+    assert run.status == RunStatus.SENT and run.error is None
+    first, second = await outgoing(db, chat)
+    assert deferred == [first.id, second.id]            # the next defers still go out
+    # The first message stays `pending` until the reaper queues its send again.
+    assert first.status == second.status == MessageStatus.PENDING

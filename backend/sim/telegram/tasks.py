@@ -11,6 +11,11 @@ FloodWait after the seconds Telegram asked for, the rest with a growing pause. A
 or a transient one on the last attempt, marks the message failed (a `send_failed` event).
 The outbound message carries the row id as its key, so a retry after a lost answer is not
 delivered twice (sim/telegram/sending.py); such a retry is marked sent without a Telegram id.
+A job that dies without an outcome — the process killed mid-send, a database error after the
+message went out — leaves the message `pending`: the worker's stalled-job recovery queues a
+killed job again (sim/tasks/stalled.py) and the reaper queues a send for a message pending for
+minutes (sim/services/reaper.py); `deliver` skips a message that is no longer pending and the
+repeat carries the same key, so neither delivers twice.
 
 `mark_read(message_id)` marks the chat read up to an incoming message (best effort).
 
@@ -215,10 +220,17 @@ async def deliver(
             raise
         await fail(sessions, outbox, message_id, str(exc))
         return "failed"
-    async with transaction(sessions) as session:
-        message = await session.get(Message, message_id)
-        if message is not None:
-            await outbox.mark_sent(session, message, external_id, clock.now())
+    try:
+        async with transaction(sessions) as session:
+            message = await session.get(Message, message_id)
+            if message is not None:
+                await outbox.mark_sent(session, message, external_id, clock.now())
+    except Exception:
+        # Delivered but not recorded: the message stays pending; the reaper queues it again
+        # and Telegram drops the repeat by its random_id (sim/services/reaper.py).
+        log.exception("message %s: sent (telegram id %s) but not marked sent", message_id,
+                      external_id)
+        raise
     if presence is not None:
         presence.sent(delivery.chat_id, delivery.outbound.kind)
     return "sent"

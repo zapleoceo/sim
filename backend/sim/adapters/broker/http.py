@@ -3,7 +3,11 @@ submit + poll of queued jobs, and the single mapping of failures to `PortError(r
 
 Retry rule (docs/broker.md): a failure a later attempt can get past is retryable (network,
 timeouts, 408/425/429/5xx, a job still pending after the budget, a worker restart); a request
-the Broker refused for what it is (4xx, a failed or cancelled job, a spent budget cap) is not."""
+the Broker refused for what it is (4xx, a failed or cancelled job, a spent budget cap) is not.
+
+Every queued job is sent with an `Idempotency-Key` of its call scope (idempotency.py), so the
+retry of a task whose job outlived the poll budget re-attaches to that job instead of paying
+for a second one (docs/broker.md §2b)."""
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +21,9 @@ from typing import Any
 
 import httpx
 
+from sim.adapters.broker import idempotency
 from sim.adapters.broker.waiter import WAIT_PATH, JobWaiter, WaiterUnavailable, wait_timeout
+from sim.call_scope import current_scope
 from sim.config import Settings
 from sim.ports import PortError, Usage
 
@@ -40,6 +46,9 @@ RETRYABLE_JOB_CODES = frozenset({"worker_restarted", "capacity_busy", "auth_refr
 # A spent daily / monthly / lifetime allowance: retrying before the reset only burns attempts.
 BUDGET_MARKERS = ("budget cap reached", "request_cap_exhausted")
 FAILED_JOB_STATES = frozenset({"error", "cancelled", "unknown"})
+# Replayed failed jobs one submit walks past (next_key) before it gives the last error up.
+MAX_KEY_HOPS = 8
+REPLAY_HEADER = "Idempotent-Replay"
 # How many Broker jobs of one lane this process runs at once (more wait here, not in the
 # Broker or at the provider's rate limit). The lane is the first word of `what`.
 DEFAULT_INFLIGHT: dict[str, int] = {"default": 8, "chat": 12, "transcribe": 4, "speech": 4,
@@ -57,11 +66,14 @@ def poll_sleep(suggested_s: float, elapsed_s: float) -> float:
 
 
 class BrokerHttpError(PortError):
-    """A Broker answer with an HTTP error status (`status`) or no answer at all (`status` None)."""
+    """A Broker answer with an HTTP error status (`status`, the JSON body in `payload`) or no
+    answer at all (`status` None)."""
 
-    def __init__(self, message: str, *, retryable: bool, status: int | None = None) -> None:
+    def __init__(self, message: str, *, retryable: bool, status: int | None = None,
+                 payload: Any = None) -> None:
         super().__init__(message, retryable=retryable)
         self.status = status
+        self.payload = payload
 
 
 @dataclass(frozen=True)
@@ -86,8 +98,12 @@ def http_error(what: str, exc: httpx.HTTPError) -> BrokerHttpError:
         status = exc.response.status_code
         body = exc.response.text[:ERROR_TEXT_LIMIT]
         retryable = status in RETRYABLE_STATUS and not is_budget_error(body)
+        try:
+            payload = exc.response.json()
+        except ValueError:
+            payload = None
         return BrokerHttpError(f"{what}: HTTP {status}: {body}", retryable=retryable,
-                               status=status)
+                               status=status, payload=payload)
     # Connect / read / write timeouts and dropped connections: the next attempt may pass.
     return BrokerHttpError(f"{what}: {type(exc).__name__}: {exc}"[:ERROR_TEXT_LIMIT],
                            retryable=True)
@@ -265,12 +281,48 @@ class BrokerHttp:
     async def submit(self, path: str, body: Mapping[str, Any], *, what: str, budget_s: float,
                      params: Mapping[str, str] | None = None) -> JobOutcome:
         """POST a queued job, then wait until it is done (within the lane's in-flight limit)."""
+        key = idempotency.job_key(current_scope(), path, params, body)
         async with self.slot(what.split()[0]):
             start = self.clock()
-            job = await self.json("POST", path, what=what, params=params, json=body)
+            job = await self.admit(path, body, what=what, params=params, key=key)
             data = await self.poll(job, what=what, budget_s=budget_s)
             return JobOutcome(job_id=str(job.get("job_id")), data=data,
                               latency_ms=self.elapsed_ms(start))
+
+    async def admit(self, path: str, body: Mapping[str, Any], *, what: str,
+                    params: Mapping[str, str] | None, key: str | None) -> dict[str, Any]:
+        """The submit answer of a job. With a key the Broker may answer with the job that key
+        already started (a replay, or a 409 conflict when the prompt changed since): that job is
+        re-attached. A replayed failed job is not an answer to a retry: the submit walks on to
+        the next key (at most MAX_KEY_HOPS times, then the last failure is polled and raised)."""
+        job, replayed = await self._post_job(path, body, what=what, params=params, key=key)
+        for _ in range(MAX_KEY_HOPS):
+            if key is None or not replayed or str(job.get("status")) not in FAILED_JOB_STATES:
+                break
+            failed_id = str(job.get("job_id") or "")
+            log.info("%s: job %s of this call failed before, submitting again", what, failed_id)
+            key = idempotency.next_key(key, failed_id)
+            job, replayed = await self._post_job(path, body, what=what, params=params, key=key)
+        return job
+
+    async def _post_job(self, path: str, body: Mapping[str, Any], *, what: str,
+                        params: Mapping[str, str] | None,
+                        key: str | None) -> tuple[dict[str, Any], bool]:
+        """(submit answer, whether it is a job the key had already started)."""
+        headers = {idempotency.HEADER: key} if key else None
+        try:
+            response = await self.request("POST", path, what=what, params=params, json=body,
+                                          headers=headers)
+        except BrokerHttpError as exc:
+            existing = idempotency.conflict_job_id(exc.status, exc.payload) if key else None
+            if existing is None:
+                raise
+            log.info("%s: re-attaching to job %s of the same call", what, existing)
+            job = await self.json("GET", f"/v1/jobs/{existing}", what=what)
+            return {**job, "job_id": job.get("job_id") or existing}, True
+        replayed = (response.status_code == httpx.codes.OK
+                    or response.headers.get(REPLAY_HEADER, "").lower() == "true")
+        return self.decode(response, what=what), replayed
 
     async def poll(self, job: Mapping[str, Any], *, what: str, budget_s: float,
                    default_path: str | None = None) -> dict[str, Any]:
