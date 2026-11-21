@@ -13,6 +13,12 @@ approves only a clean `ok` (`approves`); it never rewrites text, so a saved mess
 refused clients, dialogs with follow-ups off and disconnected channels in SQL before it
 locks a dialog.
 
+In the admin every query key lives in `qk` (`frontend/src/lib/query.ts`). The inbox
+shares `qk.channels` and `qk.simulation(id)` with the other pages, its flat test-chat
+list `qk.inboxSimulations` sits under `simulations` and its «нужен оператор» counter
+`qk.operatorQueue` under `dialogs`, so one live event or mutation refreshes each of
+them once.
+
 ### Live call startup retries
 
 While an incoming call is still ringing, SIM retries Broker Live startup at most once,
