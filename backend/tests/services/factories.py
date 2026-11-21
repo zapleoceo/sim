@@ -71,7 +71,7 @@ async def make_chat(db: AsyncSession, persona: Persona | None = None, *, client_
     persona = persona or await make_persona(db)
     channel = await make_channel(db, persona)
     client = Client(persona_id=persona.id, name=name, username="dima", ai_enabled=client_ai,
-                    memory=[])
+                    passport={})
     db.add(client)
     await db.flush()
     db.add(ClientIdentity(client_id=client.id, channel_kind=ChannelKind.TELEGRAM_USER,

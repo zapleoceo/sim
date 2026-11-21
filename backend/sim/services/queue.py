@@ -26,7 +26,12 @@ class TaskQueue(Protocol):
         ...
 
     async def refresh_memory(self, chat_id: int) -> None:
-        """Compress the old part of the timeline into the summary and tidy the client memory."""
+        """Compress the old part of the timeline into the chat summary."""
+        ...
+
+    async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
+        """Rewrite the client's passport from this chat (docs/leads.md). A request made while
+        one is waiting is absorbed by it; one chat's updates never run in parallel."""
         ...
 
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:

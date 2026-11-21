@@ -22,6 +22,7 @@ dependencies = [
     "pypdf>=5",
     "python-docx>=1.1",
     "uvloop>=0.21; sys_platform != 'win32'",
+    "segno>=1.6,<2",
 ]
 
 [dependency-groups]

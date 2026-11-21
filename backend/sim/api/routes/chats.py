@@ -44,8 +44,11 @@ MESSAGE_KIND_BY_MEDIA = {
 
 @get("/chats")
 async def list_chats(db: AsyncSession, q: str | None = None, limit: Limit = 50,
-                     before: datetime | None = None) -> Json:
+                     before: datetime | None = None, persona_id: int | None = None) -> Json:
+    """Newest activity first; `persona_id` keeps the chats that persona answers in."""
     stmt = search_clients(select(Chat, Client).join(Client, Client.id == Chat.client_id), q)
+    if persona_id is not None:
+        stmt = stmt.where(Chat.persona_id == persona_id)
     if before is not None:
         stmt = stmt.where(Chat.last_message_at < before)
     stmt = stmt.order_by(Chat.last_message_at.desc().nulls_last(), Chat.id.desc()).limit(limit)

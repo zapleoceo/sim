@@ -297,7 +297,8 @@ class LifePlanner:
         found: list[tuple[int, date]] = []
         async with transaction(self.deps.sessions) as session:
             personas = list(await session.scalars(
-                select(Persona).where(Persona.model_life != "").order_by(Persona.id)))
+                select(Persona).where(Persona.model_life != "", Persona.is_active.is_(True))
+                .order_by(Persona.id)))
             for persona in personas:
                 today = to_local(now, persona.timezone).date()
                 rows = await load_days(session, persona.id, today, today + timedelta(days=1))

@@ -4,9 +4,19 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Chat, ChatEvent, LlmCall, MediaAsset, Message, ReplyRun
+from sim.db.models import (
+    Channel,
+    Chat,
+    ChatEvent,
+    LlmCall,
+    MediaAsset,
+    Message,
+    Persona,
+    ReplyRun,
+)
 from sim.domain.enums import (
     Author,
+    ChannelKind,
     EventKind,
     LlmPurpose,
     MediaSource,
@@ -37,6 +47,25 @@ async def test_list_chats_with_last_message_and_search(api: ApiClient, world: Wo
     assert (await api.get("/api/chats", params={"q": "nobody"})).json()["items"] == []
 
 
+async def test_list_chats_shows_and_filters_the_persona(api: ApiClient, world: World,
+                                                        db: AsyncSession) -> None:
+    other = Persona(name="Оля")
+    db.add(other)
+    await db.flush()
+    channel = Channel(persona_id=other.id, kind=ChannelKind.TELEGRAM_USER, title="Оля")
+    db.add(channel)
+    await db.flush()
+    # The same client wrote to Оля's account too: a second chat, answered by Оля.
+    db.add(Chat(persona_id=other.id, client_id=world.client_id, channel_id=channel.id))
+    await db.commit()
+    rows = (await api.get("/api/chats")).json()["items"]
+    assert sorted(r["persona"]["name"] for r in rows) == ["Марина", "Оля"]
+    mine = (await api.get("/api/chats", params={"persona_id": world.persona_id})).json()
+    assert [r["id"] for r in mine["items"]] == [world.chat_id]
+    theirs = (await api.get("/api/chats", params={"persona_id": other.id})).json()["items"]
+    assert [r["persona"]["id"] for r in theirs] == [other.id]
+
+
 async def test_list_chats_before_cursor(api: ApiClient, world: World) -> None:
     row = (await api.get("/api/chats")).json()["items"][0]
     older = await api.get("/api/chats", params={"before": row["last_message_at"]})
@@ -50,7 +79,8 @@ async def test_chat_detail_and_404(api: ApiClient, world: World) -> None:
     body = response.json()
     assert body["id"] == world.chat_id
     assert body["client"]["phone"] is None
-    assert body["client"]["memory"] == []
+    assert body["client"]["passport"]["text"] == ""
+    assert body["persona"] == {"id": world.persona_id, "name": "Марина", "avatar_media_id": None}
     missing = await api.get("/api/chats/999999")
     assert missing.status_code == 404
     assert "error" in missing.json()

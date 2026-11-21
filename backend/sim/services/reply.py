@@ -14,10 +14,10 @@
    announced by its Telegram status («записывает голосовое», «записывает кружок»...).
 4. Commit (transaction, chat row locked): if a newer client message arrived meanwhile the plan
    is dropped (run skipped) and the reply is re-queued; else pending messages / generations
-   are written in plan order, `remember` facts go to `client.memory`, `canon` facts about
-   herself to `persona_canon`, and after commit the
-   messages are queued for sending and the generations for running. A turn that queues
-   nothing (silence, block, failure, dropped plan) cancels the status."""
+   are written in plan order, `canon` facts about herself go to `persona_canon`, and after
+   commit the client passport update is queued (it also reads the plan's `remember` facts,
+   docs/leads.md), the messages are queued for sending and the generations for running. A
+   turn that queues nothing (silence, block, failure, dropped plan) cancels the status."""
 from __future__ import annotations
 
 import logging
@@ -35,7 +35,6 @@ from sim.domain.presence import THINKING
 from sim.events import append_event
 from sim.ports import ChatMessage, ChatPart, PortError
 from sim.services.actions import ActionContext, ApplyResult, handler_for
-from sim.services.client_memory import add_facts
 from sim.services.context.builder import ContextBuilder, ReplyContext
 from sim.services.context.facts import to_local
 from sim.services.deps import Deps
@@ -44,9 +43,10 @@ from sim.services.life.busy import reply_delay
 from sim.services.life.canon import add_canon
 from sim.services.life.store import load_days, load_life
 from sim.services.llm_log import describe_messages, logged_call
+from sim.services.passport import PASSPORT_DELAY_S
 from sim.services.plan_check import PlanError, validated_plan
 from sim.services.presence import mark_read, show_busy, stop_busy
-from sim.services.turn_state import Unanswered, newer_client_message, unanswered
+from sim.services.turn_state import Unanswered, ai_allowed, newer_client_message, unanswered
 
 log = logging.getLogger(__name__)
 
@@ -94,11 +94,6 @@ class _Decision:
 
 def _message(role: str, text: str) -> ChatMessage:
     return ChatMessage(role=role, parts=[ChatPart(text=text)])
-
-
-def ai_allowed(persona: Persona | None, client: Client | None, chat: Chat) -> bool:
-    return bool(persona and client and persona.ai_enabled and client.ai_enabled
-                and chat.ai_enabled)
 
 
 class ReplyService:
@@ -307,12 +302,13 @@ class ReplyService:
                 run.error = skip_reason
                 run.finished_at = self.deps.clock.now()
             else:
-                await self._apply(session, turn, decision, prepared, result, run, client)
+                await self._apply(session, turn, decision, prepared, result, run)
         if requeue and persona is not None:
             await self.deps.tasks.reply(turn.chat_id, float(persona.reply_delay_s))
             return TurnResult(RunStatus.SKIPPED, turn.run_id, "newer client message")
         if run.status == RunStatus.SKIPPED:
             return TurnResult(RunStatus.SKIPPED, turn.run_id, run.error or "")
+        await self.deps.tasks.update_passport(turn.chat_id, PASSPORT_DELAY_S)
         for message_id in result.message_ids:
             await self.deps.tasks.send(message_id, turn.chat_id)
         for generation_id in result.generation_ids:
@@ -323,16 +319,11 @@ class ReplyService:
                           outgoing=len(result.message_ids) + len(result.generation_ids))
 
     async def _apply(self, session: AsyncSession, turn: _Turn, decision: _Decision,
-                     prepared: list[Any], result: ApplyResult, run: ReplyRun,
-                     client: Client | None) -> None:
+                     prepared: list[Any], result: ApplyResult, run: ReplyRun) -> None:
         actx = self._action_context(turn)
         for action, ready in zip(decision.plan.messages, prepared, strict=True):
             await handler_for(action).apply(session, action, ready, actx, result)
         now = self.deps.clock.now()
-        if client is not None and decision.plan.remember:
-            client.memory = add_facts(client.memory or [],
-                                      [fact.fact for fact in decision.plan.remember],
-                                      event_id=run.trigger_event_id, at=now)
         if decision.plan.canon:
             await add_canon(session, persona_id=turn.persona.id,
                             facts=[fact.fact for fact in decision.plan.canon],

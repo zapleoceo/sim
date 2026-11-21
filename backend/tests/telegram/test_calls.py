@@ -98,6 +98,7 @@ async def test_an_answered_call_is_bridged_transcribed_and_recorded(db, sessions
     assert event.call_id == row.id and event.actor == "client" and event.in_context
     assert event.data["status"] == "ended" and event.data["end_reason"] == "hung_up"
     assert tasks.memory == [world.chat.id]
+    assert tasks.passports == [world.chat.id]        # the call goes into the passport
 
 
 @pytest.mark.parametrize(("seed", "config", "reason"), [
@@ -231,13 +232,21 @@ async def test_calls_left_open_by_a_restart_are_closed_as_failed(db, sessions, c
 
 
 def test_refuse_reason_order():
-    persona = SimpleNamespace(ai_enabled=True, calls_enabled=True, model_live="m")
+    persona = SimpleNamespace(id=1, is_active=True, ai_enabled=True, calls_enabled=True,
+                              model_live="m")
     client = SimpleNamespace(ai_enabled=True)
-    chat = SimpleNamespace(ai_enabled=True)
+    chat = SimpleNamespace(ai_enabled=True, persona_id=1)
+    off = "persona AI is off (or the persona is archived)"
     assert refuse_reason(calls_enabled=True, persona=persona, client=client, chat=chat) is None
     assert refuse_reason(calls_enabled=True, persona=SimpleNamespace(
-        ai_enabled=False, calls_enabled=True, model_live="m"), client=client,
-        chat=chat) == "persona AI is off"
+        id=1, is_active=True, ai_enabled=False, calls_enabled=True, model_live="m"),
+        client=client, chat=chat) == off
+    archived = SimpleNamespace(id=1, is_active=False, ai_enabled=True, calls_enabled=True,
+                               model_live="m")
+    assert refuse_reason(calls_enabled=True, persona=archived, client=client, chat=chat) == off
+    other = SimpleNamespace(id=2, is_active=True, ai_enabled=True, calls_enabled=True,
+                            model_live="m")
+    assert refuse_reason(calls_enabled=True, persona=other, client=client, chat=chat) == off
     assert refuse_reason(calls_enabled=True, persona=persona, client=None,
                          chat=chat) == "AI is off for this client"
 

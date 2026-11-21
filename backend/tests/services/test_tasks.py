@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.config import Settings
+from sim.db.models import Client
 from sim.services.deps import Deps, get_deps, reset_deps, set_deps
 from sim.services.voices import GEMINI_VOICES, VOICE_IDS, is_voice
 from sim.tasks import agent
@@ -18,6 +19,7 @@ from sim.tasks.queue import (
     LIFE_TICK_TASK,
     MARK_READ_TASK,
     MEMORY_TASK,
+    PASSPORT_TASK,
     PLAN_DAY_TASK,
     REPLY_TASK,
     SEND_TASK,
@@ -136,7 +138,57 @@ async def test_reply_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: 
         await agent.run_generation(999_999)
     finally:
         reset_deps()
-    assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action", "send"]
+    assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action",
+                                                       "update_passport", "send"]
+
+
+async def test_passport_queue_and_registration() -> None:
+    app = FakeApp()
+    queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
+    await queue.update_passport(7, 5)
+    await queue.update_passport(7, 5)                   # a burst of turns: one update
+    await queue.update_passport(8)
+    assert app.deferred == [
+        (PASSPORT_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "passport:7",
+                                         "queueing_lock": "passport:7",
+                                         "schedule_in": {"seconds": 5}}),
+        (PASSPORT_TASK, {"chat_id": 8}, {"queue": "agent", "lock": "passport:8",
+                                         "queueing_lock": "passport:8"}),
+    ]
+    real = make_app(Settings(env="test"))
+    assert real.tasks[PASSPORT_TASK].queue == "agent"
+
+
+async def test_passport_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                              clock: FixedClock) -> None:
+    chat = await make_chat(db)
+    await add_message(db, chat, "я врач", at=clock.now())
+    fakes.llm.script("memory-model", '{"text": "Жизнь: врач", "occupation": "врач"}')
+    set_deps(deps)
+    try:
+        await agent.update_passport(chat.id)
+        await agent.update_passport(999_999)            # unknown chat: nothing to do
+    finally:
+        reset_deps()
+    client = await db.get(Client, chat.client_id)
+    assert client is not None
+    await db.refresh(client)
+    assert client.passport["occupation"] == "врач"
+
+
+async def test_life_tick_plans_every_active_persona(db: AsyncSession, deps: Deps,
+                                                    fakes: Fakes) -> None:
+    marina = await make_persona(db, model_life="life-model", timezone="Europe/Berlin")
+    olya = await make_persona(db, name="Оля", model_life="life-model",
+                              timezone="Europe/Berlin")
+    await make_persona(db, name="Архив", model_life="life-model", is_active=False)
+    set_deps(deps)
+    try:
+        await agent.life_tick(0)
+    finally:
+        reset_deps()
+    planned = {call[1] for call in fakes.tasks.of("plan_day")}
+    assert planned == {marina.id, olya.id}
 
 
 async def test_plan_day_queue_and_registration() -> None:

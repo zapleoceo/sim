@@ -6,7 +6,7 @@
           normal reply flow — docs/persona-life.md)
        -> wait a human ring delay -> open the Broker live session (before picking up: when the
           Broker refuses, nobody picked up) -> answer -> talk (AudioBridge) -> hang up
-       -> Call row + `call` event in one transaction -> refresh the client's memory.
+       -> Call row + `call` event in one transaction -> update the client's passport.
 
 Every outcome is a `call` row and a `call` event: declined, missed (the caller hung up first),
 failed (Broker or Telegram refused), ended (a conversation took place). No database transaction
@@ -64,6 +64,8 @@ class CallContextSource(Protocol):
 class CallTasks(Protocol):
     async def refresh_memory(self, chat_id: int) -> Any: ...
 
+    async def update_passport(self, chat_id: int, delay_s: float = 0) -> Any: ...
+
     async def reply(self, chat_id: int, delay_s: float = 0) -> Any: ...
 
 
@@ -86,8 +88,9 @@ def refuse_reason(*, calls_enabled: bool, persona: Persona | None, client: Clien
     """Why she must not pick up, or None. Checked in this order, first reason wins."""
     if not calls_enabled:
         return "calls are disabled (SIM_CALLS_ENABLED)"
-    if persona is None or not persona.ai_enabled:
-        return "persona AI is off"
+    if persona is None or persona.id != chat.persona_id or not persona.is_active \
+            or not persona.ai_enabled:
+        return "persona AI is off (or the persona is archived)"
     if not persona.calls_enabled:
         return "persona calls are off"
     if not persona.model_live:
@@ -216,9 +219,11 @@ class CallService:
             model=str(summary.get("model") or getattr(ring.context, "model", "") or ""),
             end_reason=outcome.reason)
         try:
+            # The call goes into the client's passport; a long chat is summarized.
+            await self.tasks.update_passport(ring.chat_id, 0)
             await self.tasks.refresh_memory(ring.chat_id)
         except Exception:
-            log.exception("call %s: memory refresh not queued", ring.call_id)
+            log.exception("call %s: passport / summary not queued", ring.call_id)
         return status
 
     # --- database ------------------------------------------------------------------------

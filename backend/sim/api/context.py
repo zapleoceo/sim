@@ -17,19 +17,23 @@ from sim.api.live import EventHub
 from sim.api.ratelimit import LoginRateLimiter
 from sim.config import Settings
 from sim.services.deps import Deps
+from sim.telegram.login import TelegramLogins
 
 ADMIN_SCOPE_KEY = "sim_admin"
 NOT_LOGGED_IN = "Нужно войти"
 
 
 class ApiContext:
-    """Ports and settings (`deps`), the live-update hub and the login limiter of this process."""
+    """Ports and settings (`deps`), the live-update hub, the login limiter and the pending
+    Telegram account logins (QR) of this process."""
 
-    def __init__(self, deps: Deps, *, hub: EventHub, limiter: LoginRateLimiter) -> None:
+    def __init__(self, deps: Deps, *, hub: EventHub, limiter: LoginRateLimiter,
+                 logins: TelegramLogins) -> None:
         self.deps = deps
         self.settings: Settings = deps.settings
         self.hub = hub
         self.limiter = limiter
+        self.logins = logins
 
 
 class AdminContext:

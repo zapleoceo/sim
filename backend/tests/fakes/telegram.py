@@ -278,9 +278,13 @@ class FakeContextBuilder:
 class FakeTasks:
     memory: list[int] = field(default_factory=list)
     replies: list[int] = field(default_factory=list)
+    passports: list[int] = field(default_factory=list)
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.memory.append(chat_id)
+
+    async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
+        self.passports.append(chat_id)
 
     async def reply(self, chat_id: int, delay_s: float = 0) -> None:
         self.replies.append(chat_id)
@@ -448,3 +452,106 @@ class FakeLive:
 
 def gone() -> CallGone:
     return CallGone("the caller hung up while the call was being picked up")
+
+
+# --- QR login (sim/telegram/login.py) --------------------------------------------------------
+
+
+class SessionPasswordNeededError(Exception):
+    """Named like Telethon's: the login code matches errors by class name."""
+
+
+class PasswordHashInvalidError(Exception):
+    pass
+
+
+class FakeQrLogin:
+    """Telethon's QRLogin: `wait()` ends when the test calls `scan()`, `need_password()`,
+    `expire()` or `fail()`; `recreate()` gives a new token."""
+
+    def __init__(self) -> None:
+        self.tokens = itertools.count(1)
+        self.url = ""
+        self.future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+        self.renew()
+
+    def renew(self) -> None:
+        self.url = f"tg://login?token=T{next(self.tokens)}"
+        self.future = asyncio.get_running_loop().create_future()
+
+    async def recreate(self) -> None:
+        self.renew()
+
+    async def wait(self) -> Any:
+        return await self.future
+
+    def scan(self) -> None:
+        self.future.set_result(SimpleNamespace(id=777))
+
+    def need_password(self) -> None:
+        self.future.set_exception(SessionPasswordNeededError("2FA"))
+
+    def expire(self) -> None:
+        self.future.set_exception(TimeoutError())
+
+    def fail(self, exc: Exception) -> None:
+        self.future.set_exception(exc)
+
+
+class FakeLoginClient:
+    """An unauthorized Telethon client for the QR login."""
+
+    def __init__(self, *, password: str = "secret-2fa", me: Any = None,
+                 connect_error: Exception | None = None) -> None:
+        self.password = password
+        self.me = me or SimpleNamespace(id=777, username="olya", phone="", first_name="Оля")
+        self.connect_error = connect_error
+        self.connected = False
+        self.qr: FakeQrLogin | None = None
+        self.passwords: list[str] = []
+        self.session = SimpleNamespace(save=lambda: "SESSION-STRING")
+
+    async def connect(self) -> None:
+        if self.connect_error is not None:
+            raise self.connect_error
+        self.connected = True
+
+    async def disconnect(self) -> None:
+        self.connected = False
+
+    async def qr_login(self) -> FakeQrLogin:
+        self.qr = FakeQrLogin()
+        return self.qr
+
+    async def sign_in(self, *, password: str) -> Any:
+        self.passwords.append(password)
+        if password != self.password:
+            raise PasswordHashInvalidError("wrong")
+        return self.me
+
+    async def get_me(self) -> Any:
+        return self.me
+
+
+class LoginClientFactory:
+    """`(api_id, api_hash, proxy) -> FakeLoginClient`, recording what it was given."""
+
+    def __init__(self, **client_kw: Any) -> None:
+        self.client_kw = client_kw
+        self.clients: list[FakeLoginClient] = []
+        self.args: list[tuple[int, str, str]] = []
+
+    def __call__(self, api_id: int, api_hash: str, proxy: str) -> FakeLoginClient:
+        self.args.append((api_id, api_hash, proxy))
+        client = FakeLoginClient(**self.client_kw)
+        self.clients.append(client)
+        return client
+
+    @property
+    def last(self) -> FakeLoginClient:
+        return self.clients[-1]
+
+    @property
+    def qr(self) -> FakeQrLogin:
+        assert self.last.qr is not None
+        return self.last.qr

@@ -33,7 +33,9 @@ video_note = load("migration_0002",
                   BACKEND / "migrations" / "versions" / "0002_video_note_generation.py")
 # The enum values after every revision: 0001 as frozen, then what later revisions changed.
 life = load("migration_0003", BACKEND / "migrations" / "versions" / "0003_persona_life.py")
-ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS}
+leads = load("migration_0004", BACKEND / "migrations" / "versions" / "0004_personas_leads.py")
+ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
+               **leads.ENUM_CHECKS}
 # Tables in creation order over all revisions.
 TABLES = (*initial.TABLES, *life.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
@@ -47,7 +49,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0003"
+    assert sim_head is not None and sim_head.revision == "0004"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -71,6 +73,16 @@ def test_life_revision_follows_the_video_note_one(scripts):
     purposes = life.ENUM_CHECKS[("llm_call", "purpose")][1]
     assert purposes[-1] == "life" and purposes[:-1] == life.PREVIOUS_PURPOSES
     assert initial.ENUM_CHECKS[("llm_call", "purpose")][1] == life.PREVIOUS_PURPOSES
+
+
+def test_personas_leads_revision_follows_the_life_one(scripts):
+    revision = scripts.get_revision("0004")
+    assert revision is not None and revision.down_revision == "0003"
+    purposes = leads.ENUM_CHECKS[("llm_call", "purpose")][1]
+    assert purposes[-1] == "passport" and purposes[:-1] == leads.PREVIOUS_PURPOSES
+    assert life.ENUM_CHECKS[("llm_call", "purpose")][1] == leads.PREVIOUS_PURPOSES
+    # The old memory is moved into the passport before its column is dropped.
+    assert "jsonb_array_elements(c.memory)" in leads.MEMORY_TO_PASSPORT
 
 
 def test_revisions_create_every_model_table_in_fk_order():

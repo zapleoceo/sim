@@ -116,6 +116,9 @@ class RecordingTasks:
     async def refresh_memory(self, chat_id: int) -> None:
         self.record("refresh_memory", chat_id)
 
+    async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
+        self.record("update_passport", chat_id, delay_s)
+
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
         self.record("plan_day", persona_id, day, force)
 

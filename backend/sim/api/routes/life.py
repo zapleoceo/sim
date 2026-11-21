@@ -1,4 +1,4 @@
-"""`/api/persona/life`, `/arcs`, `/days`, `/canon`: the persona's life on the dashboard
+"""`/api/personas/{id}/life`, `/arcs`, `/days`, `/canon`: a persona's life on the dashboard
 (docs/persona-life.md, docs/api.md). The world and a day's events are validated by the same
 pydantic models the planner and the context use (sim/domain/life.py)."""
 from __future__ import annotations
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api import views
 from sim.api.context import ApiContext
-from sim.api.queries import current_persona
+from sim.api.queries import persona_or_404
 from sim.api.schemas import ArcIn, ArcPatchIn, CanonPatchIn, sent_fields
 from sim.db.models import Persona, PersonaArc, PersonaCanon, PersonaDay
 from sim.domain.enums import ArcStatus, CanonStatus, DaySource
@@ -40,14 +40,14 @@ def local_today(persona: Persona, ctx: ApiContext) -> date:
 # --- the world -------------------------------------------------------------------------------
 
 
-@get("/persona/life")
-async def get_life(db: AsyncSession) -> Json:
-    return life_of(await current_persona(db)).model_dump(mode="json")
+@get("/personas/{persona_id:int}/life")
+async def get_life(persona_id: int, db: AsyncSession) -> Json:
+    return life_of(await persona_or_404(db, persona_id)).model_dump(mode="json")
 
 
-@put("/persona/life")
-async def update_life(data: dict[str, Any], db: AsyncSession) -> Json:
-    persona = await current_persona(db)
+@put("/personas/{persona_id:int}/life")
+async def update_life(persona_id: int, data: dict[str, Any], db: AsyncSession) -> Json:
+    persona = await persona_or_404(db, persona_id)
     try:
         life = PersonaLife.model_validate(data)
     except ValidationError as exc:
@@ -67,17 +67,17 @@ async def own_arc(db: AsyncSession, persona: Persona, arc_id: int) -> PersonaArc
     return arc
 
 
-@get("/persona/arcs")
-async def list_arcs(db: AsyncSession) -> Json:
-    persona = await current_persona(db)
+@get("/personas/{persona_id:int}/arcs")
+async def list_arcs(persona_id: int, db: AsyncSession) -> Json:
+    persona = await persona_or_404(db, persona_id)
     arcs = await db.scalars(select(PersonaArc).where(PersonaArc.persona_id == persona.id)
                             .order_by(PersonaArc.id))
     return {"items": [views.arc_view(arc) for arc in arcs]}
 
 
-@post("/persona/arcs", status_code=201)
-async def create_arc(data: ArcIn, ctx: ApiContext, db: AsyncSession) -> Json:
-    persona = await current_persona(db)
+@post("/personas/{persona_id:int}/arcs", status_code=201)
+async def create_arc(persona_id: int, data: ArcIn, ctx: ApiContext, db: AsyncSession) -> Json:
+    persona = await persona_or_404(db, persona_id)
     arc = PersonaArc(persona_id=persona.id, title=data.title.strip(),
                      summary=data.summary.strip(), stage=data.stage.strip(),
                      status=ArcStatus(data.status),
@@ -88,9 +88,9 @@ async def create_arc(data: ArcIn, ctx: ApiContext, db: AsyncSession) -> Json:
     return views.arc_view(arc)
 
 
-@patch("/persona/arcs/{arc_id:int}")
-async def update_arc(arc_id: int, data: ArcPatchIn, db: AsyncSession) -> Json:
-    arc = await own_arc(db, await current_persona(db), arc_id)
+@patch("/personas/{persona_id:int}/arcs/{arc_id:int}")
+async def update_arc(persona_id: int, arc_id: int, data: ArcPatchIn, db: AsyncSession) -> Json:
+    arc = await own_arc(db, await persona_or_404(db, persona_id), arc_id)
     for field, value in sent_fields(data).items():
         if field == "status":
             value = ArcStatus(value)
@@ -101,9 +101,9 @@ async def update_arc(arc_id: int, data: ArcPatchIn, db: AsyncSession) -> Json:
     return views.arc_view(arc)
 
 
-@delete("/persona/arcs/{arc_id:int}", status_code=204)
-async def delete_arc(arc_id: int, db: AsyncSession) -> None:
-    arc = await own_arc(db, await current_persona(db), arc_id)
+@delete("/personas/{persona_id:int}/arcs/{arc_id:int}", status_code=204)
+async def delete_arc(persona_id: int, arc_id: int, db: AsyncSession) -> None:
+    arc = await own_arc(db, await persona_or_404(db, persona_id), arc_id)
     await db.delete(arc)
     await db.flush()
 
@@ -111,13 +111,13 @@ async def delete_arc(arc_id: int, db: AsyncSession) -> None:
 # --- planned days ----------------------------------------------------------------------------
 
 
-@get("/persona/days")
-async def list_days(ctx: ApiContext, db: AsyncSession,
+@get("/personas/{persona_id:int}/days")
+async def list_days(persona_id: int, ctx: ApiContext, db: AsyncSession,
                     first: Annotated[date | None, Parameter(query="from")] = None,
                     to: date | None = None) -> Json:
     """Days from `from` to `to` (default: yesterday … tomorrow of her local calendar), plus
     her local today and minute of the day, so the dashboard marks what she does now."""
-    persona = await current_persona(db)
+    persona = await persona_or_404(db, persona_id)
     local = to_local(ctx.deps.clock.now(), persona.timezone)
     today = local.date()
     first = first or today - timedelta(days=1)
@@ -131,10 +131,11 @@ async def list_days(ctx: ApiContext, db: AsyncSession,
             "items": [views.day_view(row) for row in rows]}
 
 
-@put("/persona/days/{day:date}")
-async def update_day(day: date, data: dict[str, Any], db: AsyncSession) -> Json:
+@put("/personas/{persona_id:int}/days/{day:date}")
+async def update_day(persona_id: int, day: date, data: dict[str, Any],
+                     db: AsyncSession) -> Json:
     """The owner's edit: the day is marked `edited` and never re-planned by itself."""
-    persona = await current_persona(db)
+    persona = await persona_or_404(db, persona_id)
     raw = data.get("events")
     if not isinstance(raw, list) or len(raw) > DAY_MAX_EVENTS:
         raise ClientException(detail=f"events: список до {DAY_MAX_EVENTS} событий")
@@ -159,10 +160,10 @@ async def update_day(day: date, data: dict[str, Any], db: AsyncSession) -> Json:
     return views.day_view(row)
 
 
-@post("/persona/days/{day:date}/plan", status_code=202)
-async def plan_day(day: date, ctx: ApiContext, db: AsyncSession) -> Json:
+@post("/personas/{persona_id:int}/days/{day:date}/plan", status_code=202)
+async def plan_day(persona_id: int, day: date, ctx: ApiContext, db: AsyncSession) -> Json:
     """Re-plan this day with the daily planner (a task; the page re-reads the day)."""
-    persona = await current_persona(db)
+    persona = await persona_or_404(db, persona_id)
     if not persona.model_life:
         raise ClientException(detail="Не выбрана модель «Жизнь (план дня)»")
     await ctx.deps.tasks.plan_day(persona.id, day.isoformat(), True)
@@ -172,9 +173,9 @@ async def plan_day(day: date, ctx: ApiContext, db: AsyncSession) -> Json:
 # --- canon -----------------------------------------------------------------------------------
 
 
-@get("/persona/canon")
-async def list_canon(db: AsyncSession, status: str | None = None) -> Json:
-    persona = await current_persona(db)
+@get("/personas/{persona_id:int}/canon")
+async def list_canon(persona_id: int, db: AsyncSession, status: str | None = None) -> Json:
+    persona = await persona_or_404(db, persona_id)
     query = select(PersonaCanon).where(PersonaCanon.persona_id == persona.id)
     if status in {s.value for s in CanonStatus}:
         query = query.where(PersonaCanon.status == CanonStatus(status))
@@ -182,9 +183,10 @@ async def list_canon(db: AsyncSession, status: str | None = None) -> Json:
     return {"items": [views.canon_view(item) for item in items]}
 
 
-@patch("/persona/canon/{canon_id:int}")
-async def update_canon(canon_id: int, data: CanonPatchIn, db: AsyncSession) -> Json:
-    persona = await current_persona(db)
+@patch("/personas/{persona_id:int}/canon/{canon_id:int}")
+async def update_canon(persona_id: int, canon_id: int, data: CanonPatchIn,
+                       db: AsyncSession) -> Json:
+    persona = await persona_or_404(db, persona_id)
     item = await db.get(PersonaCanon, canon_id)
     if item is None or item.persona_id != persona.id:
         raise NotFoundException(detail=f"Факт не найден: {canon_id}")

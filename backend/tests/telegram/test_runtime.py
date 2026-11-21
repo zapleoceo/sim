@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from sim.domain.enums import ChannelStatus
+from sim.db.models import Channel, Persona
+from sim.domain.enums import ChannelKind, ChannelStatus
 from sim.ports import PortError
 from sim.telegram.client import ChannelRuntime, Credentials, account_label, parse_proxy
 from tests.fakes.telegram import FakeTelethonClient
@@ -137,19 +138,73 @@ async def test_a_network_error_is_recorded_and_retried_after_a_pause(db, session
 
 
 async def test_missing_credentials_and_disabled_channels(db, sessions):
-    world = await seed_world(db, credentials=None)
+    # A channel whose QR login has not finished yet has no credentials: not started at all.
+    world = await seed_world(db, credentials=None, channel_status=ChannelStatus.NEW)
     runtime = ChannelRuntime(sessions, secret_key="key", client_factory=Factory(),
                              decrypt=decrypt, sleep=BlockingSleep())
-    await runtime.start()
-    await asyncio.wait_for(runtime.tasks[world.channel.id], 2)
-    assert world.channel.status == ChannelStatus.ERROR
-    assert "no credentials" in (world.channel.last_error or "")
+    assert await runtime.start() == []
+    assert world.channel.status == ChannelStatus.NEW
 
+    world.channel.credentials_enc = "token"
     world.channel.status = ChannelStatus.DISABLED
     await db.commit()
-    other = ChannelRuntime(sessions, secret_key="key", client_factory=Factory(),
-                           decrypt=decrypt)
-    assert await other.start() == []
+    assert await runtime.start() == []
+
+
+async def test_disabling_or_archiving_stops_and_a_new_login_restarts(db, sessions):
+    world = await seed_world(db)
+    factory = Factory()
+    runtime = ChannelRuntime(sessions, secret_key="key", client_factory=factory,
+                             decrypt=decrypt, sleep=BlockingSleep())
+    assert await runtime.start() == [world.channel.id]
+    await eventually(lambda: bool(factory.clients) and factory.clients[0].connected)
+
+    world.channel.status = ChannelStatus.DISABLED              # «Отключить»
+    await db.commit()
+    assert await runtime.start() == []
+    assert world.channel.id not in runtime.tasks and not factory.clients[0].connected
+
+    world.channel.status = ChannelStatus.CONNECTED             # a QR login again
+    await db.commit()
+    assert await runtime.start() == [world.channel.id]
+    await eventually(lambda: len(factory.clients) == 2 and factory.clients[1].connected)
+
+    world.persona.is_active = False                            # the persona is archived
+    await db.commit()
+    assert await runtime.start() == []
+    assert not factory.clients[1].connected
+
+    world.persona.is_active = True
+    await db.commit()
+    assert await runtime.start() == [world.channel.id]
+    await eventually(lambda: len(factory.clients) == 3 and factory.clients[2].connected)
+    world.channel.credentials_enc = "token-2"                  # logged in to a new session
+    await db.commit()
+    runtime.decrypt = lambda token, keys: dict(CREDS, session=f"S-{token}")
+    assert await runtime.start() == [world.channel.id]
+    await eventually(lambda: len(factory.clients) == 4 and factory.clients[3].connected)
+    assert not factory.clients[2].connected
+    assert factory.credentials[3].session == "S-token-2"
+    await runtime.stop()
+
+
+async def test_channels_of_many_personas_run_side_by_side(db, sessions):
+    first = await seed_world(db)
+    second_persona = Persona(name="Оля")
+    db.add(second_persona)
+    await db.flush()
+    second = Channel(persona_id=second_persona.id, kind=ChannelKind.TELEGRAM_USER,
+                     title="Оля TG", status=ChannelStatus.NEW, credentials_enc="token")
+    db.add(second)
+    await db.commit()
+    factory = Factory()
+    runtime = ChannelRuntime(sessions, secret_key="key", client_factory=factory,
+                             decrypt=decrypt, sleep=BlockingSleep())
+    assert await runtime.start() == [first.channel.id, second.id]
+    await eventually(lambda: len(factory.clients) == 2
+                     and all(c.connected for c in factory.clients))
+    assert runtime.client(first.channel.id) is not runtime.client(second.id)
+    await runtime.stop()
 
 
 def test_parse_proxy():

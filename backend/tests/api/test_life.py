@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.db.models import LlmCall, MediaAsset, Persona, PersonaCanon, PersonaDay
 from sim.domain.enums import CanonStatus, LlmPurpose, MediaKind, MediaSource
 from tests.api.fakes import PNG, FakeDeps
-from tests.api.helpers import ApiClient, World
+from tests.api.helpers import ApiClient, World, pp
 from tests.services.life_seed import SEED, day_plan
 
 EVENTS = [e.model_dump(mode="json") for e in day_plan()]
@@ -18,72 +18,72 @@ EVENTS = [e.model_dump(mode="json") for e in day_plan()]
 
 async def test_life_round_trip_and_validation(api: ApiClient, world: World,
                                               db: AsyncSession) -> None:
-    empty = await api.get("/api/persona/life")
+    empty = await api.get(pp(world, "/life"))
     assert empty.status_code == 200
     assert empty.json() == {"routine": [], "people": [], "hobbies": [], "places": []}
 
-    saved = await api.put("/api/persona/life", json=SEED["life"])
+    saved = await api.put(pp(world, "/life"), json=SEED["life"])
     assert saved.status_code == 200, saved.text
     assert saved.json()["routine"][0]["activity"] == "сон, телефон в другой комнате"
     persona = await db.get(Persona, world.persona_id)
     assert persona is not None and len(persona.life["people"]) == 2
-    assert (await api.get("/api/persona/life")).json() == saved.json()
+    assert (await api.get(pp(world, "/life"))).json() == saved.json()
 
-    bad = await api.put("/api/persona/life", json={"routine": [{"days": [9], "start": "1:00",
+    bad = await api.put(pp(world, "/life"), json={"routine": [{"days": [9], "start": "1:00",
                                                                 "end": "2:00", "activity": ""}]})
     assert bad.status_code == 400 and bad.json()["error"].startswith("Неверные данные")
 
 
 async def test_arcs_crud(api: ApiClient, world: World) -> None:
-    created = await api.post("/api/persona/arcs", json={
+    created = await api.post(pp(world, "/arcs"), json={
         "title": "Ремонт в ванной", "summary": "Меняют ванну на душ", "stage": "плитка"})
     assert created.status_code == 201, created.text
     arc = created.json()
     assert arc["status"] == "active" and arc["started_on"] == "2026-11-21"
-    patched = await api.patch(f"/api/persona/arcs/{arc['id']}",
+    patched = await api.patch(pp(world, f"/arcs/{arc['id']}"),
                               json={"stage": " мастер пришёл ", "status": "paused"})
     assert patched.json()["stage"] == "мастер пришёл" and patched.json()["status"] == "paused"
-    assert (await api.patch(f"/api/persona/arcs/{arc['id']}",
+    assert (await api.patch(pp(world, f"/arcs/{arc['id']}"),
                             json={"status": "lost"})).status_code == 400
-    listed = (await api.get("/api/persona/arcs")).json()["items"]
+    listed = (await api.get(pp(world, "/arcs"))).json()["items"]
     assert [a["title"] for a in listed] == ["Ремонт в ванной"]
-    assert (await api.delete(f"/api/persona/arcs/{arc['id']}")).status_code == 204
-    assert (await api.get("/api/persona/arcs")).json()["items"] == []
-    assert (await api.delete(f"/api/persona/arcs/{arc['id']}")).status_code == 404
+    assert (await api.delete(pp(world, f"/arcs/{arc['id']}"))).status_code == 204
+    assert (await api.get(pp(world, "/arcs"))).json()["items"] == []
+    assert (await api.delete(pp(world, f"/arcs/{arc['id']}"))).status_code == 404
 
 
 async def test_days_edit_and_list(api: ApiClient, world: World, db: AsyncSession) -> None:
-    listed = await api.get("/api/persona/days")
+    listed = await api.get(pp(world, "/days"))
     body = listed.json()
     assert body["today"] == "2026-11-21" and body["items"] == []
     assert body["now_minute"] == 20 * 60 + 30                # 18:30 UTC in Kyiv
 
-    saved = await api.put("/api/persona/days/2026-11-21", json={"events": EVENTS,
+    saved = await api.put(pp(world, "/days/2026-11-21"), json={"events": EVENTS,
                                                                 "summary": "хороший день"})
     assert saved.status_code == 200, saved.text
     assert saved.json()["source"] == "edited" and len(saved.json()["events"]) == 7
     [row] = (await db.scalars(select(PersonaDay))).all()
     assert row.summary == "хороший день"
-    items = (await api.get("/api/persona/days", params={"from": "2026-11-20",
+    items = (await api.get(pp(world, "/days"), params={"from": "2026-11-20",
                                                         "to": "2026-11-22"})).json()["items"]
     assert [d["day"] for d in items] == ["2026-11-21"]
 
     overlap = [EVENTS[0], {**EVENTS[1], "start": "07:30"}]
-    bad = await api.put("/api/persona/days/2026-11-21", json={"events": overlap})
+    bad = await api.put(pp(world, "/days/2026-11-21"), json={"events": overlap})
     assert bad.status_code == 400 and "наложений" in bad.json()["error"]
-    wrong = await api.put("/api/persona/days/2026-11-21", json={"events": [{"start": "x"}]})
+    wrong = await api.put(pp(world, "/days/2026-11-21"), json={"events": [{"start": "x"}]})
     assert wrong.status_code == 400
-    assert (await api.get("/api/persona/days", params={"from": "2026-11-22",
+    assert (await api.get(pp(world, "/days"), params={"from": "2026-11-22",
                                                        "to": "2026-11-01"})).status_code == 400
 
 
 async def test_plan_now_needs_the_life_model_and_queues_a_task(api: ApiClient, world: World,
                                                                deps: FakeDeps) -> None:
-    refused = await api.post("/api/persona/days/2026-11-22/plan")
+    refused = await api.post(pp(world, "/days/2026-11-22/plan"))
     assert refused.status_code == 400 and "Жизнь" in refused.json()["error"]
-    assert (await api.put("/api/persona", json={"model_life": "google/life"})).json()[
+    assert (await api.put(pp(world), json={"model_life": "google/life"})).json()[
         "model_life"] == "google/life"
-    queued = await api.post("/api/persona/days/2026-11-22/plan")
+    queued = await api.post(pp(world, "/days/2026-11-22/plan"))
     assert queued.status_code == 202 and queued.json() == {"queued": True, "day": "2026-11-22"}
     assert [c[:2] for c in deps.tasks.calls if c[0] == "plan_day"] == [
         ("plan_day", (world.persona_id, "2026-11-22", True))]
@@ -96,23 +96,23 @@ async def test_canon_list_edit_and_reject(api: ApiClient, world: World,
                         status=CanonStatus.ACTIVE)
     db.add(fact)
     await db.commit()
-    items = (await api.get("/api/persona/canon")).json()["items"]
+    items = (await api.get(pp(world, "/canon"))).json()["items"]
     assert [(i["fact"], i["status"], i["chat_id"]) for i in items] == [
         ("Соседскую собаку зовут Рекс", "active", world.chat_id)]
-    edited = await api.patch(f"/api/persona/canon/{fact.id}",
+    edited = await api.patch(pp(world, f"/canon/{fact.id}"),
                              json={"fact": "Соседского пса  зовут Рекс", "status": "rejected"})
     assert edited.json()["fact"] == "Соседского пса зовут Рекс"
     assert edited.json()["status"] == "rejected"
-    active = (await api.get("/api/persona/canon", params={"status": "active"})).json()
+    active = (await api.get(pp(world, "/canon"), params={"status": "active"})).json()
     assert active["items"] == []
-    assert (await api.patch("/api/persona/canon/999999", json={})).status_code == 404
+    assert (await api.patch(pp(world, "/canon/999999"), json={})).status_code == 404
 
 
 async def test_persona_has_life_fields(api: ApiClient, world: World) -> None:
-    body = (await api.get("/api/persona")).json()
+    body = (await api.get(pp(world))).json()
     assert body["model_life"] == "" and body["appearance"] == ""
     assert body["voice_ambience_enabled"] is True
-    saved = (await api.put("/api/persona", json={
+    saved = (await api.put(pp(world), json={
         "appearance": "green eyes", "voice_ambience_enabled": False})).json()
     assert saved["appearance"] == "green eyes" and saved["voice_ambience_enabled"] is False
     assert "life" not in body
@@ -128,19 +128,19 @@ async def reference(db: AsyncSession, deps: FakeDeps, world: World, **fields: An
 
 async def test_describe_appearance_by_the_references(api: ApiClient, world: World,
                                                      db: AsyncSession, deps: FakeDeps) -> None:
-    no_model = await api.post("/api/persona/appearance/describe")
+    no_model = await api.post(pp(world, "/appearance/describe"))
     assert no_model.status_code == 400
     persona = await db.get(Persona, world.persona_id)
     assert persona is not None
     persona.model_vision = "google/vision"
     await db.commit()
-    no_refs = await api.post("/api/persona/appearance/describe")
+    no_refs = await api.post(pp(world, "/appearance/describe"))
     assert no_refs.status_code == 400 and "референс" in no_refs.json()["error"]
 
     await reference(db, deps, world, is_reference=True)
     await reference(db, deps, world, is_reference=False)
     deps.llm.answer = "green eyes,\n long auburn hair, slim build"
-    described = await api.post("/api/persona/appearance/describe")
+    described = await api.post(pp(world, "/appearance/describe"))
     assert described.status_code == 200, described.text
     assert described.json() == {"text": "green eyes, long auburn hair, slim build",
                                 "references": 1}
