@@ -1,6 +1,8 @@
 """Message → Broker block conversion and the request choices that depend on the messages."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from sim.adapters.broker.blocks import (
@@ -8,6 +10,7 @@ from sim.adapters.broker.blocks import (
     attachment_block,
     clamp_max_tokens,
     data_url,
+    inline_refs,
     message_payload,
     pick_capability,
     response_format,
@@ -125,3 +128,23 @@ def test_clamp_max_tokens() -> None:
     assert clamp_max_tokens(0) == 1
     assert clamp_max_tokens(4096) == 4096
     assert clamp_max_tokens(100_000) == MAX_TOKENS_LIMIT
+
+
+def test_references_are_inlined_for_every_model() -> None:
+    from sim.domain.plan import ReplyPlan
+
+    schema = ReplyPlan.model_json_schema()
+    assert "$defs" in schema
+    flat = response_format(schema, "reply")["json_schema"]["schema"]
+    text = json.dumps(flat)
+    assert "$ref" not in text and "$defs" not in text and "discriminator" not in text
+    kinds = {variant["properties"]["type"]["const"]
+             for variant in flat["properties"]["messages"]["items"]["oneOf"]}
+    assert {"text", "voice", "photo", "video"} <= kinds
+
+
+def test_recursive_references_are_refused() -> None:
+    schema = {"$defs": {"N": {"type": "object", "properties": {"next": {"$ref": "#/$defs/N"}}}},
+              "$ref": "#/$defs/N"}
+    with pytest.raises(ValueError, match="recursive"):
+        inline_refs(schema)
