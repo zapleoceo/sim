@@ -12,10 +12,14 @@ export interface LiveEvent {
   kind: EventKind;
 }
 
-/** Events that change a row of the chat list (last message, unread, operator flag, AI). */
+/**
+ * Events that change a row of the chat list (last message, unread, operator flag, AI, and
+ * «Статус Марины»: her phone-check decision, a generation in progress).
+ */
 const CHAT_ROW_KINDS: ReadonlySet<string> = new Set<EventKind>([
   'message_in', 'message_out', 'message_edited', 'message_deleted', 'send_failed', 'call',
-  'guard_blocked', 'operator_needed', 'ai_toggled',
+  'guard_blocked', 'operator_needed', 'ai_toggled', 'attention', 'generation_started',
+  'generation_failed',
 ]);
 
 /** Events that change what the clients table or a client card shows. */
@@ -34,11 +38,11 @@ export function parseLiveEvent(data: string): LiveEvent | null {
 }
 
 /**
- * What to re-read after an event. The chat's own timeline always; the chat lists and that
- * chat's header when its row changed; the clients when a client's data changed.
+ * What to re-read after an event. The chat's own timeline and «Статус Марины» always; the chat
+ * lists and that chat's header when its row changed; the clients when a client's data changed.
  */
 export function invalidationsFor(event: LiveEvent): QueryKey[] {
-  const keys: QueryKey[] = [qk.timeline(event.chat_id)];
+  const keys: QueryKey[] = [qk.timeline(event.chat_id), qk.chatStatus(event.chat_id)];
   if (CHAT_ROW_KINDS.has(event.kind)) keys.push(qk.chatLists, qk.chat(event.chat_id));
   if (CLIENT_KINDS.has(event.kind)) keys.push(qk.clients);
   return keys;
