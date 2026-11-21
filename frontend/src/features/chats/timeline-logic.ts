@@ -46,6 +46,21 @@ export const GENERATION_STATUS_LABEL: Record<string, string> = {
   failed: 'не получилось',
 };
 
+/** «22.11» from an ISO date (YYYY-MM-DD). */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return m && d ? `${d}.${m}` : iso;
+}
+
+/** The day memory's journal line (docs/memory.md): a day / week summary or today's morning. */
+export function memoryLine(data: Record<string, unknown>): string {
+  const day = typeof data.day === 'string' ? data.day : '';
+  if (data.kind === 'day') return `Летописец записал итог дня ${shortDate(day)}`;
+  if (data.kind === 'week' && typeof data.week === 'string') return `Летописец записал итог недели с ${shortDate(data.week)}`;
+  if (data.kind === 'morning') return 'Начало дня сжато в короткий абзац';
+  return 'Сводка переписки обновлена';
+}
+
 export type Tone = 'muted' | 'warning' | 'danger';
 
 export interface SystemLine {
@@ -110,7 +125,7 @@ export function systemLine(item: TimelineItem): SystemLine | null {
     case 'client_updated':
       return { text: 'Карточка клиента обновлена', tone: 'muted' };
     case 'memory_updated':
-      return { text: 'Сводка переписки обновлена', tone: 'muted' };
+      return { text: memoryLine(d), tone: 'muted' };
     case 'attention':
       return { text: attentionLine(d), tone: 'muted' };
     default:

@@ -45,6 +45,7 @@ export function invalidationsFor(event: LiveEvent): QueryKey[] {
   const keys: QueryKey[] = [qk.timeline(event.chat_id), qk.chatStatus(event.chat_id)];
   if (CHAT_ROW_KINDS.has(event.kind)) keys.push(qk.chatLists, qk.chat(event.chat_id));
   if (CLIENT_KINDS.has(event.kind)) keys.push(qk.clients);
+  if (event.kind === 'memory_updated') keys.push(qk.chatDays(event.chat_id));
   return keys;
 }
 

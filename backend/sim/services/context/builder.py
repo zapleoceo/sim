@@ -1,11 +1,18 @@
 """ContextBuilder: one place that turns the database state of a chat into what the model sees
-(docs/context.md §2). The reply, the guard, calls and the memory step all read it from here, so
-a text answer and a call never disagree. Deterministic: time comes only from the Clock."""
+(docs/context.md §2). The reply, the guard, calls and the memory steps all read it from here,
+so a text answer and a call never disagree. Deterministic: time comes only from the Clock.
+
+The blocks go from the most stable to the most volatile, so consecutive turns of a chat share a
+byte-identical prefix and the provider's prompt cache hits (docs/context.md §2): the persona
+prompt and format rules (system, shared by all her chats) → her routine, story arcs, canon
+(shared by her chats) → this client's card and passport, the week and day summaries (change at
+night) → today's verbatim timeline (append-only) → the notes of the day, the facts of «now»,
+her current scene, the media catalog and the turn instruction (change every turn)."""
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -29,10 +36,12 @@ from sim.domain.enums import (
     GenerationStatus,
     MediaKind,
 )
+from sim.domain.memory import notes_of
 from sim.domain.passport import passport_lines, passport_of
 from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
 from sim.services.capabilities import Capabilities, capabilities_of, with_camera
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
+from sim.services.context.diary import Diary, load_diary, usable
 from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp
 from sim.services.context.instructions import CALL_RULES, FORMAT_RULES, REPLY_TURN
 from sim.services.context.render import (
@@ -43,6 +52,7 @@ from sim.services.context.render import (
     one_line,
     render_events,
 )
+from sim.services.context.window import day_start, local_day
 from sim.services.life.render import LifeBlocks, life_blocks
 from sim.services.life.store import load_life
 from sim.services.media_library import catalog_for_chat
@@ -52,6 +62,15 @@ GUARD_CLIENT_LINES = 6
 CALL_GREETINGS = {"ru": "Алло?", "uk": "Алло?"}
 DEFAULT_GREETING = "Hello?"
 KIND_WORDS = {MediaKind.PHOTO: "фото", MediaKind.VIDEO: "видео"}
+
+# The verbatim window (docs/memory.md): her whole local day, plus the conversation that crossed
+# midnight, plus yesterday while its summary is not written yet, plus unanswered messages.
+CARRY_OVER = timedelta(hours=2)
+UNANSWERED_LOOKBACK = timedelta(days=3)
+TIMELINE_HEADING = "# Лента за сегодня (дословно, по порядку)"
+MORNING_NOTE = "(раньше в этот день, кратко: {text})"
+TRIMMED_NOTE = "(начало дня не поместилось)"
+EMPTY_TIMELINE = "(сегодня сообщений пока нет)"
 
 
 class ChatNotFound(LookupError):
@@ -70,10 +89,18 @@ class Knowledge:
     capabilities: Capabilities
     client_card: str
     life: LifeBlocks                        # routine, now, story arcs, canon
-    summary: str
-    all_lines: list[TimelineLine]           # whole timeline after the summary boundary
+    diary: Diary                            # past days and weeks, notes of the day
+    today: date                             # her local date now
+    window_start: datetime                  # the verbatim window starts here (UTC)
+    morning: str                            # today's oldest part, compressed ("" = none)
+    all_lines: list[TimelineLine]           # the whole verbatim window after the morning
     lines: list[TimelineLine]               # the part that fits the budget (newest)
     timeline_budget: int
+
+    @property
+    def summary(self) -> str:
+        """The legacy summary of the time before the diary (read-only)."""
+        return self.diary.legacy
 
     @property
     def trimmed(self) -> bool:
@@ -82,6 +109,37 @@ class Knowledge:
     @property
     def needs_compression(self) -> bool:
         return lines_tokens(self.all_lines) > self.timeline_budget
+
+    def shared_blocks(self) -> list[str]:
+        """The stable part, most stable first: her world, the client, the past."""
+        return [*self.life.shared(), f"# Собеседник\n{self.client_card}",
+                *self.diary.stable_blocks()]
+
+    def timeline_block(self) -> str:
+        """Today's verbatim timeline: lines are only appended during the day."""
+        parts = [TIMELINE_HEADING]
+        if self.morning:
+            parts.append(MORNING_NOTE.format(text=one_line(self.morning)))
+        if self.trimmed:
+            parts.append(TRIMMED_NOTE)
+        parts += [line.text for line in self.lines] or [EMPTY_TIMELINE]
+        return "\n".join(parts)
+
+    def volatile_blocks(self) -> list[str]:
+        """What changes every turn: the notes of the day, the facts of «now», her scene."""
+        return [block for block in (self.diary.notes_block(), f"# Факты\n{self.facts.text}",
+                                    self.life.now) if block]
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "routine": self.life.routine, "arcs": self.life.arcs, "canon": self.life.canon,
+            "client": self.client_card, "summary": self.summary, **self.diary.snapshot(),
+            "window_start": self.window_start.isoformat(), "morning": self.morning,
+            "timeline": [line.text for line in self.lines],
+            "event_ids": [line.event_id for line in self.lines], "trimmed": self.trimmed,
+            "facts": list(self.facts.lines), "facts_values": self.facts.values,
+            "now": self.life.now,
+        }
 
 
 @dataclass
@@ -106,6 +164,10 @@ class ReplyContext:
     last_event_id: int | None
     needs_compression: bool
     event_ids: list[int] = field(default_factory=list)
+    # The user message up to the end of today's timeline: the same bytes on the next turn
+    # when only new events arrived (the cached prefix, docs/context.md §2).
+    stable_prefix: str = ""
+    today: date | None = None
 
 
 @dataclass
@@ -186,14 +248,58 @@ async def load_related(session: AsyncSession, events: list[ChatEvent]) -> Relate
     )
 
 
-async def load_events(session: AsyncSession, chat_id: int,
-                      after_id: int | None) -> list[ChatEvent]:
+async def load_events(session: AsyncSession, chat_id: int, *, since: datetime | None = None,
+                      until: datetime | None = None,
+                      after_id: int | None = None) -> list[ChatEvent]:
+    """The events the agent sees, in order: created in [since, until), with id > after_id."""
     query = (select(ChatEvent)
              .where(ChatEvent.chat_id == chat_id, ChatEvent.in_context.is_(True))
              .order_by(ChatEvent.id))
+    if since is not None:
+        query = query.where(ChatEvent.created_at >= since)
+    if until is not None:
+        query = query.where(ChatEvent.created_at < until)
     if after_id is not None:
         query = query.where(ChatEvent.id > after_id)
     return list((await session.execute(query)).scalars())
+
+
+async def timeline_lines(session: AsyncSession, chat_id: int, speakers: Speakers, *,
+                         since: datetime | None = None, until: datetime | None = None,
+                         after_id: int | None = None) -> list[TimelineLine]:
+    """The rendered timeline of a period (the window, a past day, a recalled day)."""
+    events = await load_events(session, chat_id, since=since, until=until, after_id=after_id)
+    return render_events(events, await load_related(session, events), speakers)
+
+
+def speakers_of(persona: Persona, client: Client) -> Speakers:
+    return Speakers(client=client.name or client.username or "Собеседник",
+                    persona=persona.name, tz=persona.timezone)
+
+
+async def first_unanswered_at(session: AsyncSession, chat_id: int) -> datetime | None:
+    """When the oldest client message after her last message came (None: none waiting)."""
+    last_out = (select(func.max(ChatEvent.id))
+                .where(ChatEvent.chat_id == chat_id, ChatEvent.kind == EventKind.MESSAGE_OUT)
+                .scalar_subquery())
+    return await session.scalar(
+        select(func.min(ChatEvent.created_at))
+        .where(ChatEvent.chat_id == chat_id, ChatEvent.kind == EventKind.MESSAGE_IN,
+               ChatEvent.id > func.coalesce(last_out, 0)))
+
+
+def window_start(now: datetime, tz: str, *, yesterday_ready: bool,
+                 unanswered_at: datetime | None) -> datetime:
+    """Where today's verbatim timeline starts (docs/memory.md): her local midnight minus
+    `CARRY_OVER` (a conversation that crossed midnight); yesterday's midnight while yesterday
+    has no summary yet; the oldest unanswered client message (up to `UNANSWERED_LOOKBACK`)."""
+    today = local_day(now, tz)
+    start = day_start(today, tz) - CARRY_OVER
+    if not yesterday_ready:
+        start = min(start, day_start(today - timedelta(days=1), tz))
+    if unanswered_at is not None:
+        start = min(start, max(unanswered_at, now - UNANSWERED_LOOKBACK))
+    return start
 
 
 class ContextBuilder:
@@ -214,22 +320,30 @@ class ContextBuilder:
         client = await session.get(Client, chat.client_id)
         if persona is None or client is None:
             raise ChatNotFound(f"chat {chat_id} has no persona or client")
-        speakers = Speakers(client=client.name or client.username or "Собеседник",
-                            persona=persona.name, tz=persona.timezone)
-        state = await load_life(session, persona, self.clock.now(), full=True)
+        now = self.clock.now()
+        speakers = speakers_of(persona, client)
+        state = await load_life(session, persona, now, full=True)
         caps = with_camera(capabilities_of(persona), state.scene() if state.has_life else None)
         facts = compute_facts(await self._facts_input(session, chat, persona, client, caps))
         card = client_card(client)
         life = life_blocks(state)
-        events = await load_events(session, chat.id, chat.summary_until_event_id)
-        all_lines = render_events(events, await load_related(session, events), speakers)
+        today = local_day(now, persona.timezone)
+        notes = notes_of(chat.day_notes, today)
+        diary, days = await load_diary(session, chat.id, today, chat.summary, notes)
+        start = window_start(now, persona.timezone,
+                             yesterday_ready=usable(days.get(today - timedelta(days=1))),
+                             unanswered_at=await first_unanswered_at(session, chat.id))
+        all_lines = await timeline_lines(session, chat.id, speakers, since=start,
+                                         after_id=notes.morning_until)
         fixed = fixed_tokens + estimate_tokens(
-            facts.text + card + chat.summary + "\n\n".join(life.texts()))
+            facts.text + card + notes.morning + "\n\n".join(
+                [*life.texts(), *diary.stable_blocks(), diary.notes_block()]))
         budget = max(self.settings.context_budget_tokens - fixed, MIN_TIMELINE_TOKENS)
         return Knowledge(
             persona=persona, client=client, chat=chat, speakers=speakers, facts=facts,
-            capabilities=caps, client_card=card, life=life, summary=chat.summary.strip(),
-            all_lines=all_lines, lines=fit_newest(all_lines, budget), timeline_budget=budget,
+            capabilities=caps, client_card=card, life=life, diary=diary, today=today,
+            window_start=start, morning=notes.morning, all_lines=all_lines,
+            lines=fit_newest(all_lines, budget), timeline_budget=budget,
         )
 
     async def _facts_input(self, session: AsyncSession, chat: Chat, persona: Persona,
@@ -292,31 +406,13 @@ class ContextBuilder:
         know, system, catalog, allowed = (frame.knowledge, frame.system, frame.catalog,
                                           frame.allowed)
         chat, persona = know.chat, know.persona
-        blocks = [f"# Факты\n{know.facts.text}", *know.life.texts(),
-                  f"# Собеседник\n{know.client_card}"]
-        if know.summary:
-            blocks.append(f"# Сводка прошлой переписки\n{know.summary}")
-        timeline = "\n".join(line.text for line in know.lines) or "(сообщений пока нет)"
-        if know.trimmed:
-            timeline = f"(начало переписки не поместилось)\n{timeline}"
-        blocks += [f"# Лента\n{timeline}", f"# Каталог медиа\n{catalog}", REPLY_TURN]
-        user = "\n\n".join(blocks)
+        stable = "\n\n".join([*know.shared_blocks(), know.timeline_block()])
+        user = "\n\n".join([stable, *know.volatile_blocks(), f"# Каталог медиа\n{catalog}",
+                            REPLY_TURN])
         event_ids = [line.event_id for line in know.lines]
         client_lines = [line.text for line in know.lines
                         if line.kind == EventKind.MESSAGE_IN][-GUARD_CLIENT_LINES:]
-        snapshot = {
-            "facts": list(know.facts.lines),
-            "facts_values": know.facts.values,
-            **know.life.snapshot(),
-            "client": know.client_card,
-            "summary": know.summary,
-            "summary_until_event_id": know.chat.summary_until_event_id,
-            "timeline": [line.text for line in know.lines],
-            "event_ids": event_ids,
-            "trimmed": know.trimmed,
-            "catalog": catalog,
-            "catalog_ids": sorted(allowed),
-        }
+        snapshot = {**know.snapshot(), "catalog": catalog, "catalog_ids": sorted(allowed)}
         return ReplyContext(
             chat_id=chat.id, persona_id=persona.id, client_id=know.client.id,
             messages=[_text_message("system", system), _text_message("user", user)],
@@ -324,6 +420,7 @@ class ContextBuilder:
             facts=know.facts, client_lines=client_lines,
             last_event_id=know.all_lines[-1].event_id if know.all_lines else None,
             needs_compression=know.needs_compression, event_ids=event_ids,
+            stable_prefix=stable, today=know.today,
         )
 
     # --- calls ----------------------------------------------------------------------------
@@ -337,13 +434,7 @@ class ContextBuilder:
             raise ChatNotFound(f"chat {chat_id} has no persona")
         head = f"{persona.prompt.strip()}\n\n{CALL_RULES}".strip()
         know = await self.knowledge(session, chat_id, fixed_tokens=estimate_tokens(head))
-        blocks = [head, f"# Факты\n{know.facts.text}", *know.life.texts(),
-                  f"# Собеседник\n{know.client_card}"]
-        if know.summary:
-            blocks.append(f"# Сводка прошлой переписки\n{know.summary}")
-        timeline = "\n".join(line.text for line in know.lines)
-        if timeline:
-            blocks.append(f"# Последняя переписка\n{timeline}")
+        blocks = [head, *know.shared_blocks(), know.timeline_block(), *know.volatile_blocks()]
         live = agent_config(persona, AgentKey.LIVE)
         return CallContext(
             system="\n\n".join(blocks),

@@ -1,10 +1,12 @@
-"""The passport writer, «паспортистка» (docs/leads.md), task `agent.update_passport(chat_id)`.
+"""The passport writer, «паспортистка» (docs/leads.md, docs/memory.md), once a day at night.
 
-After each persona turn (coalesced: ~5 s, one waiting job per chat) and after every call, the
-writer reads the current passport, the chat summary, the newest timeline lines and the facts the
-reply plans marked to `remember`, and returns the WHOLE updated passport. The code merges it:
-fields the operator edited (`locked_fields`) are never overwritten, an empty text never replaces
-a passport, and an edit made while the model was thinking wins (the update is dropped).
+The night job (sim/services/memory/night.py) calls it for every chat whose day the chronicler
+has just summarized; the owner's «Обновить паспорт сейчас» runs it for today (task
+`agent.update_passport`). The writer reads the current passport, the summaries of the last
+days (the night's own day last), that day's verbatim timeline and its «заметки дня», and
+returns the WHOLE updated passport. The code merges it: fields the operator edited
+(`locked_fields`) are never overwritten, an empty text never replaces a passport, and an edit
+made while the model was thinking wins (the update is dropped).
 
 The client's words are untrusted data: they travel only inside the JSON user message, never in
 the writer's system prompt, and the persona reads the passport marked as data."""
@@ -13,28 +15,28 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import date, timedelta
 
 from pydantic import ValidationError
-from sqlalchemy import select
 
-from sim.db.models import Client, ReplyRun
+from sim.db.models import Client
 from sim.db.session import transaction
 from sim.domain.agent_prompts import render_prompt
 from sim.domain.agents import AgentConfig, AgentKey, agent_config
-from sim.domain.enums import LlmPurpose, RunStatus
+from sim.domain.enums import LlmPurpose
+from sim.domain.memory import notes_of
 from sim.domain.passport import Passport, PassportUpdate, merge_update, passport_of, stored
 from sim.ports import ChatMessage, ChatPart
-from sim.services.context.builder import ChatNotFound, ContextBuilder
+from sim.services.context.builder import ChatNotFound, ContextBuilder, timeline_lines
+from sim.services.context.diary import RECENT_DAYS, day_rows, day_title, usable
+from sim.services.context.window import day_bounds, local_day
 from sim.services.deps import Deps
 from sim.services.llm_log import describe_messages, logged_call
 from sim.services.plan_check import extract_json
 
 log = logging.getLogger(__name__)
 
-PASSPORT_DELAY_S = 5.0          # after a turn: a burst of turns makes one update
-DIALOG_LINES = 80               # newest timeline lines the writer reads
-REMEMBER_RUNS = 10              # newest sent turns whose `remember` facts are passed on
+DIALOG_LINES = 200              # newest lines of the day the writer reads
 PASSPORT_SCHEMA = PassportUpdate.model_json_schema()
 
 
@@ -44,7 +46,8 @@ class _Snapshot:
     persona_name: str
     agent: AgentConfig
     passport: Passport
-    summary: str
+    day: date
+    days: list[dict[str, object]]
     dialog: list[str]
     remember: list[str] = field(default_factory=list)
 
@@ -54,17 +57,18 @@ class PassportService:
         self.deps = deps
         self.builder = ContextBuilder(deps.clock, deps.settings)
 
-    async def update(self, chat_id: int) -> bool:
-        """Rewrite the client's passport from this chat. False when there is nothing to do or
-        the answer is unusable (the old passport stays)."""
-        snap = await self._read(chat_id)
+    async def update(self, chat_id: int, day: date | None = None) -> bool:
+        """Rewrite the client's passport from this chat's `day` (her local date; None = today).
+        False when there is nothing to do or the answer is unusable (the passport stays)."""
+        snap = await self._read(chat_id, day)
         if snap is None:
             return False
         messages = passport_messages(snap)
         agent = snap.agent
         result = await logged_call(
             self.deps.sessions, purpose=LlmPurpose.PASSPORT, model=agent.model,
-            request={"messages": describe_messages(messages), "json_schema": "PassportUpdate"},
+            request={"messages": describe_messages(messages), "json_schema": "PassportUpdate",
+                     "day": snap.day.isoformat()},
             call=lambda: self.deps.llm.chat(model=agent.model, messages=messages,
                                             json_schema=PASSPORT_SCHEMA,
                                             max_tokens=agent.max_tokens, label="passport",
@@ -81,7 +85,7 @@ class PassportService:
             return False
         return await self._write(snap, update)
 
-    async def _read(self, chat_id: int) -> _Snapshot | None:
+    async def _read(self, chat_id: int, day: date | None) -> _Snapshot | None:
         async with transaction(self.deps.sessions) as session:
             try:
                 know = await self.builder.knowledge(session, chat_id)
@@ -89,17 +93,23 @@ class PassportService:
                 return None
             persona = know.persona
             agent = agent_config(persona, AgentKey.PASSPORT)
-            if not agent.model or not know.all_lines:
+            if not agent.model:
                 return None
-            runs = await session.scalars(
-                select(ReplyRun.plan).where(ReplyRun.chat_id == chat_id,
-                                            ReplyRun.status == RunStatus.SENT)
-                .order_by(ReplyRun.id.desc()).limit(REMEMBER_RUNS))
+            target = day or local_day(self.deps.clock.now(), persona.timezone)
+            start, end = day_bounds(target, persona.timezone)
+            lines = await timeline_lines(session, chat_id, know.speakers, since=start,
+                                         until=end)
+            rows = await day_rows(session, chat_id, target - timedelta(days=RECENT_DAYS),
+                                  target)
+            days = [{"date": day_title(d), "summary": rows[d].summary,
+                     "facts": list(rows[d].facts or [])} for d in sorted(rows) if usable(rows[d])]
+            if not lines and not days:
+                return None
             return _Snapshot(
                 client_id=know.client.id, persona_name=persona.name, agent=agent,
-                passport=passport_of(know.client.passport), summary=know.summary,
-                dialog=[line.text for line in know.all_lines[-DIALOG_LINES:]],
-                remember=remembered(list(runs)),
+                passport=passport_of(know.client.passport), day=target, days=days,
+                dialog=[line.text for line in lines[-DIALOG_LINES:]],
+                remember=notes_of(know.chat.day_notes, target).notes,
             )
 
     async def _write(self, snap: _Snapshot, update: PassportUpdate) -> bool:
@@ -115,21 +125,10 @@ class PassportService:
             return True
 
 
-def remembered(plans: list[dict[str, Any]]) -> list[str]:
-    """`remember` facts of the newest turns, oldest first, without repeats."""
-    facts: list[str] = []
-    for plan in reversed(plans):
-        for item in (plan or {}).get("remember") or []:
-            fact = " ".join(str((item or {}).get("fact", "")).split())
-            if fact and fact not in facts:
-                facts.append(fact)
-    return facts
-
-
 def passport_messages(snap: _Snapshot) -> list[ChatMessage]:
     current = snap.passport.model_dump(mode="json", exclude={"updated_at", "locked_fields"})
-    payload = {"persona": snap.persona_name, "passport": current, "summary": snap.summary,
-               "dialog": snap.dialog, "remember": snap.remember}
+    payload = {"persona": snap.persona_name, "passport": current, "date": day_title(snap.day),
+               "days": snap.days, "dialog": snap.dialog, "remember": snap.remember}
     system = render_prompt(snap.agent.prompt, name=snap.persona_name)
     return [
         ChatMessage(role="system", parts=[ChatPart(text=system)]),

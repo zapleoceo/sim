@@ -32,7 +32,7 @@ describe('invalidationsFor', () => {
   });
 
   it('client data changes refresh the clients but not the chat list', () => {
-    expect(invalidationsFor(ev('memory_updated'))).toEqual([...always(), qk.clients]);
+    expect(invalidationsFor(ev('memory_updated'))).toEqual([...always(), qk.clients, qk.chatDays(7)]);
     expect(invalidationsFor(ev('client_updated'))).toEqual([...always(), qk.clients]);
   });
 

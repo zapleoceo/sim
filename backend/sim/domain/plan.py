@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Strict(BaseModel):
@@ -91,8 +91,29 @@ class SelfFact(_Strict):
                       description="A new durable fact she invented about herself in this answer.")
 
 
+class RecallSpec(_Strict):
+    """«А помнишь…?» (docs/memory.md): look up past days before answering. Either dates — ISO
+    or a Russian phrase («позавчера», «в прошлую субботу», «неделю назад») that code resolves
+    against her clock — or a topic to search for."""
+
+    date_from: str = Field(default="", max_length=60,
+                           description="First day: ISO date or a phrase like «позавчера».")
+    date_to: str = Field(default="", max_length=60,
+                         description="Last day of a period; empty = the same as date_from.")
+    query: str = Field(default="", max_length=200,
+                       description="What to look for when the day is unknown, e.g. «работа».")
+
+    @model_validator(mode="after")
+    def _something(self) -> RecallSpec:
+        if not self.date_from.strip() and not self.query.strip():
+            raise ValueError("recall needs date_from or query")
+        return self
+
+
 class ReplyPlan(_Strict):
-    """`messages` empty = stay silent this turn (allowed, e.g. the client said goodbye)."""
+    """`messages` empty = stay silent this turn (allowed, e.g. the client said goodbye).
+    `recall` with no messages = «let me remember first»: code looks the days up and asks again
+    (once per turn); with messages it is ignored."""
 
     messages: list[Action] = Field(default_factory=list, max_length=8)
     # New durable facts about the client learned from the latest messages (name, city, ...).
@@ -100,6 +121,11 @@ class ReplyPlan(_Strict):
     # New durable facts about HERSELF invented in this answer (the neighbour's dog is Rex):
     # kept in `persona_canon` and shown in every chat (docs/persona-life.md, «Канон»).
     canon: list[SelfFact] = Field(default_factory=list, max_length=5)
+    recall: RecallSpec | None = None
+
+    @property
+    def wants_recall(self) -> bool:
+        return self.recall is not None and not self.messages
 
 
 def media_choice_errors(plan: ReplyPlan) -> list[str]:

@@ -261,18 +261,28 @@ async def test_newer_client_message_discards_the_stale_answer(
     assert (await runs(db, chat))[0].status == RunStatus.SKIPPED
 
 
-async def test_a_sent_turn_queues_the_passport_and_keeps_remember_in_the_plan(
+async def test_remember_goes_to_the_notes_of_the_day_without_a_passport_task(
         db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    """docs/memory.md: `remember` facts become «заметки дня» at once (no model call); the
+    passport is updated at night, not after the turn."""
     chat = await setup_chat(db, clock)
-    fakes.llm.script("reply-model", plan_json(TEXT, remember=["Работает врачом"]))
-    fakes.llm.script("guard-model", ok_verdict())
+    fakes.llm.script("reply-model", plan_json(TEXT, remember=["Работает врачом"]),
+                     plan_json(TEXT, remember=["работает  врачом.", "Есть дочь Аня"]))
+    fakes.llm.always("guard-model", ok_verdict())
 
-    result = await ReplyService(deps).run(chat.id)
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+    await add_message(db, chat, "а у тебя?", at=clock.now())
+    clock.advance(seconds=30)
+    second = await ReplyService(deps).run(chat.id)
 
-    assert result.status == RunStatus.SENT
-    # The passport writer reads `remember` from the plan (docs/leads.md), coalesced by delay.
-    assert fakes.tasks.of("update_passport") == [("update_passport", chat.id, 5.0)]
-    [run] = await runs(db, chat)
+    assert second.status == RunStatus.SENT
+    assert fakes.tasks.of("update_passport") == []
+    chat = await fresh(db, chat)
+    # Saturday 21.11 in Kyiv; a repeat by meaning is not added twice.
+    assert chat.day_notes["2026-11-21"]["notes"] == ["Работает врачом", "Есть дочь Аня"]
+    prompt = fakes.llm.calls_for("reply-model")[1]["messages"][1].parts[0].text or ""
+    assert "# Заметки дня (что ты сегодня узнала о собеседнике)\n- Работает врачом" in prompt
+    run = min(await runs(db, chat), key=lambda row: row.id)
     assert run.plan["remember"] == [{"fact": "Работает врачом"}]
     client = await db.get(Client, chat.client_id)
     assert client is not None and (await fresh(db, client)).passport == {}

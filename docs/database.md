@@ -100,9 +100,24 @@ next_step, updated_at, locked_fields}` ([leads.md](leads.md)), `last_seen_at`.
 `attention_instant` («Отвечать сразу» в этом чате, по умолчанию нет; `0006`,
 [attention.md](attention.md)), `needs_operator` (ставится после
 второго блока проверки; пока стоит, персонаж молчит), `unread_count`, `last_message_at`,
-`summary` и `summary_until_event_id` — сводка старой части ленты и граница: события с
-`id <= summary_until_event_id` описаны сводкой, после неё — идут в ленту дословно.
+`summary` и `summary_until_event_id` — сводка переписки до дневника (с `0007` больше не
+пишется; агент видит её как «Давняя переписка»), `day_notes` (JSONB, `0007`,
+[memory.md](memory.md)): по дням её календаря — «заметки дня» (`notes`, факты `remember` из
+планов ходов) и сжатое начало дня (`morning`, `morning_until` — id последнего сжатого
+события); хранятся последние 3 дня.
 Строка чата блокируется (`FOR UPDATE`) в начале и в конце хода и при записи памяти.
+
+### `chat_day`
+Итог одного дня её календаря в чате (миграция `0007`, [memory.md](memory.md)): `chat_id`,
+`day`, `summary` (подробный итог Летописца), `facts` (JSONB, список устойчивых фактов),
+`first_event_id`, `last_event_id` (какие события дня вошли), `source` (`model | edited`: правку
+владельца ночная задача не перезаписывает), `model`, `error` (неудача: строка без итога,
+повтор через 3 часа). Уникально `(chat_id, day)` — ночная задача идемпотентна. GIN-индекс
+`ix_fts_chat_day_summary` по `to_tsvector('russian', summary)` — поиск «А помнишь…?».
+
+### `chat_week`
+Итог недели чата (миграция `0007`): та же форма, что у `chat_day`, но `week` — понедельник
+недели. Пишется в ночь на понедельник из итогов дней. Уникально `(chat_id, week)`.
 
 ### `message`
 Доставляемое сообщение в любую сторону: `chat_id`, `direction` (`in | out`), `author`
@@ -111,7 +126,9 @@ sticker`), `text` (текст или подпись к медиа; у голос
 `media_asset.description`), `media_id`, `status` (`received` у входящих; `pending → sent |
 failed` у исходящих), `external_id` (id в мессенджере; уникально `(chat_id, direction,
 external_id)` — это и есть идемпотентность входящих), `reply_to_external_id`, `reply_run_id`
-(какой ход его написал), `error`, `sent_at`.
+(какой ход его написал), `error`, `sent_at`. GIN-индекс `ix_fts_message_text` по
+`to_tsvector('russian', text)` (`0007`) — поиск «А помнишь…?» по теме ([memory.md](memory.md);
+автогенерация Alembic такие индексы пропускает, CI-проверка миграций ищет их по имени).
 Пишут: `Inbox` (входящие), `outbox.enqueue_message` (исходящие `pending`), процесс `telegram`
 через `outbox.mark_sent` / `mark_failed`.
 
@@ -134,7 +151,7 @@ external_id)` — это и есть идемпотентность входящ
 ### `reply_run`
 Один ход персонажа: `chat_id`, `status` (`running | sent | blocked | skipped | failed`),
 `trigger_event_id` (последнее сообщение клиента, на которое отвечали), `context` (снимок того,
-что ушло в модель: факты, карточка, сводка, лента, id событий, каталог), `plan` (итоговый
+что ушло в модель: блоки контекста, итоги дней, лента, id событий, каталог, «Вспомнила»), `plan` (итоговый
 JSON-план), `guard_verdicts` (`[{ok, reason, attempt}]`), `attempts` (сколько планов писала
 модель: 1 или 2), `error` (почему не отправлено, или пометка вроде «голосовое отправлено
 текстом»), `finished_at`.
@@ -176,7 +193,8 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 vision | transcribe | document | tts | image | video | live | memory | life | passport |
 attention`; `life` — планировщик дня, `0003`; `passport` — паспортистка, `0004`; `attention` —
 агент Внимание, `0006`, без `chat_id`: он видит все чаты сразу; Портретист пишется как `vision` с
-`request.task = "appearance"`), `model`, `request`
+`request.task = "appearance"`; `memory` — Летописец, `request.task` = `day | week | morning`;
+второй вызов ответа после «А помнишь…?» — `reply` с `request.recall`, [memory.md](memory.md)), `model`, `request`
 (без байтов: вместо файлов mime и размер; `key_tier` — уровень ключей агента, [agents.md](agents.md)),
 `response`, `tokens_in`, `tokens_out`, `cost_usd`,
 `latency_ms`, `error`. Пишет `sim/services/llm_log.logged_call` в отдельной короткой транзакции.

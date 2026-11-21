@@ -49,8 +49,13 @@ class LifeBlocks:
     canon: str
 
     def texts(self) -> list[str]:
-        """Non-empty blocks in context order."""
+        """Every non-empty block."""
         return [block for block in (self.routine, self.now, self.arcs, self.canon) if block]
+
+    def shared(self) -> list[str]:
+        """The non-empty blocks that do not change with the clock, most stable first: they go
+        into the cached prefix of the prompt (docs/context.md §2). `now` goes at the end."""
+        return [block for block in (self.routine, self.arcs, self.canon) if block]
 
     def snapshot(self) -> dict[str, Any]:
         return {"routine": self.routine, "now": self.now, "arcs": self.arcs,

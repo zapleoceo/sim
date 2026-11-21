@@ -2,7 +2,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { qk } from '@/lib/query';
-import type { Client, ClientDetail, ClientPatch, Items, Lead, LeadStage } from '@/lib/types';
+import type {
+  ChatDay,
+  ChatDayPatch,
+  ChatDaysResponse,
+  Client,
+  ClientDetail,
+  ClientPatch,
+  Items,
+  Lead,
+  LeadStage,
+} from '@/lib/types';
 
 export interface LeadFilters {
   q: string;
@@ -17,6 +27,15 @@ export const leadsApi = {
     api.get<Items<Lead>>('/clients', { params: { q, persona_id: personaId || null, stage: stage || null } }),
   get: (id: number) => api.get<ClientDetail>(`/clients/${id}`),
   update: (id: number, patch: ClientPatch) => api.patch<Client>(`/clients/${id}`, patch),
+};
+
+/** One chat's day memory (docs/memory.md, docs/api.md «Дни»). */
+export const daysApi = {
+  list: (chatId: number) => api.get<ChatDaysResponse>(`/chats/${chatId}/days`),
+  save: (chatId: number, day: string, patch: ChatDayPatch) => api.put<ChatDay>(`/chats/${chatId}/days/${day}`, patch),
+  rebuild: (chatId: number, day: string) =>
+    api.post<{ queued: boolean; day: string }>(`/chats/${chatId}/days/${day}/rebuild`),
+  refreshPassport: (chatId: number) => api.post<{ queued: boolean }>(`/chats/${chatId}/passport/refresh`),
 };
 
 /**

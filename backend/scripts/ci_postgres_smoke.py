@@ -6,7 +6,7 @@ localhost, never with SIM_ENV=prod). It creates a scratch database next to the t
 so the pytest schema is not touched, and then:
 
 1. `alembic upgrade heads` on the empty database (SIM branch + Procrastinate branch);
-2. Procrastinate's tables exist;
+2. Procrastinate's tables and the full-text indexes (`ix_fts_*`, skipped by autogenerate) exist;
 3. every enum CHECK constraint allows exactly the values of its enum;
 4. `alembic check` (autogenerate comparison, Procrastinate tables ignored) finds no difference
    between the migrated database and the models;
@@ -29,7 +29,7 @@ from sqlalchemy import Enum, MetaData, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from sim.db.models import Base
+from sim.db.models import FTS_INDEXES, Base
 
 BACKEND = Path(__file__).resolve().parents[1]
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -114,20 +114,20 @@ async def database_checks(url: URL) -> dict[tuple[str, str], set[str]]:
     return {(table, name): check_values(definition) for table, name, definition in rows}
 
 
-async def public_relations(url: URL) -> tuple[set[str], set[str]]:
-    """(tables, sequences) in the public schema."""
+async def public_relations(url: URL) -> tuple[set[str], set[str], set[str]]:
+    """(tables, sequences, indexes) in the public schema."""
     engine = create_async_engine(url)
     try:
         async with engine.connect() as conn:
             rows = (await conn.execute(text(
                 "SELECT c.relname, c.relkind FROM pg_class c "
                 "JOIN pg_namespace ns ON ns.oid = c.relnamespace "
-                "WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'S')"))).all()
+                "WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'S', 'i')"))).all()
     finally:
         await engine.dispose()
     tables = {name for name, kind in rows if kind == "r"}
     sequences = {name for name, kind in rows if kind == "S"}
-    return tables, sequences
+    return tables, sequences, {name for name, kind in rows if kind == "i"}
 
 
 def alembic_config(url: URL) -> Config:
@@ -151,12 +151,15 @@ def run_gate(url: URL) -> None:
     print("1. alembic upgrade heads on an empty database")
     command.upgrade(cfg, "heads")
 
-    tables, sequences = asyncio.run(public_relations(url))
+    tables, sequences, indexes = asyncio.run(public_relations(url))
     if missing := (app_tables | PROCRASTINATE_TABLES) - tables:
         raise GateError(f"tables missing after upgrade: {sorted(missing)}")
     if missing := {f"{name}_id_seq" for name in app_tables} - sequences:
         raise GateError(f"id sequences missing after upgrade: {sorted(missing)}")
-    print(f"2. {len(app_tables)} SIM tables and the Procrastinate queue exist")
+    if missing := {str(index.name) for index in FTS_INDEXES} - indexes:
+        raise GateError(f"full-text indexes missing after upgrade: {sorted(missing)}")
+    print(f"2. {len(app_tables)} SIM tables, the full-text indexes and the Procrastinate queue "
+          "exist")
 
     if problems := compare_checks(expected_checks(Base.metadata),
                                   asyncio.run(database_checks(url))):
@@ -168,7 +171,7 @@ def run_gate(url: URL) -> None:
     print("4. autogenerate finds no difference between migrations and models")
 
     command.downgrade(cfg, "sim@base")
-    tables, sequences = asyncio.run(public_relations(url))
+    tables, sequences, _ = asyncio.run(public_relations(url))
     if left := (tables & app_tables) | {s for s in sequences if not s.startswith("procrast")}:
         raise GateError(f"left after downgrade sim@base: {sorted(left)}")
     print("5. alembic downgrade sim@base removed every SIM table")

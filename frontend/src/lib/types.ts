@@ -268,6 +268,35 @@ export interface Items<T> {
   items: T[];
 }
 
+/** The chronicler's summary of one persona-local day of a chat (docs/memory.md). */
+export interface ChatDay {
+  day: string;
+  summary: string;
+  facts: string[];
+  /** `edited`: the owner changed it, the night job leaves it alone. */
+  source: 'model' | 'edited';
+  model: string;
+  error: string | null;
+  first_event_id: number | null;
+  last_event_id: number | null;
+  updated_at: string;
+}
+
+/** The rollup of a week (`week` = its Monday). */
+export type ChatWeek = Omit<ChatDay, 'day'> & { week: string };
+
+export interface ChatDaysResponse {
+  /** Her local today (YYYY-MM-DD): today has no summary until her midnight. */
+  today: string;
+  items: ChatDay[];
+  weeks: ChatWeek[];
+}
+
+export interface ChatDayPatch {
+  summary: string;
+  facts: string[];
+}
+
 // --- persona ------------------------------------------------------------------------------------
 
 export interface Persona {
