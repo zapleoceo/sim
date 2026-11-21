@@ -7,12 +7,8 @@ from sim.adapters.db.models import AppSetting
 from sim.adapters.db.session import transaction
 from sim.services.app_settings import BY_KEY, SPECS, AppSettingsService, SettingError, env_defaults
 from sim.services.guard import (
-    FACT_CONTROL,
     GUARD_CONTROL,
     GUARD_PROMPT,
-    IDENTITY_CONTROL,
-    MEDIA_CONTROL,
-    VOICE_CONTROL,
 )
 from sim.services.prompt import (
     HISTORY_LIMIT,
@@ -107,7 +103,7 @@ async def test_prompt_and_guard_use_the_owner_texts(container, world, fake_llm):
     assert 'FORMAT FROM DB: {"reply": "", "stage": ""}' in system and OUTPUT_CONTRACT not in system
     assert system.endswith(IDENTITY_BOUNDARY)
     guard_messages, guard_kwargs = fake_llm.guard_calls[0]
-    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
+    assert guard_messages[0]["content"] == f"GUARD PROMPT FROM DB\n\n{GUARD_CONTROL}"
     assert guard_kwargs["capability"] == "chat:smart"
 
 
@@ -124,7 +120,7 @@ async def test_the_retry_nudge_comes_from_the_settings(container, world, fake_ll
 async def test_api_exposes_fixed_honesty_and_guard_control(api, world):
     await login(api, OWNER[0])
     fixed = (await api.get("/api/settings")).json()["fixed"]
-    assert fixed == {"persona": IDENTITY_BOUNDARY, "guard": f"{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"}
+    assert fixed == {"persona": IDENTITY_BOUNDARY, "guard": GUARD_CONTROL}
     system = stable_system_prompt(PersonaProfile(name="Марина", agent_prompt="Ты Марина."), StrategyProfile())
     assert OUTPUT_CONTRACT in system and system.endswith(IDENTITY_BOUNDARY)
 

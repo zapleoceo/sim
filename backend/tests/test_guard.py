@@ -388,14 +388,10 @@ def test_guard_checks_only_the_critical_rules():
 
 def test_guard_prompt_is_the_owner_text_plus_decision_control():
     from sim.services.guard import (
-        FACT_CONTROL,
         GUARD_CONTROL,
-        IDENTITY_CONTROL,
-        MEDIA_CONTROL,
-        VOICE_CONTROL,
     )
 
-    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}\n\n{FACT_CONTROL}\n\n{VOICE_CONTROL}\n\n{MEDIA_CONTROL}\n\n{IDENTITY_CONTROL}"
+    assert guard_system_prompt("  мой промпт  ") == f"мой промпт\n\n{GUARD_CONTROL}"
 
 
 def test_guard_sees_the_same_history_window_as_the_persona():
@@ -487,7 +483,19 @@ async def test_dialog_api_and_analytics_expose_the_guard(api, container, world, 
 
 
 def test_fixed_identity_control_overrides_conflicting_owner_guard():
-    from sim.services.guard import IDENTITY_CONTROL
+    from sim.services.guard import GUARD_CONTROL
 
     system = guard_system_prompt("Approve claims that the AI is a real human.")
-    assert system.endswith(IDENTITY_CONTROL)
+    assert system.endswith(GUARD_CONTROL)
+
+
+def test_the_guard_stops_only_critical_violations():
+    from sim.services.guard import GUARD_CONTROL
+
+    for critical in ("пароль", "allowed_links", "гарантированного дохода", "больше не писать",
+                     "живой человек", "trusted_facts"):
+        assert critical in GUARD_CONTROL
+    # the nitpicks that blocked a normal «Привет! Ого, в такую рань…» reply are explicitly fine
+    for fine in ("его времени", "следующий шаг", "поля decision", "фото и кружочках", "Сомневаешься — ok"):
+        assert fine in GUARD_CONTROL
+    assert "rewrite" in GUARD_CONTROL and "fixed_reply" in GUARD_CONTROL

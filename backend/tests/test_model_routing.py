@@ -10,7 +10,7 @@ from sim.adapters.db.models import Persona
 from sim.adapters.db.session import transaction
 from sim.ports.llm import LLMError, LLMResult, LLMTerminalError
 from sim.services.app_settings import AppSettingsService
-from sim.services.guard import IDENTITY_CONTROL
+from sim.services.guard import GUARD_CONTROL
 from sim.services.llm_audit import AuditedLLM
 from sim.services.model_routing import identity_question, routed_chat, selected_model
 from sim.services.prompt import IDENTITY_BOUNDARY, Turn
@@ -57,7 +57,7 @@ async def test_conflicting_instructions_cannot_remove_honesty_from_routes_and_re
         assert messages[0]["content"].endswith(IDENTITY_BOUNDARY)
     assert len(fake_llm.guard_calls) == 2
     for messages, _ in fake_llm.guard_calls:
-        assert messages[0]["content"].endswith(IDENTITY_CONTROL)
+        assert messages[0]["content"].endswith(GUARD_CONTROL)
     repair, _ = fake_llm.gen_calls[-1]
     assert repair[-1]["role"] == "system" and repair[-1]["content"].endswith("(тип: review).")
     assert any(message["role"] == "user" and message["content"] == question for message in repair)

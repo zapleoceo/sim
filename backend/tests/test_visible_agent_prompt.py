@@ -3,7 +3,7 @@ from datetime import datetime
 from sim.domain.enums import Stage
 from sim.services.call_prompt import call_system_prompt
 from sim.services.followup import followup_instruction
-from sim.services.guard import FACT_CONTROL, VOICE_CONTROL, guard_system_prompt
+from sim.services.guard import GUARD_CONTROL, guard_system_prompt
 from sim.services.prompt import (
     IDENTITY_BOUNDARY,
     LINK_CONTRACT,
@@ -32,7 +32,7 @@ def test_unified_source_retains_mandatory_rules_dynamic_facts_and_voice_identity
     assert voice.startswith(p.agent_prompt) and "OLD" not in voice
     assert "PROGRAMMATIC CLOCK" in voice
     assert IDENTITY_BOUNDARY in voice
-    assert FACT_CONTROL in guard_system_prompt() and VOICE_CONTROL in guard_system_prompt()
+    assert GUARD_CONTROL in guard_system_prompt()
     assert editable_agent_prompt(p) == p.agent_prompt
 
 
