@@ -12,7 +12,7 @@ from sim.adapters.db.models import Dialog, Persona
 from sim.adapters.db.session import transaction
 from sim.adapters.pcm import PcmBuffer
 from sim.domain.enums import Delivery
-from sim.ports.live_voice import AUDIO, INTERRUPTED, TRANSCRIPT, TURN_COMPLETE, LiveVoiceEvent
+from sim.ports.live_voice import AUDIO, INTERRUPTED, TRANSCRIPT, LiveVoiceEvent
 from sim.services.call_playback import CallContextChanged, CallPlayback
 from sim.services.call_trace import CallTrace
 from sim.services.guard import BLOCKED, GuardOutcome
