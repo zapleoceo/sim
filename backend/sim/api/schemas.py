@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from litestar.exceptions import ClientException
-from msgspec import UNSET, Meta, Struct, UnsetType
+from msgspec import UNSET, Meta, Struct, UnsetType, field
 
 from sim.domain.agents import MAX_MAX_TOKENS, MAX_PROMPT_CHARS, MIN_MAX_TOKENS
 from sim.domain.attention import PACE_MAX, PACE_MIN
@@ -133,6 +133,14 @@ class ArcPatchIn(Struct):
     status: ArcStatusIn | UnsetType = UNSET
     started_on: date | UnsetType = UNSET
     ends_on: date | UnsetType | None = UNSET
+
+
+class ChatDayIn(Struct, forbid_unknown_fields=True):
+    """The owner's edit of a chat's day summary (docs/memory.md): the day becomes `edited`."""
+
+    summary: Annotated[str, Meta(min_length=1, max_length=30_000)]
+    facts: Annotated[list[Annotated[str, Meta(max_length=300)]],
+                     Meta(max_length=40)] = field(default_factory=list)
 
 
 class CanonPatchIn(Struct):

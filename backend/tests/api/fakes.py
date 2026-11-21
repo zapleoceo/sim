@@ -122,6 +122,9 @@ class RecordingTasks:
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
         self.record("plan_day", persona_id, day, force)
 
+    async def summarize_day(self, chat_id: int, day: str, force: bool = False) -> None:
+        self.record("summarize_day", chat_id, day, force)
+
     async def mark_read(self, message_id: int) -> None:
         self.record("mark_read", message_id)
 

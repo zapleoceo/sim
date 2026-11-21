@@ -10,7 +10,9 @@ from sim.db.models import (
     Call,
     Channel,
     Chat,
+    ChatDay,
     ChatEvent,
+    ChatWeek,
     Client,
     Generation,
     LlmCall,
@@ -171,6 +173,15 @@ def arc_view(arc: PersonaArc) -> Json:
 def day_view(row: PersonaDay) -> Json:
     return {"day": row.day, "events": list(row.events or []), "summary": row.summary,
             "source": row.source, "model": row.model, "error": row.error,
+            "updated_at": row.updated_at}
+
+
+def diary_view(row: ChatDay | ChatWeek) -> Json:
+    """A chat's day (`day`) or week (`week`, its Monday) summary (docs/memory.md)."""
+    period = {"day": row.day} if isinstance(row, ChatDay) else {"week": row.week}
+    return {**period, "summary": row.summary, "facts": list(row.facts or []),
+            "source": row.source, "model": row.model, "error": row.error,
+            "first_event_id": row.first_event_id, "last_event_id": row.last_event_id,
             "updated_at": row.updated_at}
 
 
