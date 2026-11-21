@@ -168,7 +168,6 @@ class ReplyContext:
     # when only new events arrived (the cached prefix, docs/context.md §2).
     stable_prefix: str = ""
     today: date | None = None
-    tz: str = ""
 
 
 @dataclass
@@ -420,7 +419,7 @@ class ContextBuilder:
             facts=know.facts, client_lines=client_lines,
             last_event_id=know.all_lines[-1].event_id if know.all_lines else None,
             needs_compression=know.needs_compression, event_ids=event_ids,
-            stable_prefix=stable, today=know.today, tz=persona.timezone,
+            stable_prefix=stable, today=know.today,
         )
 
     # --- calls ----------------------------------------------------------------------------
