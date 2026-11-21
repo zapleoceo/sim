@@ -37,6 +37,19 @@ export const personaSchema = z.object({
 
 export type PersonaFormValues = z.infer<typeof personaSchema>;
 export type PersonaFormField = keyof PersonaFormValues;
+export type PersonaFormErrors = Partial<Record<PersonaFormField, string>>;
+
+/** The first problem of every invalid field (empty = the form can be saved). */
+export function personaFormErrors(values: PersonaFormValues): PersonaFormErrors {
+  const result = personaSchema.safeParse(values);
+  if (result.success) return {};
+  const errors: PersonaFormErrors = {};
+  for (const issue of result.error.issues) {
+    const field = issue.path[0] as PersonaFormField | undefined;
+    if (field && !errors[field]) errors[field] = issue.message;
+  }
+  return errors;
+}
 
 export function toFormValues(p: Persona): PersonaFormValues {
   return {

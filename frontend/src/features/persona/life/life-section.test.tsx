@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { qk } from '@/lib/query';
 import type { Arc, CanonFact, DayEvent, DaysResponse, PersonaLife } from '@/lib/types';
 import { fakeApi, type FakeRequest } from '@/test/fake-api';
 import { renderWithApp } from '@/test/render';
@@ -136,6 +137,35 @@ describe('LifeSection', () => {
     const body = log.find((r) => r.method === 'PUT')?.body as PersonaLife;
     expect(body.look).toEqual({ ...EMPTY_LOOK, nails: 'нюдовый лак', earrings: 'золотые кольца' });
     expect(body.home).toEqual({ details: 'старый дом, 4 этаж', rooms: [{ name: 'спальня', details: 'белое бельё' }] });
+  });
+
+  it('a day being edited spans the whole days grid', async () => {
+    backend();
+    await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
+    const today = await screen.findByRole('region', { name: /Сегодня/ });
+    expect(today).not.toHaveClass('col-span-full');
+    await userEvent.click(within(today).getByRole('button', { name: 'Изменить' }));
+    expect(today).toHaveClass('col-span-full');
+    await userEvent.click(within(today).getByRole('button', { name: 'Отменить' }));
+    expect(today).not.toHaveClass('col-span-full');
+  });
+
+  it('keeps a story being edited when the planner moves it; «Отменить» brings the new stage', async () => {
+    let stage = 'плитка в коридоре';
+    backend({ 'GET /api/personas/1/arcs': () => ({ items: [{ ...ARC, stage, updated_at: `2026-11-21T0${stage.length % 10}:00:00Z` }] }) });
+    const { queryClient } = await renderWithApp(<PersonaIdProvider id={1}><LifeSection /></PersonaIdProvider>);
+    const title = await screen.findByDisplayValue('Ремонт в ванной');
+    const card = title.closest('li') as HTMLElement;
+    await userEvent.type(title, ' и кухне');
+
+    stage = 'кладут плитку в ванной';
+    await queryClient.invalidateQueries({ queryKey: qk.arcs(1) });
+
+    expect(title).toHaveValue('Ремонт в ванной и кухне');
+    expect(within(card).getByLabelText('Стадия истории 3')).toHaveValue('плитка в коридоре');
+    await userEvent.click(within(card).getByRole('button', { name: 'Отменить' }));
+    await waitFor(() => expect(within(card).getByLabelText('Стадия истории 3')).toHaveValue('кладут плитку в ванной'));
+    expect(within(card).getByLabelText('Название истории 3')).toHaveValue('Ремонт в ванной');
   });
 
   it('adds a story arc and rejects a canon fact', async () => {

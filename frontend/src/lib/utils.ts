@@ -41,6 +41,11 @@ export function prettyJson(value: unknown): string {
   }
 }
 
+/** Same JSON = the same value for a form draft (plain data: strings, numbers, arrays, objects). */
+export function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** Display name of a client: name, else @username, else «Клиент 12». */
 export function clientName(c: { id: number; name: string; username: string | null }): string {
   return c.name || (c.username ? `@${c.username}` : `Клиент ${c.id}`);

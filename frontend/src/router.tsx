@@ -12,7 +12,8 @@ import { positiveInt } from '@/lib/utils';
 export interface RouterContext { queryClient: QueryClient }
 
 export interface LoginSearch { returnUrl?: string }
-export interface ChatsSearch { id?: number }
+/** `/chats?id=5&q=анна&persona=2`: the open chat and the list's filters (they survive opening a chat). */
+export interface ChatsSearch { id?: number; q?: string; persona?: number }
 
 /** Only same-app paths are allowed as a post-login target (no open redirect). */
 export function safeReturnUrl(value: unknown): string | undefined {
@@ -26,17 +27,29 @@ export function parseLoginSearch(s: Record<string, unknown>): LoginSearch {
   return returnUrl ? { returnUrl } : {};
 }
 
-export function parseChatsSearch(s: Record<string, unknown>): ChatsSearch {
-  const id = positiveInt(s.id);
-  return id ? { id } : {};
+/** A search text from the address: `?q=123` arrives as a number, an empty one is dropped. */
+export function searchText(value: unknown): string | undefined {
+  const text = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+  return text || undefined;
 }
 
-/** `/leads?persona=2&stage=hot`: the filters a link may preselect. */
-export interface LeadsSearch { persona?: number; stage?: LeadStage }
+/** The text search and persona filter shared by chats and leads. */
+function parseFilters(s: Record<string, unknown>): { q?: string; persona?: number } {
+  const q = searchText(s.q);
+  const persona = positiveInt(s.persona);
+  return { ...(q ? { q } : {}), ...(persona ? { persona } : {}) };
+}
+
+export function parseChatsSearch(s: Record<string, unknown>): ChatsSearch {
+  const id = positiveInt(s.id);
+  return { ...(id ? { id } : {}), ...parseFilters(s) };
+}
+
+/** `/leads?q=анна&persona=2&stage=hot`: the filters live in the address (a link may preselect them). */
+export interface LeadsSearch { q?: string; persona?: number; stage?: LeadStage }
 
 export function parseLeadsSearch(s: Record<string, unknown>): LeadsSearch {
-  const persona = positiveInt(s.persona);
-  return { ...(persona ? { persona } : {}), ...(isStage(s.stage) ? { stage: s.stage } : {}) };
+  return { ...parseFilters(s), ...(isStage(s.stage) ? { stage: s.stage } : {}) };
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({

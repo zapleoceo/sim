@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { REGISTRY, SAVED } from './agents-fixtures';
 import {
   DEFAULT_MODEL, MODEL_OFF, canSwitchOff, defaultModelLabel, defaultSettings, draftErrors, effectiveModel, isSubscriptionModel,
-  modelToSelect, promptText, promptValue, sameDraft, selectToModel, toDraft, toPatch,
+  modelToSelect, promptText, promptValue, selectToModel, toDraft, toPatch,
 } from './agents-logic';
+import { sameJson } from '@/lib/utils';
 
 const specOf = (key: string) => REGISTRY.agents.find((a) => a.key === key)!;
 
@@ -12,8 +13,8 @@ describe('agents draft', () => {
     const draft = toDraft(SAVED);
     expect(draft.agents.reply).toEqual({ model: 'gpt-text', key_tier: 'paid', prompt: '', max_tokens: 4096 });
     expect(draft.guard_rules).toBe('Не называть фамилию.');
-    expect(sameDraft(draft, toDraft(SAVED))).toBe(true);
-    expect(sameDraft(draft, { ...draft, guard_rules: '' })).toBe(false);
+    expect(sameJson(draft, toDraft(SAVED))).toBe(true);
+    expect(sameJson(draft, { ...draft, guard_rules: '' })).toBe(false);
   });
 
   it('patches only the changed agents and always sends the rule list and «Внимание»', () => {
@@ -30,7 +31,7 @@ describe('agents draft', () => {
   it('a changed «Внимание» setting makes the draft dirty', () => {
     const saved = toDraft(SAVED);
     expect(saved.attention).not.toBe(SAVED.attention);                  // a copy, not the cache object
-    expect(sameDraft({ ...saved, attention: { ...saved.attention, pace: 1.5 } }, saved)).toBe(false);
+    expect(sameJson({ ...saved, attention: { ...saved.attention, pace: 1.5 } }, saved)).toBe(false);
   });
 
   it('defaults of an agent', () => {

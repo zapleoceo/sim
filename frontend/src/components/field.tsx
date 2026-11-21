@@ -2,10 +2,15 @@ import type * as React from 'react';
 import { cn } from '@/lib/utils';
 import { Label } from './ui/label';
 
-/** Label + control + hint/error, one layout for every form field. */
+/**
+ * Label + control + hint/error, one layout for every form field. `labelAction` (a button next to
+ * the label, e.g. the passport's lock) stays outside the `<label>`, so the control's name is the
+ * label text alone.
+ */
 export function Field({
   id,
   label,
+  labelAction,
   hint,
   error,
   className,
@@ -13,6 +18,7 @@ export function Field({
 }: {
   id: string;
   label: React.ReactNode;
+  labelAction?: React.ReactNode;
   hint?: React.ReactNode;
   error?: string;
   className?: string;
@@ -20,7 +26,14 @@ export function Field({
 }) {
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
-      <Label htmlFor={id}>{label}</Label>
+      {labelAction ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Label htmlFor={id}>{label}</Label>
+          {labelAction}
+        </div>
+      ) : (
+        <Label htmlFor={id}>{label}</Label>
+      )}
       {children}
       {error ? (
         <p role="alert" className="text-xs text-destructive">{error}</p>

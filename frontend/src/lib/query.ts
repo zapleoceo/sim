@@ -42,8 +42,12 @@ export const qk = {
   chat: (id: number) => ['chats', 'detail', id] as const,
   /** «Статус Марины» of one chat (the strip in the conversation header). */
   chatStatus: (id: number) => ['chats', 'status', id] as const,
+  /** Prefix of every chat's timeline. */
+  timelines: ['timeline'] as const,
   timeline: (chatId: number) => ['timeline', chatId] as const,
   replyRun: (id: number) => ['reply-run', id] as const,
+  /** Prefix of every chat's days. */
+  allChatDays: ['chat-days'] as const,
   /** A chat's day and week summaries (the lead card's «Дни»). */
   chatDays: (chatId: number) => ['chat-days', chatId] as const,
 

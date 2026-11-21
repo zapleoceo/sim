@@ -1,34 +1,41 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { AlertTriangle, MessagesSquare, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { Link, getRouteApi } from '@tanstack/react-router';
+import { AlertTriangle, MessagesSquare } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
+import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { personaApi } from '@/features/persona/api';
-import { useDebounced } from '@/hooks/use-debounced';
+import { PersonaFilter } from '@/features/persona/persona-filter';
+import { usePersonaList } from '@/features/persona/use-persona-list';
 import { useInView } from '@/hooks/use-in-view';
 import { formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { ChatRow } from '@/lib/types';
+import type { ChatsSearch } from '@/router';
 import { clientName, cn } from '@/lib/utils';
 import { CHATS_PAGE, chatsApi } from './api';
 import { PersonaStatusPill } from './persona-status';
 import { STATUS_REFRESH_MS } from './persona-status-logic';
 import { aiActive, lastMessagePreview } from './timeline-logic';
 
-function ChatListItem({ chat, active, showPersona }: { chat: ChatRow; active: boolean; showPersona: boolean }) {
+const route = getRouteApi('/_app/chats');
+
+function ChatListItem({ chat, active, showPersona, filters }: {
+  chat: ChatRow;
+  active: boolean;
+  showPersona: boolean;
+  /** The list's search and persona filter: opening a chat keeps them in the address. */
+  filters: Omit<ChatsSearch, 'id'>;
+}) {
   const ai = aiActive(chat);
   const name = clientName(chat.client);
   return (
     <li>
       <Link
         to="/chats"
-        search={{ id: chat.id }}
+        search={{ ...filters, id: chat.id }}
         aria-current={active ? 'true' : undefined}
         className={cn(
           'flex items-center gap-3 border-b px-3 py-2.5 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none',
@@ -89,14 +96,16 @@ function ChatListItem({ chat, active, showPersona }: { chat: ChatRow; active: bo
 
 /**
  * Left pane: search + persona filter + chats, newest activity first, more pages on scroll. Each
- * row names the persona that answers in that chat (when there is more than one persona).
+ * row names the persona that answers in that chat (when there is more than one persona). The
+ * open chat, the search and the filter live in the address (`/chats?id=5&q=анна&persona=2`).
  */
-export function ChatList({ activeId }: { activeId: number | null }) {
-  const [search, setSearch] = useState('');
-  const [personaId, setPersonaId] = useState(0);
-  const q = useDebounced(search.trim(), 300);
-  const personas = useQuery({ queryKey: qk.personaList, queryFn: personaApi.list, staleTime: 60_000 });
-  const personaRows = personas.data?.items ?? [];
+export function ChatList() {
+  const { id: activeId, q = '', persona: personaId = 0 } = route.useSearch();
+  const navigate = route.useNavigate();
+  const filters = { ...(q ? { q } : {}), ...(personaId ? { persona: personaId } : {}) };
+  const setFilters = (next: { q?: string; persona?: number }): void =>
+    void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true });
+  const { rows: personaRows } = usePersonaList();
   const showPersona = personaRows.length > 1 && personaId === 0;
   const chats = useInfiniteQuery({
     queryKey: qk.chatList(q, personaId),
@@ -114,23 +123,15 @@ export function ChatList({ activeId }: { activeId: number | null }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex-none border-b p-3">
-        <label className="relative block">
-          <span className="sr-only">Поиск по чатам</span>
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Имя, username или текст"
-            className="pl-8"
-          />
-        </label>
+        <SearchInput
+          value={q}
+          onChange={(text) => setFilters({ q: text || undefined })}
+          label="Поиск по чатам"
+          placeholder="Имя, username или текст"
+        />
         {personaRows.length > 1 && (
           <div className="mt-2">
-            <NativeSelect aria-label="Персонаж" value={String(personaId)} onChange={(e) => setPersonaId(Number(e.target.value) || 0)}>
-              <option value="0">Все персонажи</option>
-              {personaRows.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </NativeSelect>
+            <PersonaFilter value={personaId} onChange={(id) => setFilters({ persona: id || undefined })} personas={personaRows} />
           </div>
         )}
       </div>
@@ -159,7 +160,7 @@ export function ChatList({ activeId }: { activeId: number | null }) {
         {items.length > 0 && (
           <ul aria-label="Чаты" className="flex flex-col">
             {items.map((chat) => (
-              <ChatListItem key={chat.id} chat={chat} active={chat.id === activeId} showPersona={showPersona} />
+              <ChatListItem key={chat.id} chat={chat} active={chat.id === activeId} showPersona={showPersona} filters={filters} />
             ))}
           </ul>
         )}

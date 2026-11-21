@@ -1,16 +1,19 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowLeft, CheckCircle2, MessageSquareDashed, StickyNote } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, MessageSquareDashed, EllipsisVertical, StickyNote } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
+import { MutationSwitch } from '@/components/mutation-switch';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { PassportSheet } from '@/features/leads/passport-summary';
 import { useInView } from '@/hooks/use-in-view';
@@ -18,8 +21,8 @@ import { dayKey, dayLabel } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { ChatDetail, TimelineItem } from '@/lib/types';
 import { clientName } from '@/lib/utils';
-import { TIMELINE_PAGE, chatsApi } from './api';
-import { ChatFlagSwitch } from './chat-flag-switch';
+import { TIMELINE_PAGE, chatsApi, invalidateChat } from './api';
+import { ChatFlagMenuItem, ChatFlagSwitch } from './chat-flag-switch';
 import { Composer } from './composer';
 import { PersonaStatusStrip } from './persona-status';
 import { ReplyRunSheet } from './reply-run-sheet';
@@ -71,31 +74,62 @@ function NoteDialog({ chatId, open, onOpenChange }: { chatId: number; open: bool
   );
 }
 
+/**
+ * Below 640 px the header keeps the name, «Паспорт» and «ИИ в чате»; «Заметка», the chat flags and
+ * «Оператор разобрался» move into this menu (a dot on it while an operator is needed).
+ */
+function ChatHeaderMenu({ chat, onNote, onDone, doneBusy }: {
+  chat: ChatDetail;
+  onNote: () => void;
+  onDone: () => void;
+  doneBusy: boolean;
+}) {
+  return (
+    // Not modal: «Заметка» opens a dialog right after the menu closes.
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative sm:hidden" aria-label="Ещё действия с чатом">
+          <EllipsisVertical />
+          {chat.needs_operator && <span aria-hidden className="absolute top-1.5 right-1.5 size-2 rounded-full bg-warning" />}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {chat.needs_operator && (
+          <DropdownMenuItem disabled={doneBusy} onSelect={onDone}>
+            <CheckCircle2 />
+            Оператор разобрался
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={onNote}>
+          <StickyNote />
+          Заметка
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <ChatFlagMenuItem chatId={chat.id} flag="attention_instant" enabled={chat.attention_instant} />
+        <ChatFlagMenuItem chatId={chat.id} flag="no_refusals" enabled={chat.no_refusals} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void }) {
   const queryClient = useQueryClient();
   const [noteOpen, setNoteOpen] = useState(false);
-  const refresh = (): void => {
-    void queryClient.invalidateQueries({ queryKey: qk.chat(chat.id) });
-    void queryClient.invalidateQueries({ queryKey: qk.chatStatus(chat.id) });
-    void queryClient.invalidateQueries({ queryKey: qk.chatLists });
-    void queryClient.invalidateQueries({ queryKey: qk.timeline(chat.id) });
-  };
   const ai = useMutation({
     mutationFn: (enabled: boolean) => chatsApi.setAi(chat.id, enabled),
     onSuccess: (_row, enabled) => {
       toast.success(enabled ? 'ИИ включён в этом чате' : 'ИИ выключен в этом чате');
-      refresh();
+      invalidateChat(queryClient, chat.id);
     },
   });
   const done = useMutation({
     mutationFn: () => chatsApi.operatorDone(chat.id),
     onSuccess: () => {
       toast.success('Отметка «нужен оператор» снята');
-      refresh();
+      invalidateChat(queryClient, chat.id);
     },
   });
   const name = clientName(chat.client);
-  const aiChecked = ai.isPending ? (ai.variables ?? chat.ai_enabled) : chat.ai_enabled;
 
   return (
     <header className="flex flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b px-2 py-2 sm:px-4">
@@ -121,22 +155,28 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <PassportSheet client={chat.client} />
-        {chat.needs_operator && (
-          <Button variant="outline" size="sm" onClick={() => done.mutate()} disabled={done.isPending}>
-            <CheckCircle2 />
-            Оператор разобрался
+        <div className="flex flex-wrap items-center gap-2 max-sm:hidden">
+          {chat.needs_operator && (
+            <Button variant="outline" size="sm" onClick={() => done.mutate()} disabled={done.isPending}>
+              <CheckCircle2 />
+              Оператор разобрался
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setNoteOpen(true)}>
+            <StickyNote />
+            Заметка
           </Button>
-        )}
-        <Button variant="ghost" size="sm" onClick={() => setNoteOpen(true)}>
-          <StickyNote />
-          <span className="max-sm:sr-only">Заметка</span>
-        </Button>
-        <ChatFlagSwitch chatId={chat.id} flag="attention_instant" enabled={chat.attention_instant} />
-        <ChatFlagSwitch chatId={chat.id} flag="no_refusals" enabled={chat.no_refusals} />
-        <label className="flex items-center gap-2 text-sm">
-          <Switch checked={aiChecked} onCheckedChange={(v) => ai.mutate(v)} disabled={ai.isPending} />
-          ИИ в чате
-        </label>
+          <ChatFlagSwitch chatId={chat.id} flag="attention_instant" enabled={chat.attention_instant} />
+          <ChatFlagSwitch chatId={chat.id} flag="no_refusals" enabled={chat.no_refusals} />
+        </div>
+        <MutationSwitch
+          checked={chat.ai_enabled}
+          pending={ai.isPending}
+          pendingValue={ai.variables}
+          onCheckedChange={(v) => ai.mutate(v)}
+          label="ИИ в чате"
+        />
+        <ChatHeaderMenu chat={chat} onNote={() => setNoteOpen(true)} onDone={() => done.mutate()} doneBusy={done.isPending} />
       </div>
       <NoteDialog chatId={chat.id} open={noteOpen} onOpenChange={setNoteOpen} />
     </header>

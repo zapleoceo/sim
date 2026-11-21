@@ -39,35 +39,56 @@ export function parseLiveEvent(data: string): LiveEvent | null {
 
 /**
  * What to re-read after an event. The chat's own timeline and «Статус Марины» always; the chat
- * lists and that chat's header when its row changed; the clients when a client's data changed.
+ * lists when its row changed; that chat's header when its row or its client changed (the header
+ * shows the client's passport); the clients when a client's data changed.
  */
 export function invalidationsFor(event: LiveEvent): QueryKey[] {
   const keys: QueryKey[] = [qk.timeline(event.chat_id), qk.chatStatus(event.chat_id)];
-  if (CHAT_ROW_KINDS.has(event.kind)) keys.push(qk.chatLists, qk.chat(event.chat_id));
-  if (CLIENT_KINDS.has(event.kind)) keys.push(qk.clients);
+  const rowChanged = CHAT_ROW_KINDS.has(event.kind);
+  const clientChanged = CLIENT_KINDS.has(event.kind);
+  if (rowChanged) keys.push(qk.chatLists);
+  if (rowChanged || clientChanged) keys.push(qk.chat(event.chat_id));
+  if (clientChanged) keys.push(qk.clients);
   if (event.kind === 'memory_updated') keys.push(qk.chatDays(event.chat_id));
   return keys;
 }
 
+/**
+ * After a reconnect: the events of the gap are lost (the stream has no ids to resume from), so
+ * everything a live event could change is re-read — the chat lists and every chat's header and
+ * status, the timelines, the clients and the chats' days. Only what is on screen refetches.
+ */
+export const RECONNECT_INVALIDATIONS: readonly QueryKey[] = [qk.chats, qk.timelines, qk.clients, qk.allChatDays];
+
 export type EventSourceFactory = (url: string) => Pick<EventSource, 'close'> & {
   onmessage: ((e: MessageEvent<string>) => unknown) | null;
+  onopen: ((e: Event) => unknown) | null;
 };
 
 const browserSource: EventSourceFactory = (url) => new EventSource(url, { withCredentials: true });
 
 /**
  * Opens the single SSE stream and invalidates the matching queries per event. The browser
- * reconnects by itself after a drop. Returns the cleanup.
+ * reconnects by itself after a drop; every open after the first re-reads what the gap may have
+ * changed. Returns the cleanup.
  */
 export function connectLiveEvents(queryClient: QueryClient, open: EventSourceFactory = browserSource): () => void {
   const source = open(EVENTS_URL);
+  const invalidate = (keys: readonly QueryKey[]): void => {
+    for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });
+  };
+  let opened = false;
+  source.onopen = () => {
+    if (opened) invalidate(RECONNECT_INVALIDATIONS);
+    opened = true;
+  };
   source.onmessage = (e) => {
     const event = parseLiveEvent(e.data);
-    if (!event) return;
-    for (const queryKey of invalidationsFor(event)) void queryClient.invalidateQueries({ queryKey });
+    if (event) invalidate(invalidationsFor(event));
   };
   return () => {
     source.onmessage = null;
+    source.onopen = null;
     source.close();
   };
 }

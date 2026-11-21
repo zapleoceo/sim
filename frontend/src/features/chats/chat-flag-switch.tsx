@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Switch } from '@/components/ui/switch';
-import { qk } from '@/lib/query';
-import { chatsApi, type ChatFlag } from './api';
+import { MutationSwitch, shownValue } from '@/components/mutation-switch';
+import { DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
+import { chatsApi, invalidateChat, type ChatFlag } from './api';
 
 /** The chat header's own switches, one definition each (docs/frontend.md). */
-const FLAGS: Record<ChatFlag, { label: string; title: string; on: string; off: string }> = {
+export const CHAT_FLAGS: Record<ChatFlag, { label: string; title: string; on: string; off: string }> = {
   attention_instant: {
     label: 'Отвечать сразу',
     title: 'Без пауз «Внимания»: для проверки',
@@ -20,25 +20,46 @@ const FLAGS: Record<ChatFlag, { label: string; title: string; on: string; off: s
   },
 };
 
-/** One switch of the chat header: «Отвечать сразу» (docs/attention.md) or «Без отказов»
- * (docs/writing.md). Shows the new value while it is being saved. */
-export function ChatFlagSwitch({ chatId, flag, enabled }: { chatId: number; flag: ChatFlag; enabled: boolean }) {
+/** One flag of one chat: the request, the toast and the refresh, for the switch and the phone menu. */
+function useChatFlag(chatId: number, flag: ChatFlag) {
   const queryClient = useQueryClient();
-  const text = FLAGS[flag];
+  const text = CHAT_FLAGS[flag];
   const toggle = useMutation({
     mutationFn: (next: boolean) => chatsApi.setFlag(chatId, flag, next),
     onSuccess: (_row, next) => {
       toast.success(next ? text.on : text.off);
-      void queryClient.invalidateQueries({ queryKey: qk.chat(chatId) });
-      void queryClient.invalidateQueries({ queryKey: qk.chatStatus(chatId) });
-      void queryClient.invalidateQueries({ queryKey: qk.chatLists });
+      invalidateChat(queryClient, chatId);
     },
   });
-  const checked = toggle.isPending ? (toggle.variables ?? enabled) : enabled;
+  return { text, toggle };
+}
+
+/** One switch of the chat header: «Отвечать сразу» (docs/attention.md) or «Без отказов»
+ * (docs/writing.md). Shows the new value while it is being saved. */
+export function ChatFlagSwitch({ chatId, flag, enabled }: { chatId: number; flag: ChatFlag; enabled: boolean }) {
+  const { text, toggle } = useChatFlag(chatId, flag);
   return (
-    <label className="flex items-center gap-2 text-sm" title={text.title}>
-      <Switch checked={checked} onCheckedChange={(v) => toggle.mutate(v)} disabled={toggle.isPending} />
+    <MutationSwitch
+      checked={enabled}
+      pending={toggle.isPending}
+      pendingValue={toggle.variables}
+      onCheckedChange={(v) => toggle.mutate(v)}
+      label={text.label}
+      title={text.title}
+    />
+  );
+}
+
+/** The same flag as a checkbox item of the header's menu on a phone. */
+export function ChatFlagMenuItem({ chatId, flag, enabled }: { chatId: number; flag: ChatFlag; enabled: boolean }) {
+  const { text, toggle } = useChatFlag(chatId, flag);
+  return (
+    <DropdownMenuCheckboxItem
+      checked={shownValue(enabled, toggle.isPending, toggle.variables)}
+      disabled={toggle.isPending}
+      onCheckedChange={(v) => toggle.mutate(v)}
+    >
       {text.label}
-    </label>
+    </DropdownMenuCheckboxItem>
   );
 }

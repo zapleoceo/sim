@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, RotateCcw, Save } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm';
 import { ErrorState, InlineError } from '@/components/empty-state';
@@ -8,14 +8,14 @@ import { Field, Section } from '@/components/field';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useDraft } from '@/hooks/use-draft';
 import { errorMessage } from '@/lib/api';
 import { qk } from '@/lib/query';
 import type { AgentRegistry, AgentSettings, BrokerModel, PersonaAgents } from '@/lib/types';
 import { agentApi, personaApi } from '../api';
 import { usePersonaId } from '../persona-scope';
 import { AgentCard } from './agent-card';
-import { type AgentsDraft, defaultSettings, draftErrors, effectiveModel, sameDraft, toDraft, toPatch } from './agents-logic';
+import { type AgentsDraft, defaultSettings, draftErrors, effectiveModel, toDraft, toPatch } from './agents-logic';
 import { AttentionBlock } from './attention-block';
 import { ATTENTION_AGENT } from './attention-logic';
 
@@ -26,20 +26,16 @@ export function AgentsEditor({ registry, saved, models }: { registry: AgentRegis
   const queryClient = useQueryClient();
   const personaId = usePersonaId();
   const confirm = useConfirm();
-  const [baseline, setBaseline] = useState(() => toDraft(saved));
-  const [draft, setDraft] = useState<AgentsDraft>(baseline);
+  const server = useMemo(() => toDraft(saved), [saved]);
+  const { draft, setDraft, baseline, dirty, reset: discard, commit } = useDraft<AgentsDraft>(server, { guardName: 'Агенты' });
   const [errors, setErrors] = useState<string[]>([]);
-  const dirty = !sameDraft(draft, baseline);
-  useUnsavedGuard(dirty);
 
   const adopt = (next: PersonaAgents) => queryClient.setQueryData(qk.agents(personaId), next);
   const save = useMutation({
     mutationFn: (next: AgentsDraft) => agentApi.save(personaId, toPatch(next, baseline)),
     onSuccess: (result) => {
       adopt(result);
-      const next = toDraft(result);
-      setBaseline(next);
-      setDraft(next);
+      commit(toDraft(result));
       toast.success('Агенты сохранены');
     },
   });
@@ -48,9 +44,8 @@ export function AgentsEditor({ registry, saved, models }: { registry: AgentRegis
     onSuccess: (result, key) => {
       adopt(result);
       const next = toDraft(result);
-      setBaseline(next);
       // The other agents keep their unsaved edits; «Внимание» resets its settings too.
-      setDraft((d) => ({
+      commit(next, (d) => ({
         ...d,
         agents: { ...d.agents, [key]: next.agents[key] },
         attention: key === ATTENTION_AGENT ? next.attention : d.attention,
@@ -122,7 +117,7 @@ export function AgentsEditor({ registry, saved, models }: { registry: AgentRegis
         <span className="mr-auto text-sm text-muted-foreground" aria-live="polite">
           {dirty ? 'Агенты изменены, не сохранены' : 'Агенты сохранены'}
         </span>
-        <Button variant="ghost" disabled={!dirty || save.isPending} onClick={() => { setDraft(baseline); setErrors([]); }}>
+        <Button variant="ghost" disabled={!dirty || save.isPending} onClick={() => { discard(); setErrors([]); }}>
           <RotateCcw />
           Отменить
         </Button>

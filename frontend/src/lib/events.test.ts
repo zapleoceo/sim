@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
-import { EVENTS_URL, connectLiveEvents, invalidationsFor, parseLiveEvent, type EventSourceFactory, type LiveEvent } from './events';
+import {
+  EVENTS_URL, RECONNECT_INVALIDATIONS, connectLiveEvents, invalidationsFor, parseLiveEvent, type EventSourceFactory, type LiveEvent,
+} from './events';
 import { qk } from './query';
 import type { EventKind } from './types';
 
@@ -31,9 +33,9 @@ describe('invalidationsFor', () => {
     }
   });
 
-  it('client data changes refresh the clients but not the chat list', () => {
-    expect(invalidationsFor(ev('memory_updated'))).toEqual([...always(), qk.clients, qk.chatDays(7)]);
-    expect(invalidationsFor(ev('client_updated'))).toEqual([...always(), qk.clients]);
+  it('client data changes refresh the clients and the open chat (its header shows the passport), not the chat list', () => {
+    expect(invalidationsFor(ev('memory_updated'))).toEqual([...always(), qk.chat(7), qk.clients, qk.chatDays(7)]);
+    expect(invalidationsFor(ev('client_updated'))).toEqual([...always(), qk.chat(7), qk.clients]);
   });
 
   it('AI toggle changes both the chat row and the clients', () => {
@@ -56,7 +58,7 @@ describe('connectLiveEvents', () => {
   it('opens one stream and invalidates the mapped queries per event', () => {
     const queryClient = new QueryClient();
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined);
-    const source: ReturnType<EventSourceFactory> = { onmessage: null, close: vi.fn() };
+    const source: ReturnType<EventSourceFactory> = { onmessage: null, onopen: null, close: vi.fn() };
     const open = vi.fn<EventSourceFactory>(() => source);
 
     const stop = connectLiveEvents(queryClient, open);
@@ -73,5 +75,28 @@ describe('connectLiveEvents', () => {
     stop();
     expect(source.close).toHaveBeenCalled();
     expect(source.onmessage).toBeNull();
+    expect(source.onopen).toBeNull();
+  });
+
+  it('re-reads chats, timelines, statuses and clients after every reconnect, not on the first open', () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined);
+    const source: ReturnType<EventSourceFactory> = { onmessage: null, onopen: null, close: vi.fn() };
+    connectLiveEvents(queryClient, () => source);
+
+    source.onopen?.(new Event('open'));
+    expect(invalidate).not.toHaveBeenCalled();
+
+    source.onopen?.(new Event('open'));               // the browser reconnected after a drop
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([...RECONNECT_INVALIDATIONS]);
+    // Prefixes: the open chat's header, status, timeline and days are among them.
+    expect(RECONNECT_INVALIDATIONS).toEqual([qk.chats, qk.timelines, qk.clients, qk.allChatDays]);
+    expect(qk.chat(4).slice(0, 1)).toEqual(qk.chats);
+    expect(qk.chatStatus(4).slice(0, 1)).toEqual(qk.chats);
+    expect(qk.timeline(4).slice(0, 1)).toEqual(qk.timelines);
+    expect(qk.chatDays(4).slice(0, 1)).toEqual(qk.allChatDays);
+
+    source.onopen?.(new Event('open'));
+    expect(invalidate).toHaveBeenCalledTimes(RECONNECT_INVALIDATIONS.length * 2);
   });
 });

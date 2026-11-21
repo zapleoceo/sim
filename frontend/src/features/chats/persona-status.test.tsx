@@ -33,6 +33,18 @@ describe('PersonaStatusPill', () => {
     }
     expect(screen.getAllByText('Статус для команды:', { exact: false })).toHaveLength(TONES.length);
   });
+
+  it('shows the reason in the row itself, not only in a hover tooltip (touch, keyboard, screen reader)', () => {
+    render(
+      <TooltipProvider>
+        <PersonaStatusPill status={status()} />
+        <PersonaStatusPill status={status({ title: 'Всё отвечено', detail: '' })} />
+      </TooltipProvider>,
+    );
+    const pill = screen.getByText('Прочитала, ответит около 20:40').closest('[data-tone]');
+    expect(pill).toHaveTextContent('Прочитала, ответит около 20:40 · после созвона');
+    expect(screen.getByText('Всё отвечено').closest('[data-tone]')).not.toHaveTextContent('·');
+  });
 });
 
 describe('PersonaStatusStrip', () => {
