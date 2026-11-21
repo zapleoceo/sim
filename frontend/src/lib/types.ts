@@ -176,6 +176,8 @@ export interface ChatRow {
   ai_enabled: boolean;
   /** «Отвечать сразу»: this chat skips her phone checks (docs/attention.md). */
   attention_instant: boolean;
+  /** «Без отказов» in this chat (docs/writing.md). */
+  no_refusals: boolean;
   needs_operator: boolean;
   unread_count: number;
   /** What she is doing about this chat now — visible to the team only. */

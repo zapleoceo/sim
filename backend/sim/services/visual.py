@@ -12,9 +12,9 @@ not move her to another place or change her clothes. Explicit negatives forbid a
 and extra hands (seen in production)."""
 from __future__ import annotations
 
-import re
 from typing import Literal
 
+from sim.domain.activity import after_sport, cannot_film, hands_busy, on_the_move
 from sim.domain.life import Ambience, BusyLevel
 from sim.domain.scene import Camera, CameraHold, Light, SceneCard, ShotType
 
@@ -84,9 +84,6 @@ LIGHT_QUALITY = {
 HANDHELD_MOTION = "Natural hand shake and small framing jumps of a phone held in one hand."
 PROPPED_MOTION = ("The phone stands still but the frame is slightly crooked; exposure shifts "
                   "when she leans in or moves away.")
-_ON_THE_MOVE = re.compile(r"\b(ид[её]т|идёт|гуля|едет|шага|по дороге|на ходу|возвраща)",
-                          re.IGNORECASE)
-_AFTER_SPORT = re.compile(r"\b(после пробежк|после трениров|пробежк|бег)", re.IGNORECASE)
 
 
 def realism_lines(scene: SceneCard | None, *, video: bool,
@@ -98,8 +95,8 @@ def realism_lines(scene: SceneCard | None, *, video: bool,
         return lines
     lines.append(f"Light quality: {LIGHT_QUALITY[scene.light]}.")
     activity = scene.activity.lower()
-    moving = bool(_ON_THE_MOVE.search(activity))
-    if _AFTER_SPORT.search(activity):
+    moving = on_the_move(activity)
+    if after_sport(activity):
         lines.append("She has just finished running: flushed cheeks, messy hair, a little "
                      "sweat" + (", out of breath, speaking with short pauses." if video
                                 else "."))
@@ -134,26 +131,16 @@ NO_OVERLAYS = "No subtitles, no music, no text on screen."
 Stage = Literal["image", "video"]
 
 
-# Word starts in her current activity that decide how a video note can be filmed.
-_CANNOT_FILM = re.compile(
-    r"\b(за рул|вед[уёе]т машин|веду машин|бе[гж]и|бегает|бежит|(?<!после )пробежк|"
-    r"(?<!после )тренировк|плава|душ\b|"
-    r"ванн|сон\b|сплю|спит|спать)", re.IGNORECASE)
-_HANDS_BUSY = re.compile(
-    r"\b(готов|жар|варит|печ[её]т|печь|режет|мо[ею]т посуд|ужина|обеда|завтрака|работа|"
-    r"консульт|ноутбук|красит|макияж|вяж|шь[её]т|глад|убира|грядк|сажа|полива)", re.IGNORECASE)
-
-
 def camera_for(scene: SceneCard | None) -> Camera:
     """How she can film a video note right now, with the reason (docs/persona-life.md). Without
     a scene: handheld, the usual way."""
     if scene is None:
         return Camera(CameraHold.HANDHELD, "обычный кружок с руки")
     activity = scene.activity.lower()
-    if _CANNOT_FILM.search(activity) or scene.busy == BusyLevel.AWAY:
+    if cannot_film(activity) or scene.busy == BusyLevel.AWAY:
         return Camera(CameraHold.IMPOSSIBLE,
                       f"сейчас она {scene.activity} — снять кружок не может")
-    if _HANDS_BUSY.search(activity):
+    if hands_busy(activity):
         return Camera(CameraHold.PROPPED,
                       f"телефон прислонён, руки заняты: {scene.activity}")
     return Camera(CameraHold.HANDHELD, f"кружок с руки: {scene.activity}")

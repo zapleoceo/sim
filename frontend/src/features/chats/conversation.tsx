@@ -18,7 +18,7 @@ import { qk } from '@/lib/query';
 import type { ChatDetail, TimelineItem } from '@/lib/types';
 import { clientName } from '@/lib/utils';
 import { TIMELINE_PAGE, chatsApi } from './api';
-import { AttentionInstantSwitch } from './attention-instant-switch';
+import { ChatFlagSwitch } from './chat-flag-switch';
 import { Composer } from './composer';
 import { PersonaStatusStrip } from './persona-status';
 import { ReplyRunSheet } from './reply-run-sheet';
@@ -129,7 +129,8 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
           <StickyNote />
           <span className="max-sm:sr-only">Заметка</span>
         </Button>
-        <AttentionInstantSwitch chatId={chat.id} enabled={chat.attention_instant} />
+        <ChatFlagSwitch chatId={chat.id} flag="attention_instant" enabled={chat.attention_instant} />
+        <ChatFlagSwitch chatId={chat.id} flag="no_refusals" enabled={chat.no_refusals} />
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={aiChecked} onCheckedChange={(v) => ai.mutate(v)} disabled={ai.isPending} />
           ИИ в чате
