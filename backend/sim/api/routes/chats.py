@@ -27,6 +27,7 @@ from sim.api.uploads import read_upload, upload_mime
 from sim.db.models import Chat, ChatEvent, Client, LlmCall, ReplyRun
 from sim.domain.enums import Author, EventKind, MediaKind, MediaSource, MessageKind
 from sim.events import append_event
+from sim.services.ai_switch import chats_to_wake, wake
 from sim.services.media_library import add_media
 from sim.services.outbox import enqueue_message
 
@@ -107,14 +108,20 @@ async def send_message(chat_id: int, request: Request[Any, Any, Any], ctx: ApiCo
 
 
 @post("/chats/{chat_id:int}/ai", status_code=200)
-async def toggle_ai(chat_id: int, data: AiToggleIn, db: AsyncSession,
+async def toggle_ai(chat_id: int, data: AiToggleIn, ctx: ApiContext, db: AsyncSession,
                     admin: AdminContext) -> Json:
+    """Switching the AI on also answers what arrived while it was off (services/ai_switch)."""
     chat = await get_or_404(db, Chat, chat_id, "Чат")
-    if chat.ai_enabled != data.enabled:
-        chat.ai_enabled = data.enabled
-        await append_event(db, chat_id=chat.id, kind=EventKind.AI_TOGGLED, actor=admin.actor,
-                           data={"enabled": data.enabled, "scope": "chat"})
-    return await chat_row(db, chat)
+    if chat.ai_enabled == data.enabled:
+        return await chat_row(db, chat)
+    chat.ai_enabled = data.enabled
+    await append_event(db, chat_id=chat.id, kind=EventKind.AI_TOGGLED, actor=admin.actor,
+                       data={"enabled": data.enabled, "scope": "chat"})
+    waiting = await chats_to_wake(db, [chat.id]) if data.enabled else []
+    row = await chat_row(db, chat)
+    await db.commit()
+    await wake(ctx.deps.tasks, waiting)
+    return row
 
 
 @post("/chats/{chat_id:int}/read", status_code=204)
