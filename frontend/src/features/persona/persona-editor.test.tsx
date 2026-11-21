@@ -1,12 +1,13 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setCsrfToken } from '@/lib/api';
 import type { Persona } from '@/lib/types';
 import { fakeApi, type FakeRequest } from '@/test/fake-api';
 import { renderWithApp } from '@/test/render';
-import { PersonaEditor } from './persona-editor';
-import { toFormValues, toPatch } from './persona-form-logic';
+import { PERSONA_FORM_ID, PersonaEditor } from './persona-editor';
+import { personaFormErrors, toFormValues, toPatch } from './persona-form-logic';
 
 const PERSONA: Persona = {
   id: 1, name: 'Марина', gender: 'female', language: 'ru', timezone: 'Europe/Kyiv', birth_date: '1998-04-02',
@@ -25,6 +26,14 @@ describe('toPatch', () => {
     expect(toPatch(initial, initial)).toEqual({});
   });
 
+  it('validates every field with the schema, first problem per field', () => {
+    const values = toFormValues(PERSONA);
+    expect(personaFormErrors(values)).toEqual({});
+    expect(personaFormErrors({ ...values, name: ' ', reply_delay_s: '1.5', birth_date: '2026-13' })).toEqual({
+      name: 'Укажите имя', reply_delay_s: 'Целое число от 0 до 120', birth_date: 'Дата вида 1999-12-31',
+    });
+  });
+
   it('has no agent or guard fields: they are edited in «Агенты»', () => {
     const keys = Object.keys(toFormValues(PERSONA));
     expect(keys.some((k) => k.startsWith('model_'))).toBe(false);
@@ -41,14 +50,14 @@ describe('PersonaEditor', () => {
     await renderWithApp(<PersonaEditor persona={PERSONA} voices={[{ id: 'Vindemiatrix', label: 'Vindemiatrix' }]} />);
 
     const save = await screen.findByRole('button', { name: 'Сохранить' });
-    expect(screen.getByText('Все изменения сохранены')).toBeInTheDocument();
+    expect(screen.getByText('Настройки персонажа сохранены')).toBeInTheDocument();
     expect(save).toBeDisabled();
 
     const name = screen.getByLabelText('Имя');
     await userEvent.clear(name);
     await userEvent.type(name, 'Марина К');
     await userEvent.click(screen.getByRole('switch', { name: 'Видео' }));
-    expect(screen.getByText('Есть несохранённые изменения')).toBeInTheDocument();
+    expect(screen.getByText('Настройки персонажа изменены, не сохранены')).toBeInTheDocument();
     expect(save).toBeEnabled();
 
     await userEvent.click(save);
@@ -56,7 +65,41 @@ describe('PersonaEditor', () => {
     const put = log.find((r) => r.method === 'PUT');
     expect(put?.body).toEqual({ name: 'Марина К', video_enabled: false });
     expect(put?.headers['X-CSRF-Token']).toBe('csrf-1');
-    expect(await screen.findByText('Все изменения сохранены')).toBeInTheDocument();
+    expect(await screen.findByText('Настройки персонажа сохранены')).toBeInTheDocument();
+  });
+
+  it('takes a fresh persona while untouched and keeps an edit (sending only it) when the server changes', async () => {
+    const log = fakeApi({ 'PUT /api/personas/1': (req: FakeRequest) => ({ ...PERSONA, ...(req.body as object) }) });
+    function Live() {
+      const [persona, setPersona] = useState(PERSONA);
+      return (
+        <>
+          <button type="button" onClick={() => setPersona((p) => ({ ...p, prompt: `${p.prompt} Новое.` }))}>с сервера</button>
+          <PersonaEditor persona={persona} voices={[]} />
+        </>
+      );
+    }
+    await renderWithApp(<Live />);
+    const prompt = await screen.findByLabelText('Промт');
+    await userEvent.click(screen.getByRole('button', { name: 'с сервера' }));
+    expect(prompt).toHaveValue('Ты Марина. Новое.');
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+
+    const name = screen.getByLabelText('Имя');
+    await userEvent.type(name, '!');
+    await userEvent.click(screen.getByRole('button', { name: 'с сервера' }));
+    expect(name).toHaveValue('Марина!');
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+    await waitFor(() => expect(log.filter((r) => r.method === 'PUT')).toHaveLength(1));
+    expect(log.find((r) => r.method === 'PUT')?.body).toEqual({ name: 'Марина!' });
+  });
+
+  it('keeps its save bar inside its own block: the sections below are not part of it', async () => {
+    fakeApi({});
+    await renderWithApp(<PersonaEditor persona={PERSONA} voices={[]} />);
+    const bar = await screen.findByRole('region', { name: 'Сохранение: настройки персонажа' });
+    const form = document.getElementById(PERSONA_FORM_ID);
+    expect(form?.parentElement).toBe(bar.parentElement);
   });
 
   it('keeps the saved voice when the voice list failed to load', async () => {

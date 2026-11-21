@@ -2,7 +2,6 @@ import {
   flexRender, getCoreRowModel, useReactTable, type ColumnDef, type Row, type RowData,
 } from '@tanstack/react-table';
 import type * as React from 'react';
-import { cn } from '@/lib/utils';
 import { Skeleton } from './ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
@@ -25,7 +24,6 @@ export function DataTable<T>({
   empty,
   getRowId,
   rowClassName,
-  onRowClick,
   caption,
 }: {
   columns: ColumnDef<T, unknown>[];
@@ -34,7 +32,6 @@ export function DataTable<T>({
   empty?: React.ReactNode;
   getRowId?: (row: T) => string;
   rowClassName?: (row: Row<T>) => string | undefined;
-  onRowClick?: (row: T) => void;
   caption?: string;
 }) {
   const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel(), getRowId });
@@ -70,8 +67,7 @@ export function DataTable<T>({
           rows.map((row) => (
             <TableRow
               key={row.id}
-              className={cn(onRowClick && 'cursor-pointer', rowClassName?.(row))}
-              onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+              className={rowClassName?.(row)}
             >
               {row.getVisibleCells().map((cell) => (
                 <TableCell key={cell.id} className={cell.column.columnDef.meta?.className}>

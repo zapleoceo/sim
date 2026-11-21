@@ -5,12 +5,12 @@ import { toast } from 'sonner';
 import { InlineError } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useDraft } from '@/hooks/use-draft';
 import { qk } from '@/lib/query';
 import type { Hobby, LifePerson, PersonaLife, Place, RoutineSlot } from '@/lib/types';
 import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
-import { newHobby, newPerson, newPlace, newRoutineSlot, sameJson, worldErrors } from './life-logic';
+import { newHobby, newPerson, newPlace, newRoutineSlot, worldErrors } from './life-logic';
 import { HomeEditor, LookEditor } from './look-home-editor';
 import { RowsEditor, type Column } from './rows-editor';
 
@@ -45,18 +45,14 @@ const PLACE_COLUMNS: Column<Place>[] = [
 export function WorldEditor({ life }: { life: PersonaLife }) {
   const queryClient = useQueryClient();
   const personaId = usePersonaId();
-  const [baseline, setBaseline] = useState(life);
-  const [draft, setDraft] = useState(life);
+  const { draft, setDraft, dirty, reset, commit } = useDraft<PersonaLife>(life, { guardName: 'Мир' });
   const [errors, setErrors] = useState<string[]>([]);
-  const dirty = !sameJson(draft, baseline);
-  useUnsavedGuard(dirty);
 
   const save = useMutation({
     mutationFn: (next: PersonaLife) => lifeApi.saveWorld(personaId, next),
     onSuccess: (saved) => {
       queryClient.setQueryData(qk.life(personaId), saved);
-      setBaseline(saved);
-      setDraft(saved);
+      commit(saved);
       toast.success('Мир персонажа сохранён');
     },
   });
@@ -101,7 +97,7 @@ export function WorldEditor({ life }: { life: PersonaLife }) {
         <span className="mr-auto text-sm text-muted-foreground" aria-live="polite">
           {dirty ? 'Мир изменён, не сохранён' : 'Мир сохранён'}
         </span>
-        <Button variant="ghost" disabled={!dirty || save.isPending} onClick={() => { setDraft(baseline); setErrors([]); }}>
+        <Button variant="ghost" disabled={!dirty || save.isPending} onClick={() => { reset(); setErrors([]); }}>
           <RotateCcw />
           Отменить
         </Button>

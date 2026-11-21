@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, IdCard, MessagesSquare, RefreshCw, Save, Undo2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm';
 import { EmptyState, ErrorState, InlineError } from '@/components/empty-state';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useDraft } from '@/hooks/use-draft';
 import { qk } from '@/lib/query';
 import type { ChatDay, ChatDayPatch, ChatWeek, ClientDetail } from '@/lib/types';
 import { daysApi } from './api';
@@ -32,17 +32,17 @@ const STATE_VARIANT = { model: 'success', edited: 'warning', error: 'destructive
 function DayItem({ chatId, day, today }: { chatId: number; day: ChatDay; today: string }) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
-  // Local state for the text being edited: a live refresh never overwrites typing.
-  const [draft, setDraft] = useState<DayDraft>(() => toDraft(day));
+  // The draft follows a live refresh while untouched; a live refresh never overwrites typing.
+  const server = useMemo(() => toDraft(day), [day]);
+  const { draft, setDraft, dirty, reset, commit } = useDraft<DayDraft>(server, { guardName: 'Дни' });
   const patch = dayPatch(draft, day);
-  const dirty = draft.summary !== day.summary || draft.facts !== toDraft(day).facts;
-  useUnsavedGuard(dirty);
   const state = dayState(day);
   const title = chatDayTitle(day);
 
   const save = useMutation({
     mutationFn: (body: ChatDayPatch) => daysApi.save(chatId, day.day, body),
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      commit(toDraft(saved));
       toast.success('Итог дня сохранён: ночью Летописец его не тронет');
       void queryClient.invalidateQueries({ queryKey: qk.chatDays(chatId) });
     },
@@ -99,7 +99,7 @@ function DayItem({ chatId, day, today }: { chatId: number; day: ChatDay; today: 
       </Field>
       {dirty && (
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" onClick={() => setDraft(toDraft(day))}>
+          <Button variant="ghost" onClick={reset}>
             <Undo2 />
             Отменить
           </Button>

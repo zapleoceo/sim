@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm';
 import { EmptyState, ErrorState } from '@/components/empty-state';
+import { MutationSwitch, shownValue } from '@/components/mutation-switch';
 import { Section } from '@/components/field';
 import { Segmented } from '@/components/segmented';
 import { Badge } from '@/components/ui/badge';
@@ -216,9 +217,8 @@ function MediaCard({ media }: { media: Media }) {
     });
     if (ok) remove.mutate();
   };
-  const reference = update.isPending && update.variables && 'is_reference' in update.variables
-    ? Boolean(update.variables.is_reference)
-    : media.is_reference;
+  const referenceBeingSaved = update.variables && 'is_reference' in update.variables ? Boolean(update.variables.is_reference) : undefined;
+  const reference = shownValue(media.is_reference, update.isPending, referenceBeingSaved);
   const alt = media.caption || media.description || 'Фото';
 
   return (
@@ -276,15 +276,15 @@ function MediaCard({ media }: { media: Media }) {
           )}
           <div className="mt-auto flex items-center justify-between gap-1 pt-1">
             {media.kind === 'photo' ? (
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Switch
-                  checked={reference}
-                  onCheckedChange={(v) => update.mutate({ is_reference: v })}
-                  disabled={update.isPending}
-                  aria-label="Референс внешности"
-                />
-                референс
-              </label>
+              <MutationSwitch
+                checked={media.is_reference}
+                pending={update.isPending}
+                pendingValue={referenceBeingSaved}
+                onCheckedChange={(v) => update.mutate({ is_reference: v })}
+                label="референс"
+                aria-label="Референс внешности"
+                className="gap-1.5 text-xs text-muted-foreground"
+              />
             ) : <span />}
             <span className="flex gap-0.5">
               <Button variant="ghost" size="icon-sm" onClick={startEdit} aria-label="Изменить подпись и теги">

@@ -6,6 +6,7 @@ import { fakeApi } from '@/test/fake-api';
 import { renderWithApp } from '@/test/render';
 import { CloneDialog } from './clone-dialog';
 import { CLONE_PARTS, cloneNameError, defaultParts, orderedParts } from './clone-logic';
+import { PersonaHeader } from './persona-page';
 import { PersonasPage, channelSummary } from './personas-page';
 
 const channel = (patch: Partial<Channel>): Channel => ({
@@ -78,6 +79,21 @@ describe('CloneDialog', () => {
       name: 'Оля',
       parts: ['basics', 'agents', 'voice', 'guard', 'appearance', 'world', 'arcs', 'media', 'switches', 'canon'],
     });
+  });
+
+  it('from the persona page header checks the name against every persona, like the list', async () => {
+    const log = fakeApi({ 'GET /api/personas': { items: ROWS } });
+    const marina = { ...ROWS[0], gender: 'female', language: 'ru', timezone: 'Europe/Kyiv', birth_date: null, prompt: '',
+      appearance: '', voice_ambience_enabled: false, voice_id: '', voice_style: '', voice_enabled: false, photo_enabled: false,
+      video_enabled: false, calls_enabled: false, reply_delay_s: 8 } as Persona;
+    await renderWithApp(<PersonaHeader persona={marina} />);
+    await waitFor(() => expect(log.some((r) => r.path === '/api/personas')).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: 'Клонировать' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Имя нового персонажа'), 'оля');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Клонировать' }));
+    expect(await within(dialog).findByText('Персонаж с таким именем уже есть')).toBeInTheDocument();
+    expect(log.filter((r) => r.method === 'POST')).toHaveLength(0);
   });
 
   it('logic: defaults, order and name checks', () => {

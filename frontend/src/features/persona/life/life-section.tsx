@@ -35,10 +35,13 @@ function DaysTab() {
   const tomorrow = addDays(today, 1);
   const byDay = new Map(items.map((d) => [d.day, d]));
   const onPlanned = () => setPollUntil(Date.now() + PLAN_WAIT_MS);
+  // Side by side only when the section itself is wide enough; a day being edited takes the whole row.
   return (
-    <div className="grid gap-3 2xl:grid-cols-2">
-      <DayCard label="Сегодня" date={today} day={byDay.get(today)} nowMinute={nowMinute} onPlanned={onPlanned} />
-      <DayCard label="Завтра" date={tomorrow} day={byDay.get(tomorrow)} nowMinute={null} onPlanned={onPlanned} />
+    <div className="@container">
+      <div className="grid gap-3 @min-[64rem]:grid-cols-2">
+        <DayCard label="Сегодня" date={today} day={byDay.get(today)} nowMinute={nowMinute} onPlanned={onPlanned} />
+        <DayCard label="Завтра" date={tomorrow} day={byDay.get(tomorrow)} nowMinute={null} onPlanned={onPlanned} />
+      </div>
     </div>
   );
 }

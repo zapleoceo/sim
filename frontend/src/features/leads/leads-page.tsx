@@ -1,25 +1,27 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearch } from '@tanstack/react-router';
+import { Link, getRouteApi } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Search, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Users } from 'lucide-react';
+import { useMemo } from 'react';
 import { Avatar } from '@/components/avatar';
 import { DataTable } from '@/components/data-table';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Page, PageHeader } from '@/components/page';
+import { SearchInput } from '@/components/search-input';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
-import { personaApi } from '@/features/persona/api';
-import { useDebounced } from '@/hooks/use-debounced';
+import { PersonaFilter } from '@/features/persona/persona-filter';
+import { usePersonaList } from '@/features/persona/use-persona-list';
 import { formatDateTime, formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
-import type { Lead, LeadStage } from '@/lib/types';
+import type { Lead } from '@/lib/types';
 import { clientName } from '@/lib/utils';
+import type { LeadsSearch } from '@/router';
 import { leadsApi } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
-import { STAGES, stageInfo } from './passport-logic';
+import { STAGES, isStage, stageInfo } from './passport-logic';
 
+const route = getRouteApi('/_app/leads');
 
 export const LEAD_COLUMNS: ColumnDef<Lead, unknown>[] = [
   {
@@ -104,16 +106,17 @@ export const LEAD_COLUMNS: ColumnDef<Lead, unknown>[] = [
   },
 ];
 
-/** «Лиды»: every client of every persona, filters by persona and stage, search; a click opens the card. */
+/**
+ * «Лиды»: every client of every persona, filters by persona and stage, search; a click opens the
+ * card. The filters live in the address (`/leads?q=анна&persona=2&stage=hot`): «назад» from a card
+ * and a shared link keep them; «Персонажи» links here with `?persona=`.
+ */
 export function LeadsPage() {
-  // `/leads?persona=2` (from «Персонажи») preselects a persona; then the filters live here.
-  const search = useSearch({ strict: false }) as { persona?: number; stage?: LeadStage };
-  const [text, setText] = useState('');
-  const q = useDebounced(text.trim(), 300);
-  const [personaId, setPersonaId] = useState<number>(search.persona ?? 0);
-  const [stage, setStage] = useState<LeadStage | ''>(search.stage ?? '');
+  const { q = '', persona: personaId = 0, stage = '' } = route.useSearch();
+  const navigate = route.useNavigate();
+  const setFilters = (next: LeadsSearch): void => void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true });
   const filters = { q, personaId, stage };
-  const personas = useQuery({ queryKey: qk.personaList, queryFn: personaApi.list, staleTime: 60_000 });
+  const { rows: personas } = usePersonaList();
   const leads = useQuery({
     queryKey: qk.clientList(q, personaId, stage),
     queryFn: () => leadsApi.list(filters),
@@ -126,22 +129,25 @@ export function LeadsPage() {
     <Page width="wide">
       <PageHeader title="Лиды" subtitle={leads.data ? `${rows.length} в списке` : undefined}>
         <div className="w-[calc(50%-0.25rem)] sm:w-48">
-          <NativeSelect aria-label="Персонаж" value={String(personaId)} onChange={(e) => setPersonaId(Number(e.target.value) || 0)}>
-            <option value="0">Все персонажи</option>
-            {(personas.data?.items ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </NativeSelect>
+          <PersonaFilter value={personaId} onChange={(id) => setFilters({ persona: id || undefined })} personas={personas} />
         </div>
         <div className="w-[calc(50%-0.25rem)] sm:w-40">
-          <NativeSelect aria-label="Стадия" value={stage} onChange={(e) => setStage(e.target.value as LeadStage | '')}>
+          <NativeSelect
+            aria-label="Стадия"
+            value={stage}
+            onChange={(e) => setFilters({ stage: isStage(e.target.value) ? e.target.value : undefined })}
+          >
             <option value="">Все стадии</option>
             {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </NativeSelect>
         </div>
-        <label className="relative w-full sm:w-72">
-          <span className="sr-only">Поиск лидов</span>
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder="Имя или username" className="pl-8" />
-        </label>
+        <SearchInput
+          value={q}
+          onChange={(text) => setFilters({ q: text || undefined })}
+          label="Поиск лидов"
+          placeholder="Имя или username"
+          className="w-full sm:w-72"
+        />
       </PageHeader>
       {leads.isError ? (
         <ErrorState onRetry={() => void leads.refetch()} />
