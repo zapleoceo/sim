@@ -152,6 +152,9 @@ describe('systemLine', () => {
     expect(systemLine(item({ kind: 'ai_toggled', data: { enabled: true } }))?.text).toBe('ИИ включён в этом чате');
     expect(systemLine(item({ kind: 'operator_note', data: { text: 'не звать на встречу' } }))?.text).toBe('Заметка оператора: не звать на встречу');
     expect(systemLine(item({ kind: 'memory_updated' }))?.text).toBe('Сводка переписки обновлена');
+    expect(systemLine(item({ kind: 'memory_updated', data: { kind: 'day', day: '2026-11-20' } }))?.text).toBe('Летописец записал итог дня 20.11');
+    expect(systemLine(item({ kind: 'memory_updated', data: { kind: 'week', week: '2026-11-16' } }))?.text).toBe('Летописец записал итог недели с 16.11');
+    expect(systemLine(item({ kind: 'memory_updated', data: { kind: 'morning', day: '2026-11-21' } }))?.text).toBe('Начало дня сжато в короткий абзац');
     expect(systemLine(item({ kind: 'message_out' }))).toBeNull();
   });
 });

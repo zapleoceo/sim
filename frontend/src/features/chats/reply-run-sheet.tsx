@@ -4,26 +4,72 @@ import { ErrorState } from '@/components/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { dayTitle } from '@/features/persona/life/life-logic';
 import { formatDateTime, formatInt, formatMs, formatUsd } from '@/lib/format';
 import { qk } from '@/lib/query';
 import type { LlmCall, ReplyRun } from '@/lib/types';
 import { prettyJson } from '@/lib/utils';
 import { chatsApi } from './api';
 
-/** Context blocks in the order the model reads them (docs/context.md §2); unknown keys follow. */
+/**
+ * Context blocks in the order the model reads them, stable first (docs/context.md §2); unknown
+ * keys follow. `days`/`weeks` are also shown as a list («Дни в контексте»).
+ */
 const CONTEXT_LABELS: [string, string][] = [
-  ['facts', 'Факты от кода'],
   ['routine', 'Распорядок'],
-  ['now', 'Точные данные на сейчас'],
   ['arcs', 'Истории'],
   ['canon', 'Канон'],
   ['client', 'Карточка клиента'],
   ['client_card', 'Карточка клиента'],
-  ['summary', 'Сводка'],
-  ['timeline', 'Лента'],
+  ['summary', 'Давняя переписка'],
+  ['weeks', 'Итоги недель'],
+  ['days', 'Итоги дней'],
+  ['morning', 'Начало дня, кратко'],
+  ['timeline', 'Лента за сегодня'],
+  ['notes', 'Заметки дня'],
+  ['facts', 'Факты от кода'],
+  ['now', 'Точные данные на сейчас'],
+  ['catalog', 'Каталог медиа'],
   ['media', 'Каталог медиа'],
   ['media_catalog', 'Каталог медиа'],
+  ['recall_text', 'Вспомнила'],
 ];
+
+export interface ContextDay {
+  day: string;
+  summary: string;
+}
+
+/** The day summaries that were in the model's context (`context.days`), oldest first. */
+export function contextDays(context: Record<string, unknown> | null): ContextDay[] {
+  const days = context?.days;
+  if (!Array.isArray(days)) return [];
+  return days.flatMap((d: unknown) => {
+    if (!d || typeof d !== 'object') return [];
+    const { day, summary } = d as Record<string, unknown>;
+    return typeof day === 'string' && typeof summary === 'string' ? [{ day, summary }] : [];
+  });
+}
+
+function DaysInContext({ context }: { context: Record<string, unknown> | null }) {
+  const days = contextDays(context);
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold">Дни в контексте</h3>
+      {days.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Итогов прошлых дней в контексте не было.</p>
+      ) : (
+        <ol className="flex flex-col gap-1.5">
+          {days.map((d) => (
+            <li key={d.day} className="text-sm">
+              <span className="font-medium first-letter:uppercase">{dayTitle(d.day)}:</span> {d.summary}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
 
 export function contextBlocks(context: Record<string, unknown> | null): { key: string; title: string; text: string }[] {
   if (!context) return [];
@@ -114,6 +160,8 @@ export function ReplyRunView({ run }: { run: ReplyRun }) {
           </Block>
         ))}
       </section>
+
+      {run.context && <DaysInContext context={run.context} />}
 
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold">План ответа</h3>
