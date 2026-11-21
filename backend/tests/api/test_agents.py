@@ -23,7 +23,7 @@ async def test_registry_lists_groups_agents_and_defaults(api: ApiClient) -> None
     assert response.status_code == 200
     body = response.json()
     assert [(g["title"], g["agents"]) for g in body["groups"]] == [
-        ("Ответ", ["reply", "guard", "vision", "transcribe", "tts"]),
+        ("Ответ", ["attention", "reply", "guard", "vision", "transcribe", "tts"]),
         ("Медиа", ["image", "video"]),
         ("Звонки", ["live"]),
         ("Фон", ["life", "passport", "memory", "appearance"]),
@@ -58,6 +58,9 @@ async def test_persona_agents_show_choices_and_effective_models(api: ApiClient,
     assert (life["model"], life["effective_model"]) == ("", "")
     assert body["agents"]["tts"]["max_tokens"] is None
     assert body["guard_rules"] == ""
+    assert body["attention"] == {"mode": "human", "pace": 1.0, "may_leave_read": True,
+                                 "after_missed_call": True, "night_dnd": True}
+    assert body["agents"]["attention"]["effective_model"] == "gemini/gemini-3.5-flash-lite"
     assert (await api.get("/api/personas/999999/agents")).status_code == 404
 
 
@@ -118,6 +121,37 @@ async def test_changed_models_are_checked_against_a_readable_catalog(
     down = await api.put(pp(world, "/agents"), json={"agents": {"tts": {"model": "a/tts"}}})
     assert down.status_code == 200
     assert down.json()["agents"]["tts"]["effective_model"] == "a/tts"
+
+
+ATTENTION = {"mode": "free_only", "pace": 1.5, "may_leave_read": False,
+             "after_missed_call": True, "night_dnd": False}
+
+
+async def test_attention_settings_save_with_the_agents_and_reset_with_its_card(
+        api: ApiClient, world: World, db: AsyncSession) -> None:
+    saved = await api.put(pp(world, "/agents"), json={
+        "agents": {"attention": {"model": None, "key_tier": "paid", "prompt": "",
+                                 "max_tokens": 1500}},
+        "attention": ATTENTION})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["attention"] == ATTENTION
+    persona = await db.get(Persona, world.persona_id)
+    assert persona is not None
+    await db.refresh(persona)
+    assert persona.attention == ATTENTION
+    # Without `attention` in the body the settings stay.
+    again = await api.put(pp(world, "/agents"), json={"agents": {}})
+    assert again.json()["attention"] == ATTENTION
+
+    for bad in ({**ATTENTION, "mode": "robot"}, {**ATTENTION, "pace": 3},
+                {**ATTENTION, "extra": 1}, {"mode": "human"}):
+        response = await api.put(pp(world, "/agents"), json={"agents": {}, "attention": bad})
+        assert response.status_code == 400, bad
+
+    reset = await api.post(pp(world, "/agents/attention/reset"))
+    assert reset.json()["attention"]["mode"] == "human"
+    await db.refresh(persona)
+    assert persona.attention == {}
 
 
 async def test_reset_returns_an_agent_to_its_defaults(api: ApiClient, world: World) -> None:
