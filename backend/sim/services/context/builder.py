@@ -33,7 +33,6 @@ from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import (
     CallStatus,
     EventKind,
-    GenerationStatus,
     MediaKind,
 )
 from sim.domain.memory import notes_of
@@ -54,6 +53,7 @@ from sim.services.context.render import (
     render_events,
 )
 from sim.services.context.window import day_start, local_day
+from sim.services.generation_state import active_generations
 from sim.services.life.render import LifeBlocks, life_blocks
 from sim.services.life.store import load_life
 from sim.services.media_library import catalog_for_chat
@@ -371,14 +371,10 @@ class ContextBuilder:
             .where(Call.chat_id == chat.id,
                    Call.status.in_((CallStatus.RINGING, CallStatus.ACTIVE)))
         )).scalar_one() > 0
-        running = (await session.execute(
-            select(Generation)
-            .where(Generation.chat_id == chat.id,
-                   Generation.status.in_((GenerationStatus.QUEUED, GenerationStatus.RUNNING)))
-            .order_by(Generation.id)
-        )).scalars()
+        now = self.clock.now()
+        running = (await active_generations(session, [chat.id], now)).get(chat.id, [])
         return FactsInput(
-            now=self.clock.now(), persona_tz=persona.timezone, birth_date=persona.birth_date,
+            now=now, persona_tz=persona.timezone, birth_date=persona.birth_date,
             client_tz=client_timezone(client), first_contact_at=incoming[1],
             last_client_at=incoming[2],
             last_persona_at=outgoing[2], messages_count=incoming[0] + outgoing[0],

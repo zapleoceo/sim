@@ -3,7 +3,21 @@ transaction commits; the Procrastinate implementation lives in sim/tasks/queue.p
 a recording fake."""
 from __future__ import annotations
 
+import logging
+from collections.abc import Awaitable
 from typing import Protocol
+
+log = logging.getLogger(__name__)
+
+
+async def after_commit(what: str, defer: Awaitable[None]) -> None:
+    """Defers the job of a row that is already committed. A failure is logged, never raised:
+    the row is stored and its outcome is final (a sent turn stays sent); the reaper
+    (sim/services/reaper.py) queues a pending message or a queued generation again."""
+    try:
+        await defer
+    except Exception:
+        log.exception("%s not queued; the reaper will queue it", what)
 
 
 class TaskQueue(Protocol):

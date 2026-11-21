@@ -37,6 +37,7 @@ from sim.services.persona_status import (
     chat_status,
     chat_statuses,
     describe,
+    load_facts,
 )
 from sim.services.turn_state import Waiting
 from tests.services.factories import add_event, add_message, make_chat, make_persona
@@ -309,6 +310,25 @@ async def test_many_chats_at_once(db: AsyncSession, clock: FixedClock, deps: Dep
     assert statuses[missed.id].detail == "без ответа: 1"
     one = await chat_status(db, deps, later.id)
     assert one == statuses[later.id]
+
+
+async def test_a_generation_is_now_only_within_its_window(db: AsyncSession,
+                                                          clock: FixedClock) -> None:
+    # One definition with the reply context (sim/services/generation_state.py): a video claimed
+    # two hours ago is no longer «Снимает видео» — the reaper fails it.
+    her = await make_persona(db)
+    stale, fresh = await make_chat(db, her), await make_chat(db, her, name="Саша")
+    for chat, kind, ago in ((stale, GenerationKind.VIDEO, timedelta(hours=2)),
+                            (fresh, GenerationKind.PHOTO, timedelta(minutes=10))):
+        db.add(Generation(persona_id=chat.persona_id, chat_id=chat.id, kind=kind,
+                          prompt="селфи", status=GenerationStatus.RUNNING,
+                          created_at=clock.now() - ago, updated_at=clock.now() - ago))
+    await db.flush()
+
+    facts = await load_facts(db, await _rows(db, [stale, fresh]), clock.now())
+
+    assert facts[stale.id].generation is None
+    assert facts[fresh.id].generation == GenerationKind.PHOTO
 
 
 async def test_her_routine_decides_when_she_sees_it(db: AsyncSession, clock: FixedClock,

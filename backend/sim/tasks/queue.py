@@ -1,8 +1,15 @@
 """TaskQueue on Procrastinate. Deferring is by task name, so a process can queue tasks it does
 not run itself (e.g. the worker queues `telegram.send_message`).
 
+Queues: `agent` (replies, phone checks, memory, plans), `media` (generation: minutes per job,
+its own workers so queued videos never hold back a reply, sim/apps/worker.py) and `telegram`
+(the telegram process: sends, read receipts, live statuses).
+
 Ordering and de-duplication:
-- `lock = chat:<id>` on reply and memory jobs: one chat is processed strictly in order;
+- `lock = chat:<id>` on reply jobs: one chat's turns run strictly in order;
+- `lock` and `queueing_lock = memory:<chat id>`: one waiting memory refresh per chat, never two
+  at once; it does not wait behind the chat's turns (its write re-checks the notes of the day,
+  sim/services/memory/morning.py);
 - `queueing_lock` per chat for replies: while a reply is waiting to start, a new request is
   absorbed by it (the reply task re-checks the chat and waits for a burst when it starts);
 - `lock = send:<chat id>` keeps one chat's outgoing messages in order;
@@ -31,6 +38,7 @@ from procrastinate.exceptions import AlreadyEnqueued
 log = logging.getLogger(__name__)
 
 AGENT_QUEUE = "agent"
+MEDIA_QUEUE = "media"
 TELEGRAM_QUEUE = "telegram"
 
 REPLY_TASK = "agent.reply_chat"
@@ -51,6 +59,8 @@ MEMORY_TICK_TASK = "agent.memory_tick"      # periodic: whose midnight has passe
 MEMORY_TICK_CRON = "*/15 * * * *"
 STALLED_TASK = "agent.recover_stalled"    # periodic: jobs a stopped worker left `doing`
 STALLED_CRON = "* * * * *"
+REAP_TASK = "agent.reap_stuck"            # periodic: rows a failure left half-done
+REAP_CRON = "*/2 * * * *"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
@@ -58,6 +68,10 @@ CHAT_ACTION_TASK = "telegram:chat_action"
 
 def chat_lock(chat_id: int) -> str:
     return f"chat:{chat_id}"
+
+
+def memory_lock(chat_id: int) -> str:
+    return f"memory:{chat_id}"
 
 
 def phone_lock(persona_id: int) -> str:
@@ -105,7 +119,7 @@ class ProcrastinateQueue:
                           queueing_lock=f"understand:{media_id}")
 
     async def generate(self, generation_id: int) -> None:
-        await self._defer(GENERATE_TASK, queue=AGENT_QUEUE,
+        await self._defer(GENERATE_TASK, queue=MEDIA_QUEUE,
                           kwargs={"generation_id": generation_id},
                           queueing_lock=f"generation:{generation_id}")
 
@@ -116,7 +130,7 @@ class ProcrastinateQueue:
 
     async def refresh_memory(self, chat_id: int) -> None:
         await self._defer(MEMORY_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
-                          lock=chat_lock(chat_id), queueing_lock=f"memory:{chat_id}")
+                          lock=memory_lock(chat_id), queueing_lock=memory_lock(chat_id))
 
     async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
         await self._defer(PASSPORT_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},

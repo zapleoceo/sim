@@ -23,21 +23,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Chat, ChatEvent, Client, Generation, Message, Persona, ReplyRun
+from sim.db.models import Chat, ChatEvent, Client, Message, Persona, ReplyRun
 from sim.domain.ai_gate import AiBlock, ai_block
 from sim.domain.attention import AttentionAction, AttentionSettings, attention_settings
 from sim.domain.enums import (
     Direction,
     EventKind,
     GenerationKind,
-    GenerationStatus,
     MessageKind,
     MessageStatus,
     RunStatus,
@@ -46,11 +45,11 @@ from sim.domain.life import BusyLevel
 from sim.services.attention.notices import RUNNING_FRESH
 from sim.services.attention.timing import Availability, availability, local_hhmm
 from sim.services.deps import Deps
+from sim.services.generation_state import active_generations
 from sim.services.life.store import load_life
 from sim.services.turn_state import Waiting, answered_bounds, waiting_counts
 
 A = AttentionAction
-GENERATION_FRESH = timedelta(minutes=30)    # an older unfinished generation is not «now»
 GUARD_ACTOR = "guard"                       # `chat_event.actor` of the guard's block
 ERROR_CHARS = 200
 
@@ -367,13 +366,9 @@ async def _last_runs(session: AsyncSession, ids: Sequence[int]) -> dict[int, Las
 
 async def _generations(session: AsyncSession, ids: Sequence[int],
                        now: datetime) -> dict[int, GenerationKind]:
-    rows = await session.execute(
-        select(Generation.chat_id, Generation.kind)
-        .where(Generation.chat_id.in_(ids),
-               Generation.status.in_((GenerationStatus.QUEUED, GenerationStatus.RUNNING)),
-               Generation.created_at >= now - GENERATION_FRESH)
-        .distinct(Generation.chat_id).order_by(Generation.chat_id, Generation.id.desc()))
-    return {chat_id: kind for chat_id, kind in rows.all() if chat_id is not None}
+    """The newest generation still in progress per chat (sim/services/generation_state.py)."""
+    active = await active_generations(session, ids, now)
+    return {chat_id: generations[-1].kind for chat_id, generations in active.items()}
 
 
 async def _sending(session: AsyncSession, ids: Sequence[int]) -> dict[int, MessageKind]:

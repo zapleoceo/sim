@@ -501,3 +501,30 @@ async def test_a_video_note_without_speech_is_repaired(db: AsyncSession, deps: D
     assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
     repair = fakes.llm.calls_for("reply-model")[1]["messages"][-1].parts[0].text or ""
     assert "generate.speech" in repair
+
+
+async def test_a_failing_defer_after_the_commit_keeps_the_run_sent(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    chat = await setup_chat(db, clock)
+    more = {"type": "text", "text": "как ты?"}
+    fakes.llm.script("reply-model", plan_json(TEXT, more)).script("guard-model", ok_verdict())
+    deferred: list[int] = []
+
+    async def flaky(message_id: int, chat_id: int | None = None) -> None:
+        deferred.append(message_id)
+        if len(deferred) == 1:
+            raise OSError("queue unreachable")
+
+    monkeypatch.setattr(fakes.tasks, "send", flaky)
+
+    result = await ReplyService(deps).run(chat.id)
+
+    # The run is committed SENT: a defer failing after it is logged, not a failed turn.
+    assert result.status == RunStatus.SENT and result.outgoing == 2
+    run = (await runs(db, chat))[0]
+    assert run.status == RunStatus.SENT and run.error is None
+    first, second = await outgoing(db, chat)
+    assert deferred == [first.id, second.id]            # the next defers still go out
+    # The first message stays `pending` until the reaper queues its send again.
+    assert first.status == second.status == MessageStatus.PENDING
