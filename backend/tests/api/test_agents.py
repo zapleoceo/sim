@@ -85,10 +85,13 @@ async def test_save_agents_stores_only_what_differs(api: ApiClient, world: World
     persona = await db.get(Persona, world.persona_id)
     assert persona is not None
     await db.refresh(persona)
+    # The chronicler has a default model (docs/memory.md), so "" is «не использовать».
+    assert body["agents"]["memory"]["effective_model"] == ""
     assert persona.agents == {
         "reply": {"model": "google/reply"},
         "guard": {"model": "google/guard", "key_tier": "free", "prompt": "Проверь {name}.",
                   "max_tokens": 300},
+        "memory": {"model": ""},
     }
 
 

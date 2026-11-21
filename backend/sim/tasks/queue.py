@@ -7,8 +7,10 @@ Ordering and de-duplication:
   absorbed by it (the reply task re-checks the chat and waits for a burst when it starts);
 - `lock = send:<chat id>` keeps one chat's outgoing messages in order;
 - `queueing_lock = life:<persona>:<day>`: one waiting plan per day of the persona's life;
-- `lock` and `queueing_lock = passport:<chat id>`: a burst of turns makes one passport update,
-  and one chat's updates never overlap;
+- `lock` and `queueing_lock = passport:<chat id>`: one waiting passport update per chat, and
+  one chat's updates never overlap;
+- `queueing_lock = night:<persona>:<day>`, `lock = night:<persona>`: one night job per persona
+  and day, one persona's nights in order; `diary:<chat>` for rebuilding one chat's day;
 - `lock = chat-action:<chat id>` applies one chat's status requests in order;
 - phone checks have no lock: the database decides which job is the persona's pending check
   (docs/attention.md)."""
@@ -36,6 +38,10 @@ LIFE_TICK_CRON = "*/30 * * * *"
 PHONE_CHECK_TASK = "agent.phone_check"
 ATTENTION_TICK_TASK = "agent.attention_tick"    # periodic: phone checks whose job was lost
 ATTENTION_TICK_CRON = "*/5 * * * *"
+NIGHT_TASK = "agent.night_memory"
+SUMMARIZE_DAY_TASK = "agent.summarize_day"
+MEMORY_TICK_TASK = "agent.memory_tick"      # periodic: whose midnight has passed
+MEMORY_TICK_CRON = "*/15 * * * *"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
@@ -97,6 +103,16 @@ class ProcrastinateQueue:
         await self._defer(PASSPORT_TASK, queue=AGENT_QUEUE, kwargs={"chat_id": chat_id},
                           lock=f"passport:{chat_id}", queueing_lock=f"passport:{chat_id}",
                           delay_s=delay_s)
+
+    async def night_memory(self, persona_id: int, day: str) -> None:
+        await self._defer(NIGHT_TASK, queue=AGENT_QUEUE,
+                          kwargs={"persona_id": persona_id, "day": day},
+                          lock=f"night:{persona_id}", queueing_lock=f"night:{persona_id}:{day}")
+
+    async def summarize_day(self, chat_id: int, day: str, force: bool = False) -> None:
+        await self._defer(SUMMARIZE_DAY_TASK, queue=AGENT_QUEUE,
+                          kwargs={"chat_id": chat_id, "day": day, "force": force},
+                          lock=f"diary:{chat_id}", queueing_lock=f"diary:{chat_id}:{day}")
 
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
         await self._defer(PLAN_DAY_TASK, queue=AGENT_QUEUE,

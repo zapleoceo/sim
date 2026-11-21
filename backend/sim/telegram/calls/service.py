@@ -6,7 +6,7 @@
           event carries `life_busy` and her phone check decides when she texts back)
        -> wait a human ring delay -> open the Broker live session (before picking up: when the
           Broker refuses, nobody picked up) -> answer -> talk (AudioBridge) -> hang up
-       -> Call row + `call` event in one transaction -> update the client's passport.
+       -> Call row + `call` event in one transaction (the passport learns it at night).
 
 Every outcome is a `call` row and a `call` event: declined, missed (the caller hung up first),
 failed (Broker or Telegram refused), ended (a conversation took place). No database transaction
@@ -67,8 +67,6 @@ class CallContextSource(Protocol):
 
 class CallTasks(Protocol):
     async def refresh_memory(self, chat_id: int) -> Any: ...
-
-    async def update_passport(self, chat_id: int, delay_s: float = 0) -> Any: ...
 
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> Any: ...
 
@@ -226,11 +224,10 @@ class CallService:
             model=str(summary.get("model") or getattr(ring.context, "model", "") or ""),
             end_reason=outcome.reason)
         try:
-            # The call goes into the client's passport; a long chat is summarized.
-            await self.tasks.update_passport(ring.chat_id, 0)
+            # A call that made today too long for the context compresses its morning.
             await self.tasks.refresh_memory(ring.chat_id)
         except Exception:
-            log.exception("call %s: passport / summary not queued", ring.call_id)
+            log.exception("call %s: morning compression not queued", ring.call_id)
         return status
 
     # --- database ------------------------------------------------------------------------

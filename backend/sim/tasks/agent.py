@@ -15,7 +15,8 @@ from sim.services.attention.schedule import lost_checks
 from sim.services.deps import get_deps
 from sim.services.generation import GenerationService
 from sim.services.life.planner import LifePlanner
-from sim.services.memory import MemoryService
+from sim.services.memory.morning import MorningService
+from sim.services.memory.night import NightMemory
 from sim.services.passport import PassportService
 from sim.services.reply import ReplyService
 from sim.services.understanding import Understanding
@@ -27,10 +28,14 @@ from sim.tasks.queue import (
     LIFE_TICK_CRON,
     LIFE_TICK_TASK,
     MEMORY_TASK,
+    MEMORY_TICK_CRON,
+    MEMORY_TICK_TASK,
+    NIGHT_TASK,
     PASSPORT_TASK,
     PHONE_CHECK_TASK,
     PLAN_DAY_TASK,
     REPLY_TASK,
+    SUMMARIZE_DAY_TASK,
     UNDERSTAND_TASK,
 )
 
@@ -56,7 +61,7 @@ async def run_generation(generation_id: int) -> None:
 
 
 async def refresh_memory(chat_id: int) -> None:
-    updated = await MemoryService(get_deps()).refresh(chat_id)
+    updated = await MorningService(get_deps()).refresh(chat_id)
     log.info("memory chat=%s updated=%s", chat_id, updated)
 
 
@@ -93,6 +98,26 @@ async def life_tick(timestamp: int) -> None:
         await deps.tasks.plan_day(persona_id, day.isoformat())
 
 
+async def night_memory(persona_id: int, day: str) -> None:
+    result = await NightMemory(get_deps()).run(persona_id, date.fromisoformat(day))
+    log.info("night persona=%s day=%s days=%s passports=%s weeks=%s", persona_id, day,
+             result.days, result.passports, result.weeks)
+
+
+async def summarize_day(chat_id: int, day: str, force: bool = False) -> None:
+    result = await NightMemory(get_deps()).rebuild(chat_id, date.fromisoformat(day),
+                                                   force=force)
+    log.info("diary chat=%s day=%s force=%s outcome=%s", chat_id, day, force, result)
+
+
+async def memory_tick(timestamp: int) -> None:
+    """Every 15 minutes: the personas whose midnight has passed get their night job
+    (docs/memory.md)."""
+    deps = get_deps()
+    for persona_id, day in await NightMemory(deps).due():
+        await deps.tasks.night_memory(persona_id, day.isoformat())
+
+
 def register_agent_tasks(app: procrastinate.App) -> None:
     """Register under the exact shared names (no blueprint namespace prefix)."""
     app.task(name=REPLY_TASK, queue=AGENT_QUEUE, retry=RETRY)(reply_chat)
@@ -106,3 +131,7 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     app.task(name=PHONE_CHECK_TASK, queue=AGENT_QUEUE)(phone_check)
     sweep = app.task(name=ATTENTION_TICK_TASK, queue=AGENT_QUEUE)(attention_tick)
     app.periodic(cron=ATTENTION_TICK_CRON, periodic_id="attention")(sweep)
+    app.task(name=NIGHT_TASK, queue=AGENT_QUEUE, retry=RETRY)(night_memory)
+    app.task(name=SUMMARIZE_DAY_TASK, queue=AGENT_QUEUE, retry=RETRY)(summarize_day)
+    night = app.task(name=MEMORY_TICK_TASK, queue=AGENT_QUEUE)(memory_tick)
+    app.periodic(cron=MEMORY_TICK_CRON, periodic_id="memory")(night)

@@ -32,12 +32,25 @@ class TaskQueue(Protocol):
         ...
 
     async def refresh_memory(self, chat_id: int) -> None:
-        """Compress the old part of the timeline into the chat summary."""
+        """Compress the oldest part of today into the «утром…» paragraph when the day no
+        longer fits the context budget (docs/memory.md)."""
         ...
 
     async def update_passport(self, chat_id: int, delay_s: float = 0) -> None:
-        """Rewrite the client's passport from this chat (docs/leads.md). A request made while
-        one is waiting is absorbed by it; one chat's updates never run in parallel."""
+        """Rewrite the client's passport from this chat's today (docs/leads.md; the owner's
+        «Обновить паспорт сейчас» — at night the night job does it). A request made while one
+        is waiting is absorbed by it; one chat's updates never run in parallel."""
+        ...
+
+    async def night_memory(self, persona_id: int, day: str) -> None:
+        """Summarize one finished day (ISO date, her calendar) of every chat of the persona,
+        update the passports, roll a finished week up (docs/memory.md). One job per persona
+        and day; one persona's nights never run in parallel."""
+        ...
+
+    async def summarize_day(self, chat_id: int, day: str, force: bool = False) -> None:
+        """(Re)write one chat's day summary and then its passport; `force` overwrites an
+        edited day (the owner's «Пересобрать день»)."""
         ...
 
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:

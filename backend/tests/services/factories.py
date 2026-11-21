@@ -41,6 +41,7 @@ PERSONA_MODELS: dict[str, str] = {
     "reply": "reply-model", "guard": "guard-model", "vision": "vision-model",
     "transcribe": "stt-model", "memory": "memory-model", "tts": "tts-model",
     "image": "image-model", "video": "video-model", "live": "live-model", "life": "",
+    "passport": "passport-model",
 }
 
 

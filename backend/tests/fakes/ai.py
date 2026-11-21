@@ -256,6 +256,12 @@ class RecordingQueue:
     async def plan_day(self, persona_id: int, day: str, force: bool = False) -> None:
         self.calls.append(("plan_day", persona_id, day, force))
 
+    async def night_memory(self, persona_id: int, day: str) -> None:
+        self.calls.append(("night_memory", persona_id, day))
+
+    async def summarize_day(self, chat_id: int, day: str, force: bool = False) -> None:
+        self.calls.append(("summarize_day", chat_id, day, force))
+
     async def mark_read(self, message_id: int) -> None:
         self.calls.append(("mark_read", message_id))
 

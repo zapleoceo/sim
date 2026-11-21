@@ -98,7 +98,6 @@ async def test_an_answered_call_is_bridged_transcribed_and_recorded(db, sessions
     assert event.call_id == row.id and event.actor == "client" and event.in_context
     assert event.data["status"] == "ended" and event.data["end_reason"] == "hung_up"
     assert tasks.memory == [world.chat.id]
-    assert tasks.passports == [world.chat.id]        # the call goes into the passport
 
 
 @pytest.mark.parametrize(("seed", "config", "reason"), [

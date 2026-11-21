@@ -30,6 +30,9 @@ from sim.domain.agent_prompts import (
 MIN_MAX_TOKENS = 64
 MAX_MAX_TOKENS = 16_384             # the Broker's accepted range for chat jobs ends here
 DEFAULT_MAX_TOKENS = 4096
+# The subscription model of the night agents (planner, chronicler, passport writer): speed
+# does not matter at night, and subscription calls spend no Broker keys.
+NIGHT_MODEL = "codex-sub/gpt-6.1-sol"
 MAX_PROMPT_CHARS = 50_000
 
 
@@ -158,17 +161,19 @@ AGENTS: tuple[AgentSpec, ...] = (
               KeyTier.PAID),
     AgentSpec(AgentKey.LIFE, "Планировщик", AgentGroup.BACKGROUND,
               "Раз в день планирует её день: события, одежду, истории.",
-              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.AUTO, model="codex-sub/gpt-6.1-sol",
+              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.AUTO, model=NIGHT_MODEL,
               prompt=PLANNER_PROMPT, placeholders=("name", "ambience", "summary_rule"),
               max_tokens=6000),
     AgentSpec(AgentKey.PASSPORT, "Паспортистка", AgentGroup.BACKGROUND,
-              "После ответов и звонков обновляет паспорт клиента.",
-              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.AUTO, fallback=AgentKey.MEMORY,
+              "Ночью раз в сутки обновляет паспорт клиента по итогам дня (и по кнопке "
+              "«Обновить паспорт сейчас»).",
+              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.AUTO, model=NIGHT_MODEL,
               prompt=PASSPORT_PROMPT, placeholders=("name",), max_tokens=6000),
     AgentSpec(AgentKey.MEMORY, "Летописец", AgentGroup.BACKGROUND,
-              "Сжимает старую переписку чата в сводку.",
-              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.AUTO, fallback=AgentKey.REPLY,
-              prompt=MEMORY_PROMPT, placeholders=("name",), max_tokens=4096),
+              "Дневник дня и недели: в её полночь пишет подробный итог дня каждого чата, в "
+              "ночь на понедельник — итог недели.",
+              BrokerPort.CHAT, TEXT_TO_TEXT, KeyTier.AUTO, model=NIGHT_MODEL,
+              prompt=MEMORY_PROMPT, placeholders=("name",), max_tokens=8000),
     AgentSpec(AgentKey.APPEARANCE, "Портретист", AgentGroup.BACKGROUND,
               "По референсам описывает её внешность для фото и видео («Описать по "
               "референсам»).",
