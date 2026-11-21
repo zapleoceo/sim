@@ -87,15 +87,28 @@ def place_details(life: PersonaLife, place: str) -> str:
     return ""
 
 
+def gap_slot(day: Agenda, minute: int) -> Slot:
+    """A gap between events continues the event before it: she is still there and still in
+    the same clothes until the plan says otherwise (a gap must never change her outfit — seen
+    in production: two video notes 12 minutes apart in different sweaters). Before the first
+    event of the day: free time at home."""
+    before = [slot for slot in day.done(minute) if slot.planned or slot.outfit]
+    if before:
+        last = max(before, key=lambda slot: slot.end)
+        return Slot(start=last.end, end=last.end, title="свободное время", place=last.place,
+                    busy=BusyLevel.FREE, outfit=last.outfit, ambience=last.ambience,
+                    planned=last.planned, key=f"{last.key}:after")
+    return Slot(start=0, end=0, title="свободное время", place=HOME_PLACE,
+                ambience=Ambience.QUIET_HOME, key=f"{day.day.isoformat()}:free")
+
+
 def scene_at(now: datetime, day: Agenda, persona: Persona) -> SceneCard:
     """The scene at `now` from the agenda of her local day (plan, else routine). A gap in the
-    day is time at home: one scene for every gap of the day."""
+    day continues the event before it (`gap_slot`)."""
     local = to_local(now, persona.timezone)
     life = life_of(persona)
-    slot = day.at(day.minute_of(local))
-    if slot is None:
-        slot = Slot(start=0, end=0, title="свободное время", place=HOME_PLACE,
-                    ambience=Ambience.QUIET_HOME, key=f"{day.day.isoformat()}:free")
+    minute = day.minute_of(local)
+    slot = day.at(minute) or gap_slot(day, minute)
     ambience = slot.ambience or guess_ambience(slot.place)
     indoors = ambience in INDOOR
     return SceneCard(

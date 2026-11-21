@@ -81,8 +81,9 @@ async def reference_ids(session: AsyncSession, persona_id: int) -> list[int]:
 
 
 async def continuity_ids(session: AsyncSession, persona_id: int, scene: SceneCard) -> list[int]:
-    """The latest generated photos of the SAME event (same day, same event id), oldest first.
-    A new event is a new scene: older photos are never used."""
+    """The latest generated photos of the same day in the SAME OUTFIT, oldest first — clothes
+    stay the same across events until the plan changes them (another place still shares the
+    clothes; `same_place` tells the prompt whether the room is the same too)."""
     rows = await session.scalars(
         select(MediaAsset.id)
         .join(Generation, Generation.id == MediaAsset.generation_id)
@@ -90,10 +91,21 @@ async def continuity_ids(session: AsyncSession, persona_id: int, scene: SceneCar
                Generation.status == GenerationStatus.DONE,
                MediaAsset.kind == MediaKind.PHOTO,
                Generation.scene["day"].astext == scene.day.isoformat(),
-               Generation.scene["event_id"].astext == scene.event_id)
+               Generation.scene["outfit"].astext == scene.outfit)
         .order_by(MediaAsset.id.desc())
         .limit(CONTINUITY_REFS))
     return list(reversed(list(rows)))
+
+
+async def same_place(session: AsyncSession, media_ids: list[int], scene: SceneCard) -> bool:
+    """True when every continuity photo was taken in the scene's place."""
+    if not media_ids:
+        return False
+    places = set(await session.scalars(
+        select(Generation.scene["place"].astext)
+        .join(MediaAsset, MediaAsset.generation_id == Generation.id)
+        .where(MediaAsset.id.in_(media_ids))))
+    return places == {scene.place}
 
 
 async def start_generation(session: AsyncSession, *, persona: Persona, chat_id: int | None,
@@ -195,6 +207,7 @@ class GenerationService:
             identity = list(generation.ref_media_ids or [])
             continuity = (await continuity_ids(session, persona.id, scene)
                           if scene is not None else [])
+            here = scene is not None and await same_place(session, continuity, scene)
             spoken = generation.kind == GenerationKind.VIDEO_NOTE or bool(generation.speech)
             hint = str((generation.scene or {}).get("shot_hint", ""))
             shot = choose_shot(scene, hint, spoken=spoken)
@@ -213,7 +226,8 @@ class GenerationService:
                 chat_id=generation.chat_id, reply_run_id=generation.reply_run_id,
                 image_prompt=media_prompt(
                     stage="image", appearance=persona.appearance, identity_refs=len(identity),
-                    continuity_refs=len(continuity), **prompt_args),
+                    continuity_refs=len(continuity), continuity_same_place=here,
+                    **prompt_args),
                 video_prompt=media_prompt(
                     stage="video", speech=generation.speech or "",
                     language=persona.language or "",

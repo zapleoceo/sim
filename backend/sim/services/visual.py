@@ -119,6 +119,9 @@ IDENTITY = ("The same woman as in the first {n} reference image(s): the same fac
             "hair and build.")
 CONTINUITY = ("Reference image(s) {first}–{last}: the same room and the same clothes as this "
               "photo — keep the place and the outfit exactly as there.")
+CONTINUITY_CLOTHES = (
+    "Reference image(s) {first}–{last}: the same clothes as in this photo (she is somewhere "
+    "else now) — keep the outfit exactly as there.")
 FIXED_SCENE = ("The place, the clothes and the light above are fixed; ignore any other place "
                "or clothes mentioned in the pose line.")
 NEGATIVE = ("Avoid: a second phone, a phone in the other hand, extra hands or fingers, a "
@@ -183,7 +186,7 @@ def _scene_lines(scene: SceneCard, shot: ShotType, *, video: bool) -> list[str]:
 def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: ShotType,
                  appearance: str = "", identity_refs: int = 0, continuity_refs: int = 0,
                  speech: str = "", language: str = "", round_note: bool = False,
-                 camera: Camera | None = None) -> str:
+                 camera: Camera | None = None, continuity_same_place: bool = True) -> str:
     """The Broker prompt: `image` = the photo (also the first frame of a video), `video` = the
     clip made from that photo."""
     action = " ".join(action.split())
@@ -198,8 +201,9 @@ def media_prompt(*, stage: Stage, action: str, scene: SceneCard | None, shot: Sh
     if scene is not None:
         lines += _scene_lines(scene, shot, video=False)
     if continuity_refs:
-        lines.append(CONTINUITY.format(first=identity_refs + 1,
-                                       last=identity_refs + continuity_refs))
+        template = CONTINUITY if continuity_same_place else CONTINUITY_CLOTHES
+        lines.append(template.format(first=identity_refs + 1,
+                                     last=identity_refs + continuity_refs))
     lines.append(f"Pose, action and expression: {action}")
     lines += realism_lines(scene, video=False)
     if scene is not None:
