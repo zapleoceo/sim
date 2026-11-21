@@ -17,7 +17,7 @@ import { qk } from '@/lib/query';
 import type { Lead } from '@/lib/types';
 import { clientName } from '@/lib/utils';
 import type { LeadsSearch } from '@/router';
-import { leadsApi } from './api';
+import { leadsApi, type LeadFilters } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
 import { STAGES, isStage, stageInfo } from './passport-logic';
 
@@ -112,10 +112,11 @@ export const LEAD_COLUMNS: ColumnDef<Lead, unknown>[] = [
  * and a shared link keep them; «Персонажи» links here with `?persona=`.
  */
 export function LeadsPage() {
-  const { q = '', persona: personaId = 0, stage = '' } = route.useSearch();
+  const search = route.useSearch();
   const navigate = route.useNavigate();
   const setFilters = (next: LeadsSearch): void => void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true });
-  const filters = { q, personaId, stage };
+  const filters: LeadFilters = { q: search.q ?? '', personaId: search.persona ?? 0, stage: search.stage ?? '' };
+  const { q, personaId, stage } = filters;
   const { rows: personas } = usePersonaList();
   const leads = useQuery({
     queryKey: qk.clientList(q, personaId, stage),
