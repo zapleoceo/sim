@@ -28,7 +28,8 @@ def images_job_body(*, prompt: str, references: Sequence[tuple[bytes, str]], mod
                     aspect_ratio: str, workflow: str) -> dict[str, Any]:
     body: dict[str, Any] = {
         "prompt": prompt,
-        "references": [{"data": encode_b64(data), "mime": mime} for data, mime in references],
+        "references": [{"image_base64": encode_b64(data), "mime": mime}
+                       for data, mime in references],
         "aspect_ratio": aspect_ratio,
         "workflow": workflow,
     }

@@ -30,8 +30,8 @@ async def test_images_job(http: BrokerHttp, broker: respx.MockRouter) -> None:
         prompt="selfie by the window", references=REFS, model="gemini/gemini-image")
     body = sent_json(post)
     assert body == {"prompt": "selfie by the window",
-                    "references": [{"data": b64(b"face-1"), "mime": "image/jpeg"},
-                                   {"data": b64(b"face-2"), "mime": "image/png"}],
+                    "references": [{"image_base64": b64(b"face-1"), "mime": "image/jpeg"},
+                                   {"image_base64": b64(b"face-2"), "mime": "image/png"}],
                     "aspect_ratio": "3:4", "workflow": "sim-photo",
                     "model": "gemini/gemini-image"}
     assert (result.data, result.mime) == (JPEG, "image/jpeg")
