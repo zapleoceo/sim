@@ -108,7 +108,7 @@ async def test_budget_runs_out_retryable(http: BrokerHttp, broker: respx.MockRou
     with pytest.raises(PortError, match="still pending after 30s") as info:
         await http.submit("/v1/jobs", {}, what="chat", budget_s=30)
     assert info.value.retryable is True
-    assert poll.call_count == 4          # t = 2, 12, 22, 32 s
+    assert poll.call_count == 30         # fast polling: t = 1, 2, ..., 30 s
     assert fake_time.now - 1000.0 >= 30
 
 

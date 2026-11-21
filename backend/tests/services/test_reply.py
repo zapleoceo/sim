@@ -357,17 +357,19 @@ async def test_silence_cancels_the_status(db: AsyncSession, deps: Deps, fakes: F
     assert fakes.tasks.actions() == ["typing", "cancel"]
 
 
-async def test_block_and_failure_cancel_the_status(db: AsyncSession, deps: Deps, fakes: Fakes,
-                                                   clock: FixedClock) -> None:
+async def test_a_blocked_turn_cancels_the_status(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                 clock: FixedClock) -> None:
     blocked = await setup_chat(db, clock)
     fakes.llm.always("reply-model", plan_json(TEXT))
     fakes.llm.script("guard-model", block_verdict("нет"), block_verdict("нет"))
     assert (await ReplyService(deps).run(blocked.id)).status == RunStatus.BLOCKED
     assert fakes.tasks.actions() == ["typing", "cancel"]
 
+
+async def test_a_failed_turn_cancels_the_status(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                clock: FixedClock) -> None:
     failing = await setup_chat(db, clock)
     fakes.llm.script("reply-model", PortError("timeout", retryable=True))
-    fakes.tasks.calls.clear()
     with pytest.raises(PortError):
         await ReplyService(deps).run(failing.id)
     assert fakes.tasks.actions() == ["typing", "cancel"]
