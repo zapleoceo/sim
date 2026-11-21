@@ -13,7 +13,8 @@ from typing import Any
 
 from sim.adapters.broker.blocks import attachment_block
 from sim.adapters.broker.http import BrokerHttp, decode_b64, encode_b64, usage_of
-from sim.ports import MediaResult, PortError
+from sim.adapters.broker.tier import with_tier
+from sim.ports import AUTO_TIER, MediaResult, PortError
 
 IMAGES_PATH = "/v1/images/jobs"
 JOBS_PATH = "/v1/jobs"
@@ -25,7 +26,8 @@ DEFAULT_WORKFLOW = "sim-photo"
 
 
 def images_job_body(*, prompt: str, references: Sequence[tuple[bytes, str]], model: str,
-                    aspect_ratio: str, workflow: str) -> dict[str, Any]:
+                    aspect_ratio: str, workflow: str,
+                    key_tier: str = AUTO_TIER) -> dict[str, Any]:
     body: dict[str, Any] = {
         "prompt": prompt,
         "references": [{"image_base64": encode_b64(data), "mime": mime}
@@ -35,7 +37,7 @@ def images_job_body(*, prompt: str, references: Sequence[tuple[bytes, str]], mod
     }
     if model:
         body["model"] = model
-    return body
+    return with_tier(body, key_tier, model)
 
 
 def codex_prompt(prompt: str) -> str:
@@ -86,7 +88,8 @@ class BrokerImageGen:
         self.workflow = workflow
 
     async def generate_image(self, *, prompt: str, references: Sequence[tuple[bytes, str]],
-                             model: str) -> MediaResult:
+                             model: str, key_tier: str = AUTO_TIER) -> MediaResult:
+        """`key_tier` goes with the images job; the Codex route runs on the subscription."""
         if not prompt.strip():
             raise PortError("image: empty prompt")
         if model.startswith(CODEX_PREFIX):
@@ -97,7 +100,8 @@ class BrokerImageGen:
                                              budget_s=self.http.media_budget_s, params=params)
         else:
             body = images_job_body(prompt=prompt, references=references, model=model,
-                                   aspect_ratio=self.aspect_ratio, workflow=self.workflow)
+                                   aspect_ratio=self.aspect_ratio, workflow=self.workflow,
+                                   key_tier=key_tier)
             outcome = await self.http.submit(IMAGES_PATH, body, what="image",
                                              budget_s=self.http.media_budget_s)
         image, mime = image_of(outcome.data)
