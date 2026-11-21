@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 
 SUBSCRIPTION_PREFIXES = ("claude-sub/", "codex-sub/")
 JOB_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+MODELS_TTL_S = 30.0   # the model catalog is read by several callers per reply: one fetch serves them
 # /v1/speech is synchronous: the broker's own Gemini TTS ceiling is 60 s per key attempt.
 SPEECH_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
 # Without max_tokens the broker applies its own default (1024), which truncates JSON decisions.
@@ -144,6 +145,7 @@ class BrokerLLM:
         self.requests = requests
         self.request_scope = hashlib.sha256(f"{self.url}\0{self.key}".encode()).hexdigest()
         self._client: httpx.AsyncClient | None = None
+        self._models: tuple[float, list[dict[str, Any]]] | None = None   # (fetched at, rows)
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -438,6 +440,15 @@ class BrokerLLM:
                            cost_usd=float(cost) if cost is not None else None)
 
     async def list_models(self) -> list[dict[str, Any]]:
+        """The Broker's model catalog, cached for MODELS_TTL_S (failures are not cached)."""
+        now = time.monotonic()
+        if self._models is not None and now - self._models[0] < MODELS_TTL_S:
+            return list(self._models[1])
+        rows = await self.fetch_models()
+        self._models = (now, rows)
+        return list(rows)
+
+    async def fetch_models(self) -> list[dict[str, Any]]:
         try:
             resp = await self.client.get(f"{self.url}/v1/models", headers=self.headers)
             resp.raise_for_status()

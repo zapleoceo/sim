@@ -11,7 +11,11 @@ local time, where she is); the guard receives them through `with_persona_facts`.
 approves only a clean `ok` (`approves`); it never rewrites text, so a saved message has an
 `original_text` only from older releases or media records. The silence sweep filters out
 refused clients, dialogs with follow-ups off and disconnected channels in SQL before it
-locks a dialog.
+locks a dialog. The Broker model catalog (`list_models`) is cached for 30 s per adapter, so
+the contact profile, media recognition, reserve routing, Studio and the health probe share
+one fetch. A reply builds its channel port once and reuses it for her media decision; the
+contact profile is read with the model that will answer (the identity model on an identity
+question).
 
 In the admin every query key lives in `qk` (`frontend/src/lib/query.ts`). The inbox
 shares `qk.channels` and `qk.simulation(id)` with the other pages, its flat test-chat
@@ -473,10 +477,11 @@ API и воркера) публикует тексты (`instructions.publish`),
 звонков и выбран голос. Порядок: пауза перед ответом `SIM_CALL_RING_MIN_S`–`SIM_CALL_RING_MAX_S`
 (4–9 с, как человек тянется к телефону), **одновременно** открывается голосовая сессия
 (ожидание готовности до 30 с, при отказе — один повтор, пока телефон звонит), затем трубка
-снимается. Каждая её реплика проверяется контролёром до того, как прозвучит; первое
-фиксированное «Алло» звучит без проверки. Если проверка технически не удалась, пропадает
-только эта реплика, звонок продолжается; два таких сбоя подряд или запрет контролёра
-завершают звонок.
+снимается. Её речь идёт в звонок сразу, по мере того как модель говорит: задержка равна
+задержке самой голосовой модели. Каждая законченная реплика проверяется контролёром в фоне
+(история — звонок до неё); вердикт пишется в реплику и в «Ход звонка». Контролёр только
+советует: его замечание звонок не прерывает, сбой самой проверки тоже только отмечается. Раньше реплика
+ждала конца и проверки до того, как прозвучать, и клиент слышал «Алло» и тишину.
 
 Всё, что сформировало ответ, видно по каждому звонку:
 

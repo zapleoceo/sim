@@ -471,7 +471,8 @@ class ConversationService:
             ctx = replace(ctx, media=await self.media_tool.context(dialog, persona, offer),
                           media_priority=is_owner_account(dialog, cfg.media_priority_telegram_ids))
         if not followup:
-            ctx = await self.contact_context(dialog, persona, ctx, port, last.text)
+            ctx = await self.contact_context(dialog, persona, ctx, port, last.text,
+                                             selected_model(persona, history))
         # She reads the client's message, then "печатает…" (or "записывает голосовое…" when the
         # answer will be a voice note) while the model writes and the guard checks the reply.
         if not followup:
@@ -521,14 +522,16 @@ class ConversationService:
             return await self.handoff_failed(dialog, draft)
         voice = will_speak(persona, followup, newer)
         return await self.apply(dialog, persona, strategy, draft.decision, draft.result, draft.guard,
-                                followup=followup, voice=voice)
+                                followup=followup, voice=voice, port=port)
 
-    async def contact_context(self, dialog, persona, ctx, port, request):
+    async def contact_context(self, dialog, persona, ctx, port, request, model):  # noqa: PLR0913
+        """What the current contact profile shows, read with the model that answers (it may be
+        the identity model), so a photo it cannot see is not fetched."""
         from sim.services.contact_profile import CurrentContactProfile  # noqa: PLC0415
 
         cfg = await self.config()
         result = await CurrentContactProfile(self.session, self.llm, clock=self.clock).read(
-            dialog, port, request, channel_id=cfg.contact_profile_channel_id, model=persona.model or "")
+            dialog, port, request, channel_id=cfg.contact_profile_channel_id, model=model or "")
         return replace(ctx, contact_profile=result.text, contact_photo=result.photo,
                        contact_profile_identity=result.identity_text)
 
@@ -612,6 +615,7 @@ class ConversationService:
         *,
         followup: bool,
         voice: bool = False,
+        port: Any = None,
     ) -> ReplyOutcome:
         if guard is None or not guard.allowed or not decision.reply:
             raise ValueError("only an approved complete decision may change dialog state")
@@ -648,7 +652,7 @@ class ConversationService:
             # Her media decision (send, not send, later) is journaled in the dialog; a photo or
             # note she asked to send is queued after her text.
             media = await self.media_tool.decide(
-                dialog, persona, decision, self.outbound.try_port(dialog.channel),
+                dialog, persona, decision, port or self.outbound.try_port(dialog.channel),
                 delay_s=delay, final=final)
         if not followup and not final:
             dialog.followup_step = 0
