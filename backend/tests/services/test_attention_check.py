@@ -20,7 +20,13 @@ from sim.domain.enums import Direction, EventKind, LlmPurpose, RunStatus
 from sim.ports import InboundMessage, Peer, PortError
 from sim.services.attention.agent import NO_MODEL, UNREADABLE
 from sim.services.attention.check import SKIPPED_CHAT, CheckResult, CheckStatus, PhoneCheck
-from sim.services.attention.schedule import lost_checks, request_check
+from sim.services.attention.schedule import (
+    claim,
+    lost_checks,
+    release,
+    request_check,
+    request_earliest,
+)
 from sim.services.deps import Deps
 from sim.services.inbox import Inbox
 from sim.services.reply import ReplyService
@@ -124,6 +130,23 @@ async def test_an_earlier_check_wins_and_a_lost_one_is_replaced(db: AsyncSession
     later = now + timedelta(minutes=5)                  # 4 minutes overdue: its job was lost
     assert await lost_checks(db, later) == [persona.id]
     assert await request_check(db, persona.id, later + timedelta(minutes=30), later)
+
+
+async def test_the_lease_and_the_earliest_owed_check(db: AsyncSession,
+                                                     clock: FixedClock) -> None:
+    persona = await make_persona(db)
+    now = clock.now()
+    await due_now(db, persona, clock)
+    lease = await claim(db, persona.id, now)
+    assert lease == now + timedelta(minutes=10)
+    assert await claim(db, persona.id, now) is None             # taken: no second check
+    assert await release(db, persona.id, lease)                 # still hers
+    assert not await release(db, persona.id, lease)             # given back already
+    owed = [None, now + timedelta(minutes=9), now + timedelta(minutes=3)]
+    assert await request_earliest(db, persona.id, owed, now) == now + timedelta(minutes=3)
+    assert await request_earliest(db, persona.id, [now + timedelta(minutes=5)], now) is None
+    assert await request_earliest(db, persona.id, [None], now) is None
+    assert (await fresh(db, persona)).attention_check_at == now + timedelta(minutes=3)
 
 
 async def test_a_stale_job_finds_nothing_due(db: AsyncSession, deps: Deps, fakes: Fakes,
@@ -421,6 +444,108 @@ async def test_without_the_agent_the_rules_and_the_fallback_decide(
     [chosen] = (await look(deps, persona)).decisions
     assert (chosen.action, chosen.reason) == (A.REPLY_LATER, NO_MODEL)
     assert fakes.llm.calls == []
+
+
+# --- a notice while she is deciding; promises are kept -------------------------------------------
+# Two checks of one persona never run at the same time (the `phone:<persona>` lock of
+# `agent.look_at_phone`, tests/services/test_tasks.py); here: what a running check does about a
+# notice that came meanwhile, and that no later check drops a promise.
+
+
+async def test_a_notice_later_than_the_lease_is_looked_at_right_after(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    """The lease (10 min) turns away a notice that asks for a later look; it is not lost: the
+    check looks once more at its end and asks for a look as after any notice."""
+    persona = await make_persona(db)
+    first = await make_chat(db, persona, name="Дима")
+    second = await make_chat(db, persona, name="Max")
+    now = clock.now()
+    await add_message(db, first, "ок", at=now - timedelta(minutes=3))
+
+    async def agent(record: dict[str, Any]) -> str:
+        await add_message(db, second, "ты тут?", at=now)
+        assert not await request_check(db, persona.id, now + timedelta(minutes=30), now)
+        return plan(decision(first, "read_only"))
+
+    fakes.llm.script(ATTENTION_MODEL, agent)
+    await due_now(db, persona, clock)
+
+    result = await look(deps, persona)
+
+    assert [d.chat_id for d in result.decisions] == [first.id]
+    glance = now + timedelta(seconds=20)                # free: a glance, as after any notice
+    assert result.next_check == glance
+    assert fakes.tasks.of("phone_check") == [("phone_check", persona.id, 20.0)]
+    assert (await fresh(db, persona)).attention_check_at == glance
+
+    # Right after: the next look sees the message that came while she was deciding.
+    clock.at = glance
+    fakes.llm.script(ATTENTION_MODEL, plan(decision(second, "read_only")))
+    again = await look(deps, persona)
+    assert [d.chat_id for d in again.decisions] == [second.id]
+
+
+async def test_a_notice_earlier_than_the_lease_keeps_its_check(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    """An earlier notice replaces the lease: the running check leaves that check alone (its job
+    runs after this check — the lock), and does not ask for another one."""
+    persona = await make_persona(db)
+    first = await make_chat(db, persona, name="Дима")
+    second = await make_chat(db, persona, name="Max")
+    now = clock.now()
+    await add_message(db, first, "ок", at=now - timedelta(minutes=3))
+    soon = now + timedelta(seconds=20)
+
+    async def agent(record: dict[str, Any]) -> str:
+        await add_message(db, second, "ты тут?", at=now)
+        assert await request_check(db, persona.id, soon, now)
+        return plan(decision(first, "read_only"))
+
+    fakes.llm.script(ATTENTION_MODEL, agent)
+    await due_now(db, persona, clock)
+
+    result = await look(deps, persona)
+
+    assert result.status == CheckStatus.DONE and result.next_check is None
+    assert fakes.tasks.of("phone_check") == []          # the notice deferred its own job
+    assert (await fresh(db, persona)).attention_check_at == soon
+    clock.at = soon
+    fakes.llm.script(ATTENTION_MODEL, plan(decision(second, "read_only")))
+    assert [d.chat_id for d in (await look(deps, persona)).decisions] == [second.id]
+
+
+async def test_an_earlier_check_does_not_drop_a_promise(db: AsyncSession, deps: Deps,
+                                                       fakes: Fakes, clock: FixedClock) -> None:
+    """She promised «20:40» in one chat; a message in another chat moves her check to 20:20.
+    That check — whether it finds something or not — asks for 20:40 again."""
+    persona = await living(db)
+    clock.at = utc(SATURDAY, "20:10")                   # talking to her daughter until 20:30
+    promised = await make_chat(db, persona, name="Дима")
+    other = await make_chat(db, persona, name="Max")
+    await add_message(db, promised, "как дела?", at=clock.now() - timedelta(minutes=2))
+    fakes.llm.script(ATTENTION_MODEL, plan(decision(promised, "reply_later", later="20:40")))
+    await due_now(db, persona, clock)
+    assert (await look(deps, persona)).next_check == utc(SATURDAY, "20:40")
+
+    await add_message(db, other, "привет", at=utc(SATURDAY, "20:15"))
+    assert await request_check(db, persona.id, utc(SATURDAY, "20:20"), clock.now())
+    clock.at = utc(SATURDAY, "20:20")
+    fakes.llm.script(ATTENTION_MODEL, plan(decision(other, "read_only")))
+
+    result = await look(deps, persona)
+
+    assert [d.chat_id for d in result.decisions] == [other.id]
+    assert result.next_check == utc(SATURDAY, "20:40")
+    assert fakes.tasks.of("phone_check")[-1] == ("phone_check", persona.id, 20 * 60.0)
+    assert (await fresh(db, persona)).attention_check_at == utc(SATURDAY, "20:40")
+
+    # A check that finds nothing new keeps the promise too.
+    assert await request_check(db, persona.id, utc(SATURDAY, "20:25"), clock.now())
+    clock.at = utc(SATURDAY, "20:25")
+    nothing = await look(deps, persona)
+    assert nothing.status == CheckStatus.NOTHING
+    assert nothing.next_check == utc(SATURDAY, "20:40")
+    assert (await fresh(db, persona)).attention_check_at == utc(SATURDAY, "20:40")
 
 
 # --- her life ----------------------------------------------------------------------------------

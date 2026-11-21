@@ -12,6 +12,7 @@ from sim.tasks.agent import register_agent_tasks
 from sim.tasks.queue import (
     AGENT_QUEUE,
     GENERATE_TASK,
+    LOOK_TASK,
     PASSPORT_TASK,
     PHONE_CHECK_TASK,
     STALLED_TASK,
@@ -73,3 +74,5 @@ def test_the_recovery_is_registered_every_minute() -> None:
     assert app.tasks[STALLED_TASK].pass_context
     assert any(STALLED_TASK in str(key) for key in app.periodic_registry.periodic_tasks)
     assert GENERATE_TASK not in RESTARTABLE and STALLED_TASK in RESTARTABLE
+    # A phone check left `doing` holds its persona's `phone:` lock: it must run again.
+    assert {PHONE_CHECK_TASK, LOOK_TASK} <= RESTARTABLE

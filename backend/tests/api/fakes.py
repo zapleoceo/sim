@@ -134,6 +134,9 @@ class RecordingTasks:
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
         self.record("phone_check", persona_id, delay_s)
 
+    async def look_at_phone(self, persona_id: int) -> None:
+        self.record("look_at_phone", persona_id)
+
 
 @dataclass
 class FakeDeps:

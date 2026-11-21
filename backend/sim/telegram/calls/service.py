@@ -1,6 +1,7 @@
 """Incoming private calls answered by the persona's live voice (docs/calls.md).
 
-  ring -> resolve the chat -> may she answer? (no: decline, recorded)
+  ring -> resolve the chat -> may she answer? (the AI gate, sim.domain.ai_gate, then her
+          calls switch and the call model; no: decline, recorded)
        -> is she free? (her availability after the attention settings, docs/attention.md:
           away — it rings unanswered, missed; busy — she may decline; either way the `call`
           event carries `life_busy` and her phone check decides when she texts back)
@@ -29,6 +30,7 @@ from sim.config import Settings
 from sim.db.models import Call, Chat, Client, Persona
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
+from sim.domain.ai_gate import AiBlock, ai_block
 from sim.domain.attention import attention_settings
 from sim.domain.enums import CallDirection, CallStatus, EventKind
 from sim.domain.life import BusyLevel
@@ -82,22 +84,32 @@ def life_refusal(av: Availability, uniform: Callable[[float, float], float]) -> 
     return None
 
 
+PERSONA_OFF_REASON = "persona AI is off (or the persona is archived)"
+# A call's `error` for each reason of the AI gate (sim.domain.ai_gate).
+GATE_REASONS = {
+    AiBlock.NO_PERSONA: PERSONA_OFF_REASON,
+    AiBlock.ARCHIVED: PERSONA_OFF_REASON,
+    AiBlock.PERSONA_OFF: PERSONA_OFF_REASON,
+    AiBlock.CLIENT_OFF: "AI is off for this client",
+    AiBlock.CHAT_OFF: "AI is off in this chat",
+    AiBlock.NEEDS_OPERATOR: "the chat waits for an operator",
+}
+
+
 def refuse_reason(*, calls_enabled: bool, persona: Persona | None, client: Client | None,
                   chat: Chat) -> str | None:
-    """Why she must not pick up, or None. Checked in this order, first reason wins."""
+    """Why she must not pick up, or None. Checked in this order, first reason wins: calls
+    switched off for the process, the AI gate (the same rule as for messages), her calls, the
+    call agent's model."""
     if not calls_enabled:
         return "calls are disabled (SIM_CALLS_ENABLED)"
-    if persona is None or persona.id != chat.persona_id or not persona.is_active \
-            or not persona.ai_enabled:
-        return "persona AI is off (or the persona is archived)"
+    blocked = ai_block(persona, client, chat)
+    if blocked is not None or persona is None:
+        return GATE_REASONS[blocked or AiBlock.NO_PERSONA]
     if not persona.calls_enabled:
         return "persona calls are off"
     if not agent_config(persona, AgentKey.LIVE).model:
         return "no live model chosen for the persona"
-    if client is None or not client.ai_enabled:
-        return "AI is off for this client"
-    if not chat.ai_enabled:
-        return "AI is off in this chat"
     return None
 
 

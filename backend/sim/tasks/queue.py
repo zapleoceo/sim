@@ -12,8 +12,14 @@ Ordering and de-duplication:
 - `queueing_lock = night:<persona>:<day>`, `lock = night:<persona>`: one night job per persona
   and day, one persona's nights in order; `diary:<chat>` for rebuilding one chat's day;
 - `lock = chat-action:<chat id>` applies one chat's status requests in order;
-- phone checks have no lock: the database decides which job is the persona's pending check
-  (docs/attention.md)."""
+- a phone check is two jobs (docs/attention.md, «Одна проверка»): `agent.phone_check` is only
+  the timer — deferred for the due time, without a lock, because Procrastinate runs jobs of one
+  lock in the order they were deferred, so a job deferred earlier for a LATER time would hold
+  back an earlier check; when it fires it defers `agent.look_at_phone` at once with
+  `lock = phone:<persona id>`: two checks of one persona never run at the same time, and a
+  check asked for while one runs waits and runs right after it. No queueing lock: a stale look
+  is a cheap no-op, and the database (`persona.attention_check_at`) decides which job is the
+  persona's pending check."""
 from __future__ import annotations
 
 import logging
@@ -35,7 +41,8 @@ PASSPORT_TASK = "agent.update_passport"
 PLAN_DAY_TASK = "agent.plan_day"
 LIFE_TICK_TASK = "agent.life_tick"     # periodic: which days need a plan
 LIFE_TICK_CRON = "*/30 * * * *"
-PHONE_CHECK_TASK = "agent.phone_check"
+PHONE_CHECK_TASK = "agent.phone_check"         # the timer: at the due time -> LOOK_TASK
+LOOK_TASK = "agent.look_at_phone"               # the check itself, one at a time per persona
 ATTENTION_TICK_TASK = "agent.attention_tick"    # periodic: phone checks whose job was lost
 ATTENTION_TICK_CRON = "*/5 * * * *"
 NIGHT_TASK = "agent.night_memory"
@@ -51,6 +58,10 @@ CHAT_ACTION_TASK = "telegram:chat_action"
 
 def chat_lock(chat_id: int) -> str:
     return f"chat:{chat_id}"
+
+
+def phone_lock(persona_id: int) -> str:
+    return f"phone:{persona_id}"
 
 
 class ProcrastinateQueue:
@@ -78,10 +89,16 @@ class ProcrastinateQueue:
                           delay_s=delay_s)
 
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
-        # Neither lock nor queueing lock: an earlier check must never wait behind (or be
-        # absorbed by) a later one; `persona.attention_check_at` makes stale jobs no-ops.
+        # The timer: neither lock nor queueing lock — an earlier check must never wait behind
+        # (or be absorbed by) a later one; `persona.attention_check_at` makes stale jobs no-ops.
         await self._defer(PHONE_CHECK_TASK, queue=AGENT_QUEUE,
                           kwargs={"persona_id": persona_id}, delay_s=delay_s)
+
+    async def look_at_phone(self, persona_id: int) -> None:
+        # Deferred only for «now»: no job of this lock waits for a later time, so the lock
+        # only keeps two checks of one persona from overlapping.
+        await self._defer(LOOK_TASK, queue=AGENT_QUEUE, kwargs={"persona_id": persona_id},
+                          lock=phone_lock(persona_id))
 
     async def understand(self, media_id: int) -> None:
         await self._defer(UNDERSTAND_TASK, queue=AGENT_QUEUE, kwargs={"media_id": media_id},

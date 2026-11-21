@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, ChatEvent, Client, Message, Persona, ReplyRun
+from sim.domain.ai_gate import ai_block
 from sim.domain.attention import AttentionAction, AttentionSettings
 from sim.domain.enums import Direction, EventKind, MessageKind, RunStatus
 from sim.domain.passport import Passport, passport_of
@@ -24,7 +25,6 @@ from sim.services.turn_state import (
     LIFE_ACTIVITY_KEY,
     LIFE_REFUSED_KEY,
     Unanswered,
-    ai_allowed,
     answered_until,
     unanswered,
 )
@@ -98,7 +98,7 @@ async def chat_notice(session: AsyncSession, persona: Persona, chat_id: int, now
     an operator is needed, she is writing there right now)."""
     chat = await session.get(Chat, chat_id)
     client = await session.get(Client, chat.client_id) if chat is not None else None
-    if chat is None or not ai_allowed(persona, client, chat) or chat.needs_operator:
+    if chat is None or ai_block(persona, client, chat) is not None:
         return None
     if await _turn_running(session, chat_id, now):
         return None
@@ -135,6 +135,27 @@ async def _last_look(session: AsyncSession, chat_id: int) -> ChatEvent | None:
         select(ChatEvent).where(ChatEvent.chat_id == chat_id,
                                 ChatEvent.kind == EventKind.ATTENTION)
         .order_by(ChatEvent.id.desc()).limit(1))).first()
+
+
+async def next_promise(session: AsyncSession, persona_id: int,
+                       now: datetime) -> datetime | None:
+    """Her earliest «answer later» still open in any of her chats and not yet past: the check
+    she owes after any look, so that a check moved earlier by a notice (or by news that came
+    while she was deciding) never drops a promise."""
+    newest = (select(func.max(ChatEvent.id)).join(Chat, Chat.id == ChatEvent.chat_id)
+              .where(Chat.persona_id == persona_id, ChatEvent.kind == EventKind.ATTENTION,
+                     ChatEvent.created_at >= now - NOTICE_WINDOW)
+              .group_by(ChatEvent.chat_id))
+    lasts = await session.scalars(
+        select(ChatEvent).where(ChatEvent.id.in_(newest)).order_by(ChatEvent.chat_id))
+    times = []
+    for last in lasts:
+        if _promise(last, 0) is None:               # not an open «later» at all
+            continue
+        promise = _promise(last, await answered_until(session, last.chat_id))
+        if promise is not None and promise.at >= now:
+            times.append(promise.at)
+    return min(times, default=None)
 
 
 def _promise(last: ChatEvent | None, answered: int) -> Promise | None:

@@ -176,10 +176,21 @@ async def add_note(chat_id: int, data: TextIn, db: AsyncSession, admin: AdminCon
 
 
 @post("/chats/{chat_id:int}/operator-done", status_code=200)
-async def operator_done(chat_id: int, db: AsyncSession, ctx: ApiContext) -> Json:
+async def operator_done(chat_id: int, db: AsyncSession, ctx: ApiContext,
+                        admin: AdminContext) -> Json:
+    """«Оператор разобрался»: the AI answers here again — a journal line, and what the client
+    wrote meanwhile is picked up like after switching the AI on (services/ai_switch)."""
     chat = await get_or_404(db, Chat, chat_id, "Чат")
+    if not chat.needs_operator:
+        return await chat_row(db, chat, ctx.deps.clock.now())
     chat.needs_operator = False
-    return await chat_row(db, chat, ctx.deps.clock.now())
+    await append_event(db, chat_id=chat.id, kind=EventKind.AI_TOGGLED, actor=admin.actor,
+                       data={"enabled": True, "scope": "operator"})
+    waiting = await plan_wakes(db, ctx.deps, [chat.id])
+    row = await chat_row(db, chat, ctx.deps.clock.now())
+    await db.commit()
+    await wake(ctx.deps, waiting)
+    return row
 
 
 @get("/reply-runs/{run_id:int}")

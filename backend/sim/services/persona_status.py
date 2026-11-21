@@ -7,6 +7,7 @@ First match wins:
 
 1. AI off — the persona is archived, or AI is off for the persona, the client or the chat;
 2. an operator is needed (with the reason of the last `operator_needed` event);
+   (1-2 are the reasons of the AI gate, `sim.domain.ai_gate`, in its order)
 3. a reply turn is running — «Думает над ответом»;
 4. a generation for this chat is running — «Записывает кружок», «Делает фото»…;
 5. a message waits to be sent — «Печатает ответ», «Записывает голосовое»…;
@@ -30,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, ChatEvent, Client, Generation, Message, Persona, ReplyRun
+from sim.domain.ai_gate import AiBlock, ai_block
 from sim.domain.attention import AttentionAction, AttentionSettings, attention_settings
 from sim.domain.enums import (
     Direction,
@@ -153,30 +155,37 @@ def _unanswered(waiting: Waiting) -> str:
 # --- 1-2. nobody answers -----------------------------------------------------------------------
 
 
-def _ai_off(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus | None:
-    name = persona.name
-    off = StatusTone.OFF
-    if not persona.is_active:
-        return _status(StatusCode.ARCHIVED, off, f"{name} в архиве — не отвечает",
-                       "вернуть из архива можно на странице персонажа")
-    if not persona.ai_enabled:
-        return _status(StatusCode.AI_OFF_PERSONA, off,
-                       f"ИИ выключен у персонажа — {name} не отвечает",
-                       "переключатель «ИИ» на странице персонажа")
-    if not f.client.ai_enabled:
-        return _status(StatusCode.AI_OFF_CLIENT, off,
-                       f"ИИ выключен у клиента — {name} не отвечает",
-                       "переключатель «ИИ» в карточке лида")
-    if not f.chat.ai_enabled:
-        return _status(StatusCode.AI_OFF_CHAT, off,
-                       f"ИИ выключен в этом чате — {name} не отвечает",
-                       "переключатель «ИИ в чате» в шапке переписки")
-    return None
+NO_PERSONA_TITLE = "Персонаж не найден"
+NO_PERSONA_DETAIL = "в этом чате некому отвечать"
+# Each «AI off» reason of the AI gate (sim.domain.ai_gate): code, title (`{name}` = hers) and
+# where to switch it on.
+AI_OFF: dict[AiBlock, tuple[StatusCode, str, str]] = {
+    AiBlock.NO_PERSONA: (StatusCode.NO_PERSONA, NO_PERSONA_TITLE, NO_PERSONA_DETAIL),
+    AiBlock.ARCHIVED: (StatusCode.ARCHIVED, "{name} в архиве — не отвечает",
+                       "вернуть из архива можно на странице персонажа"),
+    AiBlock.PERSONA_OFF: (StatusCode.AI_OFF_PERSONA,
+                          "ИИ выключен у персонажа — {name} не отвечает",
+                          "переключатель «ИИ» на странице персонажа"),
+    AiBlock.CLIENT_OFF: (StatusCode.AI_OFF_CLIENT, "ИИ выключен у клиента — {name} не отвечает",
+                         "переключатель «ИИ» в карточке лида"),
+    AiBlock.CHAT_OFF: (StatusCode.AI_OFF_CHAT, "ИИ выключен в этом чате — {name} не отвечает",
+                       "переключатель «ИИ в чате» в шапке переписки"),
+}
 
 
-def _operator(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus | None:
-    if not f.chat.needs_operator:
+def _blocked(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus | None:
+    """Rules 1-2: the AI gate says she must not answer here — where the AI is off, or that an
+    operator is needed."""
+    blocked = ai_block(persona, f.client, f.chat)
+    if blocked is None:
         return None
+    if blocked == AiBlock.NEEDS_OPERATOR:
+        return _operator(f)
+    code, title, detail = AI_OFF[blocked]
+    return _status(code, StatusTone.OFF, title.format(name=persona.name), detail)
+
+
+def _operator(f: ChatFacts) -> PersonaStatus:
     actor, reason = f.operator or ("", "")
     title = ("Нужен оператор: охранник заблокировал ответ" if actor == GUARD_ACTOR
              else "Нужен оператор")
@@ -323,7 +332,7 @@ def _answered(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus:
 
 
 Rule = Callable[[ChatFacts, Persona, Moment], PersonaStatus | None]
-RULES: tuple[Rule, ...] = (_ai_off, _operator, _turn, _generation, _sending, _failed, _decided,
+RULES: tuple[Rule, ...] = (_blocked, _turn, _generation, _sending, _failed, _decided,
                            _instant, _not_seen)
 
 
@@ -331,8 +340,8 @@ def describe(f: ChatFacts, m: Moment | None) -> PersonaStatus:
     """The status of one chat from its facts and her moment (None: no persona)."""
     persona = f.persona
     if persona is None or m is None:
-        return _status(StatusCode.NO_PERSONA, StatusTone.OFF, "Персонаж не найден",
-                       "в этом чате некому отвечать")
+        return _status(StatusCode.NO_PERSONA, StatusTone.OFF, NO_PERSONA_TITLE,
+                       NO_PERSONA_DETAIL)
     for rule in RULES:
         status = rule(f, persona, m)
         if status is not None:

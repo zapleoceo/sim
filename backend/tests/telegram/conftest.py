@@ -23,7 +23,7 @@ class World:
 async def seed_world(db: AsyncSession, *, client_ai: bool = True, chat_ai: bool = True,
                      persona_calls: bool = True, live_model: str = "gemini-live",
                      channel_status: ChannelStatus = ChannelStatus.CONNECTED,
-                     credentials: str | None = "token") -> World:
+                     credentials: str | None = "token", needs_operator: bool = False) -> World:
     persona = Persona(name="Марина", agents={"live": {"model": live_model}},
                       calls_enabled=persona_calls,
                       ai_enabled=True)
@@ -37,7 +37,7 @@ async def seed_world(db: AsyncSession, *, client_ai: bool = True, chat_ai: bool 
     identity = ClientIdentity(client_id=client.id, channel_kind=ChannelKind.TELEGRAM_USER,
                               external_id="1001", access_hash="555")
     chat = Chat(persona_id=persona.id, client_id=client.id, channel_id=channel.id,
-                ai_enabled=chat_ai)
+                ai_enabled=chat_ai, needs_operator=needs_operator)
     db.add_all([identity, chat])
     await db.flush()
     await db.commit()          # a SAVEPOINT: code under test opens its own transactions
