@@ -27,6 +27,10 @@ HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
 POLL_MAX_ERRORS = 5             # consecutive transient poll failures tolerated per job
 DEFAULT_POLL_AFTER_S = 2.0
 MAX_POLL_SLEEP_S = 15.0
+# A chat reply is usually ready in 3-10 s, while the Broker suggests polling every 5-10 s: early
+# on, poll every second so a finished answer is not left waiting; later honour the Broker's pace.
+FAST_POLL_S = 1.0
+FAST_POLL_WINDOW_S = 90.0
 ERROR_TEXT_LIMIT = 300
 RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 # Job error codes (`error_code` on a failed poll) that a fresh attempt can get past.
@@ -37,6 +41,13 @@ FAILED_JOB_STATES = frozenset({"error", "cancelled", "unknown"})
 
 type Sleep = Callable[[float], Awaitable[None]]
 type Clock = Callable[[], float]
+
+
+def poll_sleep(suggested_s: float, elapsed_s: float) -> float:
+    """Seconds to wait before the next poll: at most FAST_POLL_S during the first
+    FAST_POLL_WINDOW_S of a job, then the Broker's suggestion capped at MAX_POLL_SLEEP_S."""
+    cap = FAST_POLL_S if elapsed_s < FAST_POLL_WINDOW_S else MAX_POLL_SLEEP_S
+    return min(suggested_s, cap)
 
 
 class BrokerHttpError(PortError):
@@ -243,10 +254,11 @@ class BrokerHttp:
             raise job_error(what, job_id, job)
         path = str(job.get("poll_url") or default_path or f"/v1/jobs/{job_id}")
         wait = as_float(job.get("poll_after_s")) or DEFAULT_POLL_AFTER_S
-        deadline = self.clock() + budget_s
+        started = self.clock()
+        deadline = started + budget_s
         errors = 0
         while True:
-            await self.sleep(min(wait, MAX_POLL_SLEEP_S))
+            await self.sleep(poll_sleep(wait, self.clock() - started))
             try:
                 data = await self.json("GET", path, what=what)
             except PortError as exc:

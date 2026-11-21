@@ -303,6 +303,8 @@ class Generation(Base):
         ForeignKey("reply_run.id", ondelete="SET NULL"), nullable=True)
     kind: Mapped[GenerationKind] = enum_col(GenerationKind)
     prompt: Mapped[str] = mapped_column(Text)
+    # Exact words she says on camera (video note, video with speech); empty = no speech.
+    speech: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
     caption: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list[str]] = jsonb_list()
     ref_media_ids: Mapped[list[int]] = jsonb_list()

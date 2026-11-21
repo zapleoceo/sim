@@ -13,7 +13,9 @@ from sim.services.voices import GEMINI_VOICES, VOICE_IDS, is_voice
 from sim.tasks import agent
 from sim.tasks.app import conninfo, make_app
 from sim.tasks.queue import (
+    CHAT_ACTION_TASK,
     GENERATE_TASK,
+    MARK_READ_TASK,
     MEMORY_TASK,
     REPLY_TASK,
     SEND_TASK,
@@ -60,6 +62,10 @@ async def test_queue_defers_by_name_with_locks() -> None:
     await queue.send(5, chat_id=7)
     await queue.send(6)
     await queue.refresh_memory(7)
+    await queue.mark_read(9)
+    await queue.mark_read(9)                # one receipt per message is enough
+    await queue.chat_action(7, "typing", 40)
+    await queue.chat_action(7, "cancel", 0)  # never absorbed by the waiting typing
 
     assert app.deferred == [
         (REPLY_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "chat:7",
@@ -72,6 +78,12 @@ async def test_queue_defers_by_name_with_locks() -> None:
         (SEND_TASK, {"message_id": 6}, {"queue": "telegram", "queueing_lock": "send-message:6"}),
         (MEMORY_TASK, {"chat_id": 7}, {"queue": "agent", "lock": "chat:7",
                                        "queueing_lock": "memory:7"}),
+        (MARK_READ_TASK, {"message_id": 9}, {"queue": "telegram",
+                                             "queueing_lock": "mark-read:9"}),
+        (CHAT_ACTION_TASK, {"chat_id": 7, "action": "typing", "seconds": 40.0},
+         {"queue": "telegram", "lock": "chat-action:7"}),
+        (CHAT_ACTION_TASK, {"chat_id": 7, "action": "cancel", "seconds": 0.0},
+         {"queue": "telegram", "lock": "chat-action:7"}),
     ]
 
 
@@ -84,6 +96,8 @@ def test_make_app_registers_agent_tasks_under_shared_names() -> None:
     app = make_app(Settings(env="test"))
     assert {REPLY_TASK, UNDERSTAND_TASK, GENERATE_TASK, MEMORY_TASK} <= set(app.tasks)
     assert app.tasks[REPLY_TASK].queue == "agent"
+    assert {SEND_TASK, MARK_READ_TASK, CHAT_ACTION_TASK} <= set(app.tasks)
+    assert app.tasks[CHAT_ACTION_TASK].queue == "telegram"
 
 
 def test_deps_registry(deps: Deps) -> None:
@@ -114,4 +128,4 @@ async def test_reply_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: 
         await agent.run_generation(999_999)
     finally:
         reset_deps()
-    assert [call[0] for call in fakes.tasks.calls] == ["send"]
+    assert [call[0] for call in fakes.tasks.calls] == ["mark_read", "chat_action", "send"]

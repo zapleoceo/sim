@@ -112,6 +112,13 @@ describe('TimelineEntry', () => {
     );
     expect(screen.getByText(/не получилось/)).toBeInTheDocument();
     expect(screen.getByText('таймаут')).toHaveClass('text-destructive');
+    rerender(
+      <TimelineEntry
+        item={item({ kind: 'generation_started', generation: { id: 2, kind: 'video_note', status: 'running', caption: 'привет', error: null } })}
+        onExplain={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Генерация кружка «привет»/)).toBeInTheDocument();
   });
 
   it('journal events as small centred lines', () => {

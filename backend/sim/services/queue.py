@@ -28,3 +28,13 @@ class TaskQueue(Protocol):
     async def refresh_memory(self, chat_id: int) -> None:
         """Compress the old part of the timeline into the summary and tidy the client memory."""
         ...
+
+    async def mark_read(self, message_id: int) -> None:
+        """Mark the chat read in Telegram up to this incoming message (best effort)."""
+        ...
+
+    async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
+        """Show a chat action (`sim.domain.presence.ChatAction`) for up to `seconds` (bounded
+        to 300 s), re-sent while it lasts; `cancel` stops it. Requests of one chat apply in
+        order; a new one replaces the previous."""
+        ...

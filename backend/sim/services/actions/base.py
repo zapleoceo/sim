@@ -1,7 +1,9 @@
 """The executor's contract: one handler per plan action (spec §7). A new action type is a new
 handler registered in sim/services/actions/registry.py; the others do not change.
 
-Two steps per action:
+Three steps per action:
+- `busy` names the Telegram status for the action's slow work (TTS, a generation), shown before
+  that work starts (sim/domain/presence.py); None = the send task's short action is enough;
 - `prepare` runs outside any database transaction and does the slow work that must finish
   before the turn is committed (e.g. TTS for a voice note);
 - `apply` runs inside the turn's transaction (chat row locked) and only writes rows: pending
@@ -16,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Persona
+from sim.domain.presence import Busy
 from sim.services.deps import Deps
 
 
@@ -38,6 +41,10 @@ class ApplyResult:
 
 class ActionHandler(ABC):
     action_type: ClassVar[type[BaseModel]]
+
+    def busy(self, action: Any) -> Busy | None:
+        """The status shown while this action's slow work runs; None = nothing slow."""
+        return None
 
     async def prepare(self, action: Any, ctx: ActionContext) -> Any:
         """Slow work before the transaction; the result is passed to `apply`."""

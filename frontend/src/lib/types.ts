@@ -155,7 +155,7 @@ export interface TimelineCall {
 
 export interface TimelineGeneration {
   id: number;
-  kind: 'photo' | 'video' | 'voice';
+  kind: 'photo' | 'video' | 'voice' | 'video_note';
   status: 'queued' | 'running' | 'done' | 'failed';
   caption: string;
   error: string | null;

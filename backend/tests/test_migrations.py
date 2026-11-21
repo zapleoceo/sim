@@ -29,6 +29,10 @@ def load(name: str, path: Path) -> ModuleType:
 
 
 initial = load("migration_0001", BACKEND / "migrations" / "versions" / "0001_initial.py")
+video_note = load("migration_0002",
+                  BACKEND / "migrations" / "versions" / "0002_video_note_generation.py")
+# The enum values after every revision: 0001 as frozen, then what later revisions changed.
+ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS}
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
@@ -40,7 +44,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0001"
+    assert sim_head is not None and sim_head.revision == "0002"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -49,6 +53,13 @@ def test_two_branches_sim_and_procrastinate(scripts):
 def test_sim_branch_starts_at_0001(scripts):
     bases = {scripts.get_revision(base).revision for base in scripts.get_bases()}
     assert "0001" in bases and "procrastinate_0000" in bases
+
+
+def test_video_note_revision_follows_the_initial_one(scripts):
+    revision = scripts.get_revision("0002")
+    assert revision is not None and revision.down_revision == "0001"
+    assert video_note.ENUM_CHECKS[("generation", "kind")][1][-1] == "video_note"
+    assert set(video_note.PREVIOUS_KINDS) == set(initial.ENUM_CHECKS[("generation", "kind")][1])
 
 
 def test_initial_creates_every_model_table_in_fk_order():
@@ -62,14 +73,14 @@ def test_initial_creates_every_model_table_in_fk_order():
             assert position[target] < position[table.name], f"{table.name} -> {target}"
 
 
-def test_initial_enum_checks_match_the_enums():
+def test_enum_checks_after_all_revisions_match_the_enums():
     expected = {}
     for table in Base.metadata.tables.values():
         for column in table.columns:
             if isinstance(column.type, Enum):
                 expected[(table.name, column.name)] = (column.type.name,
                                                        tuple(column.type.enums))
-    assert expected == initial.ENUM_CHECKS
+    assert expected == ENUM_CHECKS
 
 
 @pytest.mark.parametrize(("definition", "values"), [
@@ -87,7 +98,7 @@ def test_expected_checks_cover_every_enum_column():
     assert expected[("channel", "ck_channel_channelstatus")] == {
         "new", "connected", "error", "disabled"}
     assert ("chat_event", "ck_chat_event_eventkind") in expected
-    assert len(expected) == len(initial.ENUM_CHECKS)
+    assert len(expected) == len(ENUM_CHECKS)
 
 
 def test_compare_checks_reports_missing_and_different():

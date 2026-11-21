@@ -15,7 +15,13 @@ from sim.domain.enums import (
 from sim.domain.plan import GenerateSpec
 from sim.ports import PortError
 from sim.services.deps import Deps
-from sim.services.generation import GenerationService, start_generation
+from sim.services.generation import (
+    SELFIE_FRAMING,
+    VIDEO_NOTE_GEN_S,
+    GenerationService,
+    start_generation,
+    video_prompt,
+)
 from tests.services.conftest import Fakes
 from tests.services.factories import all_rows, fresh, make_chat, make_media
 
@@ -91,3 +97,76 @@ async def test_failure_is_shown_to_the_operator_only(db: AsyncSession, deps: Dep
     [failed] = await all_rows(db, select(ChatEvent).where(
         ChatEvent.chat_id == chat.id, ChatEvent.kind == EventKind.GENERATION_FAILED))
     assert failed.generation_id == generation.id and failed.data["caption"] == "утро у окна"
+
+
+# --- video notes, spoken videos, statuses ----------------------------------------------------
+
+NOTE = GenerateSpec(prompt="машу рукой на кухне", caption="привет с кухни", tags=["кухня"],
+                    speech="Дима, привет!  Ну как ты там?")
+
+
+async def test_video_note_is_a_spoken_selfie_cut_to_a_circle(db: AsyncSession, deps: Deps,
+                                                             fakes: Fakes) -> None:
+    chat = await make_chat(db)
+    persona = await db.get(Persona, chat.persona_id)
+    assert persona is not None
+    generation = await start_generation(db, persona=persona, chat_id=chat.id,
+                                        reply_run_id=None, kind=GenerationKind.VIDEO_NOTE,
+                                        spec=NOTE)
+    assert generation.model == "video-model" and generation.speech == NOTE.speech
+
+    assert await GenerationService(deps).run(generation.id) == GenerationStatus.DONE
+
+    [call] = fakes.video_gen.calls
+    assert call["duration_s"] == VIDEO_NOTE_GEN_S
+    assert "front camera" in call["prompt"]
+    assert "«Дима, привет! Ну как ты там?»" in call["prompt"]
+    assert "машу рукой на кухне" in call["prompt"]
+    assert fakes.image_gen.calls[0]["prompt"] == NOTE.prompt     # the first frame: the scene
+    assert ("to_video_note", len(b"MP4:" + call["prompt"].encode())) in fakes.tools.calls
+    photo, note = await generated_media(db, generation)
+    assert photo.kind == MediaKind.PHOTO
+    assert (note.kind, note.mime, note.duration_s) == (MediaKind.VIDEO, "video/mp4", 8.0)
+    assert fakes.storage.files[note.storage_key].startswith(b"ROUND:")
+    assert note.file_name == f"video_note-{generation.id}.mp4"
+    [message] = await all_rows(db, select(Message).where(Message.chat_id == chat.id))
+    assert (message.kind, message.media_id) == (MessageKind.VIDEO_NOTE, note.id)
+    assert fakes.tasks.of("send") == [("send", message.id, chat.id)]
+    # «записывает кружок» while it is made (refreshed before the clip), never cancelled.
+    assert fakes.tasks.actions() == ["record_round", "record_round"]
+
+
+async def test_failed_generation_clears_the_status(db: AsyncSession, deps: Deps,
+                                                   fakes: Fakes) -> None:
+    _, generation = await queued(db, fakes, GenerationKind.PHOTO)
+    fakes.image_gen.error = PortError("image model down")
+    assert await GenerationService(deps).run(generation.id) == GenerationStatus.FAILED
+    assert fakes.tasks.actions() == ["upload_photo", "cancel"]
+
+
+async def test_a_circle_that_cannot_be_cut_fails_the_generation(db: AsyncSession, deps: Deps,
+                                                                fakes: Fakes) -> None:
+    chat = await make_chat(db)
+    persona = await db.get(Persona, chat.persona_id)
+    assert persona is not None
+    generation = await start_generation(db, persona=persona, chat_id=chat.id,
+                                        reply_run_id=None, kind=GenerationKind.VIDEO_NOTE,
+                                        spec=NOTE)
+    fakes.tools.video_note_error = PortError("ffmpeg exited 1")
+    assert await GenerationService(deps).run(generation.id) == GenerationStatus.FAILED
+    assert await all_rows(db, select(Message).where(Message.chat_id == chat.id)) == []
+
+
+def test_video_prompt_template() -> None:
+    note = video_prompt("на кухне, вечер", speech="Дима, привет!", round_note=True,
+                        language="ru")
+    assert note.startswith(SELFIE_FRAMING)
+    assert "Scene: на кухне, вечер" in note
+    assert "She says in Russian, exactly: «Дима, привет!»" in note
+    assert "No subtitles, no music, no text on screen." in note
+    spoken = video_prompt("в парке", speech="Смотри, какой закат", round_note=False,
+                          language="xx")
+    assert spoken.startswith(SELFIE_FRAMING) and "«Смотри, какой закат»" in spoken
+    assert "in the chat language" in spoken
+    assert video_prompt("танцую дома", speech="  ", round_note=False,
+                        language="ru") == "танцую дома"

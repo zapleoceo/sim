@@ -126,7 +126,7 @@ export function CallCard({ call, at }: { call: TimelineCall; at: string }) {
   );
 }
 
-const GEN_ICON = { photo: ImageIcon, video: Video, voice: Mic } as const;
+const GEN_ICON = { photo: ImageIcon, video: Video, voice: Mic, video_note: Video } as const;
 
 export function GenerationChip({ generation }: { generation: TimelineGeneration }) {
   const failed = generation.status === 'failed';

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from sim.domain.enums import MediaKind
-from sim.domain.plan import PhotoAction, TextAction
+from sim.domain.plan import PhotoAction, TextAction, VideoAction, VideoNoteAction
 from sim.services.capabilities import Capabilities
 from sim.services.plan_check import PlanError, extract_json, parse_plan, validated_plan
 from tests.services.factories import plan_json
@@ -76,3 +76,41 @@ def test_one_generation_per_turn() -> None:
     errors = errors_of(plan_json({"type": "photo", "generate": GEN},
                                  {"type": "video", "generate": GEN}))
     assert any("генерации" in error for error in errors)
+
+
+NOTE_GEN = {**GEN, "speech": "Дима, привет! Смотри, я на кухне."}
+
+
+def test_video_note_by_media_id_or_spoken_generate() -> None:
+    plan = validated_plan(plan_json({"type": "video_note", "media_id": 15}),
+                          catalog=CATALOG, caps=ALL)
+    assert isinstance(plan.messages[0], VideoNoteAction)
+    plan = validated_plan(plan_json({"type": "video_note", "generate": NOTE_GEN}),
+                          catalog=CATALOG, caps=ALL)
+    note = plan.messages[0]
+    assert isinstance(note, VideoNoteAction) and note.generate is not None
+    assert note.generate.speech.startswith("Дима")
+
+
+def test_video_note_rules() -> None:
+    assert "generate.speech" in errors_of(plan_json({"type": "video_note", "generate": GEN}))[0]
+    assert errors_of(plan_json({"type": "video_note"}))               # neither id nor generate
+    assert "это не видео" in errors_of(plan_json({"type": "video_note", "media_id": 14}))[0]
+    assert errors_of(plan_json({"type": "video_note", "media_id": 15, "caption": "x"}))
+    no_video = Capabilities(voice=True, photo=True, photo_generate=True, video=False,
+                            video_generate=False)
+    assert "кружок сейчас" in errors_of(plan_json({"type": "video_note", "media_id": 15}),
+                                        no_video)[0]
+    no_new = Capabilities(voice=True, photo=True, photo_generate=True, video=True,
+                          video_generate=False)
+    assert "новые кружки" in errors_of(plan_json({"type": "video_note", "generate": NOTE_GEN}),
+                                       no_new)[0]
+    errors = errors_of(plan_json({"type": "video", "generate": GEN},
+                                 {"type": "video_note", "generate": NOTE_GEN}))
+    assert any("генерации" in error for error in errors)
+
+
+def test_speech_is_optional_for_a_video() -> None:
+    plan = validated_plan(plan_json({"type": "video", "generate": NOTE_GEN}),
+                          catalog=CATALOG, caps=ALL)
+    assert isinstance(plan.messages[0], VideoAction)

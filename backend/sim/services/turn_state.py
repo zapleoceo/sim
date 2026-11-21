@@ -23,6 +23,7 @@ class Unanswered:
     last_in_at: datetime                    # when the newest unanswered message arrived
     pending_since: datetime | None          # oldest unanswered message still being understood
     count: int
+    last_in_message_id: int | None = None   # the newest unanswered message (read receipt)
 
 
 async def answered_until(session: AsyncSession, chat_id: int) -> int:
@@ -53,7 +54,8 @@ async def unanswered(session: AsyncSession, chat_id: int) -> Unanswered | None:
     pending = [at for at, media in arrivals
                if media is not None and media.understanding == UnderstandingStatus.PENDING]
     return Unanswered(
-        last_in_event_id=rows[-1][0].id, last_in_at=max(at for at, _ in arrivals),
+        last_in_event_id=rows[-1][0].id, last_in_message_id=rows[-1][1].id,
+        last_in_at=max(at for at, _ in arrivals),
         pending_since=min(pending) if pending else None, count=len(rows),
     )
 

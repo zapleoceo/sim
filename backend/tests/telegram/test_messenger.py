@@ -6,6 +6,7 @@ from telethon import errors, types
 
 from sim.ports import OutboundMessage, Peer, PortError
 from sim.telegram.messenger import (
+    CHAT_ACTIONS,
     FloodWait,
     TelegramMessenger,
     chat_action,
@@ -169,3 +170,22 @@ def test_chunks_and_names():
 def test_chat_actions_map_to_telethon_types():
     assert type(chat_action("upload_photo")).__name__ == "SendMessageUploadPhotoAction"
     assert type(chat_action("unknown")).__name__ == "SendMessageTypingAction"
+
+
+async def test_video_note_is_a_true_round_message():
+    messenger, client, _, _ = await make()
+    await messenger.send(3, OutboundMessage(peer=PEER, kind="video_note", data=b"MP4",
+                                            mime="video/mp4", duration_s=7.6))
+    [sent] = client.sent
+    assert sent["video_note"] is True and sent["name"] == "video_note.mp4"
+    [attr] = sent["attributes"]
+    assert isinstance(attr, types.DocumentAttributeVideo)
+    assert attr.round_message is True
+    assert (attr.w, attr.h, attr.duration) == (640, 640, 8)
+
+
+def test_every_chat_action_maps_to_a_telethon_type():
+    for action in CHAT_ACTIONS:
+        assert type(chat_action(action)).__name__ == CHAT_ACTIONS[action]
+    assert type(chat_action("record_round")).__name__ == "SendMessageRecordRoundAction"
+    assert type(chat_action("cancel")).__name__ == "SendMessageCancelAction"

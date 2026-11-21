@@ -48,3 +48,21 @@ def test_parse_verdict() -> None:
     assert not blocked.ok and blocked.reason == "признался, что бот"
     unreadable = parse_verdict("всё хорошо")
     assert not unreadable.ok and unreadable.reason == UNREADABLE_REASON
+
+
+def test_video_notes_are_shown_to_the_guard() -> None:
+    plan = ReplyPlan.model_validate({"messages": [
+        {"type": "video_note", "media_id": 5},
+        {"type": "video_note", "generate": {"prompt": "машу рукой", "caption": "привет",
+                                            "speech": "Привет, Дима!"}},
+    ]})
+    assert outgoing_lines(plan) == ["1. [кружок из медиатеки]", "2. [новый кружок: привет]"]
+
+
+def test_guard_blocks_announcing_that_media_is_being_made() -> None:
+    persona = Persona(name="Марина", language="ru", guard_rules="")
+    facts = compute_facts(FactsInput(now=datetime(2026, 11, 21, 18, 30, tzinfo=UTC),
+                                     persona_tz="Europe/Kyiv"))
+    system = guard_messages(persona, facts, [], PLAN)[0].parts[0].text or ""
+    assert "5. Персонаж не объявляет" in system
+    assert "сейчас запишу" in system and "придёт позже" in system

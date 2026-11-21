@@ -3,15 +3,18 @@
 1. Start (transaction, chat row locked): skip when AI is off anywhere, the chat waits for an
    operator or nothing is unanswered; wait for a burst of messages (`persona.reply_delay_s`)
    and for attachments still being understood (up to 90 s) by re-queueing the reply; otherwise
-   create `reply_run` with the context snapshot.
+   create `reply_run` with the context snapshot. The chat is marked read up to the newest
+   client message and the client sees «печатает» while the model thinks.
 2. Decide (no transaction): the reply model returns a JSON plan (one repair retry when the
    JSON or the media choice is invalid); the guard checks it; on a block the model tries once
    more with the reason; a second block -> run blocked, chat needs an operator.
-3. Prepare (no transaction): slow per-action work (TTS).
+3. Prepare (no transaction): slow per-action work (TTS, cutting a video to a circle), each
+   announced by its Telegram status («записывает голосовое», «записывает кружок»...).
 4. Commit (transaction, chat row locked): if a newer client message arrived meanwhile the plan
    is dropped (run skipped) and the reply is re-queued; else pending messages / generations
    are written in plan order, `remember` facts go to `client.memory`, and after commit the
-   messages are queued for sending and the generations for running."""
+   messages are queued for sending and the generations for running. A turn that queues
+   nothing (silence, block, failure, dropped plan) cancels the status."""
 from __future__ import annotations
 
 import logging
@@ -24,6 +27,7 @@ from sim.db.models import Chat, Client, Persona, ReplyRun
 from sim.db.session import transaction
 from sim.domain.enums import EventKind, LlmPurpose, RunStatus
 from sim.domain.plan import ReplyPlan
+from sim.domain.presence import THINKING
 from sim.events import append_event
 from sim.ports import ChatMessage, ChatPart, PortError
 from sim.services.actions import ActionContext, ApplyResult, handler_for
@@ -33,6 +37,7 @@ from sim.services.deps import Deps
 from sim.services.guard import Guard
 from sim.services.llm_log import describe_messages, logged_call
 from sim.services.plan_check import PlanError, validated_plan
+from sim.services.presence import mark_read, show_busy, stop_busy
 from sim.services.turn_state import newer_client_message, unanswered
 
 log = logging.getLogger(__name__)
@@ -58,6 +63,7 @@ class TurnResult:
     run_id: int | None = None
     reason: str = ""
     requeue_s: float | None = None
+    outgoing: int = 0               # messages + generations queued by a sent turn
 
 
 @dataclass
@@ -66,6 +72,7 @@ class _Turn:
     chat_id: int
     persona: Persona
     ctx: ReplyContext
+    last_in_message_id: int | None = None
 
 
 @dataclass
@@ -98,6 +105,20 @@ class ReplyService:
                 await self.deps.tasks.reply(chat_id, started.requeue_s)
             return started
         turn = started
+        # The persona "reads" the chat and starts typing while the model thinks.
+        await mark_read(self.deps.tasks, turn.last_in_message_id)
+        await show_busy(self.deps.tasks, turn.chat_id, THINKING)
+        try:
+            result = await self._handle(turn)
+        except Exception:
+            await stop_busy(self.deps.tasks, turn.chat_id)
+            raise
+        if not result.outgoing:
+            # Silence, a block, a failure or a dropped plan: no message will end the status.
+            await stop_busy(self.deps.tasks, turn.chat_id)
+        return result
+
+    async def _handle(self, turn: _Turn) -> TurnResult:
         try:
             decision = await self._decide(turn)
             if decision.blocked:
@@ -155,7 +176,8 @@ class ReplyService:
             ctx = await self.builder.for_reply(session, chat_id)
             run.context = ctx.snapshot
             await session.flush()
-            return _Turn(run_id=run.id, chat_id=chat_id, persona=persona, ctx=ctx)
+            return _Turn(run_id=run.id, chat_id=chat_id, persona=persona, ctx=ctx,
+                         last_in_message_id=waiting.last_in_message_id)
 
     # --- 2. decide ------------------------------------------------------------------------
 
@@ -217,7 +239,14 @@ class ReplyService:
 
     async def _prepare(self, turn: _Turn, plan: ReplyPlan) -> list[Any]:
         actx = self._action_context(turn)
-        return [await handler_for(action).prepare(action, actx) for action in plan.messages]
+        prepared = []
+        for action in plan.messages:
+            handler = handler_for(action)
+            busy = handler.busy(action)
+            if busy is not None:            # «записывает голосовое» before TTS, etc.
+                await show_busy(self.deps.tasks, turn.chat_id, busy)
+            prepared.append(await handler.prepare(action, actx))
+        return prepared
 
     # --- 4. commit ------------------------------------------------------------------------
 
@@ -254,7 +283,8 @@ class ReplyService:
             await self.deps.tasks.generate(generation_id)
         if turn.ctx.needs_compression:
             await self.deps.tasks.refresh_memory(turn.chat_id)
-        return TurnResult(RunStatus.SENT, turn.run_id)
+        return TurnResult(RunStatus.SENT, turn.run_id,
+                          outgoing=len(result.message_ids) + len(result.generation_ids))
 
     async def _apply(self, session: AsyncSession, turn: _Turn, decision: _Decision,
                      prepared: list[Any], result: ApplyResult, run: ReplyRun,

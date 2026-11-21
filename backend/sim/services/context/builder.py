@@ -25,7 +25,6 @@ from sim.db.models import (
 from sim.domain.enums import (
     CallStatus,
     EventKind,
-    GenerationKind,
     GenerationStatus,
     MediaKind,
 )
@@ -35,6 +34,7 @@ from sim.services.context.budget import estimate_tokens, fit_newest, lines_token
 from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp
 from sim.services.context.instructions import CALL_RULES, FORMAT_RULES, REPLY_TURN
 from sim.services.context.render import (
+    GENERATION_LABELS,
     Related,
     Speakers,
     TimelineLine,
@@ -47,8 +47,6 @@ MIN_TIMELINE_TOKENS = 2_000
 GUARD_CLIENT_LINES = 6
 CALL_GREETINGS = {"ru": "Алло?", "uk": "Алло?"}
 DEFAULT_GREETING = "Hello?"
-GENERATION_WORDS = {GenerationKind.PHOTO: "фото", GenerationKind.VIDEO: "видео",
-                    GenerationKind.VOICE: "голосовое"}
 KIND_WORDS = {MediaKind.PHOTO: "фото", MediaKind.VIDEO: "видео"}
 
 
@@ -255,7 +253,7 @@ class ContextBuilder:
             client_tz=client.timezone, first_contact_at=incoming[1], last_client_at=incoming[2],
             last_persona_at=outgoing[2], messages_count=incoming[0] + outgoing[0],
             calls_count=calls[0], active_call=active_call,
-            generations=tuple(f"{GENERATION_WORDS.get(g.kind, 'медиа')} «{one_line(g.caption)}»"
+            generations=tuple(f"{GENERATION_LABELS.get(g.kind, 'медиа')} «{one_line(g.caption)}»"
                               for g in running),
             capabilities=caps,
         )

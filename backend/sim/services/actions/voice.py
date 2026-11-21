@@ -10,7 +10,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.domain.enums import Author, LlmPurpose, MediaKind, MediaSource, MessageKind
-from sim.domain.plan import VoiceAction
+from sim.domain.plan import VoiceAction, tts_style
+from sim.domain.presence import Busy, busy_with
 from sim.ports import PortError
 from sim.services.actions.base import ActionContext, ActionHandler, ApplyResult
 from sim.services.actions.text import enqueue_text
@@ -36,15 +37,19 @@ class VoiceFailed:
 class VoiceHandler(ActionHandler):
     action_type = VoiceAction
 
+    def busy(self, action: Any) -> Busy | None:
+        return busy_with(MessageKind.VOICE)
+
     async def prepare(self, action: Any, ctx: ActionContext) -> Spoken | VoiceFailed:
         deps, persona = ctx.deps, ctx.persona
+        style = tts_style(persona.voice_style, action.style)
         try:
             audio = await logged_call(
                 deps.sessions, purpose=LlmPurpose.TTS, model=persona.model_tts,
                 request={"text": action.text, "voice": persona.voice_id,
-                         "style": persona.voice_style},
+                         "style": style},
                 call=lambda: deps.speech.synthesize(text=action.text, voice=persona.voice_id,
-                                                    style=persona.voice_style,
+                                                    style=style,
                                                     model=persona.model_tts),
                 chat_id=ctx.chat_id, reply_run_id=ctx.reply_run_id,
             )

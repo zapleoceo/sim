@@ -123,6 +123,32 @@ async def test_video_note_is_seen_and_heard(db: AsyncSession, deps: Deps, fakes:
         "Видно: Парень в парке. Говорит: смотри где я"
 
 
+async def test_video_note_prefers_the_transcript_over_the_heard_speech(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.VIDEO_NOTE,
+                             kind=MediaKind.VIDEO, mime="video/mp4")
+    fakes.transcriber.text = "смотри где я"
+    fakes.llm.script("vision-model", "Парень в парке. Говорит: смари где я")
+
+    await Understanding(deps).understand(media.id)
+
+    assert (await understood(db, media)).description == \
+        "Видно: Парень в парке. Говорит: смотри где я"
+
+
+async def test_video_note_speech_survives_a_failed_transcription(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.VIDEO_NOTE,
+                             kind=MediaKind.VIDEO, mime="video/mp4")
+    fakes.transcriber.error = PortError("video/mp4 is not audio")
+    fakes.llm.script("vision-model", "Парень в парке. Говорит: смотри где я")
+
+    await Understanding(deps).understand(media.id)
+
+    assert (await understood(db, media)).description == \
+        "Видно: Парень в парке. Говорит: смотри где я"
+
+
 async def test_pdf_via_model_with_text_fallback(db: AsyncSession, deps: Deps, fakes: Fakes,
                                                 clock: FixedClock) -> None:
     media = await attachment(db, fakes, clock, message_kind=MessageKind.FILE,

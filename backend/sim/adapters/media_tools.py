@@ -53,6 +53,20 @@ FIT_FILTER = (f"scale=w='min({MODEL_IMAGE_MAX_SIDE},iw)':h='min({MODEL_IMAGE_MAX
               ":force_original_aspect_ratio=decrease")
 JPEG_ARGS = ("-frames:v", "1", "-vf", FIT_FILTER, "-q:v", "3", "-c:v", "mjpeg",
              "-f", "image2", "-update", "1")
+# Telegram round video message («кружок»): the centre square of the first video stream at
+# 640x640, H.264 yuv420p + mono AAC (if the clip has sound), at most 60 s, `moov` first so the
+# circle starts playing before it is fully downloaded.
+VIDEO_NOTE_SIDE = 640
+VIDEO_NOTE_MAX_S = 60
+VIDEO_NOTE_MIME = "video/mp4"
+VIDEO_NOTE_ARGS = (
+    "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-map_metadata", "-1",
+    "-vf", (f"crop='min(iw,ih)':'min(iw,ih)',scale={VIDEO_NOTE_SIDE}:{VIDEO_NOTE_SIDE},"
+            "setsar=1"),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+    "-t", str(VIDEO_NOTE_MAX_S), "-movflags", "+faststart", "-f", "mp4",
+)
 
 
 @dataclass(frozen=True)
@@ -297,6 +311,15 @@ class FfmpegMediaTools:
                     and max(probe.width, probe.height) <= MODEL_IMAGE_MAX_SIDE):
                 return data, kind
         return await self._convert(data, kind, "out.jpg", JPEG_ARGS), "image/jpeg"
+
+    async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
+        """Any video → a Telegram round video message (VIDEO_NOTE_ARGS) and its length."""
+        if not mp4:
+            raise PortError("ffmpeg: empty video")
+        note = await self._convert(mp4, sniff_mime(mp4, VIDEO_NOTE_MIME), "out.mp4",
+                                   VIDEO_NOTE_ARGS)
+        duration = (await self.probe(note, VIDEO_NOTE_MIME)).duration_s
+        return note, round(min(duration or 0.0, float(VIDEO_NOTE_MAX_S)), 2)
 
     async def _ffprobe(self, data: bytes, mime: str) -> dict[str, Any]:
         with tempfile.TemporaryDirectory(prefix="sim-media-") as tmp:
