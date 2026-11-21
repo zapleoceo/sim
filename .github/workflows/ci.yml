@@ -59,6 +59,8 @@ jobs:
         run: uv run --frozen pytest -q
       - name: Migrations match the models (upgrade, autogenerate check, downgrade)
         working-directory: backend
+        env:
+          PYTHONPATH: .     # scripts import the `sim` package (a virtual project, not installed)
         run: uv run --frozen python scripts/ci_postgres_smoke.py
 
   frontend:
