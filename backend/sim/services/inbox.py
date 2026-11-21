@@ -181,9 +181,11 @@ class Inbox:
         if chat is None:
             chat = Chat(persona_id=channel.persona_id, client_id=client.id,
                         channel_id=channel.id, ai_enabled=True, needs_operator=False,
-                        unread_count=0)
+                        unread_count=0, peer_access_hash=peer.access_hash)
             session.add(chat)
             await session.flush()
+        elif peer.access_hash and chat.peer_access_hash != peer.access_hash:
+            chat.peer_access_hash = peer.access_hash    # this account's view of the client
         return chat
 
     async def edited(self, channel_id: int, peer: Peer, external_id: str, text: str) -> None:

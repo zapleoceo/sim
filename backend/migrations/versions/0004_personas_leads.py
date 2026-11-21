@@ -1,7 +1,10 @@
 """Many personas and the client passport (docs/personas.md, docs/leads.md, docs/database.md):
 - `persona.is_active` (archive instead of delete), `persona.model_passport` (the passport writer);
 - `client.passport` (JSONB, the living profile of a lead) replaces `client.memory`: every
-  remembered fact moves into the passport text before the column is dropped;
+  remembered fact moves into the passport text before the column is dropped, and an operator's
+  `client.timezone` becomes the passport's (locked) time zone;
+- `chat.peer_access_hash`: the client's Telegram access hash as the chat's own account sees it
+  (two accounts see different hashes), filled from `client_identity` for existing chats;
 - `llm_call.purpose` allows `passport`.
 
 Mirrors `Base.metadata.create_all()` like 0001-0003: CHECK names `ck_<table>_<enum class>`,
@@ -57,6 +60,23 @@ FROM (
 WHERE client.id = facts.id
 """
 
+# The client's time zone is edited in the passport from now on: an operator's value is kept there
+# and locked for the passport writer.
+TIMEZONE_TO_PASSPORT = """
+UPDATE client SET passport = passport || jsonb_build_object(
+    'timezone', timezone,
+    'locked_fields', coalesce(passport -> 'locked_fields', '[]'::jsonb) || '["timezone"]'::jsonb)
+WHERE coalesce(btrim(timezone), '') <> ''
+"""
+
+# Until now there was one account, so the identity's access hash is the chat's.
+HASH_TO_CHAT = """
+UPDATE chat SET peer_access_hash = ci.access_hash
+FROM client_identity ci
+WHERE ci.client_id = chat.client_id AND ci.channel_kind = 'telegram_user'
+  AND ci.access_hash IS NOT NULL
+"""
+
 PASSPORT_TO_MEMORY = """
 UPDATE client SET memory = jsonb_build_array(jsonb_build_object(
     'fact', passport ->> 'text', 'event_id', NULL, 'at', passport ->> 'updated_at'))
@@ -83,13 +103,17 @@ def upgrade() -> None:
     op.add_column("client", sa.Column("passport", JSONB(), server_default=JSON_DICT,
                                       nullable=False))
     op.execute(MEMORY_TO_PASSPORT)
+    op.execute(TIMEZONE_TO_PASSPORT)
     op.drop_column("client", "memory")
+    op.add_column("chat", sa.Column("peer_access_hash", sa.String(64), nullable=True))
+    op.execute(HASH_TO_CHAT)
     _replace_purpose_check(ENUM_CHECKS[("llm_call", "purpose")][1])
 
 
 def downgrade() -> None:
     op.execute("DELETE FROM llm_call WHERE purpose = 'passport'")
     _replace_purpose_check(PREVIOUS_PURPOSES)
+    op.drop_column("chat", "peer_access_hash")
     op.add_column("client", sa.Column("memory", JSONB(), server_default=JSON_LIST,
                                       nullable=False))
     op.execute(PASSPORT_TO_MEMORY)

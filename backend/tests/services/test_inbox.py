@@ -88,6 +88,7 @@ async def test_a_client_of_one_persona_writing_to_another(db: AsyncSession, deps
     assert chats[olya_channel.id].persona_id == olya.id
     assert chats[marina_channel.id].persona_id == marina_channel.persona_id
     assert chats[olya_channel.id].client_id == client.id
+    assert chats[olya_channel.id].peer_access_hash == "hash-1"   # her account's view of him
     # Оля's own pause decides when she answers.
     assert fakes.tasks.calls == [("reply", chats[olya_channel.id].id, 3.0)]
     olya.is_active = False                              # archived: stored, not answered

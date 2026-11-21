@@ -136,8 +136,9 @@ def client_card(client: Client) -> str:
 
 
 def client_timezone(client: Client) -> str | None:
-    """The operator's time zone of the client, else the one the passport found out."""
-    return client.timezone or passport_of(client.passport).timezone or None
+    """The client's time zone: the passport's (the operator edits it there, the writer finds it
+    out), else the old profile field `client.timezone`."""
+    return passport_of(client.passport).timezone or client.timezone or None
 
 
 def catalog_text(available: Iterable[MediaAsset], sent: Iterable[tuple[MediaAsset, datetime]],

@@ -270,6 +270,9 @@ class Chat(Base):
                                            index=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("channel.id", ondelete="CASCADE"),
                                             index=True)
+    # Telegram's access hash of the client as THIS chat's account sees it (it differs between
+    # accounts, so with many personas it lives on the chat, not on the identity).
+    peer_access_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)

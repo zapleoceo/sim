@@ -74,6 +74,17 @@ async def test_text_is_typed_then_sent_and_marked_sent(db, sessions, clock):
     assert message.status == MessageStatus.SENT
 
 
+async def test_the_chat_s_own_access_hash_wins(db, sessions, clock):
+    """Two accounts see one client with different access hashes: each chat keeps its own."""
+    world = await seed_world(db)
+    world.chat.peer_access_hash = "777"
+    await db.commit()
+    message = await outgoing(db, world)
+    _, messenger, _, _ = await run(message, sessions, clock)
+    [(_, outbound)] = messenger.sent
+    assert outbound.peer == Peer(external_id="1001", access_hash="777")
+
+
 async def test_voice_shows_recording_for_its_length_and_sends_the_file(db, sessions, clock):
     world = await seed_world(db)
     asset = MediaAsset(persona_id=world.persona.id, source=MediaSource.GENERATED,
