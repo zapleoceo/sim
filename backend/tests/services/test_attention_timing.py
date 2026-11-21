@@ -14,6 +14,7 @@ from sim.domain.life import BusyLevel
 from sim.services.attention.timing import (
     FREE_SPREAD,
     PARTIAL_SPREAD,
+    SLEEP_WORDS,
     Availability,
     availability,
     check_delay,
@@ -126,3 +127,11 @@ def test_fallback_is_the_end_of_the_busy_event_or_a_glance() -> None:
 ])
 def test_later_is_her_next_such_moment(hhmm: str, expected) -> None:
     assert later_at(hhmm, utc(SATURDAY, "19:30"), TZ) == expected
+
+
+@pytest.mark.parametrize(("title", "sleeping"), [
+    ("сон, телефон в другой комнате", True), ("готовится ко сну", True),
+    ("созвон с Соней", False), ("Сонины тексты", False), ("сонная прогулка", False),
+])
+def test_sleep_is_matched_by_whole_words(title: str, sleeping: bool) -> None:
+    assert bool(SLEEP_WORDS.search(title)) is sleeping

@@ -27,7 +27,8 @@ Uniform = Callable[[], float]               # a number in [0, 1)
 
 FREE_ACTIVITY = "свободное время"
 # The routine's sleep slot, found by its words («сон, телефон в другой комнате»).
-SLEEP_WORDS = re.compile(r"\b(сон|сплю|спит|спать|sleep)", re.IGNORECASE)
+# Whole words only: «сон» must not match «Соней» (a call with Sonya at 20:00 is not sleep).
+SLEEP_WORDS = re.compile(r"\b(сон|сна|сну|сплю|спит|спать|sleep)\b", re.IGNORECASE)
 # A «later» time this far in the past is a slip of the model: it means «as soon as possible».
 PAST_GRACE = timedelta(hours=6)
 _NORMAL = NormalDist()
