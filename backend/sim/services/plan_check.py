@@ -95,6 +95,11 @@ def plan_errors(plan: ReplyPlan, *, catalog: Mapping[int, MediaKind],
             continue
         if action.generate is not None:
             generations += 1
+            filmed_by_her = isinstance(action, VideoNoteAction) or bool(action.generate.speech)
+            if filmed_by_her and caps.camera_block:
+                errors.append(f"{where}: {caps.camera_block}; ответь текстом (можно пообещать "
+                              "записать позже)")
+                continue
             if not rule.generate(caps):
                 errors.append(f"{where}: новые {rule.plural} сейчас делать нельзя, выбери из "
                               "каталога")

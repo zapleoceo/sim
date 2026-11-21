@@ -5,6 +5,7 @@ default) system message; the chats go as one JSON user message; the answer must 
 and a reason, and the caller falls back."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from sim.services.llm_log import describe_messages, logged_call
 log = logging.getLogger(__name__)
 
 PLAN_SCHEMA = AttentionPlan.model_json_schema()
+AGENT_TIMEOUT_S = 25.0            # the attention decision is fast or not at all
 NO_MODEL = "«Внимание» выключено"
 UNREADABLE = "«Внимание» ответило неразборчиво"
 
@@ -56,9 +58,13 @@ class AttentionAgent:
                 self.sessions, purpose=LlmPurpose.ATTENTION, model=cfg.model,
                 request={"messages": describe_messages(messages),
                          "json_schema": "AttentionPlan"},
-                call=lambda: self.llm.chat(model=cfg.model, messages=messages,
-                                           json_schema=PLAN_SCHEMA, max_tokens=cfg.max_tokens,
-                                           label="attention", key_tier=cfg.key_tier),
+                # A check needs an answer in seconds: past the limit the fallback answers
+                # at the end of what she is busy with (never lost).
+                call=lambda: asyncio.wait_for(
+                    self.llm.chat(model=cfg.model, messages=messages, json_schema=PLAN_SCHEMA,
+                                  max_tokens=cfg.max_tokens, label="attention",
+                                  key_tier=cfg.key_tier),
+                    AGENT_TIMEOUT_S),
                 key_tier=cfg.key_tier)
         except Exception as exc:        # a check must never be lost to the agent
             log.warning("persona %s: attention agent failed: %s", persona.id,

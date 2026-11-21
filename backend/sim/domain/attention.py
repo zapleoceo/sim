@@ -7,6 +7,7 @@ The owner's settings live in `persona.attention` (JSONB) and are read only throu
 check. The attention agent answers `AttentionPlan` — one decision per chat it was shown."""
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
@@ -97,7 +98,9 @@ class ChatDecision(BaseModel):
 
     chat_id: int
     action: AttentionAction
-    later: str | None = Field(default=None, pattern=HHMM_PATTERN,
+    # No `pattern` in the schema: Gemini rejects the whole request (HTTP 400) for it, so the
+    # «HH:MM» format is checked by the validator below instead.
+    later: str | None = Field(default=None,
                               description="Её местное время ЧЧ:ММ для reply_later, иначе null.")
     reason: str = Field(default="", max_length=REASON_MAX,
                         description="Коротко по-русски, почему так.")
@@ -107,7 +110,9 @@ class ChatDecision(BaseModel):
     def _later(cls, value: Any) -> Any:
         if value is None or (isinstance(value, str) and value.strip().lower() in ("", "null")):
             return None
-        return value.strip() if isinstance(value, str) else value
+        if not isinstance(value, str) or not re.fullmatch(HHMM_PATTERN, value.strip()):
+            raise ValueError("later: её местное время в формате ЧЧ:ММ")
+        return value.strip()
 
     @field_validator("reason", mode="before")
     @classmethod

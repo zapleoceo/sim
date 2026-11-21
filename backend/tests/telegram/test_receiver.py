@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -147,7 +148,9 @@ async def test_private_deletions_are_forwarded_by_message_id():
 async def test_attach_registers_new_edit_and_delete_handlers():
     client = FakeTelethonClient()
     inbox = FakeInbox()
-    await Receiver(inbox).attach(CHANNEL, client)
+    receiver = Receiver(inbox)
+    await receiver.attach(CHANNEL, client)
+    receiver.sweeps[CHANNEL].cancel()
     assert [type(builder).__name__ for _, builder in client.handlers] == [
         "NewMessage", "MessageEdited", "MessageDeleted"]
     handler = client.handlers[0][0]
@@ -166,3 +169,61 @@ def test_peer_helpers():
     peer = peer_from_user(FakeUser(first_name=None, last_name=None, username=None, phone=None,
                                    access_hash=None))
     assert peer == Peer(external_id="1001", access_hash=None, name="", username=None, phone=None)
+
+
+class Dialogs:
+    """A connected account for the catch-up: dialogs and their newest-first messages."""
+
+    def __init__(self, dialogs: list[tuple[object, int, list[FakeTgMessage]]]) -> None:
+        self.dialogs = dialogs
+        self.asked: list[int] = []
+
+    async def iter_dialogs(self, limit: int):
+        for entity, unread, _ in self.dialogs[:limit]:
+            yield SimpleNamespace(id=getattr(entity, "id", 0), entity=entity, unread_count=unread,
+                                  is_user=isinstance(entity, FakeUser))
+
+    async def iter_messages(self, entity: object, limit: int):
+        self.asked.append(limit)
+        for e, _, messages in self.dialogs:
+            if e is entity:
+                for message in messages[:limit]:
+                    yield message
+
+    def is_connected(self) -> bool:
+        return False
+
+
+async def test_catch_up_takes_unread_incoming_messages_oldest_first():
+    dima = FakeUser()
+    mine = FakeTgMessage(70, "моё")
+    mine.out = True
+    newest_first = [FakeTgMessage(72, "ещё"), mine, FakeTgMessage(71, "привет")]
+    client = Dialogs([(dima, 3, newest_first), (FakeUser(id=2002), 0, [FakeTgMessage(80, "x")]),
+                      (SimpleNamespace(id=-100), 5, [FakeTgMessage(90, "канал")])])
+    inbox = FakeInbox()
+    handed = await Receiver(inbox).catch_up(CHANNEL, client)
+    assert handed == 2
+    assert [m.external_id for m in inbox.ingested] == ["71", "72"]
+    assert inbox.ingested[0].peer.external_id == "1001"
+    assert client.asked == [3]                  # only the dialog with unread messages
+
+
+async def test_catch_up_never_raises():
+    class Broken:
+        async def iter_dialogs(self, limit: int):
+            raise ConnectionError("offline")
+            yield  # pragma: no cover
+
+    assert await Receiver(FakeInbox()).catch_up(CHANNEL, Broken()) == 0
+
+
+async def test_attach_starts_a_catch_up_sweep():
+    dima = FakeUser()
+    client = Dialogs([(dima, 1, [FakeTgMessage(75, "пока процесс лежал")])])
+    client.add_event_handler = lambda handler, builder: None   # type: ignore[attr-defined]
+    inbox = FakeInbox()
+    receiver = Receiver(inbox, every_s=0)
+    await receiver.attach(CHANNEL, client)
+    await asyncio.wait_for(receiver.sweeps[CHANNEL], 1)       # not connected: one pass, stop
+    assert [m.external_id for m in inbox.ingested] == ["75"]

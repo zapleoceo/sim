@@ -31,7 +31,7 @@ from sim.domain.enums import (
 )
 from sim.domain.passport import passport_lines, passport_of
 from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
-from sim.services.capabilities import Capabilities, capabilities_of
+from sim.services.capabilities import Capabilities, capabilities_of, with_camera
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
 from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp
 from sim.services.context.instructions import CALL_RULES, FORMAT_RULES, REPLY_TURN
@@ -216,10 +216,11 @@ class ContextBuilder:
             raise ChatNotFound(f"chat {chat_id} has no persona or client")
         speakers = Speakers(client=client.name or client.username or "Собеседник",
                             persona=persona.name, tz=persona.timezone)
-        caps = capabilities_of(persona)
+        state = await load_life(session, persona, self.clock.now(), full=True)
+        caps = with_camera(capabilities_of(persona), state.scene() if state.has_life else None)
         facts = compute_facts(await self._facts_input(session, chat, persona, client, caps))
         card = client_card(client)
-        life = life_blocks(await load_life(session, persona, self.clock.now(), full=True))
+        life = life_blocks(state)
         events = await load_events(session, chat.id, chat.summary_until_event_id)
         all_lines = render_events(events, await load_related(session, events), speakers)
         fixed = fixed_tokens + estimate_tokens(
