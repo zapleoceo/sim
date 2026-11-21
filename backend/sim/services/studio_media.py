@@ -1,4 +1,4 @@
-"""Dormant Studio media orchestration. No production activation switch yet.
+"""Private Studio media orchestration.
 
 An intent is committed before touching a provider. Any uncertain result blocks ALL
 new media intents for that owner; neither another UUID nor restart is a retry permit.
@@ -56,11 +56,11 @@ class StudioConflict(Exception):
 
 class StudioMedia:
     def __init__(self, factory: async_sessionmaker[AsyncSession], box: SecretBox,
-                 speech: SpeechPort | None, video: VideoPort | None, *, enabled: bool = False,
-                 remote: StudioBroker | None = None):
+                 speech: SpeechPort | None, video: VideoPort | None, *,
+                 enabled_kinds: frozenset[str] = frozenset(), remote: StudioBroker | None = None):
         self.factory, self.box = factory, box
-        self.speech, self.video, self.enabled = speech, video, enabled
-        self.remote = remote
+        self.speech, self.video = speech, video
+        self.enabled_kinds, self.remote = enabled_kinds, remote
 
     async def recent(self, owner_id: int) -> list[StudioOperation]:
         async with self.factory() as session:
@@ -79,8 +79,7 @@ class StudioMedia:
             return await session.scalar(query)
 
     async def execute(self, owner_id: int, request: MediaRequest) -> StudioOperation:
-        # Production wiring ALWAYS leaves this false. Tests inject fake ports explicitly.
-        if not self.enabled:
+        if request.kind not in self.enabled_kinds:
             raise StudioUnavailable("Studio generation is disabled; capabilities not verified")
         if not request.text.strip():
             raise StudioConflict("Empty request")
@@ -144,8 +143,8 @@ class StudioMedia:
         return saved
 
     async def reconcile(self, owner_id: int, operation_id: str) -> StudioOperation:
-        if not self.enabled:
-            raise StudioUnavailable("Studio reconciliation disabled")
+        if "video" not in self.enabled_kinds:
+            raise StudioUnavailable("Studio video reconciliation disabled")
         row = await self.get(owner_id, operation_id)
         if row is None:
             raise StudioConflict("Operation missing")

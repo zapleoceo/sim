@@ -8,8 +8,8 @@ describe('dormant media routes', () => {
       chain: [{ provider: 'Подписка Codex', model: '' },
         { provider: 'Google — резерв', model: 'gemini/synthetic-image' }],
       reason: 'Порт Google отсутствует.' }]} />);
-    await userEvent.click(screen.getByText('Маршруты медиа — пока выключены'));
-    expect(screen.getByText(/не проверка Broker/)).toBeVisible();
+    await userEvent.click(screen.getByText('Планируемые маршруты медиа'));
+    expect(screen.getByText(/не управляют генерацией Studio/)).toBeVisible();
     expect(screen.getByText('Фото · Недоступно')).toBeVisible();
     expect(screen.getByText(/модель не выбрана/)).toBeVisible();
     expect(screen.getByText('Порт Google отсутствует.')).toBeVisible();

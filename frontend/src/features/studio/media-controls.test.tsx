@@ -20,7 +20,9 @@ it('keeps media disabled without claiming a verified provider outage', async () 
 
 it('only reads status after an uncertain POST; keeps the draft and prevents another POST', async () => {
   const log = fakeApi({
-    'GET /api/studio': { ...state, speech_available: true, capabilities_verified: true },
+    'GET /api/studio': { ...state, personal_access: true, media_available: true,
+      speech_available: true, capabilities_verified: true },
+    'GET /api/studio/media': { operations: [] },
     'POST /api/studio/media': reply(502),
   });
   await renderApp('/studio');
@@ -34,12 +36,30 @@ it('only reads status after an uncertain POST; keeps the draft and prevents anot
   expect(log.filter((request) => request.method === 'POST')).toHaveLength(1);
 });
 
+it('offers only the configured kind and waits for an explicit submit', async () => {
+  const log = fakeApi({
+    'GET /api/studio': { ...state, personal_access: true, media_available: true,
+      video_available: true, capabilities_verified: true },
+    'GET /api/studio/media': { operations: [] },
+  });
+  await renderApp('/studio');
+  const button = await screen.findByRole('button', { name: 'Создать медиа' });
+  expect(button).toBeDisabled();
+  await userEvent.selectOptions(screen.getByLabelText('Тип результата'), 'video');
+  await userEvent.type(screen.getByLabelText('Текст для генерации'), 'Synthetic');
+  expect(button).toBeEnabled();
+  expect(log.filter((request) => request.method === 'POST')).toHaveLength(0);
+  await userEvent.selectOptions(screen.getByLabelText('Тип результата'), 'speech');
+  expect(button).toBeDisabled();
+});
+
 it('restores an unknown operation after remount without another submission or automatic reconciliation', async () => {
   const id = '00000000-0000-4000-8000-000000000001';
   const operation = { operation_id: id, kind: 'video', status: 'unknown', artifact_url: null };
+  const completed = { ...operation, operation_id: '00000000-0000-4000-8000-000000000003', status: 'complete' };
   const log = fakeApi({
     'GET /api/studio': { ...state, personal_access: true },
-    'GET /api/studio/media': { operations: [operation] },
+    'GET /api/studio/media': { operations: [operation, completed] },
     [`GET /api/studio/media/${id}`]: operation,
   });
   const first = await renderApp('/studio');
@@ -51,6 +71,9 @@ it('restores an unknown operation after remount without another submission or au
   expect(screen.getByRole('button', { name: 'Создать медиа' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Сверить с Broker' })).toBeDisabled();
   await userEvent.click(screen.getByRole('button', { name: 'Проверить статус' }));
+  await userEvent.click(screen.getByText('История операций · до 50 записей'));
+  await userEvent.click(screen.getByRole('button', { name: `Открыть ${completed.operation_id}` }));
+  expect(screen.getByRole('button', { name: 'Новая операция' })).toBeDisabled();
   expect(log.filter((request) => request.method === 'POST')).toHaveLength(0);
 });
 

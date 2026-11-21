@@ -121,10 +121,14 @@ async def subscription_models(c: App) -> list[str]:
 
 
 @router.get("")
-async def status(c: App, p: Owner, s: Db):
+async def status(c: App, p: Owner, s: Db, response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
     personal = personal_owner(c, p)
     models: list[str] = []
-    detail = "Генерация речи и видео в Studio выключена. Возможности и права Broker для неё не проверены."
+    media = await active_media_service(c, frozenset({"speech", "video"})) if personal else media_service(c)
+    ready = media.enabled_kinds
+    detail = ("Доступна генерация по включённым маршрутам Studio." if ready else
+              "Генерация речи и видео в Studio выключена или настроенные маршруты недоступны.")
     if not personal:
         detail += " Personal subscription access is not configured for this account."
     else:
@@ -137,9 +141,9 @@ async def status(c: App, p: Owner, s: Db):
     return {
         "photo_url": "/api/studio/assets/photo" if personal and asset(c, "photo") else None,
         "video_url": "/api/studio/assets/video" if personal and asset(c, "video") else None,
-        "models": models, "text_available": bool(models), "media_available": False,
-        "speech_available": False, "video_available": False,
-        "media_status": "disabled", "capabilities_verified": False,
+        "models": models, "text_available": bool(models), "media_available": bool(ready),
+        "speech_available": "speech" in ready, "video_available": "video" in ready,
+        "media_status": "available" if ready else "disabled", "capabilities_verified": bool(ready),
         "personal_access": personal,
         "draft_scope": draft_scope(c, p) if personal else None,
         "detail": detail,
@@ -149,10 +153,17 @@ async def status(c: App, p: Owner, s: Db):
 
 
 def media_service(c: App) -> StudioMedia:
-    # Deliberately no setting/query switch. A future reviewed activation must verify
-    # identity, provider grants, budgets, bounded responses and recovery contract first.
-    bounded = StudioBroker(c.llm) if isinstance(c.llm, BrokerLLM) else None
-    return StudioMedia(c.factory, c.box, bounded, None, remote=bounded)
+    return StudioMedia(c.factory, c.box, None, None)
+
+
+async def active_media_service(c: App, requested: frozenset[str]) -> StudioMedia:
+    switches = {"speech": c.settings.studio_speech_enabled, "video": c.settings.studio_video_enabled}
+    configured = frozenset(kind for kind in requested if switches[kind])
+    if not c.settings.studio_owner_telegram_id or not configured or not isinstance(c.llm, BrokerLLM):
+        return media_service(c)
+    bounded = StudioBroker(c.llm)
+    ready = await bounded.listed_kinds(configured)
+    return StudioMedia(c.factory, c.box, bounded, None, enabled_kinds=ready, remote=bounded)
 
 
 def operation_out(row):
@@ -173,7 +184,8 @@ async def reconcile_media(operation_id: UUID, c: App, p: Owner):
     if not personal_owner(c, p):
         raise HTTPException(403, "Personal owner access required")
     try:
-        row = await media_service(c).reconcile(p.user.id, str(operation_id))
+        service = await active_media_service(c, frozenset({"video"}))
+        row = await service.reconcile(p.user.id, str(operation_id))
     except StudioUnavailable as exc:
         raise HTTPException(423, "Сверка Studio выключена; внешний запрос не отправлен") from exc
     except (StudioConflict, VideoError) as exc:
@@ -186,7 +198,8 @@ async def generate_media(body: MediaRequest, c: App, p: Owner):
     if not personal_owner(c, p):
         raise HTTPException(403, "Personal owner access required")
     try:
-        row = await media_service(c).execute(p.user.id, body)
+        service = await active_media_service(c, frozenset({body.kind}))
+        row = await service.execute(p.user.id, body)
     except StudioUnavailable as exc:
         raise HTTPException(423, "Генерация Studio выключена; запрос провайдеру не отправлен") from exc
     except (StudioConflict, SpeechError, VideoError) as exc:

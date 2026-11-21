@@ -1,12 +1,15 @@
-"""Synthetic ports only. Production Studio cannot enable these operations."""
+"""Synthetic ports only for the default-closed Studio operations."""
 import asyncio
+import json
 from uuid import uuid4
 
+import httpx
 import pytest
 from conftest import OWNER, login
 from sqlalchemy import inspect, select
 
 from sim.adapters.db.models import AdminUser, TraceEvent
+from sim.adapters.llm.broker import BrokerLLM
 from sim.ports.speech import SpeechError, SpeechResult
 from sim.ports.video import VideoResult
 from sim.services.studio_media import (
@@ -42,7 +45,7 @@ async def media_setup(api, container):
     async with container.factory() as session:
         owner_id = await session.scalar(select(AdminUser.id).where(AdminUser.telegram_id == OWNER[0]))
     fake = FakeMedia()
-    service = StudioMedia(container.factory, container.box, fake, fake, enabled=True)
+    service = StudioMedia(container.factory, container.box, fake, fake, enabled_kinds=frozenset({"speech", "video"}))
     return service, fake, owner_id
 
 
@@ -54,7 +57,7 @@ async def test_completed_receipt_reused_after_restart(media_setup, container, ki
     assert row.status == "complete"
     assert "synthetic-" not in row.result_encrypted
     assert service.artifact(row)[0] == (wav_bytes() if kind == "speech" else mp4_bytes())
-    restarted = StudioMedia(container.factory, container.box, fake, fake, enabled=True)
+    restarted = StudioMedia(container.factory, container.box, fake, fake, enabled_kinds=frozenset({"speech", "video"}))
     assert (await restarted.execute(owner_id, request)).id == row.id
     assert len(fake.calls) == 1
     assert await restarted.get(owner_id + 1000, row.id) is None
@@ -70,7 +73,7 @@ async def test_unknown_blocks_same_and_new_id_after_restart(media_setup, contain
     fake.error = error
     with pytest.raises(type(error)):
         await service.execute(owner_id, request)
-    restarted = StudioMedia(container.factory, container.box, fake, fake, enabled=True)
+    restarted = StudioMedia(container.factory, container.box, fake, fake, enabled_kinds=frozenset({"speech", "video"}))
     assert (await restarted.execute(owner_id, request)).status == "unknown"
     with pytest.raises(StudioConflict, match="outcome unknown"):
         await restarted.execute(owner_id, request.model_copy(update={"operation_id": uuid4()}))
@@ -113,6 +116,62 @@ async def test_disabled_api_and_private_status(api, container):
         assert (await api.get(f'/api/studio/media/{body["operation_id"]}{suffix}')).status_code == 403
 
 
+async def test_api_video_preflight_and_speech_fail_closed(api, container):
+    token = await login(api, OWNER[0])
+    api.headers["X-CSRF-Token"] = token
+    settings = container.settings
+    settings.studio_owner_telegram_id = OWNER[0]
+    settings.studio_speech_enabled = settings.studio_video_enabled = True
+    video = {"id": "gemini/gemini-omni-1.2-flash", "capabilities": ["video"], "billing_type": "api"}
+    speech = {"id": "gemini/gemini-3.8-flash-tts", "capabilities": ["speech"], "billing_type": "api"}
+    catalog = [speech, {**video, "available": False}]
+    broker = BrokerLLM("https://broker.test", "synthetic-key")
+    calls = []
+
+    async def respond(req):
+        calls.append((req.method, req.url.path))
+        assert req.headers["x-project-key"] == "synthetic-key"
+        if req.url.path == "/v1/models":
+            data, status = {"data": catalog}, 200
+        elif req.url.path == "/v1/video/jobs":
+            data, status = {"job_id": 42}, 202
+            assert json.loads(req.content) == {
+                "prompt": "Synthetic", "duration_s": 4, "resolution": "720p", "aspect_ratio": "9:16",
+                "workflow": "studio", "provider": "gemini", "model": video["id"],
+            }
+        else:
+            assert req.url.path == "/v1/jobs/42" and req.method == "GET"
+            data, status = {"status": "pending"}, 200
+        return httpx.Response(status, headers={"content-type": "application/json"},
+                              stream=httpx.ByteStream(json.dumps(data).encode()))
+
+    broker._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    container.llm = broker
+    request = {"operation_id": str(uuid4()), "kind": "video", "text": "Synthetic"}
+    try:
+        state = (await api.get("/api/studio")).json()
+        assert not state["video_available"] and not state["speech_available"]
+        assert (await api.post("/api/studio/media", json=request)).status_code == 423
+        assert (await api.post("/api/studio/media", json={**request, "kind": "speech"})).status_code == 423
+        assert all(method == "GET" for method, _ in calls)
+
+        catalog[-1] = video
+        state = (await api.get("/api/studio")).json()
+        assert state["video_available"] and not state["speech_available"]
+        assert (await api.post("/api/studio/media", json=request)).json()["status"] == "unknown"
+        assert (await api.post("/api/studio/media", json=request)).json()["status"] == "unknown"
+        assert (await api.post("/api/studio/media", json={**request, "operation_id": str(uuid4())})).status_code == 409
+        assert sum(method == "POST" for method, _ in calls) == 1
+
+        settings.studio_owner_telegram_id = OWNER[0] + 1
+        calls.clear()
+        assert not (await api.get("/api/studio")).json()["media_available"]
+        assert (await api.post("/api/studio/media", json=request)).status_code == 403
+        assert not calls
+    finally:
+        await broker.aclose()
+
+
 async def test_known_remote_receipt_reconciles_without_post(media_setup, container):
     _, fake, owner_id = media_setup
 
@@ -129,12 +188,12 @@ async def test_known_remote_receipt_reconciles_without_post(media_setup, contain
             return VideoResult(mp4_bytes(), "video/mp4") if self.ready else None
 
     remote = Remote()
-    service = StudioMedia(container.factory, container.box, fake, None, enabled=True, remote=remote)
+    service = StudioMedia(container.factory, container.box, fake, None, enabled_kinds=frozenset({"speech", "video"}), remote=remote)
     request = MediaRequest(operation_id=uuid4(), kind="video", text="Synthetic fixture")
     row = await service.execute(owner_id, request)
     assert row.status == "unknown" and remote.submits == 1
     assert container.box.decrypt_json(row.result_encrypted)["remote_id"] == "42"
-    restarted = StudioMedia(container.factory, container.box, fake, None, enabled=True, remote=remote)
+    restarted = StudioMedia(container.factory, container.box, fake, None, enabled_kinds=frozenset({"speech", "video"}), remote=remote)
     remote.scope = "different-project-key"
     with pytest.raises(StudioConflict, match="matching retained"):
         await restarted.reconcile(owner_id, row.id)
@@ -178,7 +237,7 @@ async def test_lost_video_submit_receipt_never_reposts(media_setup, container):
             raise AssertionError("No retained ID: must not guess a job")
 
     remote = LostReceipt()
-    service = StudioMedia(container.factory, container.box, fake, None, enabled=True, remote=remote)
+    service = StudioMedia(container.factory, container.box, fake, None, enabled_kinds=frozenset({"speech", "video"}), remote=remote)
     request = MediaRequest(operation_id=uuid4(), kind="video", text="Synthetic")
     with pytest.raises(VideoError):
         await service.execute(owner_id, request)

@@ -4,9 +4,9 @@ export function MediaRoutes({ routes }: { routes: StudioRoute[] }) {
   if (!routes.length) return null;
   return (
     <details className="rounded-xl border p-4">
-      <summary className="cursor-pointer font-medium">Маршруты медиа — пока выключены</summary>
+      <summary className="cursor-pointer font-medium">Планируемые маршруты медиа</summary>
       <p className="mt-3 text-sm text-muted-foreground">
-        Это план настроек, не проверка Broker. Выбор модели не запускает генерацию.
+        Эти предпочтения не управляют генерацией Studio выше. Выбор модели не запускает генерацию.
         Предпочтения сохраняются в общих настройках, в группе фото и кружочков.
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">

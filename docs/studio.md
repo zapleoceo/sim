@@ -1,4 +1,4 @@
-# Private Studio media: dormant wiring
+# Private Studio media
 
 ## Private video draft (independent of generation)
 
@@ -26,11 +26,16 @@ HTTP audit retains method/path/status/actor, but omits Studio media request bodi
 Artifact response bodies are not traced. Private prompts and binary media are not copied
 into the activity request-body viewer.
 
-Studio has separate speech/video controls and a service wired to the existing Broker
-ports. Production constructs the service with `enabled=False`; there is deliberately
-no environment, owner setting or API parameter to enable it. Status reports **disabled,
-capabilities not verified**, not a claim that Broker lacks those capabilities.
-The UI is not proof of provider availability. Text chat retains its existing gates.
+Studio speech and video have separate, default-off switches
+(`SIM_STUDIO_SPEECH_ENABLED` and `SIM_STUDIO_VIDEO_ENABLED`). Both the status and
+submit endpoints use the same per-capability admission. They require the existing
+owner gate, the capability switch, a supported transport contract, and a bounded
+read of the authenticated project catalog containing its exact API-billed model
+and capability. A missing, unavailable or mismatched entry closes that capability.
+The catalog is a model registry and does not establish project grants, paid key
+eligibility, upstream availability or headroom. Confirm those facts before configuring
+a route. Broker enforces scope and budgets when it admits requests. Text chat retains
+its existing gates.
 
 The same owner role AND exact configured personal subscription-owner Telegram ID gate
 protect submission, status and artifacts. CSRF protects POST. No owner binding,
@@ -38,10 +43,13 @@ credentials, scopes, budgets or incoming-media settings change. No Telegram send
 Neither the private reference photo nor chat history is automatically sent to a media
 provider. Existing photo/video assets remain separate from generated results.
 
-The future service contract accepts at most 2000 characters, fixed speech voice Kore
-or a four-second 720p video. These are dormant defaults, not verified provider promises.
-Google speech/video are separate potentially paid routes, not the Sonnet/Sol subscription.
-There is no paid fallback or automatic retry.
+The text limit is 2000 characters. The speech adapter pins `gemini/gemini-3.8-flash-tts`
+with Kore, and the video adapter pins `gemini/gemini-omni-1.2-flash` for four-second 720p
+clips. Studio never chooses another model/provider, auto-submits a draft or sends media
+to a channel. These API-billed routes are separate from the Sonnet/Sol subscription.
+Speech stays unavailable even with its switch set because the current synchronous
+Broker implementation can rotate paid keys following an ambiguous timeout. It needs
+a single-attempt or durable dispatch contract before production use.
 
 Migration 0037 adds an append-only operation identity journal (owner, UUID, kind,
 request hash, creation time, status, encrypted result). No prompt or raw provider error
@@ -73,24 +81,27 @@ Remote contract evidence: AIbroker commit `df4460a5bbe3a3e7311861e024e1ca1b1c893
 to project ID. Studio commits the receipt (encrypted ID + hash of Broker URL/project key)
 before reading a result, constructs `/v1/jobs/{id}` itself and ignores poll_url. Explicit
 CSRF-protected reconciliation performs GET only, refuses scope/key mismatch, and reuses
-a completed result. This operation is hard-disabled in production too. Pending, failed,
+a completed result. It uses the video route's gate. Pending, failed,
 missing/pruned or unreadable results do not authorize another POST.
 
-**Unresolved remote gap:** video_submit accepts neither Idempotency-Key nor labels;
-speech_endpoint is synchronous and returns a usage request_id, not a recoverable media
-job. A lost submit receipt cannot safely be discovered or resubmitted. Such an intent
-remains blocked. No invented correlation, provider probe or new Broker request is used.
+**Unresolved remote gap:** the deployed Broker uses the video endpoint's
+`Idempotency-Key` header for Vivix only. Gemini submit has no receipt lookup for a
+lost response. Broker retains a durable dispatch record once it accepts a Gemini job
+and stops on an uncertain paid result. Studio never resubmits when its own receipt is
+missing. Speech returns a usage request ID, with no artifact recovery contract.
 
 Owner-bound GET history returns up to50 operations, unresolved first, without prompts
 or encrypted payloads. History/status queries defer the large encrypted artifact column
 instead of loading it and merely hiding it at serialization. UI restores the pending ID after reload; local status checks are
-GET-only and remote reconciliation is a separate disabled action. No localStorage is
-used. History failure keeps generation blocked; the server still fences all unknown IDs.
+GET-only and remote reconciliation is a separate explicit video action. No localStorage is
+used. History failure keeps generation blocked. Opening an older completed result does not
+unlock generation while another operation is unknown. The server still fences all unknown IDs.
 
-Before activation: independently verify subscription-owner identity/session acceptance,
-exact deployed provider contract, permissions/cost limits and real artifact compatibility.
-Lost-receipt/speech recovery remains blocked as described. Do not activate by simply
-flipping the constructor argument. No live quality or complete codec safety is claimed.
+Before enabling a supported route, use an authoritative mapping to the existing owner
+account, and confirm the Broker project grant, eligible model/key and budget. With
+neither owner binding nor a route switch configured, deployment leaves generation off.
+An owner may check their first result after activation. CI does not establish live
+output quality or complete codec safety.
 Downgrade refuses to discard a nonempty operation journal. Keep receipts on rollback;
 only disposable CI explicitly deletes its synthetic history after checking this refusal.
 
