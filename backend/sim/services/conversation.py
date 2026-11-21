@@ -704,8 +704,8 @@ class ConversationService:
             if advice:   # the rewrite after the guard's remarks: it goes out, remarks recorded
                 return Draft(decision, result, await self.touched(
                     GuardOutcome(OK, decision.reply, advice, None)))
-            guard = await self.advise(persona, strategy, history, decision, result, ctx,
-                                      dialog_id, guard_workflow)
+            guard = await self.advise(persona, strategy, history, decision, result,
+                                      replace(ctx, now=self.clock()), dialog_id, guard_workflow)
             if guard.allowed or attempt:
                 return Draft(decision, result, await self.touched(replace(guard, verdict=OK)))
             advice = list(guard.violations)
@@ -735,9 +735,9 @@ class ConversationService:
         self, persona: Persona, strategy: Strategy, history: list[Turn], decision: Decision,
         result: LLMResult, ctx: DialogContext, dialog_id: int | None, guard_workflow: str,
     ) -> GuardOutcome:
-        """The guard's opinion of a draft for this moment. When the guard cannot answer, the
+        """The guard's opinion of a draft for the moment `ctx.now`. When the guard cannot answer, the
         draft is approved with a note: the guard is an adviser, its outage holds no reply."""
-        review_ctx = with_persona_facts(persona, replace(ctx, now=self.clock()))
+        review_ctx = with_persona_facts(persona, ctx)
         try:
             return await self.review(strategy, history, decision, result, review_ctx,
                                      dialog_id, guard_workflow)

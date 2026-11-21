@@ -245,7 +245,11 @@ blocking review; the remarks stay recorded on the message (`guard_verdict` ok,
 draft goes out with the note «контролёр недоступен…». There is no canned reply and no
 operator handoff because of the guard. Only a model that gives no usable reply twice
 hands the dialog to the operator; nothing is sent to the client then. Silence
-reengagement and phone calls keep their own review for now.
+reengagement follows the same rule through `ConversationService.advise`: its text is advised
+for the moment it is scheduled, rewritten once on remarks and not reviewed again when the
+send job delivers it (that job checks only the plan: same revision, still eligible, on
+time). The repair request carries only the remarks, not the rejected draft as her turn.
+Phone calls keep their own review.
 
 Guard and passport use the shared `LLMResult.truncated` property for provider endings
 `length` and `max_tokens` (case/whitespace normalized without changing audit metadata).
