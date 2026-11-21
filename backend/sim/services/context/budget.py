@@ -1,6 +1,7 @@
-"""Context budget (docs/context.md §3): tokens are estimated as characters / 3.5. The timeline
-is split into the part already folded into `chat.summary` (events up to
-`summary_until_event_id`) and the verbatim part after it — every event is in exactly one."""
+"""Context budget (docs/context.md §3): tokens are estimated as characters / 3.5. When today's
+timeline does not fit, the newest lines are kept and the oldest part is later folded into the
+compressed morning (docs/memory.md): events up to the boundary are told by it, the rest stay
+verbatim."""
 from __future__ import annotations
 
 import math

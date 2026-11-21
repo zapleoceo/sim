@@ -189,9 +189,10 @@ async def test_context_has_the_life_blocks_in_order(db: AsyncSession, clock: Fix
     ctx = await builder.for_reply(db, chat.id)
 
     user = ctx.messages[1].parts[0].text or ""
-    order = [user.index(h) for h in ("# Факты", "# ТВОЙ РАСПОРЯДОК",
-                                     "# ТВОИ ТОЧНЫЕ ДАННЫЕ НА СЕЙЧАС", "# Канон о тебе",
-                                     "# Собеседник", "# Лента")]
+    # Her world first (stable), «now» last (docs/context.md §2).
+    order = [user.index(h) for h in ("# ТВОЙ РАСПОРЯДОК", "# Канон о тебе", "# Собеседник",
+                                     "# Лента за сегодня", "# Факты",
+                                     "# ТВОИ ТОЧНЫЕ ДАННЫЕ НА СЕЙЧАС")]
     assert order == sorted(order)
     assert "Ты сейчас: ужин и сериал" in user and "Рекс" in user
     assert "Отклонённый факт" not in user
