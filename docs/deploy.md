@@ -72,7 +72,7 @@ Compose сам задаёт `SIM_ENV=prod`, `SIM_DATABASE_URL`, `SIM_MEDIA_DIR`,
 | `SIM_TG_LOGIN_BOT_USERNAME` | — | Его username без `@` |
 | `SIM_SUPERADMIN_TELEGRAM_IDS` | — | Telegram ID админов через запятую; `sim.seed` их добавляет и включает |
 | `SIM_TG_MIN_SEND_INTERVAL_S` | `1.5` | Минимальная пауза между отправками в Telegram |
-| `SIM_CALLS_ENABLED` | `true` | Звонки (этап 6) |
+| `SIM_CALLS_ENABLED` | `true` | Звонки (выключатель на весь процесс telegram) |
 | `SIM_CALL_MAX_SECONDS` | `540` | Максимальная длина звонка |
 | `SIM_CALL_RING_MIN_S` / `SIM_CALL_RING_MAX_S` | `3` / `7` | Сколько «звонит» перед ответом |
 | `SIM_CONTEXT_BUDGET_TOKENS` | `60000` | Бюджет контекста модели ответов (`docs/context.md`) |
@@ -226,4 +226,4 @@ docker compose logs --tail 50 telegram
 - [ ] в дашборде видно переписку, медиа, что ушло в модель и что вернулось; новые сообщения
   появляются без перезагрузки (SSE через nginx).
 
-Звонки после удаления v1 не работают до этапа 6.
+- [ ] Дима звонит Марине: она отвечает голосом, знает переписку; после звонка карточка с расшифровкой появляется в чате.
