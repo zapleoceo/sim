@@ -27,16 +27,15 @@ class _Ctx:
     starting side by side) would otherwise begin two transactions on the same session, which
     a real pool of connections never does."""
 
-    def __init__(self, session: AsyncSession, lock: asyncio.Lock) -> None:
-        self.session = session
-        self.lock = lock
+    def __init__(self, owner: TestSessions) -> None:
+        self.owner = owner
 
     async def __aenter__(self) -> AsyncSession:
-        await self.lock.acquire()
-        return self.session
+        await self.owner.enter()
+        return self.owner.session
 
     async def __aexit__(self, *exc: object) -> None:
-        self.lock.release()
+        self.owner.leave()
 
 
 class TestSessions:
@@ -48,9 +47,25 @@ class TestSessions:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.lock = asyncio.Lock()
+        self.holder: asyncio.Task[Any] | None = None
+        self.depth = 0
 
     def __call__(self) -> _Ctx:
-        return _Ctx(self.session, self.lock)
+        return _Ctx(self)
+
+    async def enter(self) -> None:
+        """Re-entrant for the task that holds it (nested uses in one task are fine)."""
+        task = asyncio.current_task()
+        if self.holder is not task:
+            await self.lock.acquire()
+            self.holder = task
+        self.depth += 1
+
+    def leave(self) -> None:
+        self.depth -= 1
+        if self.depth == 0:
+            self.holder = None
+            self.lock.release()
 
 
 # --- Telethon objects ------------------------------------------------------------------------
