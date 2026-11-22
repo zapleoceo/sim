@@ -1,14 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import {
-  contactDraftError, contactStatus, defaultDueLocal, localToIso, parseLocalInput, toLocalInput,
+  DUE_NOW, QUICK_DUES, contactDraftError, contactStatus, dueIso, dueText, joinDue, localToIso, parseLocalInput, splitDue,
+  toLocalInput,
 } from './contacts-logic';
 
-describe('defaultDueLocal', () => {
-  it('is in an hour, rounded up to 5 minutes', () => {
-    expect(defaultDueLocal(new Date(2026, 10, 22, 10, 2, 30))).toBe('2026-11-22T11:05');
-    expect(defaultDueLocal(new Date(2026, 10, 22, 10, 5, 0))).toBe('2026-11-22T11:05');
-    expect(defaultDueLocal(new Date(2026, 10, 22, 10, 5, 1))).toBe('2026-11-22T11:10');
-    expect(defaultDueLocal(new Date(2026, 10, 22, 23, 58))).toBe('2026-11-23T01:00');
+const quick = (id: string, now: Date) => QUICK_DUES.find((q) => q.id === id)?.due(now);
+
+describe('when it goes', () => {
+  const now = new Date(2026, 10, 22, 18, 30, 40);
+
+  it('is «now» by default and the usual times are one tap', () => {
+    expect(quick('now', now)).toBe(DUE_NOW);
+    expect(quick('15m', now)).toBe('2026-11-22T18:45');
+    expect(quick('1h', now)).toBe('2026-11-22T19:30');
+    expect(quick('evening', now)).toBe('2026-11-22T19:00');
+    expect(quick('evening', new Date(2026, 10, 22, 20, 0))).toBe('2026-11-23T19:00');   // past: tomorrow
+    expect(quick('tomorrow', now)).toBe('2026-11-23T10:00');
+  });
+
+  it('«now» is the moment of sending', () => {
+    expect(new Date(dueIso(DUE_NOW, now) as string).getTime()).toBe(now.getTime());
+    expect(dueIso('2026-11-22T19:00', now)).toBe(localToIso('2026-11-22T19:00'));
+    expect(dueText(DUE_NOW)).toContain('сразу');
+    expect(dueText('2026-11-22T19:05')).toBe('22.11 в 19:05');
+  });
+
+  it('splits into the date and the time fields and back', () => {
+    expect(splitDue('2026-11-23T10:00')).toEqual({ date: '2026-11-23', time: '10:00' });
+    expect(splitDue(DUE_NOW, now)).toEqual({ date: '2026-11-22', time: '18:30' });
+    expect(joinDue('2026-11-23', '07:15')).toBe('2026-11-23T07:15');
   });
 });
 
@@ -38,8 +58,10 @@ describe('contactDraftError', () => {
     expect(contactDraftError({ kind: 'call', due: '2026-11-22T13:00', topic: ' ' }, now)).toBe('Напишите, о чём звонок');
     expect(contactDraftError({ kind: 'message', due: '2026-11-22T13:00', topic: '' }, now)).toBe('Напишите, о чём написать');
     expect(contactDraftError({ kind: 'message', due: '2026-11-22T13:00', topic: 'я'.repeat(501) }, now)).toBe('Не длиннее 500 символов');
-    expect(contactDraftError({ kind: 'message', due: '', topic: 'привет' }, now)).toBe('Укажите дату и время');
+    expect(contactDraftError({ kind: 'message', due: DUE_NOW, topic: 'привет' }, now)).toBeNull();
+    expect(contactDraftError({ kind: 'message', due: '2026-11-22', topic: 'привет' }, now)).toBe('Укажите дату и время');
     expect(contactDraftError({ kind: 'message', due: '2026-11-22T11:00', topic: 'привет' }, now)).toBe('Время уже прошло');
+    expect(contactDraftError({ kind: 'message', due: '2026-11-22T12:00', topic: 'привет' }, now)).toBeNull();   // a minute is «now»
     expect(contactDraftError({ kind: 'call', due: '2026-11-22T13:00', topic: 'про встречу' }, now)).toBeNull();
   });
 });
