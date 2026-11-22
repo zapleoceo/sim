@@ -88,7 +88,6 @@ describe('Conversation header', () => {
     // «Сейчас» by default: the moment of pressing «Запланировать», seconds included.
     expect(body.due_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
     expect(Math.abs(new Date(body.due_at).getTime() - Date.now())).toBeLessThan(60_000);
-    expect(new Date(body.due_at).getTime()).toBeGreaterThan(Date.now());
 
     await userEvent.click(within(sheet).getByRole('button', { name: 'Отменить' }));
     await waitFor(() => expect(log.some((r) => r.method === 'POST' && r.path === '/api/chats/7/contacts/1/cancel')).toBe(true));
