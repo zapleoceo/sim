@@ -401,7 +401,8 @@ class ReplyService:
                                         [fact.fact for fact in decision.plan.remember])
         if decision.plan.call is not None and turn.ctx.capabilities.call_out:
             # She dials within a minute (docs/initiative.md): the minute tick places the call.
-            await plan_her_call(session, turn.chat_id, decision.plan.call.topic, now)
+            await plan_her_call(session, turn.chat_id, decision.plan.call.topic, now,
+                                in_minutes=decision.plan.call.in_minutes)
         await self._journal_blocks(session, turn, decision)
         run.status = RunStatus.SENT
         run.error = "; ".join(result.notes) or None

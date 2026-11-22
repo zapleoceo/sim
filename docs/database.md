@@ -112,7 +112,7 @@ WhatsApp — jid телефона (`…@s.whatsapp.net`), а если WhatsApp �
 Telegram пусто; `0009`, пишет `Inbox`), `ai_enabled` (переключатель чата),
 `attention_instant` («Отвечать сразу» в этом чате, по умолчанию нет; `0006`,
 [attention.md](attention.md)), `no_refusals` («Без отказов», по умолчанию нет; `0008`,
-[writing.md](writing.md)), `calls_out` («Звонит сама», по умолчанию нет; `0010`,
+[writing.md](writing.md)), `calls_out` («Звонит сама», с `0011` по умолчанию да; `0010`,
 [initiative.md](initiative.md)), `needs_operator` (ставится после
 второго блока проверки; пока стоит, персонаж молчит), `unread_count`, `last_message_at`,
 `summary` и `summary_until_event_id` — сводка переписки до дневника (с `0007` больше не
