@@ -45,17 +45,18 @@ async def test_the_timeline_links_the_recording(api: ApiClient, world: World, db
 async def test_the_recording_is_served(api: ApiClient, world: World, db: AsyncSession,
                                        deps: FakeDeps, clock: FixedClock) -> None:
     call = await a_call(db, deps, world, clock)
-    whole = await api.get(f"/api/calls/{call.id}/recording")
+    call_id = call.id               # a 404 rolls back and expires the session's objects
+    whole = await api.get(f"/api/calls/{call_id}/recording")
     assert whole.status_code == 200
     assert whole.content == OGG and whole.headers["content-type"].startswith("audio/ogg")
-    part = await api.get(f"/api/calls/{call.id}/recording", headers={"Range": "bytes=0-3"})
+    part = await api.get(f"/api/calls/{call_id}/recording", headers={"Range": "bytes=0-3"})
     assert part.status_code == 206 and part.content == b"OggS"
 
     silent = await a_call(db, deps, world, clock, recorded=False)
     assert (await api.get(f"/api/calls/{silent.id}/recording")).status_code == 404
     assert (await api.get("/api/calls/999999/recording")).status_code == 404
     deps.storage.files.clear()                          # the file is gone from the storage
-    assert (await api.get(f"/api/calls/{call.id}/recording")).status_code == 404
+    assert (await api.get(f"/api/calls/{call_id}/recording")).status_code == 404
 
 
 async def test_purge_old_recordings_of_one_persona(api: ApiClient, world: World,

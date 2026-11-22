@@ -274,6 +274,7 @@ async def start_due(session: AsyncSession, now: datetime) -> Started:
         .with_for_update(of=PlannedContact, skip_locked=True))).all()
     for contact in lost:
         finish_contact(contact, ContactStatus.FAILED, "звонок прервался или не начался", now)
+    await session.flush()
     return Started(replies=tuple(replies), calls=tuple(calls))
 
 

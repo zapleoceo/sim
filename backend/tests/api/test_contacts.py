@@ -82,9 +82,10 @@ async def test_cancel_only_what_has_not_started(api: ApiClient, world: World,
                           created_by="persona", result="она написала первой")
     db.add(done)
     await db.commit()
-    assert (await api.post(contacts(world, f"/{done.id}/cancel"))).status_code == 409
+    done_id = done.id               # a refused request rolls back and expires the session
+    assert (await api.post(contacts(world, f"/{done_id}/cancel"))).status_code == 409
     assert (await api.post(contacts(world, "/999999/cancel"))).status_code == 404
-    other = await api.post(f"/api/chats/{world.chat_id + 1}/contacts/{done.id}/cancel")
+    other = await api.post(f"/api/chats/{world.chat_id + 1}/contacts/{done_id}/cancel")
     assert other.status_code in (400, 404)              # never another chat's contact
 
 

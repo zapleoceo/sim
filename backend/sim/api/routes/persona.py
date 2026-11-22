@@ -154,6 +154,7 @@ async def voice_sample(voice_id: str, ctx: ApiContext, db: AsyncSession,
         raise ClientException(detail="Не выбрана модель голоса (агент «Голос»)")
     cached = SAMPLES.get(tts.model, voice_id)
     if cached is None:
+        await db.commit()           # no transaction is held while the TTS speaks (and logs)
         try:
             audio = await logged_call(
                 ctx.deps.sessions, purpose=LlmPurpose.TTS, model=tts.model,

@@ -40,6 +40,7 @@ async def expired_recordings(session: AsyncSession, now: datetime, *,
         if call.created_at < now - timedelta(days=keep):
             keys.append(str(call.recording_key))
             call.recording_key, call.recording_s = None, None
+    await session.flush()
     return keys
 
 

@@ -78,7 +78,7 @@ def test_the_facts_say_whether_she_may_call_herself() -> None:
     def line(caps: Capabilities) -> str:
         text = compute_facts(FactsInput(now=NOW, persona_tz="Europe/Kyiv",
                                         capabilities=caps)).text
-        return next(row for row in text.splitlines() if row.startswith("Сейчас можно"))
+        return next(row for row in text.splitlines() if row.startswith("- Сейчас можно"))
 
     assert line(with_call_out(ALL, "")).endswith("; позвонить самой — да.")
     assert line(with_call_out(ALL, "ты недавно уже звонила")).endswith(

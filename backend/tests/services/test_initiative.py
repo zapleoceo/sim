@@ -127,10 +127,10 @@ async def test_a_call_needs_working_calls(db: AsyncSession, clock: FixedClock) -
     assert row.kind == ContactKind.CALL           # the manager needs no «Звонит сама»
     with pytest.raises(InitiativeError, match="Звонки выключены на сервере"):
         await plan(db, chat, clock, kind=ContactKind.CALL, calls_enabled=False)
-    no_calls = await make_chat(db, await make_persona(db, calls_enabled=False))
+    no_calls = await make_chat(db, await make_persona(db, name="Без звонков", calls_enabled=False))
     with pytest.raises(InitiativeError, match="Звонки выключены у персоны"):
         await plan(db, no_calls, clock, kind=ContactKind.CALL)
-    no_model = await make_chat(db, await make_persona(db, models={"live": ""}))
+    no_model = await make_chat(db, await make_persona(db, name="Без модели", models={"live": ""}))
     with pytest.raises(InitiativeError, match="Не выбрана модель звонка"):
         await plan(db, no_model, clock, kind=ContactKind.CALL)
     # A message needs none of it.
