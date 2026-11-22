@@ -154,7 +154,7 @@ async def scenes_of(session: AsyncSession,
         return {}
     rows = await session.execute(select(Generation.id, Generation.scene)
                                  .where(Generation.id.in_(by_generation)))
-    found = {generation_id: scene or {} for generation_id, scene in rows.tuples()}
+    found = {generation_id: scene or {} for generation_id, scene in rows}
     return {a.id: found[a.generation_id] for a in assets
             if a.generation_id is not None and a.generation_id in found}
 
