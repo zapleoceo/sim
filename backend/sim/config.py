@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     ig_hourly_cap: int = 150
     ig_daily_cap: int = 800
     ig_default_proxy: str = ""
+    # Clips by links (TikTok, Reels, Shorts): the proxy yt-dlp goes through; empty = the
+    # Instagram default proxy, if any (docs/reply.md, «Ролик по ссылке»).
+    link_proxy: str = ""
 
     # WhatsApp through Evolution API v2 (infra/docker-compose.yml, profile `whatsapp`). Empty
     # URL or key = the service is not installed: the dashboard says so instead of failing.

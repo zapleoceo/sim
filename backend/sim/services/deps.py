@@ -14,6 +14,7 @@ from sim.config import Settings
 from sim.ports import (
     ClockPort,
     ImageGenPort,
+    LinkVideoPort,
     LivePort,
     LlmPort,
     MediaStoragePort,
@@ -45,6 +46,8 @@ class Deps:
     tasks: TaskQueue
     # A uniform number in [0, 1) for human-like delays (docs/attention.md); tests fix it.
     uniform: Callable[[], float] = field(default_factory=system_uniform)
+    # Clips by their links (docs/reply.md, «Ролик по ссылке»); None = links stay text.
+    links: LinkVideoPort | None = None
 
 
 _registry: dict[str, Deps] = {}
