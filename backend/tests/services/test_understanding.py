@@ -131,7 +131,8 @@ async def test_a_model_without_video_sees_frames(db: AsyncSession, deps: Deps, f
     assert [part.mime for part in parts[1:]] == ["image/jpeg"] * VIDEO_FRAMES
     assert "кадров видео по порядку" in parts[0].text
     assert ("video_frames", "video/mp4", VIDEO_FRAMES) in fakes.tools.calls
-    assert (await understood(db, media)).description ==         "Видно: Парень машет рукой. Говорит: привет"
+    assert (await understood(db, media)).description == (
+        "Видно: Парень машет рукой. Говорит: привет")
 
 
 async def test_video_note_is_seen_and_heard(db: AsyncSession, deps: Deps, fakes: Fakes,
