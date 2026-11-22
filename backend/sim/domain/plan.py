@@ -8,7 +8,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 MAX_CALL_DELAY_MIN = 720
 
 
