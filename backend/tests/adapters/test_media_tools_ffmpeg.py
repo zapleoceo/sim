@@ -86,3 +86,11 @@ async def test_video_becomes_a_round_video_note(sound: bool) -> None:
     probe = await media.probe(note, "video/mp4")
     assert (probe.mime, probe.width, probe.height) == ("video/mp4", 640, 640)
     assert duration == pytest.approx(1.0, abs=0.25)
+
+
+async def test_frames_spread_over_a_video() -> None:
+    # A vision model without video input sees these frames (services/understanding.py).
+    frames = await FfmpegMediaTools().video_frames(await mp4_clip(320, 240, 2.0, sound=False),
+                                                   "video/mp4", 6)
+    assert 1 <= len(frames) <= 6
+    assert all(mime == "image/jpeg" and data[:2] == b"\xff\xd8" for data, mime in frames)

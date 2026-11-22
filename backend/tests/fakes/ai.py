@@ -224,6 +224,10 @@ class FakeMediaTools:
         self.calls.append(("image_for_model", mime))
         return data, "image/jpeg"
 
+    async def video_frames(self, data: bytes, mime: str, count: int) -> list[tuple[bytes, str]]:
+        self.calls.append(("video_frames", mime, count))
+        return [(f"JPEG{i}".encode(), "image/jpeg") for i in range(count)]
+
     async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
         self.calls.append(("to_video_note", len(mp4)))
         if self.video_note_error is not None:

@@ -54,6 +54,8 @@ PCM16K_ARGS = ("-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-c:a", "pcm_s1
 # First frame, shrunk to fit a 2048 px box (never enlarged), as a good-quality JPEG.
 FIT_FILTER = (f"scale=w='min({MODEL_IMAGE_MAX_SIDE},iw)':h='min({MODEL_IMAGE_MAX_SIDE},ih)'"
               ":force_original_aspect_ratio=decrease")
+FRAME_PATTERN = "frame%02d.jpg"
+FRAME_GLOB = "frame*.jpg"
 JPEG_ARGS = ("-frames:v", "1", "-vf", FIT_FILTER, "-q:v", "3", "-c:v", "mjpeg",
              "-f", "image2", "-update", "1")
 # Telegram round video message («кружок»): the centre square of the first video stream at
@@ -247,6 +249,10 @@ def _write(path: Path, data: bytes) -> None:
     path.write_bytes(data)
 
 
+def _read_frames(folder: Path) -> list[bytes]:
+    return [path.read_bytes() for path in sorted(folder.glob(FRAME_GLOB))]
+
+
 def _read_output(path: Path, tool: str) -> bytes:
     if not path.is_file():
         raise PortError(f"{tool}: no output")
@@ -337,6 +343,29 @@ class FfmpegMediaTools:
                     and max(probe.width, probe.height) <= MODEL_IMAGE_MAX_SIDE):
                 return data, kind
         return await self._convert(data, kind, "out.jpg", JPEG_ARGS), "image/jpeg"
+
+    async def video_frames(self, data: bytes, mime: str, count: int) -> list[tuple[bytes, str]]:
+        """`count` JPEG frames spread evenly over the video (in a 2048 px box), in order: for
+        a vision model that takes images but not video (understanding.py)."""
+        if not data:
+            raise PortError("ffmpeg: empty video")
+        kind = sniff_mime(data, mime)
+        duration = (await self.probe(data, kind)).duration_s or 0.0
+        rate = f"{count}/{duration:.3f}" if duration > 0 else "1"
+        with tempfile.TemporaryDirectory(prefix="sim-media-") as tmp:
+            source = Path(tmp) / f"input{suffix_for(kind)}"
+            await asyncio.to_thread(_write, source, data)
+            result = await self.runner(
+                [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                 "-i", str(source), "-vf", f"fps={rate},{FIT_FILTER}", "-frames:v", str(count),
+                 "-q:v", "4", "-c:v", "mjpeg", "-f", "image2",
+                 str(Path(tmp) / FRAME_PATTERN)], self.limit_s)
+            if result.code != 0:
+                raise PortError(f"ffmpeg exited {result.code}: {_stderr(result)}")
+            frames = await asyncio.to_thread(_read_frames, Path(tmp))
+        if not frames:
+            raise PortError("ffmpeg: no frames")
+        return [(frame, "image/jpeg") for frame in frames]
 
     async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
         """Any video → a Telegram round video message (VIDEO_NOTE_ARGS) and its length."""
