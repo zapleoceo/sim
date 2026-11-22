@@ -85,7 +85,9 @@ describe('Conversation header', () => {
     const body = log.find((r) => r.method === 'POST' && r.path === '/api/chats/7/contacts')?.body as Record<string, string>;
     expect(body.kind).toBe('call');
     expect(body.topic).toBe('договорились созвониться');
-    expect(body.due_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00[+-]\d{2}:\d{2}$/);
+    // «Сейчас» by default: the moment of pressing «Запланировать», seconds included.
+    expect(body.due_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+    expect(Math.abs(new Date(body.due_at).getTime() - Date.now())).toBeLessThan(60_000);
     expect(new Date(body.due_at).getTime()).toBeGreaterThan(Date.now());
 
     await userEvent.click(within(sheet).getByRole('button', { name: 'Отменить' }));
