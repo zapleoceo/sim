@@ -28,8 +28,8 @@ from sim.domain.enums import LlmPurpose
 from sim.ports import PortError
 from sim.services.appearance import describe_appearance
 from sim.services.generation import reference_ids
-from sim.services.persona_clone import PersonaNameTaken, clone_persona
 from sim.services.llm_log import logged_call
+from sim.services.persona_clone import PersonaNameTaken, clone_persona
 from sim.services.voices import GEMINI_VOICES, SAMPLE_TEXT, SAMPLES, is_voice
 
 Json = dict[str, Any]
