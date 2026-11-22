@@ -7,10 +7,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api.files import RangeNotSatisfiable, parse_range
-from sim.db.models import MediaAsset, Message, Persona
+from sim.db.models import Generation, MediaAsset, Message, Persona
 from sim.domain.enums import (
     Author,
     Direction,
+    GenerationKind,
+    GenerationStatus,
     MediaKind,
     MediaSource,
     MessageKind,
@@ -158,3 +160,60 @@ async def test_file_needs_login(client: ApiClient, world: World, db: AsyncSessio
                                 deps: FakeDeps) -> None:
     media_id = await add_incoming(db, deps, world)
     assert (await client.get(f"/api/media/{media_id}/file")).status_code == 401
+
+
+async def generated_room_photo(db: AsyncSession, world: World, room: str = "кухня") -> int:
+    """A generated photo whose generation was made in a room of her apartment."""
+    generation = Generation(persona_id=world.persona_id, kind=GenerationKind.PHOTO, prompt="p",
+                            scene={"room": room, "place": "дом, кухня", "outfit": "свитер",
+                                   "activity": "готовит", "light": "evening_lamp"},
+                            status=GenerationStatus.DONE)
+    db.add(generation)
+    await db.flush()
+    photo = MediaAsset(persona_id=world.persona_id, source=MediaSource.GENERATED,
+                       kind=MediaKind.PHOTO, storage_key=f"generated/{generation.id}.png",
+                       mime="image/png", sha256="0" * 64, generation_id=generation.id)
+    db.add(photo)
+    await db.commit()
+    return photo.id
+
+
+async def test_the_library_shows_the_scene_and_the_date(api: ApiClient, world: World,
+                                                        db: AsyncSession) -> None:
+    photo_id = await generated_room_photo(db, world)
+    uploaded = await upload(api, world)
+    items = {m["id"]: m for m in (await api.get(pp(world, "/media"))).json()["items"]}
+    assert items[photo_id]["scene"]["room"] == "кухня"
+    assert items[photo_id]["scene"]["activity"] == "готовит"
+    assert items[photo_id]["created_at"]
+    assert items[uploaded["id"]]["scene"] is None and uploaded["scene"] is None
+
+
+async def test_a_generated_photo_is_pinned_as_its_room_reference(
+        api: ApiClient, world: World, db: AsyncSession) -> None:
+    photo_id = await generated_room_photo(db, world)
+    pinned = await api.patch(f"/api/media/{photo_id}", json={"is_room_ref": True})
+    assert pinned.status_code == 200, pinned.text
+    assert pinned.json()["scene"]["room_ref"] is True
+    assert pinned.json()["scene"]["room"] == "кухня"
+    unpinned = await api.patch(f"/api/media/{photo_id}", json={"is_room_ref": False})
+    assert "room_ref" not in unpinned.json()["scene"]
+    # Her face can be a generated photo too: the owner's pick of her best face.
+    face = await api.patch(f"/api/media/{photo_id}", json={"is_reference": True})
+    assert face.json()["is_reference"] is True
+
+
+async def test_only_a_photo_of_her_room_can_be_a_room_reference(
+        api: ApiClient, world: World, db: AsyncSession) -> None:
+    library = await upload(api, world)
+    refused = await api.patch(f"/api/media/{library['id']}", json={"is_room_ref": True})
+    assert refused.status_code == 400
+    assert "Эталоном комнаты может быть только" in refused.json()["error"]
+    video = MediaAsset(persona_id=world.persona_id, source=MediaSource.LIBRARY,
+                       kind=MediaKind.VIDEO, storage_key="library/v.mp4", mime="video/mp4",
+                       sha256="0" * 64)
+    db.add(video)
+    await db.commit()
+    as_face = await api.patch(f"/api/media/{video.id}", json={"is_reference": True})
+    assert as_face.status_code == 400
+    assert "только фото" in as_face.json()["error"]

@@ -51,7 +51,7 @@ from sim.services.generation_state import IN_PROGRESS
 from sim.services.life.home import home_room
 from sim.services.life.store import load_life
 from sim.services.llm_log import logged_call
-from sim.services.media_library import add_media, normalize_tags
+from sim.services.media_library import ROOM_REF, add_media, normalize_tags
 from sim.services.outbox import enqueue_message
 from sim.services.presence import show_busy, stop_busy
 from sim.services.queue import after_commit
@@ -73,18 +73,21 @@ FILE_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"
                    "video/mp4": "mp4"}
 # Generations made by the video model (photo first, then the clip).
 VIDEO_KINDS = (GenerationKind.VIDEO, GenerationKind.VIDEO_NOTE)
+# Where her face references come from: the library and her generated photos (owner's pick).
+REFERENCE_SOURCES = (MediaSource.LIBRARY, MediaSource.GENERATED)
 # What the result is sent as.
 MESSAGE_KINDS = {GenerationKind.PHOTO: MessageKind.PHOTO, GenerationKind.VIDEO: MessageKind.VIDEO,
                  GenerationKind.VIDEO_NOTE: MessageKind.VIDEO_NOTE}
 
 
 async def reference_ids(session: AsyncSession, persona_id: int) -> list[int]:
-    """The persona's appearance references: library photos flagged `is_reference`."""
+    """The persona's appearance references: photos flagged `is_reference` — uploaded ones
+    first, then generated ones the owner picked as her best face."""
     rows = await session.execute(
         select(MediaAsset.id)
-        .where(MediaAsset.persona_id == persona_id, MediaAsset.source == MediaSource.LIBRARY,
+        .where(MediaAsset.persona_id == persona_id, MediaAsset.source.in_(REFERENCE_SOURCES),
                MediaAsset.kind == MediaKind.PHOTO, MediaAsset.is_reference.is_(True))
-        .order_by(MediaAsset.id)
+        .order_by(MediaAsset.source != MediaSource.LIBRARY, MediaAsset.id)
         .limit(APPEARANCE_REFS)
     )
     return list(rows.scalars())
@@ -121,25 +124,30 @@ async def same_place(session: AsyncSession, media_ids: list[int], scene: SceneCa
     return places == {value}
 
 
-def _room_photo(persona_id: int, room: str, skip: list[int], *,
-                latest: bool) -> Select[tuple[int]]:
+def _room_photos(persona_id: int, room: str, skip: list[int]) -> Select[tuple[int]]:
     return (select(MediaAsset.id)
             .join(Generation, Generation.id == MediaAsset.generation_id)
             .where(Generation.persona_id == persona_id,
                    Generation.status == GenerationStatus.DONE,
                    MediaAsset.kind == MediaKind.PHOTO,
                    Generation.scene["room"].astext == room,
-                   MediaAsset.id.not_in(skip or [0]))
-            .order_by(MediaAsset.id.desc() if latest else MediaAsset.id)
-            .limit(1))
+                   MediaAsset.id.not_in(skip or [0])))
 
 
 async def room_ids(session: AsyncSession, persona_id: int, room: str,
                    skip: list[int]) -> list[int]:
-    """Earlier generated photos of this room of her apartment: the FIRST one (it fixed how the
-    room looks) and the latest one, not already among `skip`."""
-    found = [await session.scalar(_room_photo(persona_id, room, skip, latest=latest))
-             for latest in (False, True)]
+    """Earlier generated photos of this room of her apartment, not already among `skip`: the
+    ones the owner pinned as the room's reference (`scene.room_ref`, newest first), then the
+    latest one; with nothing pinned, the FIRST one (it fixed how the room looks) and the latest.
+    A pin replaces the first photo: on production the first photos of a room were the ones
+    that disagreed with its description."""
+    photos = _room_photos(persona_id, room, skip)
+    pinned = list(await session.scalars(
+        photos.where(Generation.scene[ROOM_REF].astext == "true")
+        .order_by(MediaAsset.id.desc()).limit(ROOM_REFS)))
+    latest = await session.scalar(photos.order_by(MediaAsset.id.desc()).limit(1))
+    first = None if pinned else await session.scalar(photos.order_by(MediaAsset.id).limit(1))
+    found = [*pinned, first, latest]
     return list(dict.fromkeys(i for i in found if i is not None))[:ROOM_REFS]
 
 
@@ -264,7 +272,7 @@ class GenerationService:
                      if room is not None else [])
             continuity = [media_id for media_id in (
                 await continuity_ids(session, persona.id, scene) if scene is not None else [])
-                if media_id not in rooms]
+                if media_id not in rooms and media_id not in identity]
             here = scene is not None and await same_place(
                 session, continuity, scene, room.name if room is not None else None)
             spoken = generation.kind == GenerationKind.VIDEO_NOTE or bool(generation.speech)

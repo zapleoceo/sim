@@ -5,18 +5,25 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.db.models import Chat, Generation, Persona, PersonaDay
-from sim.domain.enums import DaySource, GenerationKind, GenerationStatus
+from sim.domain.enums import DaySource, GenerationKind, GenerationStatus, MediaKind, MediaSource
 from sim.domain.life import Ambience, BusyLevel, DayEvent, Home, Look, PersonaLife, Room
 from sim.domain.plan import GenerateSpec
 from sim.domain.scene import Light, SceneCard, ShotType
 from sim.services.deps import Deps
-from sim.services.generation import GenerationService, start_generation
+from sim.services.generation import (
+    GenerationService,
+    reference_ids,
+    room_ids,
+    start_generation,
+)
 from sim.services.life.home import at_home, find_room, home_room
 from sim.services.life.render import home_lines
+from sim.services.media_library import NotAReference, update_media
 from sim.services.visual import media_prompt
 from tests.services.conftest import Fakes
 from tests.services.factories import fresh, make_chat, make_media, make_persona
@@ -150,3 +157,81 @@ async def test_the_bedroom_looks_the_same_on_another_day(
     clock.at = utc(SATURDAY, "12:00")                        # the market: not at home
     market = await _photo(db, deps, chat, persona, "в спальне")
     assert "room" not in market.scene
+
+
+# --- what drifted on production (2026-11-22): the face, the desk, the lamp, the window ---------
+
+ROOM = Room(name="кухня", details="white handleless cabinets, a round wooden table",
+            layout="the round table with two chairs by the tall window on the left",
+            lamps="a brass mushroom table lamp on the windowsill",
+            window_view="bare trees and old houses across a quiet street")
+
+
+def test_the_room_layout_lamps_and_window_view_are_fixed_in_the_prompt() -> None:
+    prompt = media_prompt(stage="image", action="пьёт чай", scene=scene("дома, кухня"),
+                          shot=ShotType.FRONT_SELFIE, identity_refs=2, look=LOOK, room=ROOM,
+                          home=HOME, room_refs=3)
+    assert ("Room layout, fixed — the furniture stands exactly so: the round table with two "
+            "chairs by the tall window on the left.") in prompt
+    assert ("Lamps in this room, exactly these and no other lamps: a brass mushroom table "
+            "lamp on the windowsill.") in prompt
+    assert ("Outside the window, always this same view: bare trees and old houses across a "
+            "quiet street.") in prompt
+    assert "Reference image(s) 3–5: this same room of her apartment" in prompt
+    # Only her face is taken from the identity references, not their jewellery or friends.
+    assert "not their jewellery, clothes or background" in prompt
+    video = media_prompt(stage="video", action="машет", scene=scene("дома, кухня"),
+                         shot=ShotType.FRONT_SELFIE, round_note=True, room=ROOM, home=HOME)
+    assert "Lamps in this room, exactly these" in video
+    # An undescribed part adds no line.
+    bare = media_prompt(stage="image", action="улыбается", scene=scene(),
+                        shot=ShotType.FRONT_SELFIE, room=HOME.rooms[0], home=HOME)
+    assert "Room layout" not in bare and "Outside the window" not in bare
+
+
+def test_her_chat_context_knows_the_view_from_her_window() -> None:
+    lines = home_lines(PersonaLife(home=Home(rooms=[ROOM])))
+    assert lines[1] == ("- кухня: white handleless cabinets, a round wooden table; "
+                        "расстановка — the round table with two chairs by the tall window on "
+                        "the left; светильники — a brass mushroom table lamp on the windowsill; "
+                        "вид из окна — bare trees and old houses across a quiet street")
+
+
+async def test_a_pinned_room_photo_replaces_the_first_one(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    persona = await _persona(db)
+    chat = await make_chat(db, persona)
+    face = await make_media(db, persona.id, is_reference=True, storage=fakes.storage,
+                            data=b"FACE")
+    await _day(db, persona, day_plan())
+    clock.at = utc(SATURDAY, "21:40")                        # reading in the bedroom
+    first = await _photo(db, deps, chat, persona, "читает в кровати")
+    second = await _photo(db, deps, chat, persona, "читает в кровати")
+    third = await _photo(db, deps, chat, persona, "читает в кровати")
+    assert second.result_media_id is not None and third.result_media_id is not None
+    # Without a pin: the first and the latest photo of the room.
+    assert await room_ids(db, persona.id, "спальня", [face.id]) == [
+        first.result_media_id, third.result_media_id]
+
+    await update_media(db, second.result_media_id, is_room_ref=True)
+    fourth = await _photo(db, deps, chat, persona, "читает в кровати")
+    # The pinned photo leads the room references; the first photo is no longer sent.
+    assert fourth.ref_media_ids == [face.id, second.result_media_id, third.result_media_id]
+    assert first.result_media_id not in fourth.ref_media_ids
+    prompt = fakes.image_gen.calls[3]["prompt"]
+    assert "Reference image(s) 2–3: this same room of her apartment" in prompt
+
+
+async def test_a_generated_photo_can_be_her_face_reference(db: AsyncSession) -> None:
+    persona = await _persona(db)
+    uploaded = await make_media(db, persona.id, is_reference=True)
+    best = await make_media(db, persona.id, source=MediaSource.GENERATED, is_reference=True)
+    later = await make_media(db, persona.id, is_reference=True)
+    await make_media(db, persona.id, source=MediaSource.GENERATED)           # not picked
+    # Uploaded references first, then the generated ones the owner picked.
+    assert await reference_ids(db, persona.id) == [uploaded.id, later.id, best.id]
+    video = await make_media(db, persona.id, kind=MediaKind.VIDEO)
+    with pytest.raises(NotAReference):
+        await update_media(db, video.id, is_reference=True)
+    with pytest.raises(NotAReference):                       # not a photo of her room
+        await update_media(db, uploaded.id, is_room_ref=True)

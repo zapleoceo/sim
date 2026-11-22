@@ -8,8 +8,9 @@ What the picture shows comes from code, not from the reply model:
 - continuity: the latest photos of the same event are extra references, «same room, same
   clothes as this photo»;
 - her constant details (`persona.life.look`: nails, earrings, jewellery…) on every picture;
-- her home is one apartment: the room's description and its earlier photos as references
-  («the same room»), so she is never in a new flat (sim/services/life/home.py).
+- her home is one apartment: the room's description, its fixed layout, lamps and window view,
+  and its photos as references — the one the owner pinned, the first and the latest («the same
+  room»), so she is never in a new flat (sim/services/life/home.py).
 The reply model's own `prompt` is used only for her pose, action, expression and mood; it can
 not move her to another place or change her clothes. Explicit negatives forbid a second phone
 and extra hands (seen in production)."""
@@ -24,7 +25,8 @@ from sim.domain.scene import Camera, CameraHold, Light, SceneCard, ShotType
 
 APPEARANCE_REFS = 4
 CONTINUITY_REFS = 2
-ROOM_REFS = 2
+# The owner's reference photo of the room (if pinned), the first and the latest photo of it.
+ROOM_REFS = 3
 LANGUAGE_NAMES = {"ru": "Russian", "uk": "Ukrainian", "en": "English", "de": "German",
                   "es": "Spanish", "fr": "French", "it": "Italian", "pl": "Polish"}
 
@@ -133,8 +135,12 @@ def realism_lines(scene: SceneCard | None, *, video: bool,
     return lines
 
 
+# Production: a reference collage showed her with two friends and with gold hoops, bracelets and
+# a watch — the face drifted and the jewellery fought the constant details. Only she is taken.
 IDENTITY = ("The same woman as in the first {n} reference image(s): the same face, eye colour, "
-            "hair and build.")
+            "hair and build. Take only her face, hair and build from them — not their "
+            "jewellery, clothes or background; if a reference shows several people, she is "
+            "the woman who appears in all of them.")
 CONTINUITY = ("Reference image(s) {first}–{last}: the same room and the same clothes as this "
               "photo — keep the place and the outfit exactly as there.")
 CONTINUITY_CLOTHES = (
@@ -150,10 +156,18 @@ VIDEO_LOOK = ("Her manicure, earrings and jewellery stay exactly as in the first
               "{details}.")
 HOME_PLACE_LINE = ("Place: her own apartment — {room}{room_details}. The apartment: "
                    "{home}.")
+# Production: the desk moved, the lamp changed its model and the view out of the window was new
+# on each photo of the same room. These three are spelled out apart and called fixed.
+ROOM_FIXED_LINES = {
+    "layout": "Room layout, fixed — the furniture stands exactly so: {}.",
+    "lamps": "Lamps in this room, exactly these and no other lamps: {}.",
+    "window_view": "Outside the window, always this same view: {}.",
+}
 ROOM_REFS_LINE = (
     "Reference image(s) {first}–{last}: this same room of her apartment — keep the walls, "
-    "floor, furniture, windows, textiles and decor exactly as there; take only the room from "
-    "them, not her clothes or pose.")
+    "floor, furniture and where it stands, the lamps, the windows and the view out of them, "
+    "textiles and decor exactly as there; take only the room from them, not her clothes or "
+    "pose.")
 FIXED_SCENE = ("The place, the clothes and the light above are fixed; ignore any other place "
                "or clothes mentioned in the pose line.")
 NEGATIVE = ("Avoid: a second phone, a phone in the other hand, extra hands or fingers, a "
@@ -214,8 +228,11 @@ def _place_line(scene: SceneCard, room: Room | None, home: Home | None) -> str:
 def _scene_lines(scene: SceneCard, shot: ShotType, *, video: bool, room: Room | None = None,
                  home: Home | None = None) -> list[str]:
     light = LIGHT_WORDS[scene.light][0 if scene.indoors else 1]
-    lines = [_place_line(scene, room, home), f"She is: {scene.activity}.",
-             f"She wears: {scene.outfit} — exactly this outfit.", f"Light: {light}."]
+    lines = [_place_line(scene, room, home)]
+    if room is not None:
+        lines += [ROOM_FIXED_LINES[key].format(value) for key, value in room.fixed()]
+    lines += [f"She is: {scene.activity}.",
+              f"She wears: {scene.outfit} — exactly this outfit.", f"Light: {light}."]
     if scene.with_whom and shot != ShotType.TAKEN_BY_OTHER:
         lines.append(f"With her now: {', '.join(scene.with_whom)} (they may stay out of frame).")
     if video:

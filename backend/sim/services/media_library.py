@@ -7,11 +7,12 @@ import hashlib
 import logging
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import MediaAsset, Message
+from sim.db.models import Generation, MediaAsset, Message
 from sim.domain.enums import (
     Direction,
     MediaKind,
@@ -27,12 +28,18 @@ log = logging.getLogger(__name__)
 CATALOG_KINDS = (MediaKind.PHOTO, MediaKind.VIDEO)
 CATALOG_SOURCES = (MediaSource.LIBRARY, MediaSource.GENERATED)
 CATALOG_LIMIT = 200
+# `generation.scene` key: the owner pinned this photo as the reference of its room.
+ROOM_REF = "room_ref"
 # Outgoing messages that count as "already sent to this chat" (pending ones are on the way).
 DELIVERED_OR_PENDING = (MessageStatus.SENT, MessageStatus.PENDING)
 
 
 class MediaNotFound(LookupError):
     pass
+
+
+class NotAReference(ValueError):
+    """The file can not be this kind of reference (a video as a face, a street as a room)."""
 
 
 def kind_from_mime(mime: str) -> MediaKind:
@@ -105,8 +112,13 @@ async def update_media(
     caption: str | None = None,
     tags: Sequence[str] | None = None,
     is_reference: bool | None = None,
+    is_room_ref: bool | None = None,
 ) -> MediaAsset:
     asset = await get_media(session, media_id)
+    if is_reference and asset.kind != MediaKind.PHOTO:
+        raise NotAReference("Референсом внешности может быть только фото")
+    if is_room_ref is not None:                  # checked before anything else changes
+        await pin_room_photo(session, asset, pinned=is_room_ref)
     if caption is not None:
         asset.caption = caption.strip()
     if tags is not None:
@@ -115,6 +127,36 @@ async def update_media(
         asset.is_reference = is_reference
     await session.flush()
     return asset
+
+
+async def pin_room_photo(session: AsyncSession, asset: MediaAsset, *, pinned: bool) -> None:
+    """The owner's reference photo of a room of her apartment (docs/persona-life.md, «Облик и
+    дом»): `generation.scene.room_ref`, sent first among the room's references
+    (sim/services/generation.room_ids). Only a generated photo taken in one of her rooms."""
+    generation = (await session.get(Generation, asset.generation_id)
+                  if asset.generation_id is not None else None)
+    scene = dict(generation.scene or {}) if generation is not None else {}
+    if generation is None or asset.kind != MediaKind.PHOTO or not scene.get("room"):
+        raise NotAReference(
+            "Эталоном комнаты может быть только сгенерированное фото комнаты её квартиры")
+    if pinned:
+        scene[ROOM_REF] = True
+    else:
+        scene.pop(ROOM_REF, None)
+    generation.scene = scene
+
+
+async def scenes_of(session: AsyncSession,
+                    assets: Sequence[MediaAsset]) -> dict[int, dict[str, Any]]:
+    """media id -> the scene its generation was made in (generated media only)."""
+    by_generation = {a.generation_id: a.id for a in assets if a.generation_id is not None}
+    if not by_generation:
+        return {}
+    rows = await session.execute(select(Generation.id, Generation.scene)
+                                 .where(Generation.id.in_(by_generation)))
+    found = {generation_id: scene or {} for generation_id, scene in rows}
+    return {a.id: found[a.generation_id] for a in assets
+            if a.generation_id is not None and a.generation_id in found}
 
 
 async def delete_media(session: AsyncSession, storage: MediaStoragePort, media_id: int) -> None:

@@ -46,6 +46,7 @@ class MediaPatchIn(Struct):
     caption: Annotated[str, Meta(max_length=1000)] | UnsetType = UNSET
     tags: Tags | UnsetType = UNSET
     is_reference: bool | UnsetType = UNSET
+    is_room_ref: bool | UnsetType = UNSET
 
 
 Short = Annotated[str, Meta(max_length=300)]

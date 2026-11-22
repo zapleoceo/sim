@@ -6,7 +6,7 @@ import { MediaView, ringOffset } from './media-view';
 const note: Media = {
   id: 7, kind: 'video', mime: 'video/mp4', url: '/api/media/7/file', caption: '', tags: [],
   description: 'Видно: Марина на кухне. Говорит: привет', source: 'generated', is_reference: false,
-  width: 640, height: 640, duration_s: 8, file_name: 'video_note.mp4',
+  width: 640, height: 640, duration_s: 8, file_name: 'video_note.mp4', created_at: '2026-11-21T18:44:46Z',
 } as Media;
 
 describe('video note («кружок»)', () => {

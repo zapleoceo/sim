@@ -178,7 +178,9 @@ async def test_photo_generate_starts_a_generation_with_references(db: AsyncSessi
     chat, ctx = await context(db, deps)
     refs = [await make_media(db, chat.persona_id, is_reference=True) for _ in range(2)]
     await make_media(db, chat.persona_id)                                   # not a reference
-    await make_media(db, chat.persona_id, source=MediaSource.GENERATED, is_reference=True)
+    # A generated photo the owner picked as her face is a reference too, after the uploaded ones.
+    best = await make_media(db, chat.persona_id, source=MediaSource.GENERATED, is_reference=True)
+    await make_media(db, chat.persona_id, kind=MediaKind.VIDEO, is_reference=True)   # not a photo
     result = ApplyResult()
     await PhotoHandler().apply(db, PhotoAction(type="photo", generate=SPEC, caption="смотри"),
                                None, ctx, result)
@@ -188,7 +190,7 @@ async def test_photo_generate_starts_a_generation_with_references(db: AsyncSessi
     [generation] = await all_rows(db, select(Generation).where(Generation.chat_id == chat.id))
     assert generation.kind == GenerationKind.PHOTO and generation.model == "image-model"
     assert generation.status == GenerationStatus.QUEUED
-    assert generation.ref_media_ids == [ref.id for ref in refs]
+    assert generation.ref_media_ids == [ref.id for ref in refs] + [best.id]
     assert generation.tags == ["утро", "дом"] and generation.caption == "утро у окна"
     assert result.generation_ids == [generation.id]
     [event] = await all_rows(db, select(ChatEvent).where(

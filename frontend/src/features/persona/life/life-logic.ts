@@ -69,7 +69,7 @@ export const newDayEvent = (): DayEvent => ({
   ambience: 'quiet_home',
 });
 
-export const newRoom = (): Room => ({ name: '', details: '' });
+export const newRoom = (): Room => ({ name: '', details: '', layout: '', lamps: '', window_view: '' });
 export const EMPTY_LOOK: Look = { nails: '', earrings: '', jewelry: '', hair: '', other: '' };
 export const EMPTY_HOME: Home = { details: '', rooms: [] };
 export const EMPTY_LIFE: PersonaLife = { routine: [], people: [], hobbies: [], places: [], look: EMPTY_LOOK, home: EMPTY_HOME };
