@@ -13,6 +13,7 @@ answered by this channel's persona (docs/personas.md)."""
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -20,7 +21,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Channel, Chat, ChatEvent, Client, ClientIdentity, Message, Persona
+from sim.db.models import (
+    Channel,
+    Chat,
+    ChatEvent,
+    Client,
+    ClientIdentity,
+    MediaAsset,
+    Message,
+    Persona,
+)
 from sim.db.session import transaction
 from sim.domain.ai_gate import ai_block
 from sim.domain.attention import attention_settings
@@ -28,11 +38,13 @@ from sim.domain.enums import (
     Author,
     Direction,
     EventKind,
+    MediaKind,
     MediaSource,
     MessageKind,
     MessageStatus,
     UnderstandingStatus,
 )
+from sim.domain.links import LINK_FILE_MAX, LINK_KEY_PREFIX, video_link
 from sim.events import append_event
 from sim.ports import InboundAttachment, InboundMessage, Peer
 from sim.services.attention.schedule import check_after_notice, queue_check
@@ -89,6 +101,17 @@ def message_kind(attachment: InboundAttachment | None) -> MessageKind:
 def understandable(attachment: InboundAttachment) -> bool:
     mime = (attachment.mime or "").lower()
     return mime.startswith(UNDERSTANDABLE_PREFIXES)
+
+
+def link_placeholder(link: str) -> MediaAsset:
+    """A text message with a TikTok / Reels / Shorts link gets the clip as its attachment:
+    a pending asset without bytes yet; understanding downloads and describes it, and her turn
+    waits for it like for any attachment (docs/reply.md, «Ролик по ссылке»)."""
+    return MediaAsset(
+        persona_id=None, source=MediaSource.INCOMING, kind=MediaKind.VIDEO,
+        storage_key=f"{LINK_KEY_PREFIX}{uuid.uuid4().hex}", mime="video/mp4",
+        file_name=link[:LINK_FILE_MAX], size_bytes=0, sha256="",
+        understanding=UnderstandingStatus.PENDING)
 
 
 async def known_ids(session: AsyncSession, channel_id: int, peer_external_id: str,
@@ -179,6 +202,10 @@ class Inbox:
                 media.duration_s = attachment.duration_s
             if media.width is None and attachment.width is not None:
                 media.width, media.height = attachment.width, attachment.height
+        if media is None and (link := video_link(msg.text or "")):
+            media = link_placeholder(link)
+            session.add(media)
+            await session.flush()
         message = Message(
             chat_id=chat.id, direction=Direction.IN, author=Author.CLIENT,
             kind=message_kind(attachment), text=msg.text or "",

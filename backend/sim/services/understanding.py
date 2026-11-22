@@ -8,6 +8,7 @@
 | video note («кружок»)      | «Слух» + «Зрение», section [Кружок]                      |
 | PDF                        | «Зрение», section [PDF], fallback: plain text            |
 | other files (docx, txt...) | plain text extracted by MediaToolsPort                   |
+| a TikTok / Reels / Shorts link | downloaded first (LinkVideoPort), then «Слух» + «Зрение» |
 
 The agents (docs/agents.md) come from `agent_config`: model, key tier, max_tokens and the
 vision prompt (one text, four sections; a missing section is its default).
@@ -17,9 +18,10 @@ The result goes to `media_asset.description` (`understanding=done`) or the error
 Broker call is logged in `llm_call`. Model calls run outside any database transaction."""
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 from sqlalchemy import select
@@ -34,7 +36,15 @@ from sim.domain.agent_prompts import (
     vision_sections,
 )
 from sim.domain.agents import AgentConfig, AgentKey, agent_config
-from sim.domain.enums import EventKind, LlmPurpose, MediaKind, MessageKind, UnderstandingStatus
+from sim.domain.enums import (
+    EventKind,
+    LlmPurpose,
+    MediaKind,
+    MediaSource,
+    MessageKind,
+    UnderstandingStatus,
+)
+from sim.domain.links import is_link_key
 from sim.events import append_event
 from sim.ports import ChatMessage, ChatPart, PortError
 from sim.services.deps import Deps
@@ -65,6 +75,7 @@ class Attachment:
     data: bytes
     vision: AgentConfig             # «Зрение»: its prompt holds one section per kind
     hearing: AgentConfig            # «Слух»
+    link: str = ""                  # a clip by its link, downloaded before it is understood
 
     def prompt(self, section: str) -> str:
         return vision_sections(self.vision.prompt)[section]
@@ -94,9 +105,12 @@ class Understanding:
         attachment = await self._load(media_id)
         if attachment is None:
             return None
-        strategy = self.STRATEGIES[pick_strategy(attachment.message_kind, attachment.kind,
-                                                 attachment.mime)]
+        name = ("link" if attachment.link
+                else pick_strategy(attachment.message_kind, attachment.kind, attachment.mime))
+        strategy = self.STRATEGIES[name]
         try:
+            if attachment.link:
+                attachment = await self._fetch(attachment)
             text = (await strategy(self, attachment)).strip()
             if not text:
                 raise UnderstandingError("модель вернула пустой ответ")
@@ -121,14 +135,33 @@ class Understanding:
             persona = await session.get(Persona, chat.persona_id) if chat else None
             if persona is None:
                 return None
-            data = await self.deps.storage.get(media.storage_key)
+            link = media.file_name if is_link_key(media.storage_key) else ""
+            data = b"" if link else await self.deps.storage.get(media.storage_key)
             return Attachment(
                 media_id=media.id, chat_id=message.chat_id, message_id=message.id,
                 message_kind=message.kind, kind=media.kind, mime=media.mime,
                 file_name=media.file_name, data=data,
                 vision=agent_config(persona, AgentKey.VISION),
-                hearing=agent_config(persona, AgentKey.TRANSCRIBE),
+                hearing=agent_config(persona, AgentKey.TRANSCRIBE), link=link,
             )
+
+    async def _fetch(self, att: Attachment) -> Attachment:
+        """Download the clip of a link and keep it in the library like a sent video; the
+        placeholder row gets the bytes (docs/reply.md, «Ролик по ссылке»)."""
+        if self.deps.links is None:
+            raise UnderstandingError("ссылки на ролики не открываются")
+        clip = await self.deps.links.fetch(att.link)
+        key = await self.deps.storage.put(clip.data, mime=clip.mime,
+                                          prefix=MediaSource.INCOMING.value)
+        async with transaction(self.deps.sessions) as session:
+            media = await session.get(MediaAsset, att.media_id, with_for_update=True)
+            if media is not None:
+                media.storage_key, media.mime = key, clip.mime
+                media.size_bytes = len(clip.data)
+                media.sha256 = hashlib.sha256(clip.data).hexdigest()
+                media.duration_s = clip.duration_s
+                media.caption = clip.title
+        return replace(att, data=clip.data, mime=clip.mime)
 
     async def _save(self, attachment: Attachment, text: str | None, error: str | None) -> None:
         async with transaction(self.deps.sessions) as session:
@@ -209,7 +242,14 @@ class Understanding:
         frames = await self.deps.tools.video_frames(att.data, mime, VIDEO_FRAMES)
         return await self._look(att, section, frames, note=FRAMES_NOTE.format(n=len(frames)))
 
+    async def _link(self, att: Attachment) -> str:
+        """A clip by a link: what is seen and what is said in it, like a video note."""
+        return await self._seen_and_heard(att, VISION_VIDEO)
+
     async def _video_note(self, att: Attachment) -> str:
+        return await self._seen_and_heard(att, VISION_VIDEO_NOTE)
+
+    async def _seen_and_heard(self, att: Attachment, section: str) -> str:
         speech = ""
         seen = ""
         errors = []
@@ -218,7 +258,7 @@ class Understanding:
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
         try:
-            seen = (await self._see_video(att, VISION_VIDEO_NOTE)).strip()
+            seen = (await self._see_video(att, section)).strip()
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
         if speech and "Говорит:" in seen:      # the transcript is the more exact copy of speech
@@ -252,6 +292,7 @@ class Understanding:
         "image": _image,
         "video": _video,
         "video_note": _video_note,
+        "link": _link,
         "transcribe": _transcribe,
         "pdf": _pdf,
         "document": _document,

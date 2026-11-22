@@ -125,7 +125,8 @@ Compose сам задаёт `SIM_ENV=prod`, `SIM_DATABASE_URL`, `SIM_MEDIA_DIR`,
 | `SIM_CONTEXT_KEEP_RECENT_EVENTS` | `60` | Сколько последних событий чата всегда в контексте |
 | `SIM_IG_POLL_INTERVAL_S` | `120` | Как часто опрашивать Direct одного аккаунта Instagram (+ до 20 % случайно) |
 | `SIM_IG_HOURLY_CAP` / `SIM_IG_DAILY_CAP` | `150` / `800` | Лимит отправок одного аккаунта Instagram в час / сутки |
-| `SIM_IG_DEFAULT_PROXY` | — | Прокси для входа в Instagram, если в форме не указан (вход без прокси запрещён) |
+| `SIM_IG_DEFAULT_PROXY` | — | Прокси для входа в Instagram, если в форме не указан (вход без прокси запрещён); им же скачиваются ролики по ссылкам, если не задан `SIM_LINK_PROXY` |
+| `SIM_LINK_PROXY` | — | Прокси для роликов по ссылкам (TikTok, Reels, Shorts; [reply.md](reply.md), «Ролик по ссылке») |
 | `SIM_EVOLUTION_URL` | — | Evolution API (WhatsApp), `http://evolution:8080`; пусто — WhatsApp недоступен |
 | `SIM_EVOLUTION_API_KEY` | — | Ключ Evolution (= `EVOLUTION_API_KEY` контейнера) |
 | `SIM_EVOLUTION_WEBHOOK_BASE` | `SIM_PUBLIC_URL` + `/api` | Куда Evolution шлёт события, как его видит контейнер: `http://api:8000/api` |

@@ -30,6 +30,7 @@ MEDIA_LABELS = {
     MessageKind.STICKER: "стикер",
 }
 TIMED_KINDS = (MessageKind.VOICE, MessageKind.VIDEO, MessageKind.VIDEO_NOTE)
+LINK_LABEL = "ролик по ссылке"
 NOT_UNDERSTOOD = {
     MediaKind.PHOTO: "не удалось рассмотреть",
     MediaKind.VIDEO: "не удалось рассмотреть",
@@ -70,6 +71,8 @@ def media_label(kind: MessageKind, media: MediaAsset | None) -> str:
     label = MEDIA_LABELS.get(kind, "вложение")
     if media is None:
         return label
+    if kind == MessageKind.TEXT and media.kind == MediaKind.VIDEO:
+        label = LINK_LABEL                      # a TikTok / Reels / Shorts link she watched
     if kind == MessageKind.FILE and media.kind == MediaKind.AUDIO:
         label = "аудио"
     if kind in TIMED_KINDS or label == "аудио":
@@ -87,6 +90,8 @@ def incoming_media(kind: MessageKind, media: MediaAsset | None) -> str:
     if media.understanding == UnderstandingStatus.DONE and media.description:
         return f"[{label}] {one_line(media.description)}"
     if media.understanding == UnderstandingStatus.FAILED:
+        if label == LINK_LABEL:
+            return f"[{label}: не открылся — {one_line(media.understanding_error or '')}]"
         return f"[{label}, {NOT_UNDERSTOOD.get(media.kind, 'не удалось разобрать')}]"
     if media.understanding == UnderstandingStatus.PENDING:
         return f"[{label}, ещё не успела посмотреть]"

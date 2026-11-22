@@ -234,5 +234,22 @@ class MediaToolsPort(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class FetchedVideo:
+    """A short clip downloaded by its link (docs/reply.md, «Ролик по ссылке»)."""
+
+    data: bytes
+    mime: str
+    title: str = ""
+    duration_s: float | None = None
+
+
+class LinkVideoPort(Protocol):
+    async def fetch(self, url: str) -> FetchedVideo:
+        """Download the clip a TikTok / Instagram / YouTube link points to; PortError with a
+        short Russian reason when it can not (private, too long, blocked)."""
+        ...
+
+
 class ClockPort(Protocol):
     def now(self) -> datetime: ...

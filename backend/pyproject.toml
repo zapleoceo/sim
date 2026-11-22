@@ -25,6 +25,8 @@ dependencies = [
     "segno>=1.6,<2",
     # Instagram Direct (private API), imported lazily: only an Instagram channel loads it.
     "instagrapi>=2.16,<2.17",
+    # Clips by links (TikTok, Reels, Shorts), imported lazily: only a link loads it.
+    "yt-dlp>=2025.1",
 ]
 
 [dependency-groups]

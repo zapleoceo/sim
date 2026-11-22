@@ -8,6 +8,7 @@ import procrastinate
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from sim.adapters.broker import BrokerAdapters
+from sim.adapters.link_video import YtDlpLinkVideo
 from sim.adapters.media_tools import FfmpegMediaTools
 from sim.adapters.storage import LocalMediaStorage
 from sim.channels.routing import DbChannelRouter
@@ -50,5 +51,6 @@ def wire(settings: Settings, *, pool_size: int = 5, tasks_pool_size: int = POOL_
         tools=FfmpegMediaTools(),
         # Sends, receipts and statuses go to the queue of the chat's messenger.
         tasks=ProcrastinateQueue(tasks_app, router=DbChannelRouter(sessions)),
+        links=YtDlpLinkVideo(settings.link_proxy or settings.ig_default_proxy),
     )
     return Wired(deps=deps, tasks_app=tasks_app, broker=broker, engine=engine)
