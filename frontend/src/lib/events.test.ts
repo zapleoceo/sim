@@ -15,10 +15,22 @@ describe('invalidationsFor', () => {
     expect(invalidationsFor(ev('message_in'))).toEqual([...always(), qk.chatLists, qk.chat(7), qk.clients]);
   });
 
-  it('an outgoing message or operator flag refreshes the timeline and chat rows, not the clients', () => {
-    for (const kind of ['message_out', 'send_failed', 'operator_needed', 'guard_blocked', 'call'] as const) {
+  it('an operator flag refreshes the timeline and chat rows, not the clients', () => {
+    for (const kind of ['operator_needed', 'guard_blocked'] as const) {
       expect(invalidationsFor(ev(kind))).toEqual([...always(), qk.chatLists, qk.chat(7)]);
     }
+  });
+
+  it('an outgoing message or a call also refreshes the chat’s planned contacts', () => {
+    for (const kind of ['message_out', 'send_failed', 'call'] as const) {
+      expect(invalidationsFor(ev(kind))).toEqual([...always(), qk.chatLists, qk.chat(7), qk.contacts(7)]);
+    }
+  });
+
+  it('a planned contact refreshes the timeline and the plan only', () => {
+    expect(invalidationsFor(ev('initiative'))).toEqual([...always(), qk.contacts(7)]);
+    // The plan is under the chats prefix, so a reconnect re-reads it too.
+    expect(qk.contacts(7).slice(0, 1)).toEqual(qk.chats);
   });
 
   it('her decision and a generation change the status in the chat rows', () => {

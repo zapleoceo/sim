@@ -7,11 +7,12 @@ import json
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.config import Settings
-from sim.db.models import Chat, Client, Generation, Message, Persona, ReplyRun
+from sim.db.models import Chat, Client, Generation, LlmCall, Message, Persona, ReplyRun
 from sim.domain.attention import AttentionMode, AttentionSettings
 from sim.domain.enums import (
     Author,
@@ -19,6 +20,7 @@ from sim.domain.enums import (
     EventKind,
     GenerationKind,
     GenerationStatus,
+    LlmPurpose,
     MessageKind,
     MessageStatus,
     RunStatus,
@@ -28,16 +30,24 @@ from sim.services.attention.timing import Availability
 from sim.services.context.builder import ContextBuilder
 from sim.services.deps import Deps
 from sim.services.persona_status import (
+    SLOW_HINT,
+    STEP_CHECKING,
+    STEP_PREPARING,
+    STEP_WRITING,
     ChatFacts,
     LastRun,
+    Making,
     Moment,
     PersonaStatus,
     StatusCode,
     StatusTone,
+    Step,
     chat_status,
     chat_statuses,
     describe,
+    elapsed,
     load_facts,
+    turn_step,
 )
 from sim.services.turn_state import Waiting
 from tests.services.factories import add_event, add_message, make_chat, make_persona
@@ -115,13 +125,65 @@ def test_an_operator_is_needed_with_the_guard_reason() -> None:
 # --- 3-6. answering right now ------------------------------------------------------------------
 
 
-def test_a_running_turn_is_thinking_and_a_stale_one_is_not() -> None:
+def test_a_running_turn_is_writing_and_a_stale_one_is_not() -> None:
     running = LastRun(status=RunStatus.RUNNING, created_at=NOW - timedelta(seconds=20))
     status = describe(facts(run=running, waiting=WAITING), moment())
-    assert (status.code, status.title) == (StatusCode.THINKING, "Думает над ответом")
-    assert "19:29" in status.detail                 # her local time
+    assert (status.code, status.tone, status.title) == (StatusCode.THINKING, StatusTone.OK,
+                                                        "Пишет ответ")
+    assert status.detail == "Собеседник думает · шаг идёт 20 с · клиент видит «печатает…»"
     stale = LastRun(status=RunStatus.RUNNING, created_at=NOW - timedelta(minutes=30))
     assert describe(facts(run=stale), moment()).code == StatusCode.ANSWERED
+
+
+@pytest.mark.parametrize(("steps", "step"), [
+    ((), STEP_WRITING),
+    (("vision", "tts"), STEP_WRITING),                  # only the reply and the guard count
+    (("reply",), STEP_CHECKING),
+    (("vision", "reply"), STEP_CHECKING),
+    (("reply", "guard"), STEP_PREPARING),
+    (("reply", "guard", "tts"), STEP_PREPARING),
+    (("reply", "guard", "reply"), STEP_CHECKING),       # a repair or «Вспомнила» is checked again
+])
+def test_the_step_of_a_turn_follows_its_finished_calls(steps: tuple[str, ...],
+                                                       step: Step) -> None:
+    assert turn_step(steps) == step
+
+
+def test_each_step_has_its_title() -> None:
+    for steps, title in ((("reply",), "Перечитывает ответ"),
+                         (("reply", "guard"), "Готовит отправку")):
+        run = LastRun(status=RunStatus.RUNNING, created_at=NOW - timedelta(seconds=40),
+                      steps=steps, step_since=NOW - timedelta(seconds=5))
+        status = describe(facts(run=run, waiting=WAITING), moment())
+        assert (status.code, status.tone, status.title) == (StatusCode.THINKING,
+                                                            StatusTone.OK, title)
+        assert "шаг идёт 5 с" in status.detail      # since the last finished call
+
+
+def test_a_step_much_longer_than_usual_is_a_warning() -> None:
+    checking = LastRun(status=RunStatus.RUNNING, created_at=NOW - timedelta(minutes=2),
+                       steps=("reply",), step_since=NOW - timedelta(seconds=45))
+    status = describe(facts(run=checking, waiting=WAITING), moment())
+    assert (status.code, status.tone) == (StatusCode.THINKING, StatusTone.WARN)
+    assert status.title == "Перечитывает ответ — дольше обычного"
+    assert status.detail == (f"{STEP_CHECKING.who} · шаг идёт 45 с · {SLOW_HINT}")
+    # No finished call yet: the step runs since the turn started.
+    writing = LastRun(status=RunStatus.RUNNING,
+                      created_at=NOW - timedelta(seconds=STEP_WRITING.slow_after_s + 10))
+    slow = describe(facts(run=writing, waiting=WAITING), moment())
+    assert slow.tone == StatusTone.WARN and slow.title == "Пишет ответ — дольше обычного"
+    assert "шаг идёт 1 мин 10 с" in slow.detail
+    in_time = LastRun(status=RunStatus.RUNNING, created_at=NOW - timedelta(minutes=3),
+                      steps=("reply", "guard"),
+                      step_since=NOW - timedelta(seconds=STEP_PREPARING.slow_after_s))
+    assert describe(facts(run=in_time, waiting=WAITING), moment()).tone == StatusTone.OK
+
+
+def test_elapsed_in_minutes_and_seconds() -> None:
+    assert elapsed(NOW - timedelta(seconds=40), NOW) == "40 с"
+    assert elapsed(NOW - timedelta(seconds=290), NOW) == "4 мин 50 с"
+    assert elapsed(NOW - timedelta(minutes=2), NOW) == "2 мин 0 с"
+    assert elapsed(NOW + timedelta(seconds=5), NOW) == "0 с"         # never negative
 
 
 def test_a_generation_and_a_pending_send_by_kind() -> None:
@@ -129,8 +191,14 @@ def test_a_generation_and_a_pending_send_by_kind() -> None:
                         (GenerationKind.VIDEO, "Снимает видео"),
                         (GenerationKind.PHOTO, "Делает фото"),
                         (GenerationKind.VOICE, "Записывает голосовое")):
-        status = describe(facts(generation=kind, sending=MessageKind.TEXT), moment())
+        making = Making(kind, NOW - timedelta(seconds=75))
+        status = describe(facts(generation=making, sending=MessageKind.TEXT), moment())
         assert (status.code, status.title) == (StatusCode.GENERATING, title)
+        assert status.detail.startswith("генерация идёт 1 мин 15 с · обычно")
+    photo = describe(facts(generation=Making(GenerationKind.PHOTO, NOW - timedelta(seconds=9))),
+                     moment())
+    assert photo.detail == ("генерация идёт 9 с · обычно до минуты · уйдёт клиенту, когда "
+                            "будет готово")
     for message_kind, title in ((MessageKind.TEXT, "Печатает ответ"),
                                 (MessageKind.VOICE, "Записывает голосовое")):
         status = describe(facts(sending=message_kind, waiting=WAITING), moment())
@@ -299,7 +367,7 @@ async def test_many_chats_at_once(db: AsyncSession, clock: FixedClock, deps: Dep
     assert {chat.id: statuses[chat.id].title for chat in chats} == {
         answered.id: "Всё отвечено · сейчас: свободное время",
         later.id: "Прочитала, ответит около 20:40",
-        thinking.id: "Думает над ответом",
+        thinking.id: "Пишет ответ",
         blocked.id: "Нужен оператор",
         sending.id: "Записывает кружок",
         photo.id: "Делает фото",
@@ -328,7 +396,33 @@ async def test_a_generation_is_now_only_within_its_window(db: AsyncSession,
     facts = await load_facts(db, await _rows(db, [stale, fresh]), clock.now())
 
     assert facts[stale.id].generation is None
-    assert facts[fresh.id].generation == GenerationKind.PHOTO
+    assert facts[fresh.id].generation == Making(GenerationKind.PHOTO,
+                                                clock.now() - timedelta(minutes=10))
+
+
+async def test_the_step_comes_from_the_finished_calls_of_the_running_turn(
+        db: AsyncSession, clock: FixedClock) -> None:
+    her = await make_persona(db)
+    chat = await make_chat(db, her)
+    now = clock.now()
+    _, asked = await add_message(db, chat, "ты тут?", at=now - timedelta(minutes=2))
+    run = ReplyRun(chat_id=chat.id, status=RunStatus.RUNNING, trigger_event_id=asked.id,
+                   created_at=now - timedelta(seconds=90))
+    db.add(run)
+    await db.flush()
+    for purpose, ago in ((LlmPurpose.REPLY, 50), (LlmPurpose.GUARD, 20)):
+        db.add(LlmCall(reply_run_id=run.id, chat_id=chat.id, purpose=purpose, model="m",
+                       request={}, response={}, created_at=now - timedelta(seconds=ago)))
+    await db.flush()
+
+    [loaded] = (await load_facts(db, await _rows(db, [chat]), now)).values()
+    statuses = await chat_statuses(db, await _rows(db, [chat]), now)
+
+    assert loaded.run is not None
+    assert (loaded.run.id, loaded.run.steps) == (run.id, ("reply", "guard"))
+    assert loaded.run.step_since == now - timedelta(seconds=20)
+    assert statuses[chat.id].title == "Готовит отправку"
+    assert "шаг идёт 20 с" in statuses[chat.id].detail
 
 
 async def test_her_routine_decides_when_she_sees_it(db: AsyncSession, clock: FixedClock,

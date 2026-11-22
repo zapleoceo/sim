@@ -161,6 +161,13 @@ async def toggle_no_refusals(chat_id: int, data: AiToggleIn, db: AsyncSession,
     return await _set_flag(db, ctx, chat_id, "no_refusals", data.enabled)
 
 
+@post("/chats/{chat_id:int}/calls-out", status_code=200)
+async def toggle_calls_out(chat_id: int, data: AiToggleIn, db: AsyncSession,
+                           ctx: ApiContext) -> Json:
+    """«Звонит сама»: she may call this client herself, rarely (docs/initiative.md)."""
+    return await _set_flag(db, ctx, chat_id, "calls_out", data.enabled)
+
+
 @post("/chats/{chat_id:int}/read", status_code=204)
 async def mark_read(chat_id: int, db: AsyncSession) -> None:
     chat = await get_or_404(db, Chat, chat_id, "Чат")
@@ -202,5 +209,5 @@ async def get_reply_run(run_id: int, db: AsyncSession) -> Json:
 
 
 ROUTES = [list_chats, get_chat, get_status, get_timeline, send_message, toggle_ai,
-          toggle_attention_instant, toggle_no_refusals, mark_read, add_note, operator_done,
-          get_reply_run]
+          toggle_attention_instant, toggle_no_refusals, toggle_calls_out, mark_read, add_note,
+          operator_done, get_reply_run]

@@ -21,16 +21,20 @@ from sim.services.attention.check import PhoneCheck
 from sim.services.attention.schedule import lost_checks
 from sim.services.deps import get_deps
 from sim.services.generation import GenerationService
+from sim.services.initiative import queue_started, start_due
 from sim.services.life.planner import LifePlanner
 from sim.services.memory.morning import MorningService
 from sim.services.memory.night import NightMemory
 from sim.services.passport import PassportService
+from sim.services.recordings import purge_recordings
 from sim.services.reply import ReplyService
 from sim.services.understanding import Understanding
 from sim.tasks.queue import (
     AGENT_QUEUE,
     ATTENTION_TICK_CRON,
     ATTENTION_TICK_TASK,
+    CONTACTS_TICK_CRON,
+    CONTACTS_TICK_TASK,
     GENERATE_TASK,
     LIFE_TICK_CRON,
     LIFE_TICK_TASK,
@@ -45,6 +49,8 @@ from sim.tasks.queue import (
     PLAN_DAY_TASK,
     REAP_CRON,
     REAP_TASK,
+    RECORDINGS_TICK_CRON,
+    RECORDINGS_TICK_TASK,
     REPLY_TASK,
     STALLED_CRON,
     STALLED_TASK,
@@ -159,6 +165,22 @@ async def memory_tick(timestamp: int) -> None:
         await deps.tasks.night_memory(persona_id, day.isoformat())
 
 
+async def contacts_tick(timestamp: int) -> None:
+    """Every minute: planned messages and calls whose time has come (docs/initiative.md)."""
+    deps = get_deps()
+    async with transaction(deps.sessions) as session:
+        started = await start_due(session, deps.clock.now())
+    await queue_started(deps.tasks, started)
+
+
+async def recordings_tick(timestamp: int) -> None:
+    """Every hour: call recordings older than their persona's days are deleted."""
+    deps = get_deps()
+    deleted = await purge_recordings(deps.sessions, deps.storage, deps.clock.now())
+    if deleted:
+        log.info("deleted %s old call recordings", deleted)
+
+
 def register_agent_tasks(app: procrastinate.App) -> None:
     """Register under the exact shared names (no blueprint namespace prefix)."""
     def broker_task(name: str, task: Task, *, queue: str = AGENT_QUEUE,
@@ -186,3 +208,7 @@ def register_agent_tasks(app: procrastinate.App) -> None:
     app.periodic(cron=STALLED_CRON, periodic_id="stalled")(stalled)
     reap = app.task(name=REAP_TASK, queue=AGENT_QUEUE)(reap_tick)
     app.periodic(cron=REAP_CRON, periodic_id="reaper")(reap)
+    contacts = app.task(name=CONTACTS_TICK_TASK, queue=AGENT_QUEUE)(contacts_tick)
+    app.periodic(cron=CONTACTS_TICK_CRON, periodic_id="contacts")(contacts)
+    recordings = app.task(name=RECORDINGS_TICK_TASK, queue=AGENT_QUEUE)(recordings_tick)
+    app.periodic(cron=RECORDINGS_TICK_CRON, periodic_id="recordings")(recordings)

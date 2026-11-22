@@ -9,6 +9,15 @@
           Broker refuses, nobody picked up) -> answer -> talk (AudioBridge) -> hang up
        -> Call row + `call` event in one transaction (the passport learns it at night).
 
+Her own call (`dial`, a due planned contact, docs/initiative.md):
+
+  contact -> may she call? (the same AI gate and switches; the chat's messenger must be
+          Telegram) -> `call` row (direction out) -> ring the client (`RING_OUT_S`)
+       -> picked up: open the live session with the reason of the call (she waits for his
+          «алло») -> talk -> hang up; nobody picked up / declined / busy: a missed call, and
+          an `initiative` event makes her text him why she called
+       -> the contact closes with the outcome in the same transaction as the call.
+
 Every outcome is a `call` row and a `call` event: declined, missed (the caller hung up first),
 failed (Broker or Telegram refused), ended (a conversation took place). No database transaction
 is open while the call runs; nothing slow except the live session runs in this process."""
@@ -18,7 +27,7 @@ import asyncio
 import logging
 import secrets
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
@@ -26,26 +35,61 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sim.channels.delivery import peer_of
 from sim.config import Settings
-from sim.db.models import Call, Chat, Client, Persona
+from sim.db.models import Call, Chat, Client, Persona, PlannedContact
 from sim.db.session import transaction
 from sim.domain.agents import AgentKey, agent_config
 from sim.domain.ai_gate import AiBlock, ai_block
 from sim.domain.attention import attention_settings
-from sim.domain.enums import CallDirection, CallStatus, EventKind
+from sim.domain.enums import (
+    CallDirection,
+    CallStatus,
+    ContactSource,
+    ContactStatus,
+    EventKind,
+)
+from sim.domain.initiative import NO_ANSWER_RESULTS, NO_ANSWER_TOPIC, RING_OUT_S
 from sim.domain.life import BusyLevel
 from sim.events import append_event
-from sim.ports import ClockPort, LivePort, LiveSession, Peer
+from sim.ports import (
+    ClockPort,
+    LivePort,
+    LiveSession,
+    MediaStoragePort,
+    MediaToolsPort,
+    Peer,
+    PortError,
+)
 from sim.services.attention.schedule import check_after_notice, queue_check
 from sim.services.attention.timing import Availability, availability
+from sim.services.initiative import (
+    PERSONA_ACTOR,
+    calls_unavailable,
+    channel_kind_of,
+    finish_contact,
+    write_first,
+)
 from sim.services.life.store import load_life
-from sim.services.turn_state import LIFE_ACTIVITY_KEY, LIFE_REFUSED_KEY
-from sim.telegram.calls.backend import CallGone, IncomingCall
+from sim.services.recordings import RECORDING_MIME, RECORDING_PREFIX
+from sim.services.turn_state import AFTER_CALL_KEY, LIFE_ACTIVITY_KEY, LIFE_REFUSED_KEY
+from sim.telegram.calls.backend import (
+    CallAudio,
+    CallBackend,
+    CallGone,
+    IncomingCall,
+    NoAnswer,
+    OutgoingCall,
+)
 from sim.telegram.calls.bridge import AudioBridge, Outcome
+from sim.telegram.calls.recording import CallRecorder
+from sim.telegram.calls.tempo import TempoFactory, ffmpeg_tempo
 
 log = logging.getLogger(__name__)
 
-ACTOR = "client"                       # an incoming call is the client's action
+ACTORS = {CallDirection.IN: "client", CallDirection.OUT: PERSONA_ACTOR}   # who called
+NO_ANSWER_TEXT_S = (60.0, 240.0)       # after a missed call of hers she texts within minutes
+AFTER_CALL_TEXT_S = (15.0, 45.0)       # after a talk she does what she promised on it
 OPEN_STATUSES = (CallStatus.RINGING, CallStatus.ACTIVE)
 PARTIAL_DECLINE_SHARE = 0.5            # busy: she declines about every second call
 MISSED_RING_S = 45.0                   # away: it rings this long, then the caller gets nothing
@@ -71,6 +115,8 @@ class CallTasks(Protocol):
     async def refresh_memory(self, chat_id: int) -> Any: ...
 
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> Any: ...
+
+    async def reply(self, chat_id: int, delay_s: float = 0) -> Any: ...
 
 
 def life_refusal(av: Availability, uniform: Callable[[float, float], float]) -> Refusal | None:
@@ -135,6 +181,8 @@ class Ring:
     persona_id: int | None = None
     check_at: datetime | None = None   # her phone check this call asked for (life_busy)
     rang_at: datetime | None = None
+    contact_id: int | None = None      # her call: the planned contact it carries out
+    topic: str = ""
 
 
 class CallService:
@@ -144,6 +192,8 @@ class CallService:
         tasks: CallTasks, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         uniform: Callable[[float, float], float] | None = None,
+        tempo: TempoFactory | None = ffmpeg_tempo,
+        tools: MediaToolsPort | None = None, storage: MediaStoragePort | None = None,
     ) -> None:
         self.sessions = sessions
         self.settings = settings
@@ -155,6 +205,9 @@ class CallService:
         self.sleep = sleep
         self.mono = monotonic
         self.uniform = uniform or secrets.SystemRandom().uniform
+        self.tempo = tempo
+        self.tools = tools
+        self.storage = storage
 
     # --- the call ------------------------------------------------------------------------
 
@@ -193,6 +246,99 @@ class CallService:
             return await self.close(ring, CallStatus.FAILED, error=f"answer: {short(exc)}")
         return await self.talk(ring, call, session, max_seconds)
 
+    async def dial(self, contact_id: int, backends: Mapping[int, CallBackend]) -> CallStatus | None:
+        """Her call of a started planned contact, to the end; None = it was not placed (the
+        contact is closed with the reason)."""
+        placed = await self.place(contact_id)
+        if placed is None:
+            return None
+        ring, channel_id, peer = placed
+        backend = backends.get(channel_id)
+        if backend is None:
+            return await self.close(ring, CallStatus.FAILED,
+                                    error="calls of this account are not connected")
+        call: OutgoingCall | None = None
+        try:
+            call = await backend.dial(peer)
+            await call.ring(RING_OUT_S)
+        except NoAnswer as exc:
+            status = CallStatus.MISSED if exc.reason == "no_answer" else CallStatus.DECLINED
+            return await self.close(ring, status, error=None, end_reason=exc.reason)
+        except Exception as exc:
+            if call is not None:
+                await call.hangup()
+            return await self.close(ring, CallStatus.FAILED, error=f"dial: {short(exc)}")
+        ctx = ring.context
+        max_seconds = int(getattr(ctx, "max_seconds", 0) or self.settings.call_max_seconds)
+        try:
+            session = await self.live.open(
+                model=ctx.model, system=ctx.system, voice=ctx.voice, language=ctx.language,
+                greeting=ctx.greeting, max_seconds=max_seconds, key_tier=ctx.key_tier)
+        except Exception as exc:
+            await call.hangup()
+            return await self.close(ring, CallStatus.FAILED, error=f"live: {short(exc)}")
+        return await self.talk(ring, call, session, max_seconds)
+
+    async def place(self, contact_id: int) -> tuple[Ring, int, Peer] | None:
+        """Checks and records her call (the `call` row, ringing) for a started contact:
+        (ring, channel id, the client's peer), or None with the contact closed."""
+        async with transaction(self.sessions) as session:
+            contact = await session.get(PlannedContact, contact_id, with_for_update=True)
+            if contact is None or contact.status != ContactStatus.STARTED:
+                return None
+            chat = await session.get(Chat, contact.chat_id)
+            persona = await session.get(Persona, chat.persona_id) if chat else None
+            client = await session.get(Client, chat.client_id) if chat else None
+            reason = await self.dial_refusal(session, contact, chat, persona, client)
+            peer: Peer | None = None
+            if reason is None and chat is not None:
+                try:
+                    peer = await peer_of(session, chat)
+                except PortError as exc:
+                    reason = str(exc)
+            if reason is not None or chat is None or persona is None or peer is None:
+                finish_contact(contact, ContactStatus.FAILED,
+                               f"не позвонила: {reason or 'чат пропал'}", self.clock.now())
+                return None
+            row = Call(chat_id=chat.id, direction=CallDirection.OUT, status=CallStatus.RINGING,
+                       external_id=peer.external_id, transcript=[])
+            session.add(row)
+            await session.flush()
+            contact.call_id = row.id
+            try:
+                context = await self.context.for_call(session, chat.id,
+                                                      outgoing_topic=contact.topic)
+            except Exception as exc:
+                log.exception("call %s: context not built", row.id)
+                finish_contact(contact, ContactStatus.FAILED, "не позвонила: контекст",
+                               self.clock.now())
+                await self.record(session, row, CallStatus.FAILED,
+                                  error=f"context: {short(exc)}", ended_at=self.clock.now())
+                return None
+            ring = Ring(row.id, chat.id, CallStatus.RINGING, context, persona_id=persona.id,
+                        contact_id=contact.id, topic=contact.topic)
+            return ring, chat.channel_id, peer
+
+    async def dial_refusal(self, session: AsyncSession, contact: PlannedContact,
+                           chat: Chat | None, persona: Persona | None,
+                           client: Client | None) -> str | None:
+        """Why she must not call now, or None: the same gate as for her answers, the call
+        switches and the messenger; her own idea also needs «Звонит сама» still on."""
+        if chat is None or persona is None:
+            return "чат пропал"
+        blocked = ai_block(persona, client, chat)
+        if blocked is not None:
+            return GATE_REASONS[blocked]
+        unavailable = calls_unavailable(persona, await channel_kind_of(session, chat),
+                                        calls_enabled=self.settings.calls_enabled)
+        if unavailable:
+            return unavailable
+        if contact.source == ContactSource.PERSONA and not chat.calls_out:
+            return "«Звонит сама» выключили"
+        busy = await session.scalar(select(Call.id).where(
+            Call.chat_id == chat.id, Call.status.in_(OPEN_STATUSES)).limit(1))
+        return "с ним уже идёт звонок" if busy is not None else None
+
     async def let_ring(self, call: IncomingCall) -> None:
         """Nobody picks up: it rings until the caller gives up (or `MISSED_RING_S`)."""
         waited = 0.0
@@ -212,13 +358,17 @@ class CallService:
         except Exception:
             log.exception("call %s: phone check after the call not queued", ring.call_id)
 
-    async def talk(self, ring: Ring, call: IncomingCall, session: LiveSession,
+    async def talk(self, ring: Ring, call: CallAudio, session: LiveSession,
                    max_seconds: int) -> CallStatus:
         started_at, started = self.clock.now(), self.mono()
         await self.mark_active(ring.call_id, started_at)
+        recorder = (CallRecorder() if getattr(ring.context, "record", False)
+                    and self.tools is not None and self.storage is not None else None)
         try:
-            outcome = await AudioBridge(call, session, max_seconds=max_seconds,
-                                        monotonic=self.mono).run()
+            outcome = await AudioBridge(
+                call, session, max_seconds=max_seconds, monotonic=self.mono,
+                speed=float(getattr(ring.context, "speed", 1.0) or 1.0),
+                tempo=self.tempo, recorder=recorder).run()
         except Exception as exc:          # never leave the row open
             outcome = Outcome("bridge_error", short(exc), [])
         finally:
@@ -228,19 +378,46 @@ class CallService:
         if not outcome.frames_out:
             log.warning("call %s: the caller never heard her (%s)", ring.call_id, outcome.reason)
         cost = summary.get("cost_usd")
+        transcript = outcome.transcript or broker_transcript(summary)
+        she_spoke = any(line.get("who") == "persona" for line in transcript)
         status = await self.close(
             ring, CallStatus.ENDED, error=outcome.error, started_at=started_at,
-            duration_s=round(duration, 1),
-            transcript=outcome.transcript or broker_transcript(summary),
+            duration_s=round(duration, 1), transcript=transcript,
             cost_usd=float(cost) if isinstance(cost, int | float) else None,
             model=str(summary.get("model") or getattr(ring.context, "model", "") or ""),
-            end_reason=outcome.reason)
+            end_reason=outcome.reason, extra={AFTER_CALL_KEY: True} if she_spoke else None)
         try:
             # A call that made today too long for the context compresses its morning.
             await self.tasks.refresh_memory(ring.chat_id)
+            if she_spoke:
+                # She still holds the phone: what she promised on the call (a video note, a
+                # text, a call back) she does now (docs/calls.md, «После звонка»).
+                await self.tasks.reply(ring.chat_id, self.uniform(*AFTER_CALL_TEXT_S))
         except Exception:
-            log.exception("call %s: morning compression not queued", ring.call_id)
+            log.exception("call %s: the turns after the call not queued", ring.call_id)
+        if recorder is not None:
+            await self.save_recording(ring.call_id, recorder)
         return status
+
+    async def save_recording(self, call_id: int, recorder: CallRecorder) -> None:
+        """The talk as stereo OGG in the media storage, after the call is closed: a failure
+        only loses the audio (logged), never the call (docs/calls.md, «Запись звонка»)."""
+        assert self.tools is not None and self.storage is not None
+        stereo = recorder.stereo()
+        if not stereo:
+            return
+        try:
+            ogg, seconds = await self.tools.call_recording(stereo, recorder.rate_hz)
+            key = await self.storage.put(ogg, mime=RECORDING_MIME, prefix=RECORDING_PREFIX)
+        except Exception:
+            log.exception("call %s: the recording was not saved", call_id)
+            return
+        async with transaction(self.sessions) as session:
+            row = await session.get(Call, call_id)
+            if row is None:
+                await self.storage.delete(key)
+                return
+            row.recording_key, row.recording_s = key, seconds
 
     # --- database ------------------------------------------------------------------------
 
@@ -309,9 +486,10 @@ class CallService:
                     started_at: datetime | None = None, duration_s: float | None = None,
                     transcript: list[dict[str, Any]] | None = None,
                     cost_usd: float | None = None, model: str = "",
-                    end_reason: str = "") -> CallStatus:
+                    end_reason: str = "", extra: dict[str, Any] | None = None) -> CallStatus:
         ended_at = (started_at + timedelta(seconds=duration_s)
                     if started_at is not None and duration_s is not None else self.clock.now())
+        texts_later = False
         async with transaction(self.sessions) as session:
             row = await session.get(Call, ring.call_id)
             if row is None:
@@ -322,8 +500,41 @@ class CallService:
             row.cost_usd = cost_usd
             row.model = model
             await self.record(session, row, status, error=error, ended_at=ended_at,
-                              end_reason=end_reason)
+                              end_reason=end_reason, extra=extra)
+            if ring.contact_id is not None:
+                texts_later = await self.close_contact(session, ring, status, error=error,
+                                                       end_reason=end_reason,
+                                                       duration_s=duration_s)
+        if texts_later:
+            try:
+                await self.tasks.reply(ring.chat_id, self.uniform(*NO_ANSWER_TEXT_S))
+            except Exception:
+                log.exception("call %s: the text after the missed call not queued",
+                              ring.call_id)
         return status
+
+    async def close_contact(self, session: AsyncSession, ring: Ring, status: CallStatus, *,
+                            error: str | None, end_reason: str,
+                            duration_s: float | None) -> bool:
+        """Closes the planned contact of her call. Nobody picked up -> an `initiative` event:
+        she texts him why she called (True: the caller queues that turn)."""
+        contact = await session.get(PlannedContact, ring.contact_id)
+        if contact is None:
+            return False
+        now = self.clock.now()
+        if status == CallStatus.ENDED:
+            minutes = round((duration_s or 0.0) / 60, 1)
+            finish_contact(contact, ContactStatus.DONE, f"поговорили {minutes} мин", now)
+            return False
+        if status in (CallStatus.MISSED, CallStatus.DECLINED):
+            finish_contact(contact, ContactStatus.FAILED,
+                           NO_ANSWER_RESULTS.get(end_reason, "не взял трубку"), now)
+            await write_first(session, ring.chat_id, actor=PERSONA_ACTOR,
+                              topic=NO_ANSWER_TOPIC.format(topic=ring.topic),
+                              source=ContactSource.PERSONA, contact_id=contact.id)
+            return True
+        finish_contact(contact, ContactStatus.FAILED, f"звонок сорвался: {error or status}", now)
+        return False
 
     @staticmethod
     async def record(session: AsyncSession, row: Call, status: CallStatus, *,
@@ -340,8 +551,9 @@ class CallService:
             data["error"] = error
         if end_reason:
             data["end_reason"] = end_reason
-        await append_event(session, chat_id=row.chat_id, kind=EventKind.CALL, actor=ACTOR,
-                           call_id=row.id, data=data)
+        await append_event(session, chat_id=row.chat_id, kind=EventKind.CALL,
+                           actor=ACTORS[CallDirection(row.direction)], call_id=row.id,
+                           data=data)
 
     async def close_stale(self) -> int:
         """At process start: calls left ringing/active by a crash or restart become failed."""

@@ -42,6 +42,8 @@ export const qk = {
   chat: (id: number) => ['chats', 'detail', id] as const,
   /** «Статус Марины» of one chat (the strip in the conversation header). */
   chatStatus: (id: number) => ['chats', 'status', id] as const,
+  /** «Запланировано»: the planned contacts of one chat. */
+  contacts: (chatId: number) => ['chats', 'contacts', chatId] as const,
   /** Prefix of every chat's timeline. */
   timelines: ['timeline'] as const,
   timeline: (chatId: number) => ['timeline', chatId] as const,

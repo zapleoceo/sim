@@ -5,6 +5,10 @@ Telethon carries no VoIP; py-tgcalls attaches to the SAME Telethon client (one s
 be connected twice) and drives ntgcalls. Audio is raw PCM both ways (`ExternalMedia.AUDIO` out
 via `send_frame`, `RecordStream` in via StreamFrames updates).
 
+Her own call (`dial` -> `ring`) is the same private call started from this side: py-tgcalls
+requests it, waits up to the ring timeout for the callee to pick up and raises TimedOutAnswer /
+CallDeclined / CallBusy otherwise (here: `NoAnswer`).
+
 Picking up is bounded: py-tgcalls waits `ANSWER_TIMEOUT_S` for the caller's side to confirm the
 key exchange, and a caller who hangs up meanwhile cancels the pending answer at once (py-tgcalls
 would otherwise keep the chat's lock until its timeout and a quick redial would wait).
@@ -21,8 +25,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from sim.ports import Peer
-from sim.telegram.calls.backend import CallGone, CallHandler
-from sim.telegram.peers import peer_from_user
+from sim.telegram.calls.backend import CallGone, CallHandler, NoAnswer
+from sim.telegram.peers import input_peer, peer_from_user
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +37,7 @@ _ENDED = object()
 
 def load_pytgcalls() -> SimpleNamespace:  # pragma: no cover - needs the native ntgcalls wheel
     from pytgcalls import PyTgCalls
+    from pytgcalls.exceptions import CallBusy, CallDeclined, CallDiscarded, TimedOutAnswer
     from pytgcalls.types import (
         CallConfig,
         ChatUpdate,
@@ -49,6 +54,8 @@ def load_pytgcalls() -> SimpleNamespace:  # pragma: no cover - needs the native 
         PyTgCalls=PyTgCalls, CallConfig=CallConfig, ChatUpdate=ChatUpdate, Device=Device,
         Direction=Direction, ExternalMedia=ExternalMedia, MediaStream=MediaStream,
         RecordStream=RecordStream, StreamFrames=StreamFrames, AudioParameters=AudioParameters,
+        TimedOutAnswer=TimedOutAnswer, CallDeclined=CallDeclined, CallBusy=CallBusy,
+        CallDiscarded=CallDiscarded,
     )
 
 
@@ -61,7 +68,7 @@ def has_status(status: Any, flag: Any) -> bool:
 
 
 class TelegramCall:
-    """`IncomingCall` over one py-tgcalls private call."""
+    """`IncomingCall` (and `OutgoingCall`, `ring`) over one py-tgcalls private call."""
 
     def __init__(self, backend: PyTgCallsBackend, chat_id: int) -> None:
         self.backend = backend
@@ -113,12 +120,32 @@ class TelegramCall:
                 await self.backend.calls.leave_call(self.chat_id)
             raise CallGone("the caller hung up while the call was being picked up")
 
-    async def accept(self) -> None:
+    async def accept(self, timeout_s: int | None = None) -> None:
         lib, calls = self.backend.lib, self.backend.calls
         params = lib.AudioParameters(self.rate_hz, 1)
         await calls.play(self.chat_id, lib.MediaStream(lib.ExternalMedia.AUDIO, params),
-                         lib.CallConfig(timeout=self.backend.answer_timeout_s))
+                         lib.CallConfig(timeout=timeout_s or self.backend.answer_timeout_s))
         await calls.record(self.chat_id, lib.RecordStream(True, params))
+
+    async def ring(self, timeout_s: int) -> None:
+        """Her call: py-tgcalls requests it and waits for the callee (`OutgoingCall`)."""
+        lib = self.backend.lib
+        self.answered = True
+        try:
+            await self.accept(timeout_s)
+        except lib.TimedOutAnswer:
+            reason = "no_answer"
+        except lib.CallBusy:
+            reason = "busy"
+        except (lib.CallDeclined, lib.CallDiscarded):
+            reason = "declined"
+        else:
+            return
+        self.remote_ended()
+        self.backend.forget(self)
+        with contextlib.suppress(Exception):
+            await self.backend.calls.leave_call(self.chat_id)
+        raise NoAnswer(reason)
 
     def feed(self, pcm: bytes) -> None:
         if not self.ended:
@@ -174,6 +201,20 @@ class PyTgCallsBackend:
         self.calls.on_update()(self.on_update)
         await self.calls.start()
         self.started = True
+
+    async def dial(self, peer: Peer) -> TelegramCall:
+        """Her call to the client; it rings on `TelegramCall.ring`. py-tgcalls finds the user
+        in Telethon's entity cache, so the user is fetched first by the stored access hash (the
+        cache is empty after a restart). A call already going on with this person is refused
+        (`NoAnswer("busy")`)."""
+        user_id = int(peer.external_id)
+        if user_id in self.active:
+            raise NoAnswer("busy")
+        with contextlib.suppress(Exception):
+            await self.client.get_entity(await input_peer(self.client, peer))
+        call = TelegramCall(self, user_id)
+        self.active[user_id] = call
+        return call
 
     def forget(self, call: TelegramCall) -> None:
         """Only its own entry: the same person may already be ringing again."""

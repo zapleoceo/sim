@@ -24,6 +24,7 @@ import { clientName } from '@/lib/utils';
 import { TIMELINE_PAGE, chatsApi, invalidateChat } from './api';
 import { ChatFlagMenuItem, ChatFlagSwitch } from './chat-flag-switch';
 import { Composer } from './composer';
+import { ContactsSheet } from './contacts-sheet';
 import { PersonaStatusStrip } from './persona-status';
 import { ReplyRunSheet } from './reply-run-sheet';
 import { TimelineEntry } from './timeline-entry';
@@ -75,7 +76,7 @@ function NoteDialog({ chatId, open, onOpenChange }: { chatId: number; open: bool
 }
 
 /**
- * Below 640 px the header keeps the name, «Паспорт» and «ИИ в чате»; «Заметка», the chat flags and
+ * Below 640 px the header keeps the name, «Паспорт», «Запланировать» and «ИИ в чате»; «Заметка», the chat flags and
  * «Оператор разобрался» move into this menu (a dot on it while an operator is needed).
  */
 function ChatHeaderMenu({ chat, onNote, onDone, doneBusy }: {
@@ -107,6 +108,7 @@ function ChatHeaderMenu({ chat, onNote, onDone, doneBusy }: {
         <DropdownMenuSeparator />
         <ChatFlagMenuItem chatId={chat.id} flag="attention_instant" enabled={chat.attention_instant} />
         <ChatFlagMenuItem chatId={chat.id} flag="no_refusals" enabled={chat.no_refusals} />
+        <ChatFlagMenuItem chatId={chat.id} flag="calls_out" enabled={chat.calls_out} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -155,6 +157,7 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <PassportSheet client={chat.client} />
+        <ContactsSheet chatId={chat.id} />
         <div className="flex flex-wrap items-center gap-2 max-sm:hidden">
           {chat.needs_operator && (
             <Button variant="outline" size="sm" onClick={() => done.mutate()} disabled={done.isPending}>
@@ -168,6 +171,7 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
           </Button>
           <ChatFlagSwitch chatId={chat.id} flag="attention_instant" enabled={chat.attention_instant} />
           <ChatFlagSwitch chatId={chat.id} flag="no_refusals" enabled={chat.no_refusals} />
+          <ChatFlagSwitch chatId={chat.id} flag="calls_out" enabled={chat.calls_out} />
         </div>
         <MutationSwitch
           checked={chat.ai_enabled}

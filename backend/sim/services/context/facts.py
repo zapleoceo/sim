@@ -180,5 +180,7 @@ def compute_facts(inp: FactsInput) -> Facts:
             f"Сейчас можно: голосовые — {_yes(caps.voice)}; фото из каталога — "
             f"{_yes(caps.photo)}; новые фото — {_yes(caps.photo_generate)}; видео из каталога"
             f" — {_yes(caps.video)}; новые видео — {_yes(caps.video_generate)}; кружки — "
-            f"{_yes(notes)}{'' if caps.video_note else ' (в этом мессенджере их нет)'}.")
+            f"{_yes(notes)}{'' if caps.video_note else ' (в этом мессенджере их нет)'}; "
+            f"позвонить самой — {_yes(caps.call_out)}"
+            f"{'' if caps.call_out or not caps.call_block else f' ({caps.call_block})'}.")
     return Facts(lines=tuple(lines), values=values)

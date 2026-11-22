@@ -2,13 +2,19 @@
 (models, key tiers, prompts) are in test_agents.py."""
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Persona
-from sim.ports import ModelInfo
-from sim.services.voices import GEMINI_VOICES as VOICES
+from sim.db.models import LlmCall, Persona
+from sim.domain.enums import LlmPurpose
+from sim.ports import ModelInfo, PortError
+from sim.services.voices import GEMINI_VOICES, SAMPLE_TEXT, SAMPLES, SampleCache
 from tests.api.fakes import FakeDeps
 from tests.api.helpers import ApiClient, World, pp
+from tests.fakes.ai import FakeSpeech
 
 
 def model(model_id: str, *, available: bool = True) -> ModelInfo:
@@ -79,7 +85,89 @@ async def test_models_list_when_broker_is_down_is_502(api: ApiClient, deps: Fake
 async def test_voices(api: ApiClient) -> None:
     voices = await api.get("/api/voices")
     assert voices.status_code == 200
-    assert len(voices.json()["items"]) == len(VOICES) > 0
+    items = voices.json()["items"]
+    assert len(items) == len(GEMINI_VOICES) > 0
+    assert all(set(item) == {"id", "label", "gender", "tone"} for item in items)
+    assert {item["gender"] for item in items} == {"female", "male"}
+    by_id = {item["id"]: item for item in items}
+    assert by_id["Vindemiatrix"] == {"id": "Vindemiatrix", "gender": "female", "tone": "нежный",
+                                     "label": "Vindemiatrix — нежный, женский"}
+    assert by_id["Puck"]["label"] == "Puck — бодрый, мужской"
+
+
+@pytest.fixture
+def samples() -> Iterator[SampleCache]:
+    """The process-wide cache of voice samples, empty for each test."""
+    SAMPLES.items.clear()
+    yield SAMPLES
+    SAMPLES.items.clear()
+
+
+async def with_tts(db: AsyncSession, world: World) -> None:
+    persona = await db.get(Persona, world.persona_id)
+    assert persona is not None
+    persona.agents = {**persona.agents, "tts": {"model": "google/tts"}}
+    await db.commit()
+
+
+async def test_a_voice_sample_is_spoken_once(api: ApiClient, world: World, db: AsyncSession,
+                                             deps: FakeDeps, samples: SampleCache) -> None:
+    deps.speech = FakeSpeech()
+    await with_tts(db, world)
+    url = f"/api/voices/Kore/sample?persona_id={world.persona_id}"
+
+    first = await api.get(url)
+
+    assert first.status_code == 200, first.text
+    assert first.content == b"RIFF" + SAMPLE_TEXT.encode()
+    assert first.headers["content-type"].startswith("audio/wav")
+    assert deps.speech.calls == [{"text": SAMPLE_TEXT, "voice": "Kore", "style": "",
+                                  "model": "google/tts", "key_tier": "paid"}]
+    [log] = (await db.scalars(select(LlmCall).where(LlmCall.purpose == LlmPurpose.TTS))).all()
+    assert log.request["voice"] == "Kore" and log.request["sample"] is True
+    # Cached in the process: the next listen costs nothing.
+    again = await api.get(url)
+    assert again.status_code == 200 and again.content == first.content
+    assert len(deps.speech.calls) == 1
+    other = await api.get(f"/api/voices/Puck/sample?persona_id={world.persona_id}")
+    assert other.status_code == 200 and len(deps.speech.calls) == 2
+
+
+async def test_a_voice_sample_needs_a_voice_and_a_model(api: ApiClient, world: World,
+                                                        db: AsyncSession, deps: FakeDeps,
+                                                        samples: SampleCache) -> None:
+    deps.speech = FakeSpeech()
+    assert (await api.get("/api/voices/Alice/sample")).status_code == 404
+    no_model = await api.get(f"/api/voices/Kore/sample?persona_id={world.persona_id}")
+    assert no_model.status_code == 400 and "Голос" in no_model.json()["error"]
+    assert (await api.get("/api/voices/Kore/sample")).status_code == 400   # no persona: default
+    assert (await api.get("/api/voices/Kore/sample?persona_id=999999")).status_code == 404
+    await with_tts(db, world)
+    deps.speech.error = PortError("no paid key")
+    failed = await api.get(f"/api/voices/Kore/sample?persona_id={world.persona_id}")
+    assert failed.status_code == 502 and "no paid key" in failed.json()["error"]
+    assert samples.items == {}                          # a failure is not cached
+
+
+def test_the_sample_cache_drops_the_oldest() -> None:
+    cache = SampleCache(size=2)
+    cache.put("m", "Kore", b"1", "audio/wav")
+    cache.put("m", "Puck", b"2", "audio/wav")
+    assert cache.get("m", "Kore") == (b"1", "audio/wav")   # now the newest
+    cache.put("m", "Leda", b"3", "audio/wav")
+    assert cache.get("m", "Puck") is None
+    assert cache.get("m", "Kore") is not None and cache.get("other", "Kore") is None
+
+
+async def test_her_voice_speed(api: ApiClient, world: World, db: AsyncSession) -> None:
+    assert (await api.get(pp(world))).json()["voice_speed"] == 1.0
+    saved = await api.put(pp(world), json={"voice_speed": 1.25})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["voice_speed"] == 1.25
+    persona = await db.get(Persona, world.persona_id)
+    assert persona is not None and persona.voice_speed == 1.25
+    for speed in (2.0, 0.5):
+        assert (await api.put(pp(world), json={"voice_speed": speed})).status_code == 400
 
 
 async def test_personas_list_with_leads_and_channels(api: ApiClient, world: World,

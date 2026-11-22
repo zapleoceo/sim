@@ -33,6 +33,6 @@ describe('statusText', () => {
     expect(statusText({ title: 'Оставила прочитанным', detail: 'он просто поблагодарил' })).toBe(
       'Оставила прочитанным — он просто поблагодарил',
     );
-    expect(statusText({ title: 'Думает над ответом', detail: '' })).toBe('Думает над ответом');
+    expect(statusText({ title: 'Пишет ответ', detail: '' })).toBe('Пишет ответ');
   });
 });

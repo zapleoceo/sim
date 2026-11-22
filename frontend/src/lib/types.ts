@@ -16,7 +16,8 @@ export type EventKind =
   | 'operator_note'
   | 'client_updated'
   | 'memory_updated'
-  | 'attention';
+  | 'attention'
+  | 'initiative';
 
 export type Direction = 'in' | 'out';
 export type Author = 'client' | 'persona' | 'operator';
@@ -180,6 +181,8 @@ export interface ChatRow {
   attention_instant: boolean;
   /** «Без отказов» in this chat (docs/writing.md). */
   no_refusals: boolean;
+  /** «Звонит сама»: she may call this client herself (docs/calls.md). */
+  calls_out: boolean;
   needs_operator: boolean;
   unread_count: number;
   /** What she is doing about this chat now — visible to the team only. */
@@ -219,6 +222,9 @@ export interface TimelineCall {
   status: string;
   duration_s: number | null;
   transcript: TranscriptLine[];
+  /** `/api/calls/{id}/recording` (stereo OGG: the client left, her right); null — no recording. */
+  recording_url?: string | null;
+  recording_s?: number | null;
 }
 
 export interface TimelineGeneration {
@@ -270,6 +276,35 @@ export interface Items<T> {
   items: T[];
 }
 
+/** A planned contact: she writes or calls this client at `due_at` about `topic` (docs/calls.md). */
+export type ContactKind = 'message' | 'call';
+export type ContactSource = 'manager' | 'persona';
+export type ContactStatus = 'planned' | 'started' | 'done' | 'failed' | 'cancelled';
+
+export interface Contact {
+  id: number;
+  chat_id: number;
+  kind: ContactKind;
+  /** `persona` — she decided it herself; `manager` — planned from the dashboard. */
+  source: ContactSource;
+  topic: string;
+  due_at: string;
+  status: ContactStatus;
+  /** What came of it (empty while planned). */
+  result: string;
+  created_by: string;
+  created_at: string;
+  finished_at: string | null;
+  call_id: number | null;
+}
+
+/** POST /chats/{id}/contacts. `due_at` is ISO 8601 with the time zone offset. */
+export interface ContactCreate {
+  kind: ContactKind;
+  topic: string;
+  due_at: string;
+}
+
 /** The chronicler's summary of one persona-local day of a chat (docs/memory.md). */
 export interface ChatDay {
   day: string;
@@ -317,11 +352,16 @@ export interface Persona {
   voice_ambience_enabled: boolean;
   voice_id: string;
   voice_style: string;
+  /** Speech speed of voice notes and calls, 0.8–1.5 (1.0 — as the model speaks). */
+  voice_speed: number;
   ai_enabled: boolean;
   voice_enabled: boolean;
   photo_enabled: boolean;
   video_enabled: boolean;
   calls_enabled: boolean;
+  /** Keep a stereo recording of each call; recordings older than `call_recording_days` are purged. */
+  call_recording: boolean;
+  call_recording_days: number;
   reply_delay_s: number;
 }
 
@@ -437,9 +477,15 @@ export interface PersonaAgentsPatch {
   attention: AttentionSettings;
 }
 
+export type VoiceGender = 'female' | 'male';
+
+/** A TTS voice (GET /voices); its sample is GET /voices/{id}/sample. */
 export interface Voice {
   id: string;
   label: string;
+  gender: VoiceGender;
+  /** A short Russian description: «уверенный», «мягкий». */
+  tone: string;
 }
 
 // --- persona life (docs/persona-life.md) -------------------------------------------------------

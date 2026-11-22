@@ -72,10 +72,11 @@ class FakeTools:
     async def probe(self, data: bytes, mime: str) -> Probe:
         return Probe(mime=mime, width=1, height=1) if mime.startswith("image/") else Probe(mime)
 
-    async def wav_to_ogg_opus(self, wav: bytes) -> tuple[bytes, float]:
+    async def wav_to_ogg_opus(self, wav: bytes, speed: float = 1.0) -> tuple[bytes, float]:
         return wav, 1.0
 
-    async def voice_note(self, wav: bytes, ambience: str, seed: int) -> tuple[bytes, float]:
+    async def voice_note(self, wav: bytes, ambience: str, seed: int,
+                         speed: float = 1.0) -> tuple[bytes, float]:
         return wav, 1.0
 
     async def to_pcm16k(self, data: bytes, mime: str) -> bytes:
@@ -89,6 +90,9 @@ class FakeTools:
 
     async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
         return mp4, 1.0
+
+    async def call_recording(self, stereo_pcm: bytes, rate_hz: int) -> tuple[bytes, float]:
+        return b"OggS" + stereo_pcm, round(len(stereo_pcm) / (4 * rate_hz), 2)
 
 
 class RecordingTasks:
@@ -142,6 +146,9 @@ class RecordingTasks:
 
     async def whatsapp_catch_up(self, channel_id: int) -> None:
         self.record("whatsapp_catch_up", channel_id)
+
+    async def place_call(self, contact_id: int) -> None:
+        self.record("place_call", contact_id)
 
 
 @dataclass

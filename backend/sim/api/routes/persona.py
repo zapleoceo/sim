@@ -4,10 +4,11 @@ docs/personas.md). Her agents: routes/agents.py, her life: routes/life.py, her c
 routes/channels.py, her media library: routes/media.py."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from litestar import get, patch, post, put
-from litestar.exceptions import ClientException
+from litestar import Response, get, patch, post, put
+from litestar.exceptions import ClientException, NotFoundException
+from litestar.params import Parameter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,11 +23,14 @@ from sim.api.schemas import (
     sent_fields,
 )
 from sim.db.models import Channel, Client, MediaAsset, Persona
-from sim.domain.agents import AgentKey, agent_config
+from sim.domain.agents import REGISTRY, AgentKey, agent_config
+from sim.domain.enums import LlmPurpose
+from sim.ports import PortError
 from sim.services.appearance import describe_appearance
 from sim.services.generation import reference_ids
 from sim.services.persona_clone import PersonaNameTaken, clone_persona
-from sim.services.voices import GEMINI_VOICES
+from sim.services.llm_log import logged_call
+from sim.services.voices import GEMINI_VOICES, SAMPLE_TEXT, SAMPLES, is_voice
 
 Json = dict[str, Any]
 NAME_TAKEN = "Персонаж с таким именем уже есть"
@@ -133,8 +137,39 @@ async def list_models(ctx: ApiContext) -> Json:
 
 @get("/voices")
 async def list_voices() -> Json:
-    return {"items": [{"id": v.id, "label": v.label} for v in GEMINI_VOICES]}
+    return {"items": [v.view() for v in GEMINI_VOICES]}
+
+
+@get("/voices/{voice_id:str}/sample")
+async def voice_sample(voice_id: str, ctx: ApiContext, db: AsyncSession,
+                       persona_id: Annotated[int | None, Parameter(query="persona_id")] = None,
+                       ) -> Response[bytes]:
+    """A short phrase in this voice by the persona's TTS model (the «Голос» agent), WAV;
+    cached in the process, so each voice costs one TTS call (sim/services/voices.py)."""
+    if not is_voice(voice_id):
+        raise NotFoundException(detail=f"Нет такого голоса: {voice_id}")
+    persona = await persona_or_404(db, persona_id) if persona_id is not None else None
+    tts = agent_config(persona, AgentKey.TTS) if persona is not None else REGISTRY[AgentKey.TTS]
+    if not tts.model:
+        raise ClientException(detail="Не выбрана модель голоса (агент «Голос»)")
+    cached = SAMPLES.get(tts.model, voice_id)
+    if cached is None:
+        try:
+            audio = await logged_call(
+                ctx.deps.sessions, purpose=LlmPurpose.TTS, model=tts.model,
+                request={"text": SAMPLE_TEXT, "voice": voice_id, "sample": True},
+                call=lambda: ctx.deps.speech.synthesize(
+                    text=SAMPLE_TEXT, voice=voice_id, style="", model=tts.model,
+                    key_tier=tts.key_tier),
+                key_tier=tts.key_tier)
+        except PortError as exc:
+            raise ClientException(detail=f"Не удалось озвучить: {exc}", status_code=502) from exc
+        cached = (audio.data, audio.mime or "audio/wav")
+        SAMPLES.put(tts.model, voice_id, *cached)
+    data, mime = cached
+    return Response(content=data, media_type=mime,
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 ROUTES = [list_personas, get_persona, update_persona, set_persona_state, clone,
-          describe_persona_appearance, list_models, list_voices]
+          describe_persona_appearance, list_models, list_voices, voice_sample]

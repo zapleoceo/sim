@@ -32,7 +32,10 @@ key_tier, prompt, max_tokens}}`, только изменённое владел�
 Жизнь (миграция `0003`, `docs/persona-life.md`): `life` (JSONB, `{}` — мира нет: распорядок,
 люди, увлечения, места по схеме `sim/domain/life.PersonaLife`), `appearance` (точное описание
 внешности по-английски для фото и видео), `voice_ambience_enabled` (фон сцены в голосовых, по
-умолчанию да).
+умолчанию да). `voice_speed` (миграция `0010`, float 0.8–1.5, по умолчанию 1.0) — скорость её
+речи в голосовых и звонках, тон не меняется ([calls.md](calls.md), «Скорость речи»).
+`call_recording` (по умолчанию да) и `call_recording_days` (по умолчанию 90) — запись
+звонков и сколько дней её хранить (`0010`, [calls.md](calls.md), «Запись звонка»).
 Миграция `0004` ([personas.md](personas.md), [leads.md](leads.md)): `is_active` (по умолчанию да;
 `false` — архив: никому не отвечает, дни не планируются, аккаунты Telegram отключаются).
 Миграция `0005` перенесла одиннадцать колонок `model_reply`, `model_guard`, `model_vision`,
@@ -109,7 +112,8 @@ WhatsApp — jid телефона (`…@s.whatsapp.net`), а если WhatsApp �
 Telegram пусто; `0009`, пишет `Inbox`), `ai_enabled` (переключатель чата),
 `attention_instant` («Отвечать сразу» в этом чате, по умолчанию нет; `0006`,
 [attention.md](attention.md)), `no_refusals` («Без отказов», по умолчанию нет; `0008`,
-[writing.md](writing.md)), `needs_operator` (ставится после
+[writing.md](writing.md)), `calls_out` («Звонит сама», по умолчанию нет; `0010`,
+[initiative.md](initiative.md)), `needs_operator` (ставится после
 второго блока проверки; пока стоит, персонаж молчит), `unread_count`, `last_message_at`,
 `summary` и `summary_until_event_id` — сводка переписки до дневника (с `0007` больше не
 пишется; агент видит её как «Давняя переписка»), `day_notes` (JSONB, `0007`,
@@ -186,7 +190,16 @@ JSON-план), `guard_verdicts` (`[{ok, reason, attempt}]`), `attempts` (ско
 Звонок (этап «Звонки»): `chat_id`, `direction`, `status` (`ringing | active | ended | missed |
 declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `transcript`
 (`[{who, text, t}]`), `model`, `cost_usd`, `error`. В контексте — строка ленты с расшифровкой;
-идущий звонок отмечается в фактах.
+идущий звонок отмечается в фактах. `direction = out` — её звонок ([initiative.md](initiative.md)).
+`recording_key`, `recording_s` (`0010`) — запись разговора в хранилище медиа, удаляется через
+`persona.call_recording_days` ([calls.md](calls.md), «Запись звонка»).
+
+### `planned_contact`
+Миграция `0010`, [initiative.md](initiative.md): она пишет или звонит первой. `chat_id`,
+`kind` (`message | call`), `source` (`manager | persona`), `status` (`planned | started |
+done | failed | cancelled`), `topic`, `due_at`, `created_by` (`operator:<id>` или
+`persona`), `result` (что вышло), `finished_at`, `call_id` (её звонок), `event_id`
+(событие `initiative`). Индекс `(status, due_at)` — для минутного тика.
 
 ### `chat_event`
 Журнал чата — **единственный источник** и для ленты дашборда, и для контекста агента
@@ -194,7 +207,8 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 `message_edited`, `message_deleted`, `media_understood`, `send_failed`, `call`,
 `generation_started`, `generation_failed`, `guard_blocked`, `operator_needed`, `ai_toggled`,
 `operator_note`, `client_updated`, `memory_updated`, `attention` — что она сделала с чатом на
-проверке телефона, `0006`), `in_context` (видит ли агент), ссылки
+проверке телефона, `0006`; `initiative` — наступило запланированное сообщение, она пишет
+первой, `0010`), `in_context` (видит ли агент), ссылки
 `message_id`, `media_id`, `call_id`, `generation_id`, `reply_run_id`, `actor`
 (`client | persona | operator | guard | system`), `data` (мелкие факты для отображения: было/стало,
 причина блокировки, текст удалённого и т. п.).

@@ -17,6 +17,7 @@ from sim.domain.agents import AgentKey, agent_config
 from sim.domain.enums import Author, LlmPurpose, MediaKind, MediaSource, MessageKind
 from sim.domain.plan import VoiceAction, tts_style
 from sim.domain.presence import Busy, busy_with
+from sim.domain.speech import clamp_speed
 from sim.ports import PortError
 from sim.services.actions.base import ActionContext, ActionHandler, ApplyResult
 from sim.services.actions.text import enqueue_text
@@ -81,10 +82,11 @@ class VoiceHandler(ActionHandler):
                 chat_id=ctx.chat_id, reply_run_id=ctx.reply_run_id, key_tier=tts.key_tier,
             )
             background = await voice_background(deps, persona)
+            speed = clamp_speed(persona.voice_speed)
             if background is None:
-                ogg, duration = await deps.tools.wav_to_ogg_opus(audio.data)
+                ogg, duration = await deps.tools.wav_to_ogg_opus(audio.data, speed)
             else:
-                ogg, duration = await deps.tools.voice_note(audio.data, *background)
+                ogg, duration = await deps.tools.voice_note(audio.data, *background, speed)
         except PortError as exc:
             return VoiceFailed(str(exc) or type(exc).__name__)
         return Spoken(data=ogg, duration_s=duration)

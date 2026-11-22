@@ -32,6 +32,18 @@ describe('ChatFlagSwitch', () => {
     });
   });
 
+  it('turns «Звонит сама» on for this chat', async () => {
+    const log = fakeApi({ 'POST /api/chats/7/calls-out': { id: 7, calls_out: true } });
+    await renderWithApp(<ChatFlagSwitch chatId={7} flag="calls_out" enabled={false} />);
+
+    await userEvent.click(screen.getByRole('switch', { name: 'Звонит сама' }));
+
+    await waitFor(() => expect(log.filter((r) => r.method === 'POST')).toHaveLength(1));
+    expect(log.find((r) => r.method === 'POST')).toMatchObject({
+      path: '/api/chats/7/calls-out', body: { enabled: true },
+    });
+  });
+
   it('shows the chat’s current state', async () => {
     fakeApi({});
     await renderWithApp(<ChatFlagSwitch chatId={7} flag="attention_instant" enabled />);

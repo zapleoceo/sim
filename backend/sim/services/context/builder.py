@@ -41,11 +41,22 @@ from sim.domain.memory import notes_of
 from sim.domain.passport import passport_lines, passport_of
 from sim.domain.writing import DEFAULT_MODE, WritingMode
 from sim.ports import AUTO_TIER, ChatMessage, ChatPart, ClockPort
-from sim.services.capabilities import Capabilities, capabilities_of, with_camera
+from sim.services.capabilities import (
+    Capabilities,
+    capabilities_of,
+    with_call_out,
+    with_camera,
+)
 from sim.services.context.budget import estimate_tokens, fit_newest, lines_tokens
 from sim.services.context.diary import Diary, load_diary, usable
 from sim.services.context.facts import Facts, FactsInput, compute_facts, stamp, to_local
-from sim.services.context.instructions import CALL_RULES, FORMAT_RULES, REPLY_TURN
+from sim.services.context.instructions import (
+    CALL_OUT_ANY,
+    CALL_OUT_RULES,
+    CALL_RULES,
+    FORMAT_RULES,
+    REPLY_TURN,
+)
 from sim.services.context.render import (
     GENERATION_LABELS,
     Related,
@@ -56,6 +67,7 @@ from sim.services.context.render import (
 )
 from sim.services.context.window import day_start, local_day
 from sim.services.generation_state import active_generations
+from sim.services.initiative import her_call_block
 from sim.services.life.render import LifeBlocks, life_blocks
 from sim.services.life.store import load_life
 from sim.services.media_library import catalog_for_chat
@@ -188,6 +200,8 @@ class CallContext:
     model: str
     max_seconds: int
     key_tier: str = AUTO_TIER       # «Звонок» (docs/agents.md)
+    speed: float = 1.0              # persona.voice_speed: her speech is stretched in the call
+    record: bool = False            # persona.call_recording: the talk is recorded
 
 
 def _text_message(role: str, text: str) -> ChatMessage:
@@ -336,6 +350,9 @@ class ContextBuilder:
         kind = ChannelKind(channel.kind) if channel is not None else ChannelKind.TELEGRAM_USER
         caps = with_camera(capabilities_of(persona, kind),
                            state.scene() if state.has_life else None)
+        caps = with_call_out(caps, await her_call_block(
+            session, chat, persona, now, channel_kind=kind,
+            calls_enabled=self.settings.calls_enabled))
         facts = compute_facts(await self._facts_input(session, chat, persona, client, caps))
         card = client_card(client)
         life = life_blocks(state)
@@ -438,20 +455,29 @@ class ContextBuilder:
 
     # --- calls ----------------------------------------------------------------------------
 
-    async def for_call(self, session: AsyncSession, chat_id: int) -> CallContext:
+    async def for_call(self, session: AsyncSession, chat_id: int, *,
+                       outgoing_topic: str | None = None) -> CallContext:
+        """The live model's context. `outgoing_topic` = she is the one calling
+        (docs/initiative.md): she knows why, waits for his «алло» and says it, so there is no
+        typed greeting."""
         chat = await session.get(Chat, chat_id)
         if chat is None:
             raise ChatNotFound(f"chat {chat_id} not found")
         persona = await session.get(Persona, chat.persona_id)
         if persona is None:
             raise ChatNotFound(f"chat {chat_id} has no persona")
-        head = f"{persona.prompt.strip()}\n\n{CALL_RULES}".strip()
+        rules = CALL_RULES if outgoing_topic is None else (
+            CALL_RULES + "\n" + CALL_OUT_RULES.format(topic=outgoing_topic.strip()
+                                                      or CALL_OUT_ANY))
+        head = f"{persona.prompt.strip()}\n\n{rules}".strip()
         know = await self.knowledge(session, chat_id, fixed_tokens=estimate_tokens(head))
         blocks = [head, *know.shared_blocks(), know.timeline_block(), *know.volatile_blocks()]
         live = agent_config(persona, AgentKey.LIVE)
         return CallContext(
             system="\n\n".join(blocks),
-            greeting=CALL_GREETINGS.get(persona.language, DEFAULT_GREETING),
+            greeting=("" if outgoing_topic is not None
+                      else CALL_GREETINGS.get(persona.language, DEFAULT_GREETING)),
             language=persona.language, voice=persona.voice_id, model=live.model,
             max_seconds=self.settings.call_max_seconds, key_tier=live.key_tier,
+            speed=float(persona.voice_speed or 1.0), record=bool(persona.call_recording),
         )

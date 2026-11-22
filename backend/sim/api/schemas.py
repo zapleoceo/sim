@@ -2,7 +2,7 @@
 partial update touches only what the dashboard changed."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -20,6 +20,20 @@ Tags = Annotated[list[Annotated[str, Meta(max_length=64)]], Meta(max_length=30)]
 
 class AiToggleIn(Struct):
     enabled: bool
+
+
+class ContactIn(Struct):
+    """«Запланировать» (docs/initiative.md): she writes or calls at `due_at` about `topic`."""
+
+    kind: Literal["message", "call"]
+    topic: Annotated[str, Meta(min_length=1, max_length=500)]
+    due_at: datetime
+
+
+class PurgeRecordingsIn(Struct):
+    """«Удалить старые записи»: older than `days`; null = the persona's keeping period."""
+
+    days: Annotated[int, Meta(ge=0, le=3650)] | None = None
 
 
 class TextIn(Struct):
@@ -127,6 +141,10 @@ class PersonaPatchIn(Struct):
     voice_ambience_enabled: bool | UnsetType = UNSET
     voice_id: Annotated[str, Meta(max_length=64)] | UnsetType = UNSET
     voice_style: Annotated[str, Meta(max_length=4000)] | UnsetType = UNSET
+    # sim/domain/speech.py: MIN_SPEED..MAX_SPEED
+    voice_speed: Annotated[float, Meta(ge=0.8, le=1.5)] | UnsetType = UNSET
+    call_recording: bool | UnsetType = UNSET
+    call_recording_days: Annotated[int, Meta(ge=1, le=3650)] | UnsetType = UNSET
     ai_enabled: bool | UnsetType = UNSET
     voice_enabled: bool | UnsetType = UNSET
     photo_enabled: bool | UnsetType = UNSET

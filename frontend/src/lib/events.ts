@@ -27,6 +27,9 @@ const CLIENT_KINDS: ReadonlySet<string> = new Set<EventKind>([
   'message_in', 'client_updated', 'memory_updated', 'ai_toggled',
 ]);
 
+/** Events that may move a planned contact along (planned, its message sent, its call made). */
+const CONTACT_KINDS: ReadonlySet<string> = new Set<EventKind>(['initiative', 'message_out', 'send_failed', 'call']);
+
 export function parseLiveEvent(data: string): LiveEvent | null {
   try {
     const v = JSON.parse(data) as Partial<LiveEvent> | null;
@@ -50,6 +53,7 @@ export function invalidationsFor(event: LiveEvent): QueryKey[] {
   if (rowChanged || clientChanged) keys.push(qk.chat(event.chat_id));
   if (clientChanged) keys.push(qk.clients);
   if (event.kind === 'memory_updated') keys.push(qk.chatDays(event.chat_id));
+  if (CONTACT_KINDS.has(event.kind)) keys.push(qk.contacts(event.chat_id));
   return keys;
 }
 

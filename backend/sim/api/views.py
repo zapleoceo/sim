@@ -61,7 +61,13 @@ def message_view(message: Message, media: MediaAsset | None) -> Json:
 
 def call_view(call: Call) -> Json:
     return {"id": call.id, "direction": call.direction, "status": call.status,
-            "duration_s": call.duration_s, "transcript": list(call.transcript or [])}
+            "duration_s": call.duration_s, "transcript": list(call.transcript or []),
+            "recording_url": recording_url(call.id) if call.recording_key else None,
+            "recording_s": call.recording_s if call.recording_key else None}
+
+
+def recording_url(call_id: int) -> str:
+    return f"/api/calls/{call_id}/recording"
 
 
 def generation_view(generation: Generation) -> Json:
@@ -134,6 +140,7 @@ def chat_row(chat: Chat, client: Client, last: Message | None,
         "channel": channel_brief(channel),
         "ai_enabled": chat.ai_enabled, "attention_instant": chat.attention_instant,
         "no_refusals": chat.no_refusals,
+        "calls_out": chat.calls_out,
         "needs_operator": chat.needs_operator, "unread_count": chat.unread_count,
         "persona_status": status,
         "last_message_at": chat.last_message_at,

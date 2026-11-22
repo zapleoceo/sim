@@ -1,17 +1,33 @@
 import { z } from 'zod';
 import type { Persona, PersonaPatch } from '@/lib/types';
+import { VOICE_SPEED, normalizeSpeed } from './voice-picker-logic';
 
 export const PROMPT_SOFT_LIMIT = 60_000;
 export const REPLY_DELAY_MAX = 120;
 
+/** How long call recordings are kept, days (Persona.call_recording_days). */
+export const RECORDING_DAYS = { min: 1, max: 3650, default: 90 } as const;
+
 const notBlank = (v: string): boolean => v.trim() !== '';
 const text = z.string();
 const flag = z.boolean();
+/** A whole number typed into a text field, within [min, max]. */
+const intText = (min: number, max: number) =>
+  z.string().refine((v) => {
+    const n = Number(v);
+    return v.trim() !== '' && Number.isInteger(n) && n >= min && n <= max;
+  }, `Целое число от ${min} до ${max}`);
+
+/** «Старше 90 дней», «Старше 1 дня», «Старше 21 дня». */
+export function olderThanDays(n: number): string {
+  return `Старше ${n} ${n % 10 === 1 && n % 100 !== 11 ? 'дня' : 'дней'}`;
+}
 
 /**
  * The persona form: her own settings, each edited here and only here (docs/frontend.md); her agents
  * and the guard's rules live in «Агенты».
- * All values are strings/booleans, so the form input and the validated output are the same type.
+ * All values are strings/booleans (and the speed slider's number), so the form input and the
+ * validated output are the same type.
  */
 export const personaSchema = z.object({
   name: z.string().refine(notBlank, 'Укажите имя').refine((v) => v.length <= 120, 'Не длиннее 120 символов'),
@@ -23,16 +39,19 @@ export const personaSchema = z.object({
   appearance: text,
   voice_id: text,
   voice_style: text,
+  voice_speed: z.number().refine(
+    (v) => v >= VOICE_SPEED.min && v <= VOICE_SPEED.max,
+    `От ${VOICE_SPEED.min} до ${VOICE_SPEED.max}`,
+  ),
   ai_enabled: flag,
   voice_enabled: flag,
   photo_enabled: flag,
   video_enabled: flag,
   calls_enabled: flag,
   voice_ambience_enabled: flag,
-  reply_delay_s: z.string().refine((v) => {
-    const n = Number(v);
-    return v.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= REPLY_DELAY_MAX;
-  }, `Целое число от 0 до ${REPLY_DELAY_MAX}`),
+  call_recording: flag,
+  call_recording_days: intText(RECORDING_DAYS.min, RECORDING_DAYS.max),
+  reply_delay_s: intText(0, REPLY_DELAY_MAX),
 });
 
 export type PersonaFormValues = z.infer<typeof personaSchema>;
@@ -62,12 +81,15 @@ export function toFormValues(p: Persona): PersonaFormValues {
     appearance: p.appearance,
     voice_id: p.voice_id,
     voice_style: p.voice_style,
+    voice_speed: normalizeSpeed(p.voice_speed ?? VOICE_SPEED.default),
     ai_enabled: p.ai_enabled,
     voice_enabled: p.voice_enabled,
     photo_enabled: p.photo_enabled,
     video_enabled: p.video_enabled,
     calls_enabled: p.calls_enabled,
     voice_ambience_enabled: p.voice_ambience_enabled,
+    call_recording: p.call_recording ?? true,
+    call_recording_days: String(p.call_recording_days ?? RECORDING_DAYS.default),
     reply_delay_s: String(p.reply_delay_s),
   };
 }
@@ -78,7 +100,7 @@ export function toPatch(values: PersonaFormValues, initial: PersonaFormValues): 
   for (const key of Object.keys(values) as PersonaFormField[]) {
     if (values[key] === initial[key]) continue;
     if (key === 'birth_date') patch.birth_date = values.birth_date || null;
-    else if (key === 'reply_delay_s') patch.reply_delay_s = Number(values.reply_delay_s);
+    else if (key === 'reply_delay_s' || key === 'call_recording_days') patch[key] = Number(values[key]);
     else if (key === 'name' || key === 'timezone') patch[key] = values[key].trim();
     else patch[key] = values[key];
   }

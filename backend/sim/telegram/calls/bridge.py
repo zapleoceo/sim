@@ -5,7 +5,14 @@ Three tasks carry it: `uplink` (caller -> model, resampled to 16 kHz, 40 ms chun
 (model events -> outgoing buffer + transcript) and `pacer` (buffer -> the call, one 10 ms frame
 at a time at real speed). The conversation ends when any of them stops: the caller hung up
 (uplink), the model finished or failed (downlink), or `max_seconds` passed. After a clean model
-finish her last buffered words still play (at most `DRAIN_LIMIT_S`)."""
+finish her last buffered words still play (at most `DRAIN_LIMIT_S`).
+
+With a `Tempo` (persona.voice_speed, sim/telegram/calls/tempo.py) her audio goes through it
+instead of the plain resampling: fed per model turn, flushed at the turn end, dropped when the
+caller interrupts her.
+
+With a `CallRecorder` (persona.call_recording, sim/telegram/calls/recording.py) every frame of
+the caller and every frame of hers that reached the call is recorded at the time it was heard."""
 from __future__ import annotations
 
 import asyncio
@@ -16,8 +23,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sim.ports import LiveSession
-from sim.telegram.calls.backend import IncomingCall
+from sim.telegram.calls.backend import CallAudio
 from sim.telegram.calls.pcm import FRAME_MS, PcmBuffer, frame_bytes, resample
+from sim.telegram.calls.recording import CallRecorder
+from sim.telegram.calls.tempo import Tempo, TempoFactory
 
 log = logging.getLogger(__name__)
 
@@ -71,9 +80,11 @@ class Outcome:
 
 class AudioBridge:
     def __init__(
-        self, call: IncomingCall, session: LiveSession, *, max_seconds: float,
+        self, call: CallAudio, session: LiveSession, *, max_seconds: float,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        speed: float = 1.0, tempo: TempoFactory | None = None,
+        recorder: CallRecorder | None = None,
     ) -> None:
         self.call = call
         self.session = session
@@ -85,6 +96,9 @@ class AudioBridge:
         self.started = monotonic()
         self.model_error: str | None = None
         self.frames_out = 0
+        self.recorder = recorder
+        self.tempo: Tempo | None = (
+            tempo(speed, LIVE_OUT_HZ, call.rate_hz, self.out.push) if tempo else None)
 
     async def run(self) -> Outcome:
         tasks = {
@@ -104,6 +118,8 @@ class AudioBridge:
                 reason = MODEL_ERROR if self.model_error else MODEL_DONE
                 error = self.model_error
                 if not self.model_error:
+                    if self.tempo is not None:
+                        await self.tempo.flush()
                     await self.drain()           # her last words before hanging up
             elif tasks["uplink"] in done:
                 reason = HUNG_UP
@@ -111,6 +127,8 @@ class AudioBridge:
             for task in tasks.values():
                 task.cancel()
             await asyncio.gather(*tasks.values(), return_exceptions=True)
+            if self.tempo is not None:
+                await self.tempo.reset()
         return Outcome(reason, error, self.transcript.result(), self.frames_out)
 
     def elapsed(self) -> float:
@@ -120,6 +138,8 @@ class AudioBridge:
         chunk = frame_bytes(LIVE_IN_HZ, UPLINK_MS)
         pending = bytearray()
         async for frame in self.call.frames():
+            if self.recorder is not None:
+                self.recorder.client(frame, self.call.rate_hz, self.elapsed())
             pending.extend(resample(frame, self.call.rate_hz, LIVE_IN_HZ))
             if len(pending) >= chunk:
                 await self.session.send_audio(bytes(pending))
@@ -128,12 +148,19 @@ class AudioBridge:
     async def downlink(self) -> None:
         async for event in self.session.events():
             if event.kind == "audio":
-                self.out.push(resample(event.audio, LIVE_OUT_HZ, self.call.rate_hz))
+                if self.tempo is not None:
+                    await self.tempo.feed(event.audio)
+                else:
+                    self.out.push(resample(event.audio, LIVE_OUT_HZ, self.call.rate_hz))
             elif event.kind in SPEAKER_OF:
                 self.transcript.add(SPEAKER_OF[event.kind], event.text, self.elapsed())
             elif event.kind == "interrupted":
+                if self.tempo is not None:
+                    await self.tempo.reset()
                 self.out.clear()                 # the caller talks: stop her mid-sentence
             elif event.kind == "turn_complete":
+                if self.tempo is not None:
+                    await self.tempo.flush()
                 self.out.pad_to_frame()
             elif event.kind == "error":
                 self.model_error = event.text or "live model error"
@@ -157,6 +184,8 @@ class AudioBridge:
             if now - due > MAX_LAG_S:
                 due = now
             await self.call.play(frame)
+            if self.recorder is not None:
+                self.recorder.persona(frame, self.call.rate_hz, self.elapsed())
             self.frames_out += 1
             due += step
             await self.sleep(max(0.0, due - self.mono()))

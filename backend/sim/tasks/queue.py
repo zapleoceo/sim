@@ -75,6 +75,11 @@ REAP_CRON = "*/2 * * * *"
 SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace "telegram"
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
+PLACE_CALL_TASK = "telegram:place_call"      # her call (docs/initiative.md)
+CONTACTS_TICK_TASK = "agent.contacts_tick"    # periodic: planned messages and calls now due
+CONTACTS_TICK_CRON = "* * * * *"
+RECORDINGS_TICK_TASK = "agent.recordings_tick"  # periodic: call recordings past their days
+RECORDINGS_TICK_CRON = "17 * * * *"
 # sim.channels.tasks blueprint, namespace "channels" (Instagram, WhatsApp; run by the worker).
 CHANNELS_SEND_TASK = "channels:send_message"
 CHANNELS_MARK_READ_TASK = "channels:mark_read"
@@ -206,6 +211,11 @@ class ProcrastinateQueue:
                           kwargs={"chat_id": chat_id, "action": action,
                                   "seconds": float(seconds)},
                           lock=f"chat-action:{chat_id}")
+
+    async def place_call(self, contact_id: int) -> None:
+        await self._defer(PLACE_CALL_TASK, queue=TELEGRAM_QUEUE,
+                          kwargs={"contact_id": contact_id},
+                          queueing_lock=f"place-call:{contact_id}")
 
     async def poll_instagram(self, channel_id: int, delay_s: float = 0) -> None:
         """One poll of an Instagram account's Direct; one waiting poll per account, and one

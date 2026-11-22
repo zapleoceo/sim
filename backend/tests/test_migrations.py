@@ -39,11 +39,12 @@ agents = load("migration_0005", BACKEND / "migrations" / "versions" / "0005_pers
 attention = load("migration_0006", BACKEND / "migrations" / "versions" / "0006_attention.py")
 day_memory = load("migration_0007", BACKEND / "migrations" / "versions" / "0007_day_memory.py")
 channels = load("migration_0009", BACKEND / "migrations" / "versions" / "0009_channels.py")
+initiative = load("migration_0010", BACKEND / "migrations" / "versions" / "0010_initiative.py")
 ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
                **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS,
-               **day_memory.ENUM_CHECKS, **channels.ENUM_CHECKS}
+               **day_memory.ENUM_CHECKS, **channels.ENUM_CHECKS, **initiative.ENUM_CHECKS}
 # Tables in creation order over all revisions.
-TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES)
+TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES, *initiative.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
@@ -237,3 +238,20 @@ def test_channels_revision_follows_the_no_refusals_one(scripts):
                                                                         channels.KINDS)
     column = Base.metadata.tables["chat"].columns["external_thread_id"]
     assert column.nullable and column.type.length == 128
+
+
+def test_initiative_revision_follows_the_channels_one(scripts):
+    revision = scripts.get_revision("0010")
+    assert revision is not None and revision.down_revision == "0009"
+    kinds = initiative.ENUM_CHECKS[("chat_event", "kind")][1]
+    previous = attention.ENUM_CHECKS[("chat_event", "kind")][1]
+    assert kinds[:-1] == initiative.PREVIOUS_EVENT_KINDS == previous
+    assert kinds[-1] == "initiative"
+    assert "calls_out" in Base.metadata.tables["chat"].columns
+    assert "voice_speed" in Base.metadata.tables["persona"].columns
+    persona = Base.metadata.tables["persona"].columns
+    assert {"call_recording", "call_recording_days"} <= set(persona.keys())
+    call = Base.metadata.tables["call"].columns
+    assert call["recording_key"].nullable and call["recording_key"].type.length == 255
+    assert call["recording_s"].nullable
+    assert "planned_contact" in initiative.TABLES

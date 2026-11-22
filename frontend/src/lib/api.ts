@@ -88,9 +88,10 @@ function errorText(body: unknown): string | null {
   return null;
 }
 
-export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+/** One round trip: the response when it is OK, otherwise the thrown `ApiError` (and 401 handling). */
+async function send(path: string, opts: RequestOptions, accept: string): Promise<Response> {
   const method = opts.method ?? 'GET';
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: accept };
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken;
 
   let body: BodyInit | undefined;
@@ -111,16 +112,23 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     throw new ApiError(0, fallbackMessage(0));
   }
 
+  if (res.ok) return res;
   const data = await readBody(res);
-  if (res.ok) return data as T;
   if (res.status === 401 && !opts.noAuthRedirect) unauthorizedHandler();
   throw new ApiError(res.status, errorText(data) ?? fallbackMessage(res.status));
+}
+
+export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await send(path, opts, 'application/json');
+  return (await readBody(res)) as T;
 }
 
 type Opts = Omit<RequestOptions, 'method' | 'body'>;
 
 export const api = {
   get: <T>(path: string, opts?: Opts) => request<T>(path, opts),
+  /** A binary GET (audio samples): the same session and the same `{error}` handling. */
+  blob: async (path: string, opts?: Opts): Promise<Blob> => (await send(path, opts ?? {}, '*/*')).blob(),
   post: <T>(path: string, body?: unknown, opts?: Opts) => request<T>(path, { ...opts, method: 'POST', body }),
   put: <T>(path: string, body: unknown, opts?: Opts) => request<T>(path, { ...opts, method: 'PUT', body }),
   patch: <T>(path: string, body: unknown, opts?: Opts) => request<T>(path, { ...opts, method: 'PATCH', body }),

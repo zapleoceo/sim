@@ -11,7 +11,9 @@ from pathlib import Path
 import docx
 import pytest
 
+from sim.adapters.ambience import voice_note_args
 from sim.adapters.media_tools import (
+    CALL_RECORDING_ARGS,
     DOCUMENT_CHAR_LIMIT,
     OGG_OPUS_ARGS,
     PCM16K_ARGS,
@@ -29,6 +31,7 @@ from sim.adapters.media_tools import (
     truncate,
     wav_duration,
 )
+from sim.domain.life import Ambience
 from sim.ports import PortError
 from tests.adapters.helpers import pdf_bytes, png_bytes, wav_bytes
 
@@ -220,6 +223,53 @@ async def test_wav_to_ogg_opus_probes_when_header_is_odd() -> None:
     _, duration = await tools(runner).wav_to_ogg_opus(b"RIFF????")
     assert duration == pytest.approx(1.23)
     assert [call[0] for call in runner.calls] == ["ffmpeg", "ffprobe"]
+
+
+async def test_a_faster_voice_note_is_stretched_and_shorter() -> None:
+    """persona.voice_speed (docs/persona-life.md): `atempo` keeps the pitch."""
+    runner = FakeRunner(output=b"OggS...")
+    ogg, duration = await tools(runner).wav_to_ogg_opus(wav_bytes(0.26), 1.3)
+    assert ogg == b"OggS..." and duration == pytest.approx(0.2)
+    command = runner.calls[0]
+    assert command[command.index("-i") + 2:command.index("-i") + 4] == ["-af", "atempo=1.30"]
+    assert tuple(command[-1 - len(OGG_OPUS_ARGS):-1]) == OGG_OPUS_ARGS
+    # The model's own pace adds no filter.
+    plain = FakeRunner(output=b"OggS...")
+    await tools(plain).wav_to_ogg_opus(wav_bytes(0.25), 1.0)
+    assert "-af" not in plain.calls[0]
+
+
+async def test_a_voice_note_in_a_place_stretches_only_the_voice() -> None:
+    runner = FakeRunner(output=b"OggS...")
+    _, duration = await tools(runner).voice_note(wav_bytes(0.25), "kitchen", 7, 0.8)
+    assert duration == pytest.approx(0.25 / 0.8, abs=0.01)
+    graph = runner.calls[0][runner.calls[0].index("-filter_complex") + 1]
+    assert graph.startswith("[0]atempo=0.80,aresample=48000")
+
+
+def test_voice_note_args_put_the_speed_before_the_background() -> None:
+    for ambience in Ambience:
+        args = voice_note_args(ambience.value, 9, 1.3)
+        graph = args[args.index("-filter_complex") + 1]
+        assert graph.startswith("[0]atempo=1.30,aresample=48000"), ambience
+        assert graph.count("atempo") == 1               # the background keeps its pace
+        normal = voice_note_args(ambience.value, 9)
+        assert normal[normal.index("-filter_complex") + 1].startswith("[0]aresample=48000")
+    assert voice_note_args("none", 9, 1.004) == voice_note_args("none", 9)
+
+
+async def test_call_recording_reads_raw_stereo() -> None:
+    runner = FakeRunner(output=b"OggS...")
+    stereo = b"\x00\x00" * 2 * 16_000                   # one second, two channels
+    ogg, seconds = await tools(runner).call_recording(stereo, 16_000)
+    assert ogg == b"OggS..." and seconds == 1.0
+    command = runner.calls[0]
+    raw = command.index("-i")
+    assert command[raw - 6:raw] == ["-f", "s16le", "-ar", "16000", "-ac", "2"]
+    assert tuple(command[-1 - len(CALL_RECORDING_ARGS):-1]) == CALL_RECORDING_ARGS
+    assert command[-1].endswith("out.ogg")
+    with pytest.raises(PortError):
+        await tools(runner).call_recording(b"", 16_000)
 
 
 async def test_to_pcm16k_command() -> None:

@@ -20,7 +20,8 @@
    are written in plan order, `canon` facts about herself go to `persona_canon`, the plan's
    `remember` facts go to today's «заметки дня» (`chat.day_notes`, seen by the next turn at
    once; the passport is updated at night, docs/memory.md), and after commit the messages are
-   queued for sending and the generations for running — best effort: a failing defer is only
+   queued for sending and the generations for running, and the plan's `call` becomes her
+   planned call (docs/initiative.md) — best effort: a failing defer is only
    logged and never turns the sent run into a failed one; the reaper (sim/services/reaper.py)
    queues such rows again. A turn that queues nothing (silence, block, failure, dropped plan)
    cancels the status."""
@@ -50,6 +51,7 @@ from sim.services.context.facts import to_local
 from sim.services.context.window import local_day
 from sim.services.deps import Deps
 from sim.services.guard import Guard
+from sim.services.initiative import plan_her_call
 from sim.services.life.canon import add_canon
 from sim.services.life.store import load_days
 from sim.services.llm_log import describe_messages, logged_call
@@ -93,6 +95,7 @@ class _Turn:
     persona: Persona
     ctx: ReplyContext
     last_in_message_id: int | None = None
+    trigger_event_id: int | None = None
     plan_today: date | None = None          # today has no plan: ask the planner for it
     recall: Recollection | None = None      # what she looked up this turn (once)
 
@@ -109,8 +112,13 @@ def _message(role: str, text: str) -> ChatMessage:
     return ChatMessage(role=role, parts=[ChatPart(text=text)])
 
 
-def turn_scope_name(chat_id: int, last_in_message_id: int | None) -> str:
-    """The idempotency scope of one turn: the chat and the newest client message it answers."""
+def turn_scope_name(chat_id: int, last_in_message_id: int | None,
+                    trigger_event_id: int | None = None) -> str:
+    """The idempotency scope of one turn: the chat and the newest client message it answers;
+    a turn with no client message (a missed call, she writes first) — the event it answers,
+    so two such turns never share the Broker's cached calls."""
+    if last_in_message_id is None and trigger_event_id is not None:
+        return f"reply-{chat_id}-event-{trigger_event_id}"
     return f"reply-{chat_id}-{last_in_message_id or 0}"
 
 
@@ -148,7 +156,8 @@ class ReplyService:
             # The model and guard calls of this turn are the same calls on a retry of the task,
             # whatever the newer clock in the prompt: the Broker re-attaches them by position
             # (docs/broker.md §2b). A newer client message is another turn, with new keys.
-            with call_scope(turn_scope_name(turn.chat_id, turn.last_in_message_id),
+            with call_scope(turn_scope_name(turn.chat_id, turn.last_in_message_id,
+                                            turn.trigger_event_id),
                             sequential=True):
                 decision = await self._decide(turn)
             if decision.blocked:
@@ -209,12 +218,16 @@ class ReplyService:
             await session.flush()
             return _Turn(run_id=run.id, chat_id=chat_id, persona=persona, ctx=ctx,
                          last_in_message_id=waiting.last_in_message_id,
+                         trigger_event_id=waiting.last_in_event_id,
                          plan_today=await self._unplanned_today(session, persona, now))
 
     @staticmethod
     def _burst_left(persona: Persona, waiting: Unanswered, now: datetime) -> float:
         """Seconds until the client has finished a burst of messages (`reply_delay_s` after
-        the newest one)."""
+        the newest one). Nothing to wait for when no client message waits (a missed call, a
+        talk, a planned message: docs/initiative.md)."""
+        if waiting.last_in_message_id is None:
+            return 0.0
         burst_until = waiting.last_in_at + timedelta(seconds=persona.reply_delay_s)
         return (burst_until - now).total_seconds()
 
@@ -386,6 +399,9 @@ class ReplyService:
             # «Заметки дня»: seen by the next turn at once, read by the night summary.
             chat.day_notes = with_notes(chat.day_notes, local_day(now, turn.persona.timezone),
                                         [fact.fact for fact in decision.plan.remember])
+        if decision.plan.call is not None and turn.ctx.capabilities.call_out:
+            # She dials within a minute (docs/initiative.md): the minute tick places the call.
+            await plan_her_call(session, turn.chat_id, decision.plan.call.topic, now)
         await self._journal_blocks(session, turn, decision)
         run.status = RunStatus.SENT
         run.error = "; ".join(result.notes) or None

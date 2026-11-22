@@ -15,6 +15,7 @@ not move her to another place or change her clothes. Explicit negatives forbid a
 and extra hands (seen in production)."""
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from sim.domain.activity import after_sport, cannot_film, hands_busy, on_the_move
@@ -39,9 +40,10 @@ SHOT_LINES = {
         "not holding a phone."),
 }
 SELFIE_FRAMING = (
-    "Vertical selfie video filmed on her phone's front camera, held at arm's length; the phone "
-    "itself is not visible. She looks straight into the lens. Natural light of the place she is "
-    "in, casual and warm, slight handheld movement.")
+    "Vertical selfie video filmed handheld on her phone's front camera at arm's length — not "
+    "on a gimbal, a tripod or a stand; the phone itself is not visible. She mostly looks into "
+    "the lens and the frame follows her hand. Natural light of the place she is in, casual and "
+    "warm.")
 PROPPED_FRAMING = (
     "Vertical video filmed on her phone's front camera propped up on a nearby surface at chest "
     "height (leaning against the wall, a cup or a stand); the frame is static, not handheld; the "
@@ -85,7 +87,20 @@ LIGHT_QUALITY = {
     Light.MORNING_DAYLIGHT: "soft morning light, slightly flat colours",
     Light.GOLDEN_HOUR: "low sun: lens flare, one side of the face in shadow",
 }
-HANDHELD_MOTION = "Natural hand shake and small framing jumps of a phone held in one hand."
+# Video models smooth the camera by default: a video note came out as if from a gimbal (owner,
+# 2026-11-22). The motion of a real hand is spelled out, and «not smooth» said in so many words.
+HANDHELD_MOTION = (
+    "Camera motion: clearly handheld and unstabilized — a constant small shake of her hand, the "
+    "frame drifts and wobbles, her face slides a little off-centre and back, the horizon tilts "
+    "a few degrees and corrects, small jerky reframes when she shifts her grip; autofocus "
+    "briefly hunts when she moves. Not smooth, not a gimbal or drone shot.")
+SHOW_AROUND = (
+    "Partway through she turns the phone away from her face to show what she is talking about "
+    "— a quick, slightly blurry pan to it, a second or two on it, then a pan back to her face.")
+SHOW_WORDS = re.compile(
+    r"\b(show|showing|shows|pans?|turns? the (phone|camera)|look around|around her)\b|"
+    r"показ|покажу|вокруг|повора[чк]ива|перевод[ия]т? (камеру|кадр)|вид из окна",
+    re.IGNORECASE)
 PROPPED_MOTION = ("The phone stands still but the frame is slightly crooked; exposure shifts "
                   "when she leans in or moves away.")
 
@@ -96,6 +111,8 @@ def realism_lines(scene: SceneCard | None, *, video: bool,
     bounce or a little motion blur, right after a run she is flushed and out of breath."""
     lines = [PHONE_VIDEO if video else PHONE_PHOTO]
     if scene is None:
+        if video and (camera is None or camera.hold != CameraHold.PROPPED):
+            lines.append(HANDHELD_MOTION)
         return lines
     lines.append(f"Light quality: {LIGHT_QUALITY[scene.light]}.")
     activity = scene.activity.lower()
@@ -262,5 +279,7 @@ def _video(action: str, scene: SceneCard | None, shot: ShotType, *, speech: str,
         lines.append(SPEECH_LINE.format(
             language=LANGUAGE_NAMES.get(language, "the chat language"), speech=words))
     lines += realism_lines(scene, video=True, camera=camera)
+    if (round_note or words) and camera.hold != CameraHold.PROPPED and SHOW_WORDS.search(action):
+        lines.append(SHOW_AROUND)
     lines += [NO_OVERLAYS, VIDEO_NEGATIVE]
     return "\n".join(lines)

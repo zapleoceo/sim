@@ -22,6 +22,8 @@ from sim.tasks.app import conninfo, make_app
 from sim.tasks.queue import (
     ATTENTION_TICK_TASK,
     CHAT_ACTION_TASK,
+    CONTACTS_TICK_CRON,
+    CONTACTS_TICK_TASK,
     GENERATE_TASK,
     LIFE_TICK_TASK,
     LOOK_TASK,
@@ -31,7 +33,9 @@ from sim.tasks.queue import (
     NIGHT_TASK,
     PASSPORT_TASK,
     PHONE_CHECK_TASK,
+    PLACE_CALL_TASK,
     PLAN_DAY_TASK,
+    RECORDINGS_TICK_TASK,
     REPLY_TASK,
     SEND_TASK,
     SUMMARIZE_DAY_TASK,
@@ -201,6 +205,23 @@ async def test_passport_queue_and_registration() -> None:
     ]
     real = make_app(Settings(env="test"))
     assert real.tasks[PASSPORT_TASK].queue == "agent"
+
+
+async def test_her_call_is_one_job_per_contact_on_the_telegram_queue() -> None:
+    app = FakeApp()
+    queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
+    await queue.place_call(3)
+    await queue.place_call(3)                           # a waiting job already dials it
+    assert app.deferred == [(PLACE_CALL_TASK, {"contact_id": 3},
+                             {"queue": "telegram", "queueing_lock": "place-call:3"})]
+
+
+def test_the_minute_and_hourly_ticks_are_registered() -> None:
+    app = procrastinate.App(connector=InMemoryConnector())
+    agent.register_agent_tasks(app)
+    for name in (CONTACTS_TICK_TASK, RECORDINGS_TICK_TASK):
+        assert app.tasks[name].queue == "agent" and not app.tasks[name].pass_context
+    assert CONTACTS_TICK_CRON == "* * * * *"
 
 
 async def test_passport_task_runs_the_service(db: AsyncSession, deps: Deps, fakes: Fakes,

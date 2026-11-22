@@ -25,6 +25,9 @@ class Capabilities:
     camera_block: str = ""
     # The chat's messenger shows a round video message («кружок»); only Telegram does.
     video_note: bool = True
+    # She may call him herself now (docs/initiative.md); `call_block` says why not.
+    call_out: bool = False
+    call_block: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -46,6 +49,11 @@ def capabilities_of(persona: Persona,
         video_generate=video and bool(clip and image),
         video_note=spec.can_send(MessageKind.VIDEO_NOTE),
     )
+
+
+def with_call_out(caps: Capabilities, block: str) -> Capabilities:
+    """Her own call (sim/domain/initiative.call_out_block): "" = she may call now."""
+    return replace(caps, call_out=not block, call_block=block)
 
 
 def with_camera(caps: Capabilities, scene: SceneCard | None) -> Capabilities:

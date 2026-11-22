@@ -72,6 +72,20 @@ describe('api', () => {
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 
+  it('reads a binary body with the cookie, and its {error} as an ApiError', async () => {
+    const log = fakeApi({
+      'GET /api/voices/Kore/sample': 'RIFF',
+      'GET /api/voices/Puck/sample': reply(409, { error: 'нет модели голоса' }),
+    });
+    const blob = await api.blob('/voices/Kore/sample', { params: { persona_id: 3 } });
+    expect(await blob.text()).toBe('"RIFF"'); // the fake backend sends JSON bodies
+    expect(log[0]?.credentials).toBe('include');
+    expect(log[0]?.query.get('persona_id')).toBe('3');
+    const err = await api.blob('/voices/Puck/sample').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).message).toBe('нет модели голоса');
+  });
+
   it('reports a network failure as status 0', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new TypeError('Failed to fetch');

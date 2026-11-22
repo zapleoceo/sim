@@ -4,12 +4,15 @@ and whether their attachments are still being understood (docs/reply.md, «Ко�
 A client message is answered when a later turn consumed it (`reply_run` sent or blocked with a
 trigger event at or after it) or when an outgoing message (persona or operator) followed it.
 A call she did not take because she was asleep or busy (`call` event with `life_busy`) waits
-for an answer the same way: she writes back when she is free."""
+for an answer the same way: she writes back when she is free. So does a call she talked on
+(`after_call`: what she promised there she does in the next turn) and an `initiative` event
+(docs/initiative.md): a planned message is due, she writes first."""
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +25,16 @@ CONSUMED_RUNS = (RunStatus.SENT, RunStatus.BLOCKED)
 # her busy level then, and what she was doing.
 LIFE_REFUSED_KEY = "life_busy"
 LIFE_ACTIVITY_KEY = "life_activity"
+# A call she talked on: what she promised there (a video note, a call back) waits for her turn.
+AFTER_CALL_KEY = "after_call"
+
+
+def waiting_events() -> tuple[Any, ...]:
+    """The events other than client messages that wait for her text."""
+    return (and_(ChatEvent.kind == EventKind.CALL,
+                 or_(ChatEvent.data.has_key(LIFE_REFUSED_KEY),
+                     ChatEvent.data.has_key(AFTER_CALL_KEY))),
+            ChatEvent.kind == EventKind.INITIATIVE)
 
 
 @dataclass(frozen=True)
@@ -72,8 +85,7 @@ async def waiting_counts(session: AsyncSession,
         return {}
     after = or_(*(and_(ChatEvent.chat_id == chat_id, ChatEvent.id > until)
                   for chat_id, until in bounds.items()))
-    waits = or_(ChatEvent.kind == EventKind.MESSAGE_IN,
-                and_(ChatEvent.kind == EventKind.CALL, ChatEvent.data.has_key(LIFE_REFUSED_KEY)))
+    waits = or_(ChatEvent.kind == EventKind.MESSAGE_IN, *waiting_events())
     rows = await session.execute(
         select(ChatEvent.chat_id, func.count(), func.max(ChatEvent.id))
         .where(after, waits).group_by(ChatEvent.chat_id))
@@ -91,11 +103,11 @@ async def unanswered(session: AsyncSession, chat_id: int) -> Unanswered | None:
                ChatEvent.id > boundary)
         .order_by(ChatEvent.id)
     )).all()
-    # A call she did not take because of her life (asleep, busy) also waits for a text.
+    # A call she did not take because of her life (asleep, busy) also waits for a text, and so
+    # does a planned message that is due (she writes first).
     calls = list((await session.scalars(
         select(ChatEvent)
-        .where(ChatEvent.chat_id == chat_id, ChatEvent.kind == EventKind.CALL,
-               ChatEvent.id > boundary, ChatEvent.data.has_key(LIFE_REFUSED_KEY))
+        .where(ChatEvent.chat_id == chat_id, ChatEvent.id > boundary, or_(*waiting_events()))
         .order_by(ChatEvent.id)
     )).all())
     if not rows and not calls:

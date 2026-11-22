@@ -35,7 +35,13 @@ export const personaApi = {
   clone: (id: number, name: string, parts: ClonePart[]) =>
     api.post<Persona>(personaPath(id, '/clone'), { name, parts }),
   models: () => api.get<Items<BrokerModel>>('/models'),
+  /** Delete call recordings: `days` null — older than her keeping period, 0 — all of them. */
+  purgeCallRecordings: (id: number, days: number | null) =>
+    api.post<{ deleted: number }>(personaPath(id, '/call-recordings/purge'), { days }),
   voices: () => api.get<Items<Voice>>('/voices'),
+  /** A short WAV of the voice, as this persona would say it (synthesized once, cached by the server). */
+  voiceSample: (voiceId: string, personaId: number) =>
+    api.blob(`/voices/${encodeURIComponent(voiceId)}/sample`, { params: { persona_id: personaId } }),
 };
 
 /** The persona's agents (docs/agents.md): the registry, her settings, save and reset. */

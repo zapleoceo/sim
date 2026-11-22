@@ -21,7 +21,7 @@ import docx
 import filetype
 from pypdf import PdfReader
 
-from sim.adapters.ambience import voice_note_args
+from sim.adapters.ambience import SPEED_EPSILON, voice_note_args
 from sim.ports import PortError, Probe
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,8 @@ SUFFIX_BY_MIME: Mapping[str, str] = {
 # 32 kbit/s mono Opus at 48 kHz: what the Telegram apps themselves record for voice notes.
 OGG_OPUS_ARGS = ("-vn", "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "32k",
                  "-application", "voip", "-f", "ogg")
+CALL_RECORDING_ARGS = ("-ac", "2", "-c:a", "libopus", "-b:a", "32k", "-application", "voip",
+                       "-f", "ogg")
 PCM16K_ARGS = ("-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-c:a", "pcm_s16le")
 # First frame, shrunk to fit a 2048 px box (never enlarged), as a good-quality JPEG.
 FIT_FILTER = (f"scale=w='min({MODEL_IMAGE_MAX_SIDE},iw)':h='min({MODEL_IMAGE_MAX_SIDE},ih)'"
@@ -282,25 +284,37 @@ class FfmpegMediaTools:
             return Probe(mime=kind)
         return probe_from(info, kind)
 
-    async def wav_to_ogg_opus(self, wav: bytes) -> tuple[bytes, float]:
+    async def wav_to_ogg_opus(self, wav: bytes, speed: float = 1.0) -> tuple[bytes, float]:
+        """TTS WAV -> a clean OGG/Opus voice note, `speed` times faster (pitch kept)."""
         if not wav:
             raise PortError("ffmpeg: empty audio")
-        ogg = await self._convert(wav, "audio/wav", "out.ogg", OGG_OPUS_ARGS)
-        duration = wav_duration(wav)
-        if duration is None:
-            duration = (await self.probe(ogg, OGG_MIME)).duration_s
-        return ogg, round(duration or 0.0, 2)
+        args = OGG_OPUS_ARGS if abs(speed - 1.0) < SPEED_EPSILON else (
+            "-af", f"atempo={speed:.2f}", *OGG_OPUS_ARGS)
+        return await self._voice_ogg(wav, args, speed)
 
-    async def voice_note(self, wav: bytes, ambience: str, seed: int) -> tuple[bytes, float]:
+    async def voice_note(self, wav: bytes, ambience: str, seed: int,
+                         speed: float = 1.0) -> tuple[bytes, float]:
         """TTS WAV -> a voice note «recorded on a phone» in the scene's place
         (sim/adapters/ambience.py); the same seed gives the same background."""
         if not wav:
             raise PortError("ffmpeg: empty audio")
-        ogg = await self._convert(wav, "audio/wav", "out.ogg", voice_note_args(ambience, seed))
+        return await self._voice_ogg(wav, voice_note_args(ambience, seed, speed), speed)
+
+    async def _voice_ogg(self, wav: bytes, args: tuple[str, ...],
+                         speed: float) -> tuple[bytes, float]:
+        ogg = await self._convert(wav, "audio/wav", "out.ogg", args)
         duration = wav_duration(wav)
         if duration is None:
             duration = (await self.probe(ogg, OGG_MIME)).duration_s
-        return ogg, round(duration or 0.0, 2)
+        return ogg, round((duration or 0.0) / (speed or 1.0), 2)
+
+    async def call_recording(self, stereo_pcm: bytes, rate_hz: int) -> tuple[bytes, float]:
+        """Interleaved s16le stereo of a call (client left, persona right) -> OGG/Opus."""
+        if not stereo_pcm:
+            raise PortError("ffmpeg: empty recording")
+        ogg = await self._convert(stereo_pcm, "audio/pcm", "out.ogg", CALL_RECORDING_ARGS,
+                                  input_args=("-f", "s16le", "-ar", str(rate_hz), "-ac", "2"))
+        return ogg, round(len(stereo_pcm) / (4 * rate_hz), 2)
 
     async def to_pcm16k(self, data: bytes, mime: str) -> bytes:
         """Any audio or video → raw 16 kHz mono signed 16-bit little-endian PCM."""
@@ -349,14 +363,14 @@ class FfmpegMediaTools:
         return info if isinstance(info, dict) else {}
 
     async def _convert(self, data: bytes, mime: str, out_name: str,
-                       args: Sequence[str]) -> bytes:
+                       args: Sequence[str], input_args: Sequence[str] = ()) -> bytes:
         with tempfile.TemporaryDirectory(prefix="sim-media-") as tmp:
             source = Path(tmp) / f"input{suffix_for(mime)}"
             target = Path(tmp) / out_name
             await asyncio.to_thread(_write, source, data)
             result = await self.runner(
                 [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                 "-i", str(source), *args, str(target)], self.limit_s)
+                 *input_args, "-i", str(source), *args, str(target)], self.limit_s)
             if result.code != 0:
                 raise PortError(f"ffmpeg exited {result.code}: {_stderr(result)}")
             return await asyncio.to_thread(_read_output, target, "ffmpeg")
