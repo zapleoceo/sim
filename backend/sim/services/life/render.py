@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sim.domain.life import DAY_MINUTES, BusyLevel, PersonaLife, hhmm
+from sim.domain.life import DAY_MINUTES, MOOD_WORDS, BusyLevel, Mood, PersonaLife, hhmm
 from sim.services.context.facts import WEEKDAYS
 from sim.services.context.render import one_line
 from sim.services.life.agenda import Agenda, Slot
@@ -182,6 +182,9 @@ def _now_lines(state: LifeState, agenda: Agenda) -> list[str]:
                  f"Занятость: {BUSY_WORDS[slot.busy]}."]
         if slot.details.strip():
             lines.append(f"Подробности: {one_line(slot.details)}")
+        if slot.mood != Mood.CALM:
+            why = f" — {one_line(slot.mood_why)}" if slot.mood_why.strip() else ""
+            lines.append(f"Настроение: {MOOD_WORDS[slot.mood]}{why}.")
     if state.has_life:
         lines.append(f"На тебе сейчас: {state.scene().outfit}.")
     done = agenda.done(minute)

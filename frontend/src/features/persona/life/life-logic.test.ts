@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { DayEvent, PersonaLife } from '@/lib/types';
 import {
-  addDays, currentEventIndex, dayErrors, dayTitle, EMPTY_LIFE, EMPTY_LOOK, joinNames, newDayEvent, newRoom, newRoutineSlot, span,
-  splitNames, toMinutes, toggleDay, worldErrors,
+  addDays, currentEventIndex, dayErrors, dayTitle, EMPTY_LIFE, EMPTY_LOOK, joinNames, moodText, newDayEvent, newRoom, newRoutineSlot,
+  span, splitNames, toMinutes, toggleDay, worldErrors,
 } from './life-logic';
 
 const ev = (start: string, end: string, title = 'дела'): DayEvent => ({ ...newDayEvent(), start, end, title });
@@ -63,5 +63,13 @@ describe('checks before saving', () => {
     expect(currentEventIndex(events, 19 * 60 + 30)).toBe(1);
     expect(currentEventIndex(events, 12 * 60)).toBe(-1);
     expect(currentEventIndex(events, 23 * 60 + 30)).toBe(2);
+  });
+
+  it('names her mood of an event, nothing when calm', () => {
+    expect(moodText('irritated', ' Андрей не вынес мусор ')).toBe('не в духе: Андрей не вынес мусор');
+    expect(moodText('tired', '')).toBe('устала');
+    expect(moodText('calm', 'всё хорошо')).toBe('');
+    expect(moodText(undefined, undefined)).toBe('');
+    expect(newDayEvent().mood).toBe('calm');
   });
 });

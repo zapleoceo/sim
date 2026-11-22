@@ -1,4 +1,4 @@
-import type { Ambience, BusyLevel, DayEvent, Hobby, Home, LifePerson, Look, PersonaLife, Place, Room, RoutineSlot } from '@/lib/types';
+import type { Ambience, BusyLevel, DayEvent, Hobby, Home, LifePerson, Look, Mood, PersonaLife, Place, Room, RoutineSlot } from '@/lib/types';
 
 /** Pure helpers of the «Жизнь» section (docs/frontend.md); mirrors sim/domain/life.py checks. */
 
@@ -22,6 +22,22 @@ export const AMBIENCE_OPTIONS: readonly { value: Ambience; label: string }[] = [
   { value: 'transport', label: 'транспорт' },
   { value: 'office', label: 'офис' },
 ];
+
+export const MOOD_OPTIONS: readonly { value: Mood; label: string }[] = [
+  { value: 'calm', label: 'ровное' },
+  { value: 'good', label: 'хорошее' },
+  { value: 'tired', label: 'устала' },
+  { value: 'irritated', label: 'не в духе' },
+  { value: 'upset', label: 'расстроена' },
+  { value: 'anxious', label: 'на нервах' },
+];
+
+/** «не в духе: начальник сорвал сроки»; '' for a calm (or unknown) mood. */
+export function moodText(mood: Mood | undefined, why: string | undefined): string {
+  if (!mood || mood === 'calm') return '';
+  const label = MOOD_OPTIONS.find((o) => o.value === mood)?.label ?? mood;
+  return why?.trim() ? `${label}: ${why.trim()}` : label;
+}
 
 export function busyLabel(busy: BusyLevel): string {
   return BUSY_OPTIONS.find((o) => o.value === busy)?.label ?? busy;
@@ -66,7 +82,7 @@ export const newHobby = (): Hobby => ({ name: '', details: '', frequency: '' });
 export const newPlace = (): Place => ({ name: '', kind: '', details: '' });
 export const newDayEvent = (): DayEvent => ({
   start: '09:00', end: '10:00', title: '', place: '', with_whom: [], busy: 'free', details: '', outfit: '',
-  ambience: 'quiet_home',
+  ambience: 'quiet_home', mood: 'calm', mood_why: '',
 });
 
 export const newRoom = (): Room => ({ name: '', details: '', layout: '', lamps: '', window_view: '' });

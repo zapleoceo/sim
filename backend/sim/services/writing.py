@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import random
 import re
+from dataclasses import replace
 from datetime import datetime
 
 from sim.domain.activity import at_laptop, hands_busy, in_transit, on_a_call, on_the_move
 from sim.domain.enums import ChannelKind
-from sim.domain.life import BusyLevel
+from sim.domain.life import BusyLevel, Mood
 from sim.domain.scene import SceneCard
 from sim.domain.writing import DEFAULT_MODE, Device, Pace, WritingMode, mode
 
@@ -46,6 +47,19 @@ ALWAYS = (
     "Не можешь или не хочешь — одной фразой, без длинных объяснений причин.",
     "Не задавай вопрос в каждом сообщении и не пересказывай, что он написал.",
 )
+# How a mood that is not calm shows in her messages (docs/writing.md, «Настроение»).
+MOOD_RULES = {
+    Mood.GOOD: "У тебя хорошее настроение{why}: шутишь охотнее, можешь сама что-то рассказать.",
+    Mood.TIRED: ("Ты устала{why}: отвечаешь коротко и вяло, без энтузиазма и без встречных "
+                 "вопросов."),
+    Mood.IRRITATED: ("Ты не в духе{why}: суше и короче, без смайликов; на давление, "
+                     "требования и глупости огрызаешься, можешь съязвить или не ответить на "
+                     "вопрос. Сглаживать и быть вежливой не обязана."),
+    Mood.UPSET: ("Ты расстроена{why}: меньше шуток и смайликов, можешь прямо сказать, что "
+                 "сейчас не до того."),
+    Mood.ANXIOUS: ("Ты на нервах{why}: отвечаешь рассеянно, мысли о своём, можешь резко "
+                   "оборвать разговор."),
+}
 NO_REFUSALS = ("Этому человеку ты не отказываешь: что просит — делаешь. Если прямо сейчас "
                "физически не можешь (за рулём, на пробежке, в душе) — коротко говоришь, когда "
                "сделаешь, и делаешь, когда освободишься.")
@@ -74,7 +88,15 @@ CHANNEL_STYLE: dict[ChannelKind, tuple[str, ...]] = {
 
 
 def writing_mode(scene: SceneCard | None, local: datetime) -> WritingMode:
-    """Her device and pace from the scene of this moment (no life: free, on the phone)."""
+    """Her device, pace and mood from the scene of this moment (no life: free, on the phone,
+    calm)."""
+    chosen = _device_and_pace(scene, local)
+    if scene is None or scene.mood == Mood.CALM:
+        return chosen
+    return replace(chosen, mood=scene.mood, mood_why=scene.mood_why)
+
+
+def _device_and_pace(scene: SceneCard | None, local: datetime) -> WritingMode:
     night = local.hour >= NIGHT_FROM or local.hour < NIGHT_TO
     if scene is None:
         return mode(Device.PHONE, Pace.SLEEPY, "ночь, в кровати") if night else DEFAULT_MODE
@@ -98,11 +120,21 @@ def style_block(writing: WritingMode, *, no_refusals: bool = False,
              PACE_RULES[writing.pace],
              f"За ход не больше {writing.max_messages} сообщ., каждое до ~{writing.max_chars} "
              "знаков; часто хватает одного.",
+             *mood_lines(writing),
              *(f"- {rule}" for rule in ALWAYS),
              *(f"- {rule}" for rule in CHANNEL_STYLE.get(channel, ()))]
     if no_refusals:
         lines.append(f"- {NO_REFUSALS}")
     return "\n".join(lines)
+
+
+def mood_lines(writing: WritingMode) -> list[str]:
+    """Her mood in the style block; nothing for a calm one."""
+    rule = MOOD_RULES.get(writing.mood)
+    if rule is None:
+        return []
+    why = f" ({writing.mood_why.strip()})" if writing.mood_why.strip() else ""
+    return [rule.format(why=why)]
 
 
 # --- the phone --------------------------------------------------------------------------------

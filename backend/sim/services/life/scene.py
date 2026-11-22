@@ -97,7 +97,8 @@ def gap_slot(day: Agenda, minute: int) -> Slot:
         last = max(before, key=lambda slot: slot.end)
         return Slot(start=last.end, end=last.end, title="свободное время", place=last.place,
                     busy=BusyLevel.FREE, outfit=last.outfit, ambience=last.ambience,
-                    planned=last.planned, key=f"{last.key}:after")
+                    planned=last.planned, key=f"{last.key}:after", mood=last.mood,
+                    mood_why=last.mood_why)
     return Slot(start=0, end=0, title="свободное время", place=HOME_PLACE,
                 ambience=Ambience.QUIET_HOME, key=f"{day.day.isoformat()}:free")
 
@@ -117,6 +118,7 @@ def scene_at(now: datetime, day: Agenda, persona: Persona) -> SceneCard:
         with_whom=slot.with_whom,
         outfit=slot.outfit.strip() or default_outfit(local, indoors, slot.busy),
         light=light_at(local), ambience=ambience, busy=slot.busy, indoors=indoors,
+        mood=slot.mood, mood_why=slot.mood_why,
     )
 
 
