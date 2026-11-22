@@ -92,7 +92,9 @@ async def test_cancel_only_what_has_not_started(api: ApiClient, world: World,
 async def test_calls_out_switch_of_one_chat(api: ApiClient, world: World,
                                             db: AsyncSession) -> None:
     listed = (await api.get("/api/chats")).json()["items"][0]
-    assert listed["calls_out"] is False                 # off by default
+    assert listed["calls_out"] is True                  # her own tool: on by default (0011)
+    first_off = await api.post(f"/api/chats/{world.chat_id}/calls-out", json={"enabled": False})
+    assert first_off.json()["calls_out"] is False
     response = await api.post(f"/api/chats/{world.chat_id}/calls-out", json={"enabled": True})
     assert response.status_code == 200
     assert response.json()["calls_out"] is True

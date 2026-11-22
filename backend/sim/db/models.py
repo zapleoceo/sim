@@ -290,9 +290,10 @@ class Chat(Base):
     # «Без отказов»: she does what this client asks, later if she can not now (docs/writing.md).
     no_refusals: Mapped[bool] = mapped_column(Boolean, default=False,
                                               server_default=text("false"))
-    # «Звонит сама»: she may call this client herself (docs/initiative.md). Off by default.
-    calls_out: Mapped[bool] = mapped_column(Boolean, default=False,
-                                            server_default=text("false"))
+    # «Звонит сама»: she may call this client herself (docs/initiative.md). On by default: a
+    # call is her own tool; the switch turns it off for one chat.
+    calls_out: Mapped[bool] = mapped_column(Boolean, default=True,
+                                            server_default=text("true"))
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True,

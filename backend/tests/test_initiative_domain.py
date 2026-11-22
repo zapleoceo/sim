@@ -17,6 +17,7 @@ from sim.domain.initiative import (
     CallOutState,
     call_out_block,
     initiative_line,
+    quiet_hour,
 )
 from sim.domain.plan import ReplyPlan
 from sim.domain.speech import MAX_SPEED, MIN_SPEED, clamp_speed, is_normal
@@ -49,7 +50,7 @@ def test_she_may_call_in_the_day_when_nothing_holds_her_back() -> None:
     ({"switched_on": False, "unavailable": "звонки выключены на сервере"},
      "в этом чате звонить самой нельзя"),
     ({"unavailable": "звонки есть только в Telegram"}, "звонки есть только в Telegram"),
-    ({"pending": True}, "ты уже набираешь его"),
+    ({"pending": True}, "звонок ему уже запланирован, ты наберёшь его сама"),
     ({"local": at_hour(22)}, "сейчас слишком поздно или рано для звонка"),
     ({"local": at_hour(23, 30)}, "сейчас слишком поздно или рано для звонка"),
     ({"local": at_hour(3)}, "сейчас слишком поздно или рано для звонка"),
@@ -97,3 +98,13 @@ def test_clamp_speed_keeps_the_forms_range(stored: float | None, speed: float) -
 def test_normal_speed_is_the_models_own_pace() -> None:
     assert is_normal(1.0) and is_normal(0.0) and is_normal(1.004)
     assert not is_normal(1.3) and not is_normal(0.9) and not is_normal(0.5)
+
+
+def test_quiet_hours_and_a_call_later() -> None:
+    assert quiet_hour(22) and quiet_hour(3) and quiet_hour(8)
+    assert not quiet_hour(9) and not quiet_hour(21)
+    later = ReplyPlan.model_validate({"call": {"topic": "перезвонить", "in_minutes": 30}})
+    assert later.call is not None and later.call.in_minutes == 30
+    assert ReplyPlan.model_validate({"call": {"topic": "x"}}).call.in_minutes == 0
+    with pytest.raises(ValidationError):
+        ReplyPlan.model_validate({"call": {"topic": "x", "in_minutes": 721}})
