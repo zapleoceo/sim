@@ -16,10 +16,55 @@ import { qk } from '@/lib/query';
 import type { Contact } from '@/lib/types';
 import { chatsApi } from './api';
 import {
-  CONTACT_KINDS, TOPIC_MAX, contactDraftError, contactStatus, defaultDueLocal, localToIso, type ContactDraft,
+  CONTACT_KINDS, DUE_NOW, QUICK_DUES, TOPIC_MAX, contactDraftError, contactStatus, dueIso, dueText, joinDue, splitDue,
+  type ContactDraft,
 } from './contacts-logic';
 
-const newDraft = (): ContactDraft => ({ kind: 'message', due: defaultDueLocal(), topic: '' });
+const newDraft = (): ContactDraft => ({ kind: 'message', due: DUE_NOW, topic: '' });
+
+/** «Когда»: «Сейчас» by default, one-tap usual times, and a date and a time field for the rest. */
+function DueField({ due, onChange }: { due: string; onChange: (due: string) => void }) {
+  // The chip last tapped stays lit until the date or the time is changed by hand.
+  const [pick, setPick] = useState<string | null>(null);
+  const { date, time } = splitDue(due, new Date());
+  const active = due === DUE_NOW ? 'now' : pick;
+  return (
+    <div className="flex flex-col gap-2">
+      <div role="group" aria-label="Быстрый выбор времени" className="flex flex-wrap gap-1.5">
+        {QUICK_DUES.map((q) => (
+          <Button
+            key={q.id}
+            type="button"
+            size="sm"
+            variant={active === q.id ? 'default' : 'outline'}
+            aria-pressed={active === q.id}
+            onClick={() => {
+              setPick(q.id);
+              onChange(q.due(new Date()));
+            }}
+          >
+            {q.label}
+          </Button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input aria-label="Дата" type="date" value={date} className="min-w-0 flex-1"
+          onChange={(e) => {
+            if (!e.target.value) return;
+            setPick(null);
+            onChange(joinDue(e.target.value, time));
+          }} />
+        <Input aria-label="Время" type="time" value={time} className="w-28"
+          onChange={(e) => {
+            if (!e.target.value) return;
+            setPick(null);
+            onChange(joinDue(date, e.target.value));
+          }} />
+      </div>
+      <p className="text-xs text-muted-foreground">Отправится {dueText(due)} (время вашего браузера).</p>
+    </div>
+  );
+}
 
 /** Re-read the plan and the timeline (a planned contact leaves an «initiative» line there). */
 function useRefreshContacts(chatId: number): () => void {
@@ -37,7 +82,7 @@ function PlanForm({ chatId }: { chatId: number }) {
   const error = checked ? contactDraftError(draft) : null;
   const plan = useMutation({
     mutationFn: (d: ContactDraft) =>
-      chatsApi.planContact(chatId, { kind: d.kind, topic: d.topic.trim(), due_at: localToIso(d.due) as string }),
+      chatsApi.planContact(chatId, { kind: d.kind, topic: d.topic.trim(), due_at: dueIso(d.due) as string }),
     onSuccess: (contact) => {
       toast.success(contact.kind === 'call' ? 'Звонок запланирован' : 'Сообщение запланировано');
       setDraft(newDraft());
@@ -59,8 +104,8 @@ function PlanForm({ chatId }: { chatId: number }) {
       }}
     >
       <Segmented label="Что сделать" value={draft.kind} options={CONTACT_KINDS} onChange={(v) => set('kind', v)} />
-      <Field id="contact-due" label="Когда" hint="Время вашего браузера.">
-        <Input id="contact-due" type="datetime-local" value={draft.due} onChange={(e) => set('due', e.target.value)} />
+      <Field id="contact-due" label="Когда">
+        <DueField due={draft.due} onChange={(due) => set('due', due)} />
       </Field>
       <Field id="contact-topic" label={draft.kind === 'call' ? 'О чём звонок' : 'О чём написать'} error={error ?? undefined}>
         <Textarea
