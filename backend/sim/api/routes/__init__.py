@@ -6,9 +6,11 @@ from typing import Any
 from sim.api.routes import (
     agents,
     auth,
+    calls,
     channels,
     chats,
     clients,
+    contacts,
     diary,
     events,
     hooks,
@@ -20,5 +22,5 @@ from sim.api.routes import (
 API_ROUTES: list[Any] = [
     *auth.ROUTES, *chats.ROUTES, *persona.ROUTES, *life.ROUTES, *channels.ROUTES,
     *media.ROUTES, *clients.ROUTES, *events.ROUTES, *agents.ROUTES, *diary.ROUTES,
-    *hooks.ROUTES,
+    *hooks.ROUTES, *contacts.ROUTES, *calls.ROUTES,
 ]

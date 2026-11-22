@@ -27,7 +27,16 @@ PHONE_MIC = (
 # Messenger voice notes are low-bitrate Opus.
 LOFI_OUT: tuple[str, ...] = ("-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "24k",
                              "-application", "voip", "-f", "ogg")
+SPEED_EPSILON = 0.01
 VOICE = "[0]aresample=48000"
+
+
+def voice_input(speed: float = 1.0) -> str:
+    """The TTS voice as the graph's first stream; faster or slower by `persona.voice_speed`
+    (`atempo` keeps the pitch, docs/persona-life.md, «Звук»)."""
+    if abs(speed - 1.0) < SPEED_EPSILON:
+        return VOICE
+    return f"[0]atempo={speed:.2f},aresample=48000"
 
 
 def _mix(voice: str, beds: list[str]) -> str:
@@ -47,23 +56,23 @@ def _room(seed: int, level: float = 0.025) -> list[str]:
     ]
 
 
-def mic_only(seed: int) -> str:
-    return f"{VOICE},{PHONE_MIC}"
+def mic_only(seed: int, voice: str = VOICE) -> str:
+    return f"{voice},{PHONE_MIC}"
 
 
-def quiet_home(seed: int) -> str:
-    return _mix(f"{VOICE},aecho=0.8:0.55:12|23|37:0.22|0.14|0.08", _room(seed))
+def quiet_home(seed: int, voice: str = VOICE) -> str:
+    return _mix(f"{voice},aecho=0.8:0.55:12|23|37:0.22|0.14|0.08", _room(seed))
 
 
-def kitchen(seed: int) -> str:
+def kitchen(seed: int, voice: str = VOICE) -> str:
     beds = [*_room(seed, 0.02), "sine=f=50:r=48000,volume=0.012",
             f"anoisesrc=color=white:amplitude=0.006:r=48000:seed={seed + 1},highpass=f=3500,"
             "tremolo=f=0.4:d=0.9"]
-    return _mix(f"{VOICE},aecho=0.8:0.5:9|19:0.25|0.12", beds)
+    return _mix(f"{voice},aecho=0.8:0.5:9|19:0.25|0.12", beds)
 
 
-def street(seed: int) -> str:
-    return _mix(VOICE, [
+def street(seed: int, voice: str = VOICE) -> str:
+    return _mix(voice, [
         f"anoisesrc=color=brown:amplitude=0.4:r=48000:seed={seed},highpass=180,lowpass=1600,"
         "tremolo=f=0.12:d=0.75",
         f"anoisesrc=color=pink:amplitude=0.03:r=48000:seed={seed + 1},bandpass=f=600:w=900,"
@@ -73,8 +82,8 @@ def street(seed: int) -> str:
     ])
 
 
-def park(seed: int) -> str:
-    return _mix(VOICE, [
+def park(seed: int, voice: str = VOICE) -> str:
+    return _mix(voice, [
         f"anoisesrc=color=pink:amplitude=0.03:r=48000:seed={seed},lowpass=f=800,"
         "tremolo=f=0.15:d=0.8",
         "sine=f=3400:r=48000,vibrato=f=7:d=0.6,tremolo=f=9:d=1,tremolo=f=0.35:d=1,"
@@ -84,26 +93,26 @@ def park(seed: int) -> str:
     ])
 
 
-def cafe(seed: int) -> str:
+def cafe(seed: int, voice: str = VOICE) -> str:
     # v1's approved version: the voice goes through the mic, chatter and hall noise after it.
     return (
-        f"{VOICE},aecho=0.8:0.6:18|35:0.25|0.15,{PHONE_MIC}[v];"
+        f"{voice},aecho=0.8:0.6:18|35:0.25|0.15,{PHONE_MIC}[v];"
         "[1]aresample=48000,volume=0.14[b];"
         f"anoisesrc=color=pink:amplitude=0.005:r=48000:seed={seed},lowpass=4000[n];"
         "[v][b][n]amix=inputs=3:duration=first:normalize=0"
     )
 
 
-def car(seed: int) -> str:
-    return _mix(f"{VOICE},aecho=0.8:0.4:6|11:0.2|0.1", [
+def car(seed: int, voice: str = VOICE) -> str:
+    return _mix(f"{voice},aecho=0.8:0.4:6|11:0.2|0.1", [
         f"anoisesrc=color=brown:amplitude=0.3:r=48000:seed={seed},lowpass=f=220",
         "sine=f=45:r=48000,volume=0.02",
         f"anoisesrc=color=pink:amplitude=0.015:r=48000:seed={seed + 1},bandpass=f=400:w=500",
     ])
 
 
-def transport(seed: int) -> str:
-    return _mix(VOICE, [
+def transport(seed: int, voice: str = VOICE) -> str:
+    return _mix(voice, [
         f"anoisesrc=color=brown:amplitude=0.3:r=48000:seed={seed},lowpass=f=300,"
         "tremolo=f=1.5:d=0.4",
         f"anoisesrc=color=pink:amplitude=0.02:r=48000:seed={seed + 1},bandpass=f=700:w=900,"
@@ -111,8 +120,8 @@ def transport(seed: int) -> str:
     ])
 
 
-def office(seed: int) -> str:
-    return _mix(f"{VOICE},aecho=0.8:0.5:14|28:0.2|0.1", [
+def office(seed: int, voice: str = VOICE) -> str:
+    return _mix(f"{voice},aecho=0.8:0.5:14|28:0.2|0.1", [
         *_room(seed, 0.02),
         f"anoisesrc=color=white:amplitude=0.004:r=48000:seed={seed + 1},highpass=f=2000,"
         "tremolo=f=7:d=0.9,tremolo=f=0.2:d=1",
@@ -134,13 +143,14 @@ def resolve(ambience: str) -> Ambience:
         return Ambience.NONE
 
 
-def voice_note_args(ambience: str, seed: int) -> tuple[str, ...]:
+def voice_note_args(ambience: str, seed: int, speed: float = 1.0) -> tuple[str, ...]:
     """ffmpeg arguments after the voice input (`-i <wav>`): extra inputs, the filter graph and
-    the lo-fi Opus output options; the caller appends the output path."""
+    the lo-fi Opus output options; the caller appends the output path. `speed` stretches the
+    voice before the background is mixed in, so the place keeps its natural tempo."""
     value = resolve(ambience)
     extra: tuple[str, ...] = ()
     if value == Ambience.CAFE:
         # The same seed starts the clip at the same place: one event, one cafe.
         offset = f"{(seed % int(CHATTER_S * 100)) / 100:.2f}"
         extra = ("-stream_loop", "-1", "-ss", offset, "-i", str(CHATTER))
-    return (*extra, "-filter_complex", GRAPHS[value](seed), *LOFI_OUT)
+    return (*extra, "-filter_complex", GRAPHS[value](seed, voice_input(speed)), *LOFI_OUT)

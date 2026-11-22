@@ -18,6 +18,12 @@ export const CHAT_FLAGS: Record<ChatFlag, { label: string; title: string; on: st
     on: 'В этом чате она не отказывает',
     off: 'В этом чате она может отказать, как обычно',
   },
+  calls_out: {
+    label: 'Звонит сама',
+    title: 'Марина может сама позвонить в этом чате: когда договорились созвониться или есть повод. Не чаще раза в 3 часа и не больше 3 раз в день, не ночью.',
+    on: 'В этом чате она может позвонить сама',
+    off: 'В этом чате она сама не звонит',
+  },
 };
 
 /** One flag of one chat: the request, the toast and the refresh, for the switch and the phone menu. */
@@ -34,8 +40,8 @@ function useChatFlag(chatId: number, flag: ChatFlag) {
   return { text, toggle };
 }
 
-/** One switch of the chat header: «Отвечать сразу» (docs/attention.md) or «Без отказов»
- * (docs/writing.md). Shows the new value while it is being saved. */
+/** One switch of the chat header: «Отвечать сразу» (docs/attention.md), «Без отказов»
+ * (docs/writing.md) or «Звонит сама» (docs/calls.md). Shows the new value while it is being saved. */
 export function ChatFlagSwitch({ chatId, flag, enabled }: { chatId: number; flag: ChatFlag; enabled: boolean }) {
   const { text, toggle } = useChatFlag(chatId, flag);
   return (

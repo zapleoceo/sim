@@ -68,7 +68,7 @@ describe('PersonaStatusStrip', () => {
     fakeApi({
       'GET /api/chats/7/status': () => {
         calls += 1;
-        return calls === 1 ? status() : status({ code: 'thinking', tone: 'ok', title: 'Думает над ответом', detail: '', until: null, local_until: null });
+        return calls === 1 ? status() : status({ code: 'thinking', tone: 'ok', title: 'Пишет ответ', detail: '', until: null, local_until: null });
       },
     });
     const { queryClient } = await renderWithApp(<PersonaStatusStrip chatId={7} initial={status()} />);
@@ -77,8 +77,33 @@ describe('PersonaStatusStrip', () => {
 
     await queryClient.invalidateQueries({ queryKey: qk.chatStatus(7) });
 
-    await within(strip).findByText('Думает над ответом');
+    await within(strip).findByText('Пишет ответ');
     expect(strip).toHaveAttribute('data-tone', 'ok');
     expect(within(strip).queryByText(/по её времени/)).not.toBeInTheDocument();
+  });
+
+  it('a reply that takes longer than usual is a warning, whatever its code', async () => {
+    const slow = status({
+      code: 'thinking', tone: 'warn', title: 'Перечитывает ответ — дольше обычного', detail: 'идёт 3 мин',
+      until: null, local_until: null,
+    });
+    fakeApi({ 'GET /api/chats/7/status': slow });
+    await renderWithApp(<PersonaStatusStrip chatId={7} initial={slow} />);
+    const strip = await screen.findByRole('status');
+    expect(within(strip).getByText('Перечитывает ответ — дольше обычного')).toBeInTheDocument();
+    expect(strip).toHaveAttribute('data-tone', 'warn');
+    for (const cls of TONE_CLASS.warn.split(' ')) expect(strip).toHaveClass(cls);
+  });
+
+  it('shows how long a generation has been running', async () => {
+    const gen = status({
+      code: 'generating', tone: 'busy', title: 'Записывает кружок',
+      detail: 'генерация идёт 1 мин 20 с · обычно 2–6 мин', until: null, local_until: null,
+    });
+    fakeApi({ 'GET /api/chats/7/status': gen });
+    await renderWithApp(<PersonaStatusStrip chatId={7} initial={gen} />);
+    const strip = await screen.findByRole('status');
+    expect(within(strip).getByText('Записывает кружок')).toBeInTheDocument();
+    expect(within(strip).getByText('генерация идёт 1 мин 20 с · обычно 2–6 мин')).toBeInTheDocument();
   });
 });

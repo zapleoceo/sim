@@ -5,7 +5,8 @@ import { fieldClass } from './input';
 
 /**
  * A styled native `<select>`: works with react-hook-form `register`, keeps an empty value
- * («не выбрано»), and gives phones their own picker.
+ * («не выбрано»), and gives phones their own picker. Its option list takes the theme's colours from
+ * index.css (`color-scheme` and the `select option` rule), so it is readable in the dark theme too.
  */
 export function NativeSelect({ className, children, ...props }: React.ComponentProps<'select'>) {
   return (

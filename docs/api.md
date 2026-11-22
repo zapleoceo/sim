@@ -25,6 +25,10 @@
 | POST | `/chats/{id}/ai` | `{enabled}` → `ChatRow` |
 | POST | `/chats/{id}/attention-instant` | `{enabled}` — «Отвечать сразу» в этом чате (без проверок телефона, [attention.md](attention.md)) → `ChatRow` |
 | POST | `/chats/{id}/no-refusals` | `{enabled}` — «Без отказов» в этом чате ([writing.md](writing.md)) → `ChatRow` |
+| POST | `/chats/{id}/calls-out` | `{enabled}` — «Звонит сама» в этом чате ([initiative.md](initiative.md)) → `ChatRow` |
+| GET | `/chats/{id}/contacts` | → `{items: [Contact]}` — запланированные сообщения и звонки, новые сверху ([initiative.md](initiative.md)) |
+| POST | `/chats/{id}/contacts` | `{kind: message|call, topic, due_at}` → `Contact` (201); 400 — время прошло, нет темы, звонки недоступны |
+| POST | `/chats/{id}/contacts/{cid}/cancel` | → `Contact`; 409 — уже начался |
 | POST | `/chats/{id}/read` | → 204 (обнуляет `unread_count`) |
 | POST | `/chats/{id}/notes` | `{text}` — заметка для агента (`operator_note`) → `TimelineItem` |
 | POST | `/chats/{id}/operator-done` | снимает «нужен оператор»: событие `ai_toggled` `{enabled: true, scope: "operator"}` и, если клиент писал, пока ждали оператора, — проверка телефона персонажа, как после включения ИИ ([reply.md](reply.md)); повторно — ничего → `ChatRow` |
@@ -70,7 +74,10 @@ LlmCall = {id, purpose, model, request, response, tokens_in, tokens_out, cost_us
 | POST | `/personas/{id}/clone` | `{name, parts: [ClonePart]}` → новый `Persona` (201); 400 — имя занято или пустое, неизвестная часть |
 | POST | `/personas/{id}/appearance/describe` | агент Портретист (по умолчанию модель Зрения) описывает внешность по фото-референсам → `{text, references}`; ничего не сохраняет (текст правят и сохраняют через `PUT /personas/{id}` `{appearance}`); 400 — нет модели или референсов |
 | GET | `/models` | → `{items: [{id, available, input_modalities, output_modalities, capabilities}]}` из Broker |
-| GET | `/voices` | → `{items: [{id, label}]}` голоса Gemini TTS |
+| GET | `/calls/{id}/recording` | → OGG записи разговора (Range); 404 — записи нет или удалена ([calls.md](calls.md)) |
+| POST | `/personas/{id}/call-recordings/purge` | `{days: int|null}` — удалить записи звонков персонажа старше `days` (`null` — её срок, `0` — все) → `{deleted}` |
+| GET | `/voices` | → `{items: [{id, label, gender: female|male, tone}]}` голоса Gemini TTS |
+| GET | `/voices/{id}/sample?persona_id=` | → WAV: короткая фраза этим голосом моделью агента «Голос» персонажа; кэш в процессе (каждый голос — один вызов TTS); 404 — нет голоса, 400 — нет модели, 502 — Broker отказал |
 
 ```ts
 PersonaRow = {id, name, avatar_media_id, is_active, ai_enabled, leads_count, channels: [Channel]}

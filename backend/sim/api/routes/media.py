@@ -9,6 +9,7 @@ from litestar.exceptions import ClientException, NotFoundException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.adapters.storage import MediaNotFound
 from sim.api import views
 from sim.api.context import ApiContext
 from sim.api.files import file_response
@@ -88,7 +89,7 @@ async def media_file(media_id: int, request: Request[Any, Any, Any], ctx: ApiCon
     media = await get_or_404(db, MediaAsset, media_id, "Файл")
     try:
         data = await ctx.deps.storage.get(media.storage_key)
-    except (FileNotFoundError, KeyError) as exc:
+    except (MediaNotFound, FileNotFoundError, KeyError) as exc:
         raise NotFoundException(detail=f"Файл {media_id} пропал из хранилища") from exc
     return file_response(data, mime=media.mime, file_name=media.file_name,
                          range_header=request.headers.get("range"))

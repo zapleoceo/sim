@@ -21,7 +21,7 @@ from sim.telegram.calls import CallsAttacher
 from sim.telegram.calls.service import CallService
 from sim.telegram.client import ChannelRuntime, Hook
 from sim.telegram.receiver import Receiver
-from sim.telegram.tasks import QUEUE, get_presence, set_runtime
+from sim.telegram.tasks import QUEUE, get_presence, set_dialer, set_runtime
 
 log = logging.getLogger(__name__)
 
@@ -30,17 +30,22 @@ REFRESH_S = 60.0                 # new / re-logged channels are picked up this o
 
 
 def build_runtime(deps: Any) -> tuple[ChannelRuntime, CallService]:
-    """Wires the process from `Deps` (sim.services.deps)."""
+    """Wires the process from `Deps` (sim.services.deps). With calls on, her own calls go
+    through the same attacher (`telegram:place_call`)."""
     from sim.services.context.builder import ContextBuilder
     from sim.services.inbox import Inbox
 
     inbox = Inbox(deps)
     service = CallService(
         sessions=deps.sessions, settings=deps.settings, clock=deps.clock, live=deps.live,
-        inbox=inbox, context=ContextBuilder(deps.clock, deps.settings), tasks=deps.tasks)
+        inbox=inbox, context=ContextBuilder(deps.clock, deps.settings), tasks=deps.tasks,
+        tools=deps.tools, storage=deps.storage)
     hooks: list[Hook] = [Receiver(inbox).attach]
+    set_dialer(None)
     if deps.settings.calls_enabled:
-        hooks.append(CallsAttacher(service).attach)
+        attacher = CallsAttacher(service)
+        hooks.append(attacher.attach)
+        set_dialer(attacher)
     runtime = ChannelRuntime(deps.sessions, secret_key=deps.settings.secret_key, hooks=hooks)
     return runtime, service
 

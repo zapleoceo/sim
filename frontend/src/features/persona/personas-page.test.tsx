@@ -84,8 +84,8 @@ describe('CloneDialog', () => {
   it('from the persona page header checks the name against every persona, like the list', async () => {
     const log = fakeApi({ 'GET /api/personas': { items: ROWS } });
     const marina = { ...ROWS[0], gender: 'female', language: 'ru', timezone: 'Europe/Kyiv', birth_date: null, prompt: '',
-      appearance: '', voice_ambience_enabled: false, voice_id: '', voice_style: '', voice_enabled: false, photo_enabled: false,
-      video_enabled: false, calls_enabled: false, reply_delay_s: 8 } as Persona;
+      appearance: '', voice_ambience_enabled: false, voice_id: '', voice_style: '', voice_speed: 1, voice_enabled: false, photo_enabled: false,
+      video_enabled: false, calls_enabled: false, call_recording: true, call_recording_days: 90, reply_delay_s: 8 } as Persona;
     await renderWithApp(<PersonaHeader persona={marina} />);
     await waitFor(() => expect(log.some((r) => r.path === '/api/personas')).toBe(true));
     await userEvent.click(screen.getByRole('button', { name: 'Клонировать' }));

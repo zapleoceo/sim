@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sim.db.models import Chat, ClientIdentity
 from sim.domain.enums import MessageStatus
 from sim.ports import InboundMessage, LiveEvent, OutboundMessage, Peer, PortError
-from sim.telegram.calls.backend import CallGone
+from sim.telegram.calls.backend import CallGone, NoAnswer
+from sim.telegram.calls.pcm import resample
 
 # --- database --------------------------------------------------------------------------------
 
@@ -322,30 +323,43 @@ class FakeCallContext:
     model: str = "gemini-live"
     max_seconds: int = 30
     key_tier: str = "paid"
+    speed: float = 1.0
+    record: bool = False
 
 
 class FakeContextBuilder:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.error = error
-        self.chats: list[int] = []
+    """`topics`: the `outgoing_topic` of each call context (None = an incoming call)."""
 
-    async def for_call(self, session: AsyncSession, chat_id: int) -> FakeCallContext:
+    def __init__(self, error: Exception | None = None,
+                 context: FakeCallContext | None = None) -> None:
+        self.error = error
+        self.context = context or FakeCallContext()
+        self.chats: list[int] = []
+        self.topics: list[str | None] = []
+
+    async def for_call(self, session: AsyncSession, chat_id: int, *,
+                       outgoing_topic: str | None = None) -> FakeCallContext:
         self.chats.append(chat_id)
+        self.topics.append(outgoing_topic)
         if self.error is not None:
             raise self.error
-        return FakeCallContext()
+        return self.context
 
 
 @dataclass
 class FakeTasks:
     memory: list[int] = field(default_factory=list)
     checks: list[tuple[int, float]] = field(default_factory=list)   # (persona id, delay)
+    replies: list[tuple[int, float]] = field(default_factory=list)  # (chat id, delay)
 
     async def phone_check(self, persona_id: int, delay_s: float = 0) -> None:
         self.checks.append((persona_id, delay_s))
 
     async def refresh_memory(self, chat_id: int) -> None:
         self.memory.append(chat_id)
+
+    async def reply(self, chat_id: int, delay_s: float = 0) -> None:
+        self.replies.append((chat_id, delay_s))
 
 
 @dataclass
@@ -462,6 +476,83 @@ class FakeIncomingCall:
     async def hangup(self) -> None:
         self.log.append("hangup")
         self._ended = True
+
+
+class FakeOutgoingCall(FakeIncomingCall):
+    """Her call (`OutgoingCall`): `ring` records the timeout, then the callee picks up, or
+    raises NoAnswer(`no_answer`) / `ring_error`."""
+
+    def __init__(self, *, no_answer: str | None = None, ring_error: Exception | None = None,
+                 **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.no_answer = no_answer
+        self.ring_error = ring_error
+        self.rings: list[int] = []
+
+    async def ring(self, timeout_s: int) -> None:
+        self.rings.append(timeout_s)
+        self.log.append("ring")
+        if self.no_answer is not None:
+            self._ended = True
+            raise NoAnswer(self.no_answer)
+        if self.ring_error is not None:
+            raise self.ring_error
+
+
+class FakeCallBackend:
+    """`CallBackend` of one account: `dial` hands out `call` (or raises `error`)."""
+
+    def __init__(self, call: FakeOutgoingCall | None = None,
+                 error: Exception | None = None) -> None:
+        self.call = call or FakeOutgoingCall()
+        self.error = error
+        self.dialed: list[Peer] = []
+
+    async def start(self, on_call: Any) -> None:
+        self.on_call = on_call
+
+    async def dial(self, peer: Peer) -> FakeOutgoingCall:
+        self.dialed.append(peer)
+        if self.error is not None:
+            raise self.error
+        return self.call
+
+
+class FakeTempo:
+    """`Tempo` (sim/telegram/calls/tempo.py) without ffmpeg: keeps what a turn feeds and hands
+    it to the sink at the call's rate on `flush`; `reset` drops it. `log` = the calls."""
+
+    def __init__(self, speed: float, in_hz: int, out_hz: int, sink: Any) -> None:
+        self.args = (speed, in_hz, out_hz)
+        self.sink = sink
+        self.pending = bytearray()
+        self.log: list[str] = []
+
+    async def feed(self, pcm: bytes) -> None:
+        self.log.append("feed")
+        self.pending += pcm
+
+    async def flush(self) -> None:
+        self.log.append("flush")
+        if self.pending:
+            self.sink(resample(bytes(self.pending), self.args[1], self.args[2]))
+        self.pending.clear()
+
+    async def reset(self) -> None:
+        self.log.append("reset")
+        self.pending.clear()
+
+
+class FakeTempoFactory:
+    """`TempoFactory` that records every tempo it made."""
+
+    def __init__(self) -> None:
+        self.made: list[FakeTempo] = []
+
+    def __call__(self, speed: float, in_hz: int, out_hz: int, sink: Any) -> FakeTempo:
+        tempo = FakeTempo(speed, in_hz, out_hz, sink)
+        self.made.append(tempo)
+        return tempo
 
 
 class FakeLiveSession:

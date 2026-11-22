@@ -1,6 +1,8 @@
 """What she sees when she picks up her phone (docs/attention.md, «Что она видит»): every chat of
 the persona with something new since her last look — client messages after her last turn,
-calls she did not take because of her life, edits — and the answers she promised that are due.
+calls she did not take because of her life, calls she talked on (what she promised there is
+due), edits — and the answers she promised that are due. Her calls are among the last lines, so
+a client she has just talked to is never «a stranger who writes and writes».
 
 A chat's «last look» is its newest `attention` event: `data.until_event_id` is the newest event
 that decision covered. Together with the answered boundary (`turn_state.answered_until`) it
@@ -13,15 +15,24 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Chat, ChatEvent, Client, Message, Persona, ReplyRun
+from sim.db.models import Call, Chat, ChatEvent, Client, Message, Persona, ReplyRun
 from sim.domain.ai_gate import ai_block
 from sim.domain.attention import AttentionAction, AttentionSettings
-from sim.domain.enums import Direction, EventKind, MessageKind, RunStatus
+from sim.domain.enums import (
+    CallDirection,
+    CallStatus,
+    Direction,
+    EventKind,
+    MessageKind,
+    RunStatus,
+)
 from sim.domain.passport import Passport, passport_of
 from sim.services.attention.schedule import DUE_SLACK
 from sim.services.attention.timing import local_hhmm
+from sim.services.context.facts import clock_duration
 from sim.services.context.render import MEDIA_LABELS, one_line
 from sim.services.turn_state import (
+    AFTER_CALL_KEY,
     LIFE_ACTIVITY_KEY,
     LIFE_REFUSED_KEY,
     Unanswered,
@@ -34,6 +45,8 @@ RUNNING_FRESH = timedelta(minutes=10)   # a turn running this recently: she is i
 NEWS_KINDS = (EventKind.MESSAGE_IN, EventKind.MESSAGE_EDITED, EventKind.CALL)
 LAST_LINES = 6
 LINE_CHARS = 200
+CALL_LINES = 3                          # her last calls among the lines
+CALL_WORDS = 3                          # the last replies of a call shown in its line
 
 
 @dataclass(frozen=True)
@@ -60,6 +73,7 @@ class ChatNotice:
     new_messages: int = 0
     edits: int = 0
     missed_calls: list[MissedCall] = field(default_factory=list)
+    after_call: bool = False            # they have just talked: her promises there are due
     texts: list[str] = field(default_factory=list)      # new client texts (urgency hints)
     unanswered: Unanswered | None = None
     lines: list[str] = field(default_factory=list)      # the last messages, oldest first
@@ -69,7 +83,7 @@ class ChatNotice:
 
     @property
     def has_news(self) -> bool:
-        return bool(self.new_messages or self.edits or self.missed_calls)
+        return bool(self.new_messages or self.edits or self.missed_calls or self.after_call)
 
     def promise_due(self, now: datetime) -> bool:
         return self.promise is not None and self.promise.at <= now + DUE_SLACK
@@ -187,6 +201,8 @@ async def _read_news(session: AsyncSession, notice: ChatNotice, events: list[Cha
         elif event.kind == EventKind.MESSAGE_EDITED:
             notice.edits += 1
             notice.texts.append(one_line(str(data.get("new", ""))))
+        elif AFTER_CALL_KEY in data:
+            notice.after_call = True
         elif LIFE_REFUSED_KEY in data and settings.after_missed_call:
             notice.missed_calls.append(MissedCall(
                 at=event.created_at, status=str(data.get("status", "missed")),
@@ -197,17 +213,37 @@ async def _read_lines(session: AsyncSession, notice: ChatNotice, persona: Person
     rows = list(await session.scalars(
         select(Message).where(Message.chat_id == notice.chat_id)
         .order_by(Message.id.desc()).limit(LAST_LINES)))
-    for message in reversed(rows):
+    calls = list(await session.scalars(
+        select(Call).where(Call.chat_id == notice.chat_id)
+        .order_by(Call.id.desc()).limit(CALL_LINES)))
+    lines: list[tuple[datetime, str]] = []
+    for message in rows:
         incoming = message.direction == Direction.IN
         who = notice.client_name if incoming else persona.name
-        at = local_hhmm(message.sent_at or message.created_at, persona.timezone)
-        notice.lines.append(f"[{at}] {who}: {_body(message)}")
+        at = message.sent_at or message.created_at
+        lines.append((at, f"[{local_hhmm(at, persona.timezone)}] {who}: {_body(message)}"))
+    for call in calls:
+        lines.append((call.created_at, f"[{local_hhmm(call.created_at, persona.timezone)}] "
+                                       f"{_call_line(call, notice.client_name, persona.name)}"))
+    notice.lines = [text for _, text in sorted(lines, key=lambda line: line[0])][-LAST_LINES:]
     if rows:
         notice.last_from = "client" if rows[0].direction == Direction.IN else "persona"
     notice.last_out_at = (await session.execute(
         select(func.max(func.coalesce(Message.sent_at, Message.created_at)))
         .where(Message.chat_id == notice.chat_id, Message.direction == Direction.OUT)
     )).scalar_one_or_none()
+
+
+def _call_line(call: Call, client: str, persona: str) -> str:
+    """A call among the last lines: who called, how it went, how it ended."""
+    caller = persona if call.direction == CallDirection.OUT else client
+    if call.status != CallStatus.ENDED:
+        return f"звонок от {caller}: {CallStatus(call.status).value}"
+    last = [f"{persona if line.get('who') == 'persona' else client}: "
+            f"{one_line(str(line.get('text', '')))[:LINE_CHARS]}"
+            for line in (call.transcript or [])[-CALL_WORDS:]]
+    talk = f" — в конце: {' / '.join(last)}" if last else ""
+    return f"звонок от {caller}, поговорили {clock_duration(call.duration_s)}{talk}"
 
 
 def _body(message: Message) -> str:

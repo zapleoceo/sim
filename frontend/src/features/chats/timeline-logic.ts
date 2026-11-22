@@ -97,6 +97,22 @@ export function attentionLine(data: Record<string, unknown>): string {
   return `${who}: ${action}${later ? ` в ${later}` : ''}${reason ? ` (${reason})` : ''}`;
 }
 
+const INITIATIVE_VERB: Record<string, string> = { message: 'написать', call: 'позвонить' };
+
+/**
+ * A planned contact (docs/calls.md): «Запланировано менеджером: позвонить — «тема»» or, when she
+ * decided it herself, «Она решила написать: «тема»».
+ */
+export function initiativeLine(data: Record<string, unknown>): string {
+  const verb = INITIATIVE_VERB[str(data, 'kind')] ?? 'связаться';
+  const topic = str(data, 'topic');
+  if (str(data, 'source') === 'persona') {
+    const who = str(data, 'who') || 'Она';
+    return `${who} решила ${verb}${topic ? `: «${topic}»` : ''}`;
+  }
+  return `Запланировано менеджером: ${verb}${topic ? ` — «${topic}»` : ''}`;
+}
+
 /**
  * Journal events shown as a small centred line (not a bubble). Null for kinds rendered
  * otherwise (messages, calls, generations) or not shown at all (`media_understood` only
@@ -128,6 +144,8 @@ export function systemLine(item: TimelineItem): SystemLine | null {
       return { text: memoryLine(d), tone: 'muted' };
     case 'attention':
       return { text: attentionLine(d), tone: 'muted' };
+    case 'initiative':
+      return { text: initiativeLine(d), tone: 'muted' };
     default:
       return null;
   }

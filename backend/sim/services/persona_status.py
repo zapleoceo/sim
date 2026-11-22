@@ -8,8 +8,11 @@ First match wins:
 1. AI off — the persona is archived, or AI is off for the persona, the client or the chat;
 2. an operator is needed (with the reason of the last `operator_needed` event);
    (1-2 are the reasons of the AI gate, `sim.domain.ai_gate`, in its order)
-3. a reply turn is running — «Думает над ответом»;
-4. a generation for this chat is running — «Записывает кружок», «Делает фото»…;
+3. a reply turn is running — which step: «Пишет ответ» (the reply model), «Перечитывает
+   ответ» (the guard), «Готовит отправку» (after the guard: TTS, cutting a circle); how long
+   the step runs, and a warning when it runs much longer than usual (a hanging Broker queue);
+4. a generation for this chat is running — «Записывает кружок», «Делает фото»… with how long
+   it runs and how long it usually takes;
 5. a message waits to be sent — «Печатает ответ», «Записывает голосовое»…;
 6. the turn for the waiting messages failed;
 7. her phone-check decision covering the waiting messages (the newest `attention` event);
@@ -30,13 +33,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sim.db.models import Chat, ChatEvent, Client, Message, Persona, ReplyRun
+from sim.db.models import Chat, ChatEvent, Client, LlmCall, Message, Persona, ReplyRun
 from sim.domain.ai_gate import AiBlock, ai_block
 from sim.domain.attention import AttentionAction, AttentionSettings, attention_settings
 from sim.domain.enums import (
     Direction,
     EventKind,
     GenerationKind,
+    LlmPurpose,
     MessageKind,
     MessageStatus,
     RunStatus,
@@ -105,12 +109,24 @@ class PersonaStatus:
 
 @dataclass(frozen=True)
 class LastRun:
-    """The newest reply turn of a chat."""
+    """The newest reply turn of a chat; `steps` are the purposes of its finished model calls
+    (a call is logged when it returns), `step_since` is when the last of them returned."""
 
     status: RunStatus
     created_at: datetime
     trigger_event_id: int | None = None
     error: str | None = None
+    id: int | None = None
+    steps: tuple[str, ...] = ()
+    step_since: datetime | None = None
+
+
+@dataclass(frozen=True)
+class Making:
+    """A generation in progress for the chat: what and since when."""
+
+    kind: GenerationKind
+    since: datetime
 
 
 @dataclass(frozen=True)
@@ -121,7 +137,7 @@ class ChatFacts:
     client: Client
     persona: Persona | None
     run: LastRun | None = None
-    generation: GenerationKind | None = None        # running for this chat
+    generation: Making | None = None                # running for this chat
     sending: MessageKind | None = None              # the oldest outgoing message not sent yet
     waiting: Waiting | None = None                  # unanswered client messages / missed calls
     look: Mapping[str, Any] | None = None           # data of the newest `attention` event
@@ -211,21 +227,65 @@ SENDING = {
 }
 
 
+# Generation: what it usually takes (docs/reply.md, «Генерация: сроки»).
+USUALLY = {GenerationKind.PHOTO: "обычно до минуты", GenerationKind.VIDEO: "обычно 2–6 мин",
+           GenerationKind.VIDEO_NOTE: "обычно 2–6 мин", GenerationKind.VOICE: "обычно секунды"}
+SLOW_HINT = "похоже, завис Broker; ход упадёт через 5 мин и повторится"
+
+
+@dataclass(frozen=True)
+class Step:
+    title: str
+    who: str                    # what is going on, for the detail line
+    slow_after_s: int           # longer than this is not normal: a warning
+
+
+STEP_WRITING = Step("Пишет ответ", "Собеседник думает", 60)
+STEP_CHECKING = Step("Перечитывает ответ", "Охранник проверяет ответ перед отправкой", 30)
+STEP_PREPARING = Step("Готовит отправку", "проверка прошла: запись голосового или нарезка "
+                      "кружка, если они в ответе", 120)
+
+
+def turn_step(steps: Sequence[str]) -> Step:
+    """Where a running turn is, from the purposes of its finished model calls, in order: a
+    reply call not yet followed by a guard call is being checked; after the guard the turn
+    prepares what it sends (a second reply call after «Вспомнила», a repair or a block shows
+    as checking again)."""
+    flow = [step for step in steps if step in (LlmPurpose.REPLY.value, LlmPurpose.GUARD.value)]
+    if not flow:
+        return STEP_WRITING
+    return STEP_CHECKING if flow[-1] == LlmPurpose.REPLY.value else STEP_PREPARING
+
+
+def elapsed(since: datetime, now: datetime) -> str:
+    """«40 с», «4 мин 50 с»."""
+    seconds = max(0, int((now - since).total_seconds()))
+    minutes, secs = divmod(seconds, 60)
+    return f"{minutes} мин {secs} с" if minutes else f"{secs} с"
+
+
 def _turn(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus | None:
     run = f.run
     if run is None or run.status != RunStatus.RUNNING or run.created_at < m.now - RUNNING_FRESH:
         return None
-    started = local_hhmm(run.created_at, persona.timezone)
-    return _status(StatusCode.THINKING, StatusTone.OK, "Думает над ответом",
-                   f"ход ответа идёт с {started} · клиент видит «печатает…»")
+    step = turn_step(run.steps)
+    since = run.step_since or run.created_at
+    took = f"шаг идёт {elapsed(since, m.now)}"
+    if (m.now - since).total_seconds() > step.slow_after_s:
+        return _status(StatusCode.THINKING, StatusTone.WARN, f"{step.title} — дольше обычного",
+                       _join(step.who, took, SLOW_HINT))
+    return _status(StatusCode.THINKING, StatusTone.OK, step.title,
+                   _join(step.who, took, "клиент видит «печатает…»"))
 
 
 def _generation(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus | None:
-    if f.generation is None:
+    making = f.generation
+    if making is None:
         return None
     return _status(StatusCode.GENERATING, StatusTone.OK,
-                   GENERATING.get(f.generation, "Готовит вложение"),
-                   "готовит вложение к ответу — уйдёт клиенту, когда будет готово")
+                   GENERATING.get(making.kind, "Готовит вложение"),
+                   _join(f"генерация идёт {elapsed(making.since, m.now)}",
+                         USUALLY.get(making.kind, ""), "уйдёт клиенту, когда будет готово"))
 
 
 def _sending(f: ChatFacts, persona: Persona, m: Moment) -> PersonaStatus | None:
@@ -354,21 +414,35 @@ ChatRow = tuple[Chat, Client, Persona | None]
 
 
 async def _last_runs(session: AsyncSession, ids: Sequence[int]) -> dict[int, LastRun]:
-    rows = await session.execute(
+    rows = (await session.execute(
         select(ReplyRun.chat_id, ReplyRun.status, ReplyRun.created_at,
-               ReplyRun.trigger_event_id, ReplyRun.error)
+               ReplyRun.trigger_event_id, ReplyRun.error, ReplyRun.id)
         .where(ReplyRun.chat_id.in_(ids))
-        .distinct(ReplyRun.chat_id).order_by(ReplyRun.chat_id, ReplyRun.id.desc()))
-    return {chat_id: LastRun(status=status, created_at=created_at, trigger_event_id=trigger,
-                             error=error)
-            for chat_id, status, created_at, trigger, error in rows.all()}
+        .distinct(ReplyRun.chat_id).order_by(ReplyRun.chat_id, ReplyRun.id.desc()))).all()
+    running = [row[5] for row in rows if row[1] == RunStatus.RUNNING]
+    steps: dict[int, list[tuple[str, datetime]]] = {}
+    if running:
+        calls = await session.execute(
+            select(LlmCall.reply_run_id, LlmCall.purpose, LlmCall.created_at)
+            .where(LlmCall.reply_run_id.in_(running)).order_by(LlmCall.id))
+        for run_id, purpose, at in calls.all():
+            steps.setdefault(run_id, []).append((LlmPurpose(purpose).value, at))
+    result = {}
+    for chat_id, status, created_at, trigger, error, run_id in rows:
+        done = steps.get(run_id, [])
+        result[chat_id] = LastRun(
+            status=status, created_at=created_at, trigger_event_id=trigger, error=error,
+            id=run_id, steps=tuple(purpose for purpose, _ in done),
+            step_since=done[-1][1] if done else None)
+    return result
 
 
 async def _generations(session: AsyncSession, ids: Sequence[int],
-                       now: datetime) -> dict[int, GenerationKind]:
+                       now: datetime) -> dict[int, Making]:
     """The newest generation still in progress per chat (sim/services/generation_state.py)."""
     active = await active_generations(session, ids, now)
-    return {chat_id: generations[-1].kind for chat_id, generations in active.items()}
+    return {chat_id: Making(generations[-1].kind, generations[-1].created_at)
+            for chat_id, generations in active.items()}
 
 
 async def _sending(session: AsyncSession, ids: Sequence[int]) -> dict[int, MessageKind]:

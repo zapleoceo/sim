@@ -189,18 +189,23 @@ class FakeMediaTools:
     document: str | None = None
     duration_s: float | None = None
     video_note_error: Exception | None = None
-    calls: list[tuple[str, Any]] = field(default_factory=list)
+    recording_error: Exception | None = None
+    calls: list[tuple[Any, ...]] = field(default_factory=list)
+    speeds: list[float] = field(default_factory=list)      # voice notes: persona.voice_speed
 
     async def probe(self, data: bytes, mime: str) -> Probe:
         self.calls.append(("probe", mime))
         return Probe(mime=mime, width=None, height=None, duration_s=self.duration_s)
 
-    async def wav_to_ogg_opus(self, wav: bytes) -> tuple[bytes, float]:
+    async def wav_to_ogg_opus(self, wav: bytes, speed: float = 1.0) -> tuple[bytes, float]:
         self.calls.append(("wav_to_ogg_opus", len(wav)))
+        self.speeds.append(speed)
         return b"OGG" + wav, 2.0
 
-    async def voice_note(self, wav: bytes, ambience: str, seed: int) -> tuple[bytes, float]:
+    async def voice_note(self, wav: bytes, ambience: str, seed: int,
+                         speed: float = 1.0) -> tuple[bytes, float]:
         self.calls.append(("voice_note", ambience, seed))
+        self.speeds.append(speed)
         return b"OGG" + wav, 2.0
 
     async def to_pcm16k(self, data: bytes, mime: str) -> bytes:
@@ -224,6 +229,13 @@ class FakeMediaTools:
         if self.video_note_error is not None:
             raise self.video_note_error
         return b"ROUND:" + mp4, 8.0
+
+    async def call_recording(self, stereo_pcm: bytes, rate_hz: int) -> tuple[bytes, float]:
+        """Stereo s16le of a call -> «OGG»; `recording_error` is raised instead."""
+        self.calls.append(("call_recording", len(stereo_pcm), rate_hz))
+        if self.recording_error is not None:
+            raise self.recording_error
+        return b"OGG" + stereo_pcm, round(len(stereo_pcm) / (4 * rate_hz), 2)
 
 
 @dataclass
@@ -276,6 +288,9 @@ class RecordingQueue:
 
     async def whatsapp_catch_up(self, channel_id: int) -> None:
         self.calls.append(("whatsapp_catch_up", channel_id))
+
+    async def place_call(self, contact_id: int) -> None:
+        self.calls.append(("place_call", contact_id))
 
     def actions(self) -> list[str]:
         """The chat actions asked for, in order."""

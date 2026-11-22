@@ -106,6 +106,15 @@ export function CallCard({ call, at }: { call: TimelineCall; at: string }) {
           </span>
         </div>
       </div>
+      {call.recording_url && (
+        // The server's URL as is, like media files (same cookie session, Range for seeking).
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            Запись разговора{call.recording_s ? ` · ${formatDuration(call.recording_s)}` : ''}
+          </span>
+          <audio controls preload="none" src={call.recording_url} aria-label="Запись разговора" className="h-10 w-full" />
+        </div>
+      )}
       {call.transcript.length > 0 && (
         <details className="group rounded-md bg-muted/50 px-2.5 py-1.5">
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground select-none">

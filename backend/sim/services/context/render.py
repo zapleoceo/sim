@@ -18,6 +18,7 @@ from sim.domain.enums import (
     MessageKind,
     UnderstandingStatus,
 )
+from sim.domain.initiative import TOPIC_KEY, initiative_line
 from sim.services.context.facts import clock_duration, stamp
 
 MEDIA_LABELS = {
@@ -224,6 +225,13 @@ def _render_attention(event: ChatEvent, data: dict[str, Any], rel: Related,
     return f"({note})" if note else None
 
 
+def _render_initiative(event: ChatEvent, data: dict[str, Any], rel: Related,
+                       who: Speakers) -> str | None:
+    """A planned message that came due (docs/initiative.md): she writes first."""
+    topic = one_line(str(data.get(TOPIC_KEY, "")))
+    return initiative_line(topic) if topic else None
+
+
 Renderer = Callable[[ChatEvent, dict[str, Any], Related, Speakers], str | None]
 
 # One renderer per visible kind; a kind missing here is not shown to the agent.
@@ -238,6 +246,7 @@ RENDERERS: dict[EventKind, Renderer] = {
     EventKind.GENERATION_FAILED: _render_generation_failed,
     EventKind.OPERATOR_NOTE: _render_note,
     EventKind.ATTENTION: _render_attention,
+    EventKind.INITIATIVE: _render_initiative,
 }
 
 

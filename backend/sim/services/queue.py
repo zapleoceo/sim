@@ -90,6 +90,11 @@ class TaskQueue(Protocol):
         """Read what a WhatsApp account got while it was offline (after a reconnect)."""
         ...
 
+    async def place_call(self, contact_id: int) -> None:
+        """Her call of a due planned contact, placed by the telegram process
+        (docs/initiative.md). One job per contact."""
+        ...
+
     async def chat_action(self, chat_id: int, action: str, seconds: float) -> None:
         """Show a chat action (`sim.domain.presence.ChatAction`) for up to `seconds` (bounded
         to 300 s), re-sent while it lasts; `cancel` stops it. Requests of one chat apply in

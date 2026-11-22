@@ -12,11 +12,14 @@ import { useDraft } from '@/hooks/use-draft';
 import { qk } from '@/lib/query';
 import type { Persona, Voice } from '@/lib/types';
 import { personaApi } from './api';
+import { CallRecordingsPurge } from './call-recordings-purge';
 import { lifeApi } from './life/life-api';
 import {
-  GENDERS, LANGUAGES, PROMPT_SOFT_LIMIT, REPLY_DELAY_MAX, personaFormErrors, timeZones, toFormValues, toPatch, withCurrent,
+  GENDERS, LANGUAGES, PROMPT_SOFT_LIMIT, RECORDING_DAYS, REPLY_DELAY_MAX, personaFormErrors, timeZones, toFormValues, toPatch, withCurrent,
   type PersonaFormValues,
 } from './persona-form-logic';
+import { VoicePicker } from './voice-picker';
+import { VOICE_SPEED, formatSpeed, normalizeSpeed } from './voice-picker-logic';
 
 export const PERSONA_FORM_ID = 'persona-form';
 /** The form's name in «Не сохранено: …» and in its save bar. */
@@ -73,8 +76,9 @@ export function PersonaEditor({ persona, voices }: PersonaEditorProps) {
   });
 
   const zones = useMemo(timeZones, []);
-  const voiceOptions = withCurrent(voices.map((v) => ({ value: v.id, label: v.label || v.id })), values.voice_id);
-  const text = (key: 'name' | 'timezone' | 'birth_date' | 'prompt' | 'appearance' | 'voice_style' | 'reply_delay_s') => ({
+  const text = (
+    key: 'name' | 'timezone' | 'birth_date' | 'prompt' | 'appearance' | 'voice_style' | 'reply_delay_s' | 'call_recording_days',
+  ) => ({
     value: values[key],
     onChange: (e: { target: { value: string } }) => set(key, e.target.value),
     'aria-invalid': errors[key] ? true : undefined,
@@ -149,13 +153,40 @@ export function PersonaEditor({ persona, voices }: PersonaEditorProps) {
           </Field>
         </Section>
 
-        <Section id="voice" title="Голос" description="Для голосовых ответов (модель и ключи — в «Агентах», агент «Голос»).">
+        <Section id="voice" title="Голос" description="Для голосовых ответов и звонков (модель и ключи — в «Агентах», агент «Голос»).">
+          <Field id="persona-voice" label="Голос" hint="▶ — послушать образец. Первый раз озвучка занимает несколько секунд.">
+            <VoicePicker
+              id="persona-voice"
+              value={values.voice_id}
+              onChange={(v) => set('voice_id', v)}
+              voices={voices}
+              personaId={persona.id}
+              speed={values.voice_speed}
+            />
+          </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="persona-voice" label="Голос">
-              <NativeSelect id="persona-voice" value={values.voice_id} onChange={(e) => set('voice_id', e.target.value)}>
-                <option value="">— не выбран —</option>
-                {voiceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </NativeSelect>
+            <Field
+              id="persona-voice-speed"
+              label="Скорость речи"
+              hint="Голосовые ускоряются без изменения тона; в звонке — тоже. 1.0 — как у модели."
+              error={errors.voice_speed}
+            >
+              <div className="flex h-9 items-center gap-3">
+                <input
+                  id="persona-voice-speed"
+                  type="range"
+                  min={VOICE_SPEED.min}
+                  max={VOICE_SPEED.max}
+                  step={VOICE_SPEED.step}
+                  value={values.voice_speed}
+                  onChange={(e) => set('voice_speed', normalizeSpeed(Number(e.target.value)))}
+                  aria-valuetext={formatSpeed(values.voice_speed)}
+                  className="min-w-0 flex-1 accent-primary"
+                />
+                <output htmlFor="persona-voice-speed" className="w-12 text-right text-sm font-medium tabular">
+                  {formatSpeed(values.voice_speed)}
+                </output>
+              </div>
             </Field>
             <Field id="persona-voice-style" label="Манера речи" hint="Интонация, темп, настроение — подсказка для TTS.">
               <Textarea id="persona-voice-style" className="min-h-9" rows={2} {...text('voice_style')} />
@@ -172,6 +203,40 @@ export function PersonaEditor({ persona, voices }: PersonaEditorProps) {
               onCheckedChange={(v) => set('voice_ambience_enabled', v)}
             />
           </SwitchRow>
+          {/* Call recordings: copied with the voice part by «Клонировать». */}
+          <div className="flex flex-col gap-3 border-t pt-2">
+            <SwitchRow
+              id="persona-call_recording"
+              label="Записывать звонки"
+              hint="Разговор сохраняется в стерео: собеседник слева, Марина справа. Слушать — в ленте чата у звонка."
+            >
+              <Switch
+                id="persona-call_recording"
+                checked={values.call_recording}
+                onCheckedChange={(v) => set('call_recording', v)}
+              />
+            </SwitchRow>
+            <div className="flex flex-col items-start gap-3">
+              <Field
+                id="persona-call-recording-days"
+                label="Хранить записи, дней"
+                hint="Старше — удаляются автоматически раз в час. Расшифровка звонка остаётся."
+                error={errors.call_recording_days}
+                className="max-w-72"
+              >
+                <Input
+                  id="persona-call-recording-days"
+                  type="number"
+                  inputMode="numeric"
+                  min={RECORDING_DAYS.min}
+                  max={RECORDING_DAYS.max}
+                  {...text('call_recording_days')}
+                />
+              </Field>
+              {/* The saved period: the server purges by it, not by an unsaved edit. */}
+              <CallRecordingsPurge personaId={persona.id} days={persona.call_recording_days ?? RECORDING_DAYS.default} />
+            </div>
+          </div>
         </Section>
 
         <Section id="switches" title="Переключатели">

@@ -6,10 +6,17 @@ import pytest
 
 from sim.domain.life import BusyLevel
 from sim.domain.plan import TextAction, VideoNoteAction
-from sim.domain.scene import CameraHold, Light, ShotType
+from sim.domain.scene import Camera, CameraHold, Light, SceneCard, ShotType
 from sim.services.capabilities import Capabilities, with_camera
 from sim.services.plan_check import PlanError, validated_plan
-from sim.services.visual import PROPPED_FRAMING, SELFIE_FRAMING, camera_for, media_prompt
+from sim.services.visual import (
+    HANDHELD_MOTION,
+    PROPPED_FRAMING,
+    SELFIE_FRAMING,
+    SHOW_AROUND,
+    camera_for,
+    media_prompt,
+)
 from tests.services.factories import plan_json
 from tests.services.test_scene import scene
 
@@ -91,11 +98,46 @@ def test_video_shakes_in_her_hand_and_bounces_on_the_move() -> None:
     walking = media_prompt(stage="video", action="машет", shot=ShotType.FRONT_SELFIE,
                            scene=scene(activity="идёт по рынку"), speech="Привет!",
                            language="ru", round_note=True)
-    assert "hand shake" in walking and "bounces with her steps" in walking
+    assert HANDHELD_MOTION in walking and "bounces with her steps" in walking
+    assert "Not smooth, not a gimbal" in walking
     cooking = media_prompt(stage="video", action="машет", shot=ShotType.FRONT_SELFIE,
                            scene=scene(activity="готовит драники"), speech="Привет!",
                            language="ru", round_note=True)
-    assert "slightly crooked" in cooking and "hand shake" not in cooking
+    assert "slightly crooked" in cooking and HANDHELD_MOTION not in cooking
+
+
+def note_prompt(action: str, *, place: SceneCard | None = None,
+                camera: Camera | None = None, round_note: bool = True,
+                speech: str = "Привет!") -> str:
+    return media_prompt(stage="video", action=action, scene=place, shot=ShotType.FRONT_SELFIE,
+                        speech=speech, language="ru", round_note=round_note, camera=camera)
+
+
+def test_a_handheld_note_shakes_even_without_a_scene() -> None:
+    bare = note_prompt("машет")
+    assert bare.startswith(SELFIE_FRAMING) and "not on a gimbal" in bare
+    assert HANDHELD_MOTION in bare and "Light quality" not in bare
+    propped = note_prompt("машет", camera=Camera(CameraHold.PROPPED, "красит ногти"))
+    assert propped.startswith(PROPPED_FRAMING) and HANDHELD_MOTION not in propped
+
+
+@pytest.mark.parametrize("action", ["показывает вид из окна", "показывает кухню",
+                                    "shows the view from the balcony"])
+def test_she_turns_the_phone_to_what_she_shows(action: str) -> None:
+    assert SHOW_AROUND in note_prompt(action)
+    assert SHOW_AROUND in note_prompt(action, place=scene(activity="читает"))
+    # A video in which she speaks is filmed by her too.
+    assert SHOW_AROUND in note_prompt(action, round_note=False)
+
+
+def test_no_pan_without_show_words_or_on_a_propped_phone() -> None:
+    assert SHOW_AROUND not in note_prompt("машет и улыбается")
+    propped = Camera(CameraHold.PROPPED, "готовит драники")
+    assert SHOW_AROUND not in note_prompt("показывает кухню", camera=propped)
+    assert SHOW_AROUND not in note_prompt("показывает кухню",
+                                          place=scene(activity="готовит драники"))
+    # A silent clip that continues a photo is not filmed by her: no pan.
+    assert SHOW_AROUND not in note_prompt("показывает кухню", round_note=False, speech="")
 
 
 def test_right_after_a_run_she_is_out_of_breath() -> None:

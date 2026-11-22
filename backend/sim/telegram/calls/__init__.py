@@ -3,7 +3,8 @@
 `CallsAttacher` is a runtime hook: on every fresh Telethon connection it puts a call backend
 (py-tgcalls) on the same client and routes each incoming call to `CallService.handle`. A backend
 that cannot start (no native library, an account that cannot call) only disables calls for that
-account: messaging keeps working."""
+account: messaging keeps working. `dial` places her own call through the backend of the chat's
+account (docs/initiative.md)."""
 from __future__ import annotations
 
 import logging
@@ -44,3 +45,6 @@ class CallsAttacher:
             self.backends.pop(channel_id, None)
             return
         self.backends[channel_id] = backend
+
+    async def dial(self, contact_id: int) -> None:
+        await self.service.dial(contact_id, self.backends)

@@ -109,6 +109,28 @@ class CallStatus(StrEnum):
     FAILED = "failed"
 
 
+class ContactKind(StrEnum):
+    """What a planned contact is (docs/initiative.md): she writes first or she calls."""
+
+    MESSAGE = "message"
+    CALL = "call"
+
+
+class ContactSource(StrEnum):
+    """Who planned it: the manager in the dashboard, or she herself in a reply turn."""
+
+    MANAGER = "manager"
+    PERSONA = "persona"
+
+
+class ContactStatus(StrEnum):
+    PLANNED = "planned"             # waits for its time
+    STARTED = "started"             # due: the call is being placed
+    DONE = "done"                   # the message turn was asked for / the call took place
+    FAILED = "failed"               # nobody picked up, or it could not run (`result` says why)
+    CANCELLED = "cancelled"         # the manager cancelled it
+
+
 class LlmPurpose(StrEnum):
     REPLY = "reply"
     GUARD = "guard"
@@ -167,7 +189,7 @@ class ClonePart(StrEnum):
     BASICS = "basics"               # gender, language, time zone, birth date
     PROMPT = "prompt"
     AGENTS = "agents"               # every agent: model, key tier, prompt, max_tokens; «Внимание»
-    VOICE = "voice"                 # voice, manner of speech, background in voice notes
+    VOICE = "voice"                 # voice, speed, manner of speech, background in voice notes
     GUARD = "guard"                 # the guard's rules
     APPEARANCE = "appearance"
     WORLD = "world"                 # routine, people, hobbies, places (`persona.life`)
@@ -197,3 +219,4 @@ class EventKind(StrEnum):
     CLIENT_UPDATED = "client_updated"       # profile fields changed (name, phone, notes)
     MEMORY_UPDATED = "memory_updated"       # the chat summary was refreshed
     ATTENTION = "attention"                 # she looked at the chat: read, later, now…
+    INITIATIVE = "initiative"               # a planned contact is due: she writes first

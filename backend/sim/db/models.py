@@ -38,6 +38,9 @@ from sim.domain.enums import (
     CanonStatus,
     ChannelKind,
     ChannelStatus,
+    ContactKind,
+    ContactSource,
+    ContactStatus,
     DaySource,
     Direction,
     EventKind,
@@ -132,6 +135,14 @@ class Persona(Base):
     # Voice notes get the background sound of her current scene.
     voice_ambience_enabled: Mapped[bool] = mapped_column(Boolean, default=True,
                                                          server_default=text("true"))
+    # How fast she speaks, voice notes and calls (1.0 = as the model speaks; pitch stays).
+    voice_speed: Mapped[float] = mapped_column(Float, default=1.0,
+                                               server_default=text("1.0"))
+    # Calls are recorded and the recordings kept this many days (docs/calls.md).
+    call_recording: Mapped[bool] = mapped_column(Boolean, default=True,
+                                                 server_default=text("true"))
+    call_recording_days: Mapped[int] = mapped_column(Integer, default=90,
+                                                     server_default=text("90"))
     # Her internal agents (docs/agents.md): {agent_key: {model, key_tier, prompt, max_tokens}},
     # only what the owner changed; read through sim.domain.agents.agent_config.
     agents: Mapped[dict[str, Any]] = jsonb_dict()
@@ -279,6 +290,9 @@ class Chat(Base):
     # «Без отказов»: she does what this client asks, later if she can not now (docs/writing.md).
     no_refusals: Mapped[bool] = mapped_column(Boolean, default=False,
                                               server_default=text("false"))
+    # «Звонит сама»: she may call this client herself (docs/initiative.md). Off by default.
+    calls_out: Mapped[bool] = mapped_column(Boolean, default=False,
+                                            server_default=text("false"))
     needs_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True,
@@ -455,6 +469,32 @@ class Call(Base):
     model: Mapped[str] = mapped_column(String(160), default="")
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The audio of the talk in the media storage (stereo OGG: client left, persona right),
+    # deleted after persona.call_recording_days (docs/calls.md, «Запись звонка»).
+    recording_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    recording_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class PlannedContact(Base):
+    """She writes first or calls at `due_at` about `topic` (docs/initiative.md): planned by the
+    manager in the dashboard, or by her in a reply turn («давай созвонимся» -> a call)."""
+
+    __tablename__ = "planned_contact"
+    __table_args__ = (Index("ix_planned_contact_due", "status", "due_at"),)
+
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chat.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[ContactKind] = enum_col(ContactKind)
+    source: Mapped[ContactSource] = enum_col(ContactSource)
+    status: Mapped[ContactStatus] = enum_col(ContactStatus, default=ContactStatus.PLANNED)
+    topic: Mapped[str] = mapped_column(Text, default="")
+    due_at: Mapped[datetime] = mapped_column(DateTimeUTC)
+    # operator:<id> for the manager, persona for her own plan.
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    result: Mapped[str] = mapped_column(Text, default="")
+    finished_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True)
+    call_id: Mapped[int | None] = mapped_column(ForeignKey("call.id", ondelete="SET NULL"),
+                                                nullable=True)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class ChatEvent(Base):

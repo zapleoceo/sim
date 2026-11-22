@@ -116,6 +116,9 @@ def plan_errors(plan: ReplyPlan, *, catalog: Mapping[int, MediaKind],
             if action.media_id in seen:
                 errors.append(f"{where}: media_id {action.media_id} уже есть в этом ответе")
             seen.add(action.media_id)
+    if plan.call is not None and not caps.call_out:
+        errors.append(f"call: звонить сейчас нельзя ({caps.call_block or 'нельзя'}); верни "
+                      "call: null и ответь сообщением")
     if generations > MAX_GENERATIONS_PER_TURN:
         errors.append(f"не больше {MAX_GENERATIONS_PER_TURN} генерации за ход")
     return errors

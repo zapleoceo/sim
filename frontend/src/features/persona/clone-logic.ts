@@ -16,7 +16,7 @@ export const CLONE_PARTS: readonly ClonePartInfo[] = [
   { part: 'basics', label: 'Основное', hint: 'Пол, язык, часовой пояс, дата рождения.', checked: true },
   { part: 'prompt', label: 'Промт', hint: 'Кто она, характер, стиль, запреты.', checked: true },
   { part: 'agents', label: 'Агенты', hint: 'Модели, ключи, промты и лимиты всех агентов.', checked: true },
-  { part: 'voice', label: 'Голос и фон', hint: 'Голос, манера речи, фон в голосовых.', checked: true },
+  { part: 'voice', label: 'Голос и фон', hint: 'Голос, скорость, манера речи, фон в голосовых, запись звонков и срок её хранения.', checked: true },
   { part: 'guard', label: 'Правила Охранника', hint: 'Список запретов, которые Охранник не пропускает.', checked: true },
   { part: 'appearance', label: 'Внешность', hint: 'Описание внешности для фото и видео.', checked: true },
   { part: 'world', label: 'Мир', hint: 'Распорядок, люди, увлечения, места.', checked: true },

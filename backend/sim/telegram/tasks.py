@@ -12,6 +12,9 @@ again, and neither delivers twice.
 
 `mark_read(message_id)` marks the chat read up to an incoming message (best effort).
 
+`place_call(contact_id)` places her call of a due planned contact (docs/initiative.md) through
+the call backends of this process (`set_dialer`); without calls here the contact fails.
+
 `chat_action(chat_id, action, seconds)` shows a live status («печатает», «записывает кружок»...)
 for up to `seconds` through `Presence` (sim/telegram/presence.py); `cancel` stops it.
 
@@ -24,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from types import ModuleType
-from typing import Any
+from typing import Any, Protocol
 
 from procrastinate import Blueprint, JobContext
 
@@ -56,13 +59,16 @@ NAMESPACE = "telegram"
 SEND_TASK = f"{NAMESPACE}:send_message"
 MARK_READ_TASK = f"{NAMESPACE}:mark_read"
 CHAT_ACTION_TASK = f"{NAMESPACE}:chat_action"
+PLACE_CALL_TASK = f"{NAMESPACE}:place_call"
+NO_CALLS = "не позвонила: звонки этого процесса выключены"
 
 # The shared delivery, re-exported for the telegram process and its tests.
 __all__ = [
-    "CHAT_ACTIONS", "CHAT_ACTION_TASK", "MARK_READ_TASK", "MAX_RETRIES", "NAMESPACE", "QUEUE",
-    "SEND_TASK", "Delivery", "SendRetry", "acknowledge", "action_seconds", "blueprint",
-    "chat_address", "deliver", "fail", "get_messenger", "get_presence", "load_delivery",
-    "peer_of", "request_presence", "retry_delay", "set_runtime", "show_action",
+    "CHAT_ACTIONS", "CHAT_ACTION_TASK", "MARK_READ_TASK", "MAX_RETRIES", "NAMESPACE",
+    "PLACE_CALL_TASK", "QUEUE", "SEND_TASK", "Delivery", "SendRetry", "acknowledge",
+    "action_seconds", "blueprint", "chat_address", "deliver", "fail", "get_messenger",
+    "get_presence", "load_delivery", "peer_of", "request_presence", "retry_delay",
+    "set_dialer", "set_runtime", "show_action",
 ]
 
 blueprint = Blueprint()
@@ -81,6 +87,15 @@ def set_runtime(runtime: Any, messenger: MessengerPort | None = None, *,
                                                             min_interval_s=min_interval_s)
     _registry["presence"] = Presence(_registry["messenger"])
     return _registry["messenger"]
+
+
+class Dialer(Protocol):
+    async def dial(self, contact_id: int) -> None: ...
+
+
+def set_dialer(dialer: Dialer | None) -> None:
+    """Called by the telegram process when its calls are on (sim.telegram.calls.CallsAttacher)."""
+    _registry["dialer"] = dialer
 
 
 def get_messenger() -> MessengerPort:
@@ -137,3 +152,15 @@ async def chat_action(chat_id: int, action: str, seconds: float) -> None:
                                presence=get_presence())
     except PortError as exc:
         log.info("chat %s: chat action skipped: %s", chat_id, exc)
+
+
+@blueprint.task(name="place_call", queue=QUEUE)
+async def place_call(contact_id: int) -> None:
+    dialer = _registry.get("dialer")
+    if dialer is None:
+        from sim.services.initiative import fail_started
+
+        deps = _deps()
+        await fail_started(deps.sessions, contact_id, NO_CALLS, deps.clock.now())
+        return
+    await dialer.dial(contact_id)

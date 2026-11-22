@@ -3,6 +3,7 @@ event, memory refresh. Fake call backend and fake Broker live session; the test'
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,6 +16,7 @@ from sim.config import Settings
 from sim.db.models import Call, ChatEvent
 from sim.domain.enums import CallDirection, CallStatus, EventKind
 from sim.ports import LiveEvent, PortError
+from sim.services.context.builder import CallContext
 from sim.telegram.calls.service import CallService, refuse_reason
 from tests.fakes.telegram import (
     FakeCallContext,
@@ -98,6 +100,21 @@ async def test_an_answered_call_is_bridged_transcribed_and_recorded(db, sessions
     assert event.call_id == row.id and event.actor == "client" and event.in_context
     assert event.data["status"] == "ended" and event.data["end_reason"] == "hung_up"
     assert tasks.memory == [world.chat.id]
+    assert context.topics == [None]                     # an incoming call: no reason of hers
+    # She spoke: what she promised on the call she does in a turn right after it.
+    assert event.data["after_call"] is True
+    assert tasks.replies == [(world.chat.id, 30.0)]
+
+
+async def test_a_call_where_she_said_nothing_asks_for_no_turn(db, sessions, clock):
+    world = await seed_world(db)
+    session = FakeLiveSession([LiveEvent("transcript_in", text="алло?")])
+    call = FakeIncomingCall(frames=[SILENCE_20MS], hang_up=session.emitted)
+    service, tasks, _, _ = make_service(sessions, clock, FakeLive(session))
+    assert await service.handle(world.channel.id, call) == CallStatus.ENDED
+    [event] = await call_events(db, world)
+    assert "after_call" not in event.data
+    assert tasks.replies == [] and tasks.memory == [world.chat.id]
 
 
 @pytest.mark.parametrize(("seed", "config", "reason"), [
@@ -267,5 +284,7 @@ def test_refuse_reason_order():
 
 
 def test_fake_context_matches_the_shared_contract():
-    fields = {"system", "greeting", "language", "voice", "model", "max_seconds", "key_tier"}
+    fields = {"system", "greeting", "language", "voice", "model", "max_seconds", "key_tier",
+              "speed", "record"}
     assert set(vars(FakeCallContext())) == fields
+    assert {f.name for f in dataclasses.fields(CallContext)} == fields

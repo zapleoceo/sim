@@ -78,6 +78,8 @@ def rule_decision(notice: ChatNotice, av: Availability, settings: AttentionSetti
     if not notice.has_news and notice.promise is not None:
         return Decision(chat, A.REPLY_NOW,
                         f"обещала ответить в {local_hhmm(notice.promise.at, tz)}")
+    if notice.after_call:
+        return Decision(chat, A.REPLY_NOW, "только что говорили по телефону")
     if notice.unanswered is None:
         return Decision(chat, A.READ_ONLY, "правка уже отвеченного сообщения")
     if av.level == BusyLevel.FREE and lively(notice, now):

@@ -15,7 +15,7 @@ function chat(id: number, persona: string): ChatRow {
   return {
     id, client: { id: 1, name: 'Дима', username: 'dima', ai_enabled: true },
     persona: { id, name: persona, avatar_media_id: null }, ai_enabled: true, attention_instant: false, no_refusals: false,
-    needs_operator: false, unread_count: 0,
+    calls_out: false, needs_operator: false, unread_count: 0,
     persona_status: { code: 'answered', tone: 'ok', title: 'Всё отвечено', detail: '', until: null, local_until: null },
     last_message_at: null, last_message: null,
   };

@@ -110,10 +110,19 @@ class RecallSpec(_Strict):
         return self
 
 
+class CallSpec(_Strict):
+    """She calls him herself a minute after this turn (docs/initiative.md)."""
+
+    topic: str = Field(min_length=1, max_length=300,
+                       description="Why she calls, in a few words, e.g. «договорились "
+                                   "созвониться».")
+
+
 class ReplyPlan(_Strict):
     """`messages` empty = stay silent this turn (allowed, e.g. the client said goodbye).
     `recall` with no messages = «let me remember first»: code looks the days up and asks again
-    (once per turn); with messages it is ignored."""
+    (once per turn); with messages it is ignored. `call` = she dials him herself after the
+    messages (only where the facts allow it)."""
 
     messages: list[Action] = Field(default_factory=list, max_length=8)
     # New durable facts about the client learned from the latest messages (name, city, ...).
@@ -122,6 +131,7 @@ class ReplyPlan(_Strict):
     # kept in `persona_canon` and shown in every chat (docs/persona-life.md, «Канон»).
     canon: list[SelfFact] = Field(default_factory=list, max_length=5)
     recall: RecallSpec | None = None
+    call: CallSpec | None = None
 
     @property
     def wants_recall(self) -> bool:

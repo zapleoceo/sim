@@ -126,6 +126,19 @@ async def test_voice_mood_goes_before_the_usual_manner(db: AsyncSession, deps: D
     assert fakes.speech.calls[-1]["style"] == "весело, тепло, по-домашнему"
 
 
+async def test_her_voice_speed_goes_to_the_recording(db: AsyncSession, deps: Deps,
+                                                     fakes: Fakes) -> None:
+    """persona.voice_speed, kept within the form's range (sim/domain/speech.py)."""
+    _chat, ctx = await context(db, deps)
+    action = VoiceAction(type="voice", text="приветик")
+    await VoiceHandler().prepare(action, ctx)
+    ctx.persona.voice_speed = 1.3
+    await VoiceHandler().prepare(action, ctx)
+    ctx.persona.voice_speed = 4.0
+    await VoiceHandler().prepare(action, ctx)
+    assert fakes.tools.speeds == [1.0, 1.3, 1.5]
+
+
 def test_tts_style_is_short_and_skips_blanks() -> None:
     assert tts_style("тепло", "") == "тепло"
     assert tts_style("", " устало ") == "устало"

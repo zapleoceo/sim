@@ -111,6 +111,44 @@ describe('TimelineEntry', () => {
     expect(screen.getByText('алло')).toBeInTheDocument();
   });
 
+  it('an outgoing call is titled as such', () => {
+    show(item({
+      kind: 'call',
+      call: { id: 4, direction: 'out', status: 'ended', duration_s: 60, transcript: [] },
+    }));
+    expect(screen.getByText('Исходящий звонок')).toBeInTheDocument();
+    expect(screen.queryByText(/Запись разговора/)).not.toBeInTheDocument();
+  });
+
+  it('a recorded call has a player of its recording with the duration', () => {
+    const { container } = show(item({
+      kind: 'call',
+      call: {
+        id: 6, direction: 'in', status: 'ended', duration_s: 95, transcript: [],
+        recording_url: '/api/calls/6/recording', recording_s: 94,
+      },
+    }));
+    expect(screen.getByText('Запись разговора · 1:34')).toBeInTheDocument();
+    const audio = container.querySelector('audio');
+    expect(audio).toHaveAttribute('src', '/api/calls/6/recording');
+    expect(audio).toHaveAttribute('controls');
+    expect(audio).toHaveAttribute('preload', 'none');
+  });
+
+  it('a planned contact is a small gray line: by the manager or her own', () => {
+    show(item({
+      kind: 'initiative', actor: 'operator', in_context: false,
+      data: { contact_id: 3, kind: 'call', topic: 'про встречу', source: 'manager' },
+    }));
+    expect(screen.getByText(/Запланировано менеджером: позвонить — «про встречу»/)).toHaveClass('text-muted-foreground');
+    expect(systemLine(item({ kind: 'initiative', data: { contact_id: 4, kind: 'message', topic: 'как прошёл день', source: 'persona' } }))?.text)
+      .toBe('Она решила написать: «как прошёл день»');
+    expect(systemLine(item({ kind: 'initiative', data: { kind: 'call', topic: 'перезвонить', source: 'persona', who: 'Марина' } }))?.text)
+      .toBe('Марина решила позвонить: «перезвонить»');
+    expect(systemLine(item({ kind: 'initiative', data: { kind: 'message', topic: '', source: 'manager' } }))?.text)
+      .toBe('Запланировано менеджером: написать');
+  });
+
   it('generation chip: running and failed', () => {
     const { rerender } = show(item({
       kind: 'generation_started',
