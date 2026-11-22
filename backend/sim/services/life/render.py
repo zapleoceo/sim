@@ -126,6 +126,7 @@ def world_lines(life: PersonaLife) -> list[str]:
 
 LOOK_NAMES = {"nails": "маникюр", "earrings": "серьги", "jewelry": "украшения и часы",
               "hair": "укладка", "other": "ещё"}
+ROOM_NAMES = {"layout": "расстановка", "lamps": "светильники", "window_view": "вид из окна"}
 
 
 def home_lines(life: PersonaLife) -> list[str]:
@@ -141,8 +142,9 @@ def home_lines(life: PersonaLife) -> list[str]:
         flat = f": {one_line(home.details)}" if home.details.strip() else ""
         lines.append(f"Твоя квартира (всегда одна и та же){flat}")
         for room in home.rooms:
-            what = f": {one_line(room.details)}" if room.details.strip() else ""
-            lines.append(f"- {room.name}{what}")
+            parts = ([one_line(room.details)] if room.details.strip() else []) + [
+                f"{ROOM_NAMES[key]} — {value}" for key, value in room.fixed()]
+            lines.append(f"- {room.name}" + (f": {'; '.join(parts)}" if parts else ""))
     return lines
 
 

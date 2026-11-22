@@ -135,10 +135,22 @@ class Look(_Strict):
 
 
 class Room(_Strict):
-    """One room of her apartment, described once so every picture of it is the same room."""
+    """One room of her apartment, described once so every picture of it is the same room.
+    `layout`, `lamps` and `window_view` are the three things that drifted from photo to photo
+    on production (where the desk stands, which lamp, what is outside): each is fixed apart."""
 
     name: Name
     details: str = Field(default="", max_length=1000)
+    layout: Detail = ""         # where the furniture stands: «the desk by the left window»
+    lamps: Detail = ""          # exactly which lamps: «a brass swing-arm desk lamp»
+    window_view: Detail = ""    # what is outside its window, always the same
+
+    def fixed(self) -> list[tuple[str, str]]:
+        """(field, value) of the filled fixed parts — layout, lamps, window view — one line
+        each."""
+        return [(key, " ".join(value.split())) for key, value in
+                (("layout", self.layout), ("lamps", self.lamps),
+                 ("window_view", self.window_view)) if value.strip()]
 
 
 class Home(_Strict):

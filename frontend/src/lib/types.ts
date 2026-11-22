@@ -69,6 +69,26 @@ export interface Media {
   height: number | null;
   duration_s: number | null;
   file_name: string;
+  /** When the file was added (UTC ISO). */
+  created_at: string;
+  /** Media library only: the scene its generation was made in; null for an uploaded file. */
+  scene?: GenerationScene | null;
+}
+
+/** `generation.scene` (sim/domain/scene.py): where, in what, how the picture was made. Older
+ * generations keep fewer keys. */
+export interface GenerationScene {
+  day?: string;
+  place?: string;
+  activity?: string;
+  outfit?: string;
+  light?: string;
+  shot?: string;
+  camera_reason?: string;
+  /** The room of her apartment (sim/services/life/home.py). */
+  room?: string;
+  /** The owner pinned this photo as the reference of its room. */
+  room_ref?: boolean;
 }
 
 // --- leads (clients) and the passport (docs/leads.md) ------------------------------------------
@@ -493,6 +513,12 @@ export interface Look {
 export interface Room {
   name: string;
   details: string;
+  /** Where the furniture stands. */
+  layout: string;
+  /** Exactly which lamps. */
+  lamps: string;
+  /** What is outside the window, always the same. */
+  window_view: string;
 }
 
 /** Her one apartment (sim/domain/life.Home). */

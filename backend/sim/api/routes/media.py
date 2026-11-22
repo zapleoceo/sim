@@ -17,7 +17,13 @@ from sim.api.schemas import MediaPatchIn, sent_fields
 from sim.api.uploads import read_upload, upload_mime
 from sim.db.models import Chat, MediaAsset, Message
 from sim.domain.enums import MediaKind, MediaSource
-from sim.services.media_library import add_media, delete_media, update_media
+from sim.services.media_library import (
+    NotAReference,
+    add_media,
+    delete_media,
+    scenes_of,
+    update_media,
+)
 
 Json = dict[str, Any]
 LIBRARY_LIMIT = 1000
@@ -46,8 +52,9 @@ async def list_media(persona_id: int, db: AsyncSession, source: MediaSource | No
         stmt = stmt.where(MediaAsset.persona_id == persona_id, MediaAsset.source.in_(sources))
     if kind is not None:
         stmt = stmt.where(MediaAsset.kind == kind)
-    rows = await db.scalars(stmt.order_by(MediaAsset.id.desc()).limit(LIBRARY_LIMIT))
-    return {"items": [views.media_view(m) for m in rows]}
+    rows = list(await db.scalars(stmt.order_by(MediaAsset.id.desc()).limit(LIBRARY_LIMIT)))
+    scenes = await scenes_of(db, rows)
+    return {"items": [views.library_media_view(m, scenes.get(m.id)) for m in rows]}
 
 
 @post("/personas/{persona_id:int}/media", status_code=201)
@@ -66,14 +73,20 @@ async def upload_media(persona_id: int, request: Request[Any, Any, Any], ctx: Ap
         file_name=upload.filename or "", source=MediaSource.LIBRARY,
         caption=str(form.get("caption") or ""), tags=split_tags(str(form.get("tags") or "")),
         is_reference=str(form.get("is_reference") or "").strip().lower() in TRUE_VALUES)
-    return views.media_view(media)
+    return views.library_media_view(media, None)
 
 
 @patch("/media/{media_id:int}")
 async def edit_media(media_id: int, data: MediaPatchIn, db: AsyncSession) -> Json:
+    """Caption, tags, `is_reference` (a photo: her face for every generation) and
+    `is_room_ref` (a generated photo of a room of her apartment: that room's reference)."""
     await get_or_404(db, MediaAsset, media_id, "Файл")
-    media = await update_media(db, media_id, **sent_fields(data))
-    return views.media_view(media)
+    try:
+        media = await update_media(db, media_id, **sent_fields(data))
+    except NotAReference as exc:
+        raise ClientException(detail=str(exc)) from exc
+    scenes = await scenes_of(db, [media])
+    return views.library_media_view(media, scenes.get(media.id))
 
 
 @delete("/media/{media_id:int}")

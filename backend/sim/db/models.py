@@ -425,7 +425,8 @@ class Generation(Base):
     caption: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list[str]] = jsonb_list()
     ref_media_ids: Mapped[list[int]] = jsonb_list()
-    # The scene it was made in: {day, event_id, place, outfit, ambience} (sim/domain/scene.py);
+    # The scene it was made in: {day, event_id, place, outfit, ambience, activity, light, shot,
+    # room?, room_ref?} (sim/domain/scene.py; room_ref = the owner's reference of that room);
     # later photos of the same event use its photo as a continuity reference.
     scene: Mapped[dict[str, Any]] = jsonb_dict()
     status: Mapped[GenerationStatus] = enum_col(GenerationStatus, default=GenerationStatus.QUEUED)

@@ -14,7 +14,8 @@ export interface MediaUpload {
   isReference: boolean;
 }
 
-export type MediaPatch = Partial<Pick<Media, 'caption' | 'tags' | 'is_reference'>>;
+/** PATCH /api/media/{id}: `is_room_ref` pins a generated photo as the reference of its room. */
+export type MediaPatch = Partial<Pick<Media, 'caption' | 'tags' | 'is_reference'> & { is_room_ref: boolean }>;
 
 export interface TelegramLogin {
   api_id: number;

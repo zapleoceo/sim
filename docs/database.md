@@ -174,8 +174,9 @@ JSON-план), `guard_verdicts` (`[{ok, reason, attempt}]`), `attempts` (ско
 `kind` (`photo | video | voice | video_note`; `video_note` — круглое видеосообщение, миграция
 `0002`), `prompt`, `speech` (точные слова, которые она говорит в кадре; пусто — без речи;
 `0002`), `caption`, `tags`, `ref_media_ids` (референсы: до 4 фото внешности + до 2 фото той же
-сцены), `scene` (сцена, в которой сделано: `{day, event_id, place, outfit, ambience, shot}`,
-`0003`; по ней находятся фото того же события для непрерывности), `status`
+сцены + до 3 фото комнаты), `scene` (сцена, в которой сделано: `{day, event_id, place, outfit,
+ambience, activity, light, shot, room?, room_ref?}`, `0003`; `room_ref` — владелец отметил фото
+эталоном комнаты; по ней находятся фото того же события для непрерывности), `status`
 (`queued | running | done | failed`), `model`, `result_media_id`, `broker_job_id`, `cost_usd`,
 `error`, `finished_at`. Создаёт обработчик действия, выполняет задача `agent.run_generation`
 (очередь `media`). `updated_at` — время последней смены статуса: от него считаются окно «ещё

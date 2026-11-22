@@ -51,7 +51,10 @@ TimelineItem = {id, kind, actor, created_at, in_context, reply_run_id,
                 generation?: {id, kind, status, caption, error},
                 data: object}
 Media = {id, kind, mime, url, caption, tags, description, source, is_reference,
-         width, height, duration_s, file_name}      // url = /api/media/{id}/file
+         width, height, duration_s, file_name, created_at,
+         scene?: GenerationScene | null}      // url = /api/media/{id}/file; scene — только в медиатеке
+GenerationScene = {day?, place?, activity?, outfit?, light?, shot?, camera_reason?, room?,
+                   room_ref?: bool}  // `generation.scene` сгенерированного файла; null — загруженный
 LlmCall = {id, purpose, model, request, response, tokens_in, tokens_out, cost_usd,
            latency_ms, error, created_at}
 ```
@@ -189,7 +192,7 @@ PersonaLife = {routine: [{days: number[] /* 0 = пн */, start: "ЧЧ:ММ", end
                people: [{name, relation, traits, contact, notes}],
                hobbies: [{name, details, frequency}], places: [{name, kind, details}],
                look: {nails, earrings, jewelry, hair, other},
-               home: {details, rooms: [{name, details}]}}
+               home: {details, rooms: [{name, details, layout, lamps, window_view}]}}
 Ambience = "none"|"quiet_home"|"kitchen"|"street"|"park"|"cafe"|"car"|"transport"|"office"
 Arc = {id, title, summary, stage, status: "active"|"paused"|"done", started_on, ends_on,
        updated_at}
@@ -204,7 +207,7 @@ Canon = {id, fact, status: "active"|"rejected", chat_id, event_id, created_at}
 |---|---|---|
 | GET | `/personas/{id}/media?source=library\|generated\|incoming&kind=photo\|video` | → `{items: [Media]}`; по умолчанию медиатека и сгенерированное этого персонажа; `incoming` — вложения клиентов из её чатов |
 | POST | `/personas/{id}/media` | multipart: `file`, `caption`, `tags` (через запятую), `is_reference` → `Media` (201) |
-| PATCH | `/media/{id}` | `{caption?, tags?, is_reference?}` → `Media` (id файла глобальный) |
+| PATCH | `/media/{id}` | `{caption?, tags?, is_reference?, is_room_ref?}` → `Media` (id файла глобальный). `is_reference` — референс лица: только фото (загруженное или сгенерированное), иначе 400. `is_room_ref` — эталон комнаты: только сгенерированное фото, снятое в комнате её квартиры (`scene.room`), иначе 400 «Эталоном комнаты может быть только…»; пишется в `generation.scene.room_ref` |
 | DELETE | `/media/{id}` | → 204 |
 | GET | `/media/{id}/file` | содержимое файла (только для вошедших) |
 

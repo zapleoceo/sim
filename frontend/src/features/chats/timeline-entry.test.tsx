@@ -18,7 +18,8 @@ function message(patch: Partial<TimelineMessage>): TimelineMessage {
 function media(patch: Partial<Media>): Media {
   return {
     id: 5, kind: 'photo', mime: 'image/jpeg', url: '/api/media/5/file', caption: '', tags: [], description: '',
-    source: 'incoming', is_reference: false, width: null, height: null, duration_s: null, file_name: '', ...patch,
+    source: 'incoming', is_reference: false, width: null, height: null, duration_s: null, file_name: '',
+    created_at: '2026-11-21T18:44:01Z', ...patch,
   };
 }
 

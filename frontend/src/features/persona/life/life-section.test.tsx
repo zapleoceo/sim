@@ -130,13 +130,19 @@ describe('LifeSection', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Добавить комнату' }));
     await userEvent.type(screen.getByLabelText('Комната, строка 1'), 'спальня');
     await userEvent.type(screen.getByLabelText('Как выглядит, строка 1'), 'белое бельё');
+    await userEvent.type(screen.getByLabelText('Расстановка, строка 1'), 'кровать изголовьем к стене');
+    await userEvent.type(screen.getByLabelText('Светильники, строка 1'), 'две льняные лампы');
+    await userEvent.type(screen.getByLabelText('Вид из окна, строка 1'), 'тихий двор');
     expect(screen.getByRole('tab', { name: 'Дом (1)' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить мир' }));
 
     await waitFor(() => expect(log.filter((r) => r.method === 'PUT')).toHaveLength(1));
     const body = log.find((r) => r.method === 'PUT')?.body as PersonaLife;
     expect(body.look).toEqual({ ...EMPTY_LOOK, nails: 'нюдовый лак', earrings: 'золотые кольца' });
-    expect(body.home).toEqual({ details: 'старый дом, 4 этаж', rooms: [{ name: 'спальня', details: 'белое бельё' }] });
+    expect(body.home).toEqual({
+      details: 'старый дом, 4 этаж',
+      rooms: [{ name: 'спальня', details: 'белое бельё', layout: 'кровать изголовьем к стене', lamps: 'две льняные лампы', window_view: 'тихий двор' }],
+    });
   });
 
   it('a day being edited spans the whole days grid', async () => {

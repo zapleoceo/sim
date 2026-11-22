@@ -45,7 +45,14 @@ def media_view(media: MediaAsset) -> Json:
         "description": media.description, "source": media.source,
         "is_reference": media.is_reference, "width": media.width, "height": media.height,
         "duration_s": media.duration_s, "file_name": media.file_name,
+        "created_at": media.created_at,
     }
+
+
+def library_media_view(media: MediaAsset, scene: Json | None) -> Json:
+    """`Media` of the library page: also the scene its generation was made in (place, room,
+    outfit, light, shot…; `room_ref` = the owner pinned it as the room's reference)."""
+    return {**media_view(media), "scene": scene or None}
 
 
 def message_view(message: Message, media: MediaAsset | None) -> Json:

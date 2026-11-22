@@ -6,7 +6,10 @@ import { RowsEditor, type Column } from './rows-editor';
 
 const ROOM_COLUMNS: Column<Room>[] = [
   { key: 'name', label: 'Комната', kind: 'text', width: 'minmax(8rem,1fr)' },
-  { key: 'details', label: 'Как выглядит', kind: 'textarea', width: 'minmax(14rem,4fr)' },
+  { key: 'details', label: 'Как выглядит', kind: 'textarea', width: 'minmax(14rem,3fr)' },
+  { key: 'layout', label: 'Расстановка', kind: 'textarea', width: 'minmax(10rem,2fr)' },
+  { key: 'lamps', label: 'Светильники', kind: 'textarea', width: 'minmax(10rem,2fr)' },
+  { key: 'window_view', label: 'Вид из окна', kind: 'textarea', width: 'minmax(10rem,2fr)' },
 ];
 
 /** Constant details of her look: the same on every photo and video (docs/persona-life.md). */
@@ -51,7 +54,9 @@ export function HomeEditor({ home, onChange }: { home: Home; onChange: (home: Ho
         />
       </div>
       <p className="text-sm text-muted-foreground">
-        Фото дома всегда в одной из этих комнат; первая — если не понятно, в какой. Первое фото комнаты становится её образцом.
+        Фото дома всегда в одной из этих комнат; первая — если не понятно, в какой. Расстановка (где стол и диван), светильники
+        и вид из окна одинаковы на каждом фото комнаты. Образец комнаты — её первое фото, а лучше то, что вы отметите
+        «эталоном комнаты» в медиатеке.
       </p>
       <RowsEditor title="Комнаты" rows={home.rooms} columns={ROOM_COLUMNS} onChange={(rooms) => onChange({ ...home, rooms })}
         newRow={newRoom} addLabel="Добавить комнату" emptyText="Комнат нет: дома она в «квартире вообще»." />

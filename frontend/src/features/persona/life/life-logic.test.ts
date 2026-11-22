@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DayEvent, PersonaLife } from '@/lib/types';
 import {
-  addDays, currentEventIndex, dayErrors, dayTitle, EMPTY_LIFE, EMPTY_LOOK, joinNames, newDayEvent, newRoutineSlot, span,
+  addDays, currentEventIndex, dayErrors, dayTitle, EMPTY_LIFE, EMPTY_LOOK, joinNames, newDayEvent, newRoom, newRoutineSlot, span,
   splitNames, toMinutes, toggleDay, worldErrors,
 } from './life-logic';
 
@@ -39,7 +39,7 @@ describe('checks before saving', () => {
       hobbies: [],
       places: [],
       look: EMPTY_LOOK,
-      home: { details: '', rooms: [{ name: '', details: 'кровать' }] },
+      home: { details: '', rooms: [{ ...newRoom(), details: 'кровать' }] },
     };
     expect(worldErrors(life)).toEqual([
       'Распорядок, строка 1: выберите дни',

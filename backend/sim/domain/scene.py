@@ -54,6 +54,8 @@ class SceneCard:
     indoors: bool
 
     def as_json(self) -> dict[str, Any]:
-        """What a generation row keeps (`generation.scene`) to find same-scene photos later."""
+        """What a generation row keeps (`generation.scene`) to find same-scene photos later;
+        the activity and the light are shown with the picture in the media library."""
         return {"day": self.day.isoformat(), "event_id": self.event_id, "place": self.place,
-                "outfit": self.outfit, "ambience": self.ambience.value}
+                "outfit": self.outfit, "ambience": self.ambience.value,
+                "activity": self.activity, "light": self.light.value}
