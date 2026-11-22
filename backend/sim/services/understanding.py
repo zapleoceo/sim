@@ -53,7 +53,8 @@ from sim.services.llm_log import describe_messages, logged_call
 log = logging.getLogger(__name__)
 
 PDF_MIME = "application/pdf"
-VIDEO_FRAMES = 6
+VIDEO_FRAMES = 4          # the Broker's subscription models take at most 5 attachments
+NOT_SEEN = "картинку разглядеть не получилось"
 FRAMES_NOTE = ("Это {n} кадров видео по порядку, через равные промежутки (модель не принимает "
                "видео целиком). Опиши видео по ним; звука нет.")
 DOCUMENT_TEXT_LIMIT = 6_000
@@ -263,7 +264,10 @@ class Understanding:
             errors.append(str(exc))
         if speech and "Говорит:" in seen:      # the transcript is the more exact copy of speech
             seen = seen.split("Говорит:", 1)[0].strip()
-        parts = [f"Видно: {seen}" if seen else "", f"Говорит: {speech}" if speech else ""]
+        # Heard but not seen: say so, or the reply invents the picture (2026-11-22: she
+        # «described» a video note from an earlier photo).
+        parts = [f"Видно: {seen or NOT_SEEN}" if seen or speech else "",
+                 f"Говорит: {speech}" if speech else ""]
         text = " ".join(part for part in parts if part)
         if not text:
             raise UnderstandingError("; ".join(errors) or "пустой кружок")

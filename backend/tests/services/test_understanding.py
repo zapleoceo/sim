@@ -18,7 +18,7 @@ from sim.domain.enums import (
 )
 from sim.ports import PortError
 from sim.services.deps import Deps
-from sim.services.understanding import VIDEO_FRAMES, Understanding, pick_strategy
+from sim.services.understanding import NOT_SEEN, VIDEO_FRAMES, Understanding, pick_strategy
 from tests.services.conftest import Fakes
 from tests.services.factories import add_message, all_rows, fresh, make_chat, make_media
 
@@ -242,3 +242,20 @@ async def test_hearing_runs_on_its_default_paid_tier(db: AsyncSession, deps: Dep
     await Understanding(deps).understand(voice.id)
     [call] = fakes.transcriber.calls
     assert (call["model"], call["key_tier"]) == ("stt-model", "paid")
+
+
+async def test_heard_but_not_seen_says_so(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                          clock: FixedClock) -> None:
+    # 2026-11-22: vision failed, only the speech came through, and she «described» the
+    # picture from an earlier photo. Now the description says the picture was not seen.
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.VIDEO_NOTE,
+                             kind=MediaKind.VIDEO, mime="video/mp4")
+    fakes.transcriber.text = "опиши меня"
+    fakes.llm.script("vision-model", PortError("at most 5 attachments"),
+                     PortError("at most 5 attachments"))
+
+    await Understanding(deps).understand(media.id)
+
+    assert (await understood(db, media)).description == (
+        f"Видно: {NOT_SEEN} Говорит: опиши меня")
+    assert VIDEO_FRAMES <= 5                # the Broker's subscription models' limit
