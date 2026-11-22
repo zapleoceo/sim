@@ -49,7 +49,7 @@ from sim.domain.enums import (
     ContactStatus,
     EventKind,
 )
-from sim.domain.initiative import NO_ANSWER_RESULTS, NO_ANSWER_TOPIC, RING_OUT_S
+from sim.domain.initiative import NO_ANSWER_RESULTS, NO_ANSWER_TOPIC, RING_OUT_S, quiet_hour
 from sim.domain.life import BusyLevel
 from sim.events import append_event
 from sim.ports import (
@@ -63,6 +63,7 @@ from sim.ports import (
 )
 from sim.services.attention.schedule import check_after_notice, queue_check
 from sim.services.attention.timing import Availability, availability
+from sim.services.context.facts import to_local
 from sim.services.initiative import (
     PERSONA_ACTOR,
     calls_unavailable,
@@ -333,8 +334,11 @@ class CallService:
                                         calls_enabled=self.settings.calls_enabled)
         if unavailable:
             return unavailable
-        if contact.source == ContactSource.PERSONA and not chat.calls_out:
-            return "«Звонит сама» выключили"
+        if contact.source == ContactSource.PERSONA:
+            if not chat.calls_out:
+                return "«Звонит сама» выключили"
+            if quiet_hour(to_local(self.clock.now(), persona.timezone).hour):
+                return "поздно для звонка (её ночь)"
         busy = await session.scalar(select(Call.id).where(
             Call.chat_id == chat.id, Call.status.in_(OPEN_STATUSES)).limit(1))
         return "с ним уже идёт звонок" if busy is not None else None

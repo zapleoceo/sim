@@ -170,15 +170,17 @@ async def plan_contact(session: AsyncSession, chat: Chat, *, kind: ContactKind, 
 
 
 async def plan_her_call(session: AsyncSession, chat_id: int, topic: str, now: datetime,
-                        uniform: Any = None) -> PlannedContact:
-    """The reply plan's `call`: she dials within a minute (the facts allowed it this turn)."""
+                        uniform: Any = None, in_minutes: int = 0) -> PlannedContact:
+    """The reply plan's `call`: she dials within a minute, or `in_minutes` later (the facts
+    allowed it this turn)."""
     pick = uniform or secrets.SystemRandom().uniform
     chat = await session.get(Chat, chat_id)
     if chat is None:
         raise InitiativeError("chat is gone")
     contact = PlannedContact(
         chat_id=chat.id, kind=ContactKind.CALL, source=ContactSource.PERSONA,
-        topic=clean_topic(topic), due_at=now + timedelta(seconds=pick(*DIAL_DELAY_S)),
+        topic=clean_topic(topic),
+        due_at=now + timedelta(seconds=max(pick(*DIAL_DELAY_S), in_minutes * 60)),
         created_by=PERSONA_ACTOR, status=ContactStatus.PLANNED, result="")
     session.add(contact)
     await session.flush()

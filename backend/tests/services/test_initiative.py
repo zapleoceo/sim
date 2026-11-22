@@ -157,6 +157,14 @@ async def test_her_own_call_dials_within_a_minute(db: AsyncSession, clock: Fixed
         await plan_her_call(db, 999_999, "созвониться", clock.now())
 
 
+async def test_her_call_back_later(db: AsyncSession, clock: FixedClock) -> None:
+    # «перезвоню через полчаса» on a call -> the after-call turn plans it with in_minutes.
+    chat = await make_chat(db)
+    row = await plan_her_call(db, chat.id, "обещала перезвонить", clock.now(),
+                              uniform=lambda low, high: low, in_minutes=30)
+    assert row.due_at == clock.now() + timedelta(minutes=30)
+
+
 async def test_only_a_planned_contact_is_cancelled(db: AsyncSession, clock: FixedClock) -> None:
     chat = await make_chat(db)
     row = await plan(db, chat, clock)
@@ -295,6 +303,9 @@ async def block(db: AsyncSession, chat: Chat, now: datetime, *,
 
 async def test_her_call_needs_the_chat_switch(db: AsyncSession, clock: FixedClock) -> None:
     chat = await make_chat(db)                          # 20:30 in Kyiv
+    assert chat.calls_out is True                       # on by default: her own tool
+    chat.calls_out = False
+    await db.flush()
     assert await block(db, chat, clock.now()) == "в этом чате звонить самой нельзя"
     chat.calls_out = True
     await db.flush()
@@ -323,7 +334,8 @@ async def test_a_planned_call_of_hers_is_pending(db: AsyncSession, clock: FixedC
     chat = await make_chat(db)
     chat.calls_out = True
     await contact(db, chat, kind=ContactKind.CALL, due_at=clock.now() + timedelta(hours=1))
-    assert await block(db, chat, clock.now()) == "ты уже набираешь его"
+    assert await block(db, chat, clock.now()) == (
+        "звонок ему уже запланирован, ты наберёшь его сама")
 
 
 async def test_three_calls_a_day_at_most(db: AsyncSession, clock: FixedClock) -> None:

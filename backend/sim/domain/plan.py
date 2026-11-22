@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+MAX_CALL_DELAY_MIN = 720
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -111,11 +113,16 @@ class RecallSpec(_Strict):
 
 
 class CallSpec(_Strict):
-    """She calls him herself a minute after this turn (docs/initiative.md)."""
+    """She calls him herself: within a minute of this turn, or `in_minutes` later (a call back
+    she promised on a call, «наберу через полчаса») — her own tool, like a message
+    (docs/initiative.md)."""
 
     topic: str = Field(min_length=1, max_length=300,
                        description="Why she calls, in a few words, e.g. «договорились "
                                    "созвониться».")
+    in_minutes: int = Field(default=0, ge=0, le=MAX_CALL_DELAY_MIN,
+                            description="In how many minutes she dials: 0 = now (within a "
+                                        "minute), 30 = in half an hour; at most 12 hours.")
 
 
 class ReplyPlan(_Strict):

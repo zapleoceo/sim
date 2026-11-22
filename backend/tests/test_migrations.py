@@ -56,7 +56,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0010"
+    assert sim_head is not None and sim_head.revision == "0011"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -255,3 +255,10 @@ def test_initiative_revision_follows_the_channels_one(scripts):
     assert call["recording_key"].nullable and call["recording_key"].type.length == 255
     assert call["recording_s"].nullable
     assert "planned_contact" in initiative.TABLES
+
+
+def test_calls_out_on_revision_follows_the_initiative_one(scripts):
+    revision = scripts.get_revision("0011")
+    assert revision is not None and revision.down_revision == "0010"
+    column = Base.metadata.tables["chat"].columns["calls_out"]
+    assert str(column.server_default.arg) == "true"      # her own tool: on by default

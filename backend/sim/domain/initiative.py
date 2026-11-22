@@ -1,8 +1,9 @@
 """When she may call first, and how a planned contact reads in her timeline
 (docs/initiative.md). Pure: the service (sim/services/initiative.py) brings the numbers.
 
-Her own calls are rare on purpose: a userbot that calls often looks like spam to Telegram and
-like pressure to a person. The chat's «Звонит сама» switch is off by default."""
+A call is her own tool, like a message: she decides when to call (the owner, 2026-11-22), the
+chat's «Звонит сама» switch is on by default and only turns it off. Rare on purpose: a userbot
+that calls often looks like spam to Telegram and like pressure to a person."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -48,15 +49,19 @@ def call_out_block(state: CallOutState) -> str:
     if state.unavailable:
         return state.unavailable
     if state.pending:
-        return "ты уже набираешь его"
-    hour = state.local.hour
-    if hour >= QUIET_FROM or hour < QUIET_TO:
+        return "звонок ему уже запланирован, ты наберёшь его сама"
+    if quiet_hour(state.local.hour):
         return "сейчас слишком поздно или рано для звонка"
     if state.last_call_at is not None and state.now - state.last_call_at < CALL_GAP:
         return "ты недавно уже звонила"
     if state.calls_today >= CALLS_PER_DAY:
         return "сегодня ты уже звонила достаточно"
     return ""
+
+
+def quiet_hour(hour: int) -> bool:
+    """Her local hours when she does not call herself."""
+    return hour >= QUIET_FROM or hour < QUIET_TO
 
 
 def initiative_line(topic: str) -> str:

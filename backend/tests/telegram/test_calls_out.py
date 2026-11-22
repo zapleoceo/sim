@@ -144,6 +144,8 @@ async def test_nobody_picked_up_she_texts_why_she_called(db, sessions, clock, re
 
 async def test_her_own_idea_needs_the_chat_switch(db, sessions, clock):
     world = await seed_world(db)
+    world.chat.calls_out = False                        # the owner switched it off
+    await db.commit()
     contact = await contact_of(db, world, source=ContactSource.PERSONA)
     backend = FakeCallBackend(FakeOutgoingCall(no_answer="no_answer"))
     service, tasks, _, context = make_service(sessions, clock, FakeLive())
