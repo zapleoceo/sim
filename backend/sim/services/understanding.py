@@ -43,6 +43,9 @@ from sim.services.llm_log import describe_messages, logged_call
 log = logging.getLogger(__name__)
 
 PDF_MIME = "application/pdf"
+VIDEO_FRAMES = 6
+FRAMES_NOTE = ("Это {n} кадров видео по порядку, через равные промежутки (модель не принимает "
+               "видео целиком). Опиши видео по ним; звука нет.")
 DOCUMENT_TEXT_LIMIT = 6_000
 
 
@@ -149,11 +152,16 @@ class Understanding:
 
     async def _vision(self, att: Attachment, section: str, data: bytes, mime: str,
                       purpose: LlmPurpose = LlmPurpose.VISION) -> str:
+        return await self._look(att, section, [(data, mime)], purpose=purpose)
+
+    async def _look(self, att: Attachment, section: str, media: list[tuple[bytes, str]], *,
+                    purpose: LlmPurpose = LlmPurpose.VISION, note: str = "") -> str:
         vision = att.vision
         if not vision.model:
             raise UnderstandingError("не выбрана модель распознавания")
-        messages = [ChatMessage(role="user", parts=[ChatPart(text=att.prompt(section)),
-                                                    ChatPart(data=data, mime=mime)])]
+        prompt = att.prompt(section) + (f"\n\n{note}" if note else "")
+        messages = [ChatMessage(role="user", parts=[
+            ChatPart(text=prompt), *(ChatPart(data=data, mime=mime) for data, mime in media)])]
         result = await logged_call(
             self.deps.sessions, purpose=purpose, model=vision.model,
             request={"messages": describe_messages(messages), "media_id": att.media_id},
@@ -185,7 +193,21 @@ class Understanding:
         return await self._vision(att, VISION_PHOTO, data, mime)
 
     async def _video(self, att: Attachment) -> str:
-        return await self._vision(att, VISION_VIDEO, att.data, att.mime or "video/mp4")
+        return await self._see_video(att, VISION_VIDEO)
+
+    async def _see_video(self, att: Attachment, section: str) -> str:
+        """The video inline; a model that refuses video (Claude takes only images: the owner's
+        video notes were not seen, 2026-11-22) gets `VIDEO_FRAMES` frames in order instead."""
+        mime = att.mime or "video/mp4"
+        try:
+            return await self._vision(att, section, att.data, mime)
+        except PortError as exc:
+            if exc.retryable:
+                raise
+            log.info("media %s: the vision model refused the video (%s), frames instead",
+                     att.media_id, str(exc)[:120])
+        frames = await self.deps.tools.video_frames(att.data, mime, VIDEO_FRAMES)
+        return await self._look(att, section, frames, note=FRAMES_NOTE.format(n=len(frames)))
 
     async def _video_note(self, att: Attachment) -> str:
         speech = ""
@@ -196,8 +218,7 @@ class Understanding:
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
         try:
-            seen = (await self._vision(att, VISION_VIDEO_NOTE, att.data,
-                                       att.mime or "video/mp4")).strip()
+            seen = (await self._see_video(att, VISION_VIDEO_NOTE)).strip()
         except (PortError, UnderstandingError) as exc:
             errors.append(str(exc))
         if speech and "Говорит:" in seen:      # the transcript is the more exact copy of speech

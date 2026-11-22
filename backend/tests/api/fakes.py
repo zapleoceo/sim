@@ -88,6 +88,9 @@ class FakeTools:
     async def image_for_model(self, data: bytes, mime: str) -> tuple[bytes, str]:
         return data, mime
 
+    async def video_frames(self, data: bytes, mime: str, count: int) -> list[tuple[bytes, str]]:
+        return [(b"JPEG", "image/jpeg")] * count
+
     async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
         return mp4, 1.0
 

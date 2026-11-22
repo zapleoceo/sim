@@ -18,7 +18,7 @@ from sim.domain.enums import (
 )
 from sim.ports import PortError
 from sim.services.deps import Deps
-from sim.services.understanding import Understanding, pick_strategy
+from sim.services.understanding import VIDEO_FRAMES, Understanding, pick_strategy
 from tests.services.conftest import Fakes
 from tests.services.factories import add_message, all_rows, fresh, make_chat, make_media
 
@@ -110,6 +110,29 @@ async def test_video_goes_inline_to_the_vision_model(db: AsyncSession, deps: Dep
     [call] = fakes.llm.calls_for("vision-model")
     assert call["messages"][0].parts[1].mime == "video/mp4"
     assert (await understood(db, media)).description == "Человек идёт по пляжу."
+
+
+async def test_a_model_without_video_sees_frames(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                  clock: FixedClock) -> None:
+    # 2026-11-22: «Зрение» on Claude refused the video note; frames in order instead.
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.VIDEO_NOTE,
+                             kind=MediaKind.VIDEO, mime="video/mp4")
+    fakes.transcriber.text = "привет"
+    fakes.llm.script("vision-model",
+                     PortError("HTTP 400: unsupported subscription message block",
+                               retryable=False),
+                     "Парень машет рукой.")
+
+    await Understanding(deps).understand(media.id)
+
+    inline, framed = fakes.llm.calls_for("vision-model")
+    assert inline["messages"][0].parts[1].mime == "video/mp4"
+    parts = framed["messages"][0].parts
+    assert [part.mime for part in parts[1:]] == ["image/jpeg"] * VIDEO_FRAMES
+    assert "кадров видео по порядку" in parts[0].text
+    assert ("video_frames", "video/mp4", VIDEO_FRAMES) in fakes.tools.calls
+    assert (await understood(db, media)).description == (
+        "Видно: Парень машет рукой. Говорит: привет")
 
 
 async def test_video_note_is_seen_and_heard(db: AsyncSession, deps: Deps, fakes: Fakes,
