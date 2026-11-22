@@ -11,7 +11,7 @@ import type { DayEvent, PersonaDay } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { usePersonaId } from '../persona-scope';
 import { lifeApi } from './life-api';
-import { busyLabel, currentEventIndex, dayErrors, dayTitle, newDayEvent } from './life-logic';
+import { busyLabel, currentEventIndex, dayErrors, dayTitle, moodText, newDayEvent } from './life-logic';
 import { RowsEditor, type Column } from './rows-editor';
 
 const EVENT_COLUMNS: Column<DayEvent>[] = [
@@ -23,6 +23,8 @@ const EVENT_COLUMNS: Column<DayEvent>[] = [
   { key: 'busy', label: 'Занятость', kind: 'busy', width: '8rem' },
   { key: 'outfit', label: 'Одежда', kind: 'textarea', width: 'minmax(8rem,1fr)' },
   { key: 'ambience', label: 'Звук', kind: 'ambience', width: '7.5rem' },
+  { key: 'mood', label: 'Настроение', kind: 'mood', width: '8rem' },
+  { key: 'mood_why', label: 'Почему', kind: 'text', width: 'minmax(7rem,1fr)' },
   { key: 'details', label: 'Подробности', kind: 'textarea', width: 'minmax(9rem,1.5fr)' },
 ];
 
@@ -43,6 +45,7 @@ function EventRow({ event, current }: { event: DayEvent; current: boolean }) {
         <span className="text-sm font-medium">{event.title}</span>
         {current && <Badge variant="default">сейчас</Badge>}
         {event.busy !== 'free' && <Badge variant="muted">{busyLabel(event.busy)}</Badge>}
+        {moodText(event.mood, event.mood_why) && <Badge variant="warning">{moodText(event.mood, event.mood_why)}</Badge>}
       </div>
       <span className="text-xs text-muted-foreground">
         {[event.place, event.with_whom.length ? `с ${event.with_whom.join(', ')}` : '', event.outfit].filter(Boolean).join(' · ')}

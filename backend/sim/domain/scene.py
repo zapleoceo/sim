@@ -8,7 +8,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Any
 
-from sim.domain.life import Ambience, BusyLevel
+from sim.domain.life import Ambience, BusyLevel, Mood
 
 
 class Light(StrEnum):
@@ -52,6 +52,8 @@ class SceneCard:
     ambience: Ambience
     busy: BusyLevel
     indoors: bool
+    mood: Mood = Mood.CALM      # her mood now and why (the planned event, docs/persona-life.md)
+    mood_why: str = ""
 
     def as_json(self) -> dict[str, Any]:
         """What a generation row keeps (`generation.scene`) to find same-scene photos later;

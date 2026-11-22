@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from sim.domain.life import Mood
+
 
 class Device(StrEnum):
     PHONE = "phone"
@@ -28,6 +30,8 @@ class WritingMode:
     max_chars: int          # a soft limit for one message
     typo_rate: float        # chance that one message gets one smartphone typo
     lowercase_rate: float   # chance that a message starts with a small letter
+    mood: Mood = Mood.CALM  # her mood now (the planned event) and why
+    mood_why: str = ""
 
 
 # (device, pace) -> (max_messages, max_chars, typo_rate, lowercase_rate)

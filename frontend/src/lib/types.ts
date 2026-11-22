@@ -595,6 +595,9 @@ export interface Arc {
   updated_at: string;
 }
 
+/** Her mood during an event of the day (docs/persona-life.md, «Настроение дня»). */
+export type Mood = 'good' | 'calm' | 'tired' | 'irritated' | 'upset' | 'anxious';
+
 export interface DayEvent {
   start: string;
   end: string;
@@ -605,6 +608,9 @@ export interface DayEvent {
   details: string;
   outfit: string;
   ambience: Ambience;
+  /** Older plans have none: calm. */
+  mood?: Mood;
+  mood_why?: string;
 }
 
 export interface PersonaDay {

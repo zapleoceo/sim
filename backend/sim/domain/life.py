@@ -36,6 +36,25 @@ class BusyLevel(StrEnum):
     AWAY = "away"           # phone not in hand (sleep, a run): answers after the event
 
 
+class Mood(StrEnum):
+    """Her mood during an event of the day (docs/persona-life.md, «Настроение дня»): the owner
+    (2026-11-22) — she is always too polite, never nervous; a day of a living person has bad
+    stretches. The planner chooses it with a concrete reason; the reply follows it
+    (sim/services/writing.py)."""
+
+    GOOD = "good"               # in a good mood, joking
+    CALM = "calm"               # even (the default)
+    TIRED = "tired"
+    IRRITATED = "irritated"
+    UPSET = "upset"             # sad, hurt
+    ANXIOUS = "anxious"         # on edge, worried
+
+
+MOOD_WORDS = {Mood.GOOD: "хорошее", Mood.CALM: "ровное", Mood.TIRED: "устала",
+              Mood.IRRITATED: "раздражена, не в духе", Mood.UPSET: "расстроена",
+              Mood.ANXIOUS: "на нервах"}
+
+
 class Ambience(StrEnum):
     """The sound of the place: background of voice notes and of generated videos."""
 
@@ -196,6 +215,9 @@ class DayEvent(_Strict):
                                     "she plausibly changed).")
     ambience: Ambience = Field(default=Ambience.NONE,
                                description="The sound of the place during this event.")
+    mood: Mood = Field(default=Mood.CALM, description="Her mood during this event.")
+    mood_why: str = Field(default="", max_length=200,
+                          description="The concrete reason of a mood that is not calm.")
 
 
 class ArcUpdate(_Strict):

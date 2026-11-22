@@ -18,6 +18,7 @@ from sim.domain.life import (
     Ambience,
     BusyLevel,
     DayEvent,
+    Mood,
     PersonaLife,
     RoutineSlot,
     span,
@@ -42,6 +43,8 @@ class Slot:
     ambience: Ambience | None = None
     planned: bool = False
     key: str = ""
+    mood: Mood = Mood.CALM
+    mood_why: str = ""
 
     def covers(self, minute: int) -> bool:
         return self.start <= minute < self.end
@@ -73,7 +76,8 @@ def event_slot(day: date, event: DayEvent) -> Slot:
     return Slot(start=first, end=last, title=event.title, place=event.place,
                 with_whom=tuple(event.with_whom), busy=event.busy, details=event.details,
                 outfit=event.outfit, ambience=event.ambience, planned=True,
-                key=f"{day.isoformat()}T{event.start}")
+                key=f"{day.isoformat()}T{event.start}", mood=event.mood,
+                mood_why=event.mood_why)
 
 
 def routine_slots(life: PersonaLife, day: date) -> list[Slot]:

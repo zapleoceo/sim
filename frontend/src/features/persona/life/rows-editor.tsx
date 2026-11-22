@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { AMBIENCE_OPTIONS, BUSY_OPTIONS, DAY_CODES, joinNames, splitNames, toggleDay } from './life-logic';
+import { AMBIENCE_OPTIONS, BUSY_OPTIONS, DAY_CODES, MOOD_OPTIONS, joinNames, splitNames, toggleDay } from './life-logic';
 
-export type CellKind = 'text' | 'textarea' | 'time' | 'days' | 'busy' | 'ambience' | 'names';
+export type CellKind = 'text' | 'textarea' | 'time' | 'days' | 'busy' | 'ambience' | 'mood' | 'names';
 
 export interface Column<T> {
   key: keyof T & string;
@@ -81,6 +81,12 @@ function Cell<T>({ column, value, index, onChange }: {
       return (
         <NativeSelect aria-label={label} value={String(value)} onChange={(e) => onChange(e.target.value)}>
           {BUSY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </NativeSelect>
+      );
+    case 'mood':
+      return (
+        <NativeSelect aria-label={label} value={String(value ?? 'calm')} onChange={(e) => onChange(e.target.value)}>
+          {MOOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </NativeSelect>
       );
     case 'ambience':
