@@ -8,6 +8,8 @@ import respx
 
 from sim.adapters.broker.http import BrokerHttp
 from sim.adapters.broker.video import MAX_FIRST_FRAME_BYTES, BrokerVideoGen, video_job_body
+from sim.call_scope import call_scope
+from sim.domain.agents import HEYGEN_VIDEO_MODEL
 from sim.ports import PortError
 from tests.adapters.helpers import FakeTime, done, failed, pending, sent_json, submitted
 
@@ -86,3 +88,20 @@ async def test_done_without_clip(http: BrokerHttp, broker: respx.MockRouter) -> 
     with pytest.raises(PortError, match="no media") as info:
         await BrokerVideoGen(http).generate_video(prompt="p", first_frame=None, model="")
     assert info.value.retryable is False
+
+
+async def test_heygen_submits_reference_and_reuses_broker_job_path(
+        http: BrokerHttp, broker: respx.MockRouter) -> None:
+    post = broker.post("/v1/video/jobs").mock(return_value=submitted(34))
+    poll = broker.get("/v1/jobs/34").mock(return_value=done(
+        34, text=None, video_base64=b64(MP4), mime_type="video/mp4", model=HEYGEN_VIDEO_MODEL))
+    with call_scope("generation-34"):
+        result = await BrokerVideoGen(http).generate_video(
+            prompt="«Привет!»", first_frame=FRAME, model=HEYGEN_VIDEO_MODEL, duration_s=8)
+    assert sent_json(post) == {
+        "prompt": "«Привет!»", "duration_s": 8, "aspect_ratio": "9:16", "resolution": "768p",
+        "workflow": "sim-video", "provider": "heygen", "model": HEYGEN_VIDEO_MODEL,
+        "image_base64": b64(FRAME[0]), "image_mime": "image/jpeg"}
+    assert post.calls.last.request.headers["Idempotency-Key"]
+    assert poll.call_count == 1
+    assert (result.data, result.usage.job_id) == (MP4, "34")

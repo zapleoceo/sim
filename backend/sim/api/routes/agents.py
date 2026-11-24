@@ -21,6 +21,7 @@ from sim.db.models import Persona
 from sim.domain.agents import (
     AGENTS,
     GROUP_TITLES,
+    HEYGEN_VIDEO_MODEL,
     MAX_MAX_TOKENS,
     MIN_MAX_TOKENS,
     REGISTRY,
@@ -32,6 +33,7 @@ from sim.domain.agents import (
     overrides_of,
     own_model,
     own_prompt,
+    video_provider,
 )
 from sim.domain.attention import attention_settings
 from sim.ports import LlmPort
@@ -98,6 +100,7 @@ def agent_view(persona: Persona, spec: AgentSpec) -> Json:
         "prompt": own_prompt(spec, stored) or "",
         "max_tokens": config.max_tokens if spec.max_tokens else None,
         "effective_model": config.model,
+        **({"video_provider": video_provider(persona).value} if spec.key == AgentKey.VIDEO else {}),
     }
 
 
@@ -117,8 +120,13 @@ def checked(key: str, data: AgentIn) -> tuple[AgentSpec, dict[str, Any]]:
         raise ClientException(detail=f"{spec.title}: промт не настраивается")
     if data.max_tokens is not None and not spec.max_tokens:
         raise ClientException(detail=f"{spec.title}: max_tokens не настраивается")
+    if data.video_provider is not None and spec.key != AgentKey.VIDEO:
+        raise ClientException(detail=f"{spec.title}: провайдер видео не настраивается")
+    if data.model == HEYGEN_VIDEO_MODEL:
+        raise ClientException(detail="HeyGen выбирается переключателем провайдера видео")
     return spec, clean_override(spec, {"model": data.model, "key_tier": data.key_tier,
-                                       "prompt": data.prompt, "max_tokens": data.max_tokens})
+                                       "prompt": data.prompt, "max_tokens": data.max_tokens,
+                                       "video_provider": data.video_provider})
 
 
 @get("/agents/registry")
@@ -140,7 +148,11 @@ async def update_agents(persona_id: int, data: AgentsIn, ctx: ApiContext,
     for key, sent in data.agents.items():
         spec, override = checked(key, sent)
         model = override.get("model")
-        if model and model != own_model(spec, overrides_of(persona, key)):
+        stored = overrides_of(persona, key)
+        if key == AgentKey.VIDEO and sent.video_provider is None and "video_provider" in stored:
+            # Older clients update the video model without knowing this independent setting.
+            override["video_provider"] = video_provider(persona).value
+        if model and model != own_model(spec, stored):
             changed.add(model)
         if override:
             current[key] = override

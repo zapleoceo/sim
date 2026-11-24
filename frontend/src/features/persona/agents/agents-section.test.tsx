@@ -136,3 +136,21 @@ describe('AgentsSection', () => {
     expect(log.filter((r) => r.method === 'PUT')).toHaveLength(0);
   });
 });
+
+it('selects HeyGen independently of the saved Google model', async () => {
+  const log = backend({ 'PUT /api/personas/1/agents': saveHandler });
+  await render();
+  const video = within(await screen.findByRole('article', { name: 'Видеограф' }));
+  expect(video.getByRole('button', { name: 'Google', pressed: true })).toBeInTheDocument();
+  expect(video.queryByRole('option', { name: /heygen/i })).not.toBeInTheDocument();
+  await userEvent.click(video.getByRole('button', { name: 'HeyGen' }));
+  expect(video.queryByLabelText('Модель')).not.toBeInTheDocument();
+  expect(video.getByText('heygen/heygen-video-1 — доступна')).toBeInTheDocument();
+  await userEvent.click(video.getByRole('button', { name: 'Google' }));
+  expect(video.getByLabelText<HTMLSelectElement>('Модель').value).toBe('google/video');
+  await userEvent.click(video.getByRole('button', { name: 'HeyGen' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Сохранить агентов' }));
+  await waitFor(() => expect(log.find((r) => r.method === 'PUT')?.body).toMatchObject({
+    agents: { video: { video_provider: 'heygen', model: 'google/video' } },
+  }));
+});

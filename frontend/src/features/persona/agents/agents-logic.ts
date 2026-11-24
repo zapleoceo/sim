@@ -8,20 +8,23 @@ export type AgentsDraft = PersonaAgentsPatch;
 /** Select values that are not model ids. */
 export const DEFAULT_MODEL = '';
 export const MODEL_OFF = '__off__';
+export const HEYGEN_VIDEO_MODEL = 'heygen/heygen-video-1';
 
 const SUBSCRIPTION_PREFIXES = ['claude-sub/', 'codex-sub/'];
 
 export function toDraft(saved: PersonaAgents): AgentsDraft {
   const agents: Record<string, AgentSettings> = {};
-  for (const [key, { model, key_tier, prompt, max_tokens }] of Object.entries(saved.agents)) {
+  for (const [key, { model, key_tier, prompt, max_tokens, video_provider }] of Object.entries(saved.agents)) {
     agents[key] = { model, key_tier, prompt, max_tokens };
+    if (key === 'video') agents[key].video_provider = video_provider ?? 'google';
   }
   return { agents, guard_rules: saved.guard_rules, attention: { ...saved.attention } };
 }
 
 /** The settings an agent has «by default» (what the reset endpoint returns). */
 export function defaultSettings(spec: AgentSpec): AgentSettings {
-  return { model: null, key_tier: spec.key_tier, prompt: '', max_tokens: spec.max_tokens };
+  return { model: null, key_tier: spec.key_tier, prompt: '', max_tokens: spec.max_tokens,
+    ...(spec.key === 'video' ? { video_provider: 'google' as const } : {}) };
 }
 
 /** Model as a select value: null → DEFAULT_MODEL, '' → MODEL_OFF. */
@@ -42,6 +45,7 @@ export const canSwitchOff = (spec: AgentSpec): boolean => spec.model !== '';
 export function effectiveModel(draft: AgentsDraft, specs: readonly AgentSpec[], key: string, seen: ReadonlySet<string> = new Set()): string {
   const spec = specs.find((s) => s.key === key);
   if (!spec) return '';
+  if (key === 'video' && draft.agents[key]?.video_provider === 'heygen') return HEYGEN_VIDEO_MODEL;
   const own = draft.agents[key]?.model ?? null;
   const model = own === null || (own === '' && spec.model === '') ? spec.model : own.trim();
   if (!model && spec.fallback && !seen.has(spec.fallback)) {

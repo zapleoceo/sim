@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Persona
 from sim.domain.agent_prompts import GUARD_PROMPT
-from sim.domain.agents import AGENTS
+from sim.domain.agents import AGENTS, HEYGEN_VIDEO_MODEL
 from sim.ports import ModelInfo
 from sim.services.context.instructions import CALL_RULES, FORMAT_RULES
 from tests.api.fakes import FakeDeps
@@ -99,6 +99,9 @@ async def test_save_agents_rejects_what_an_agent_does_not_have(api: ApiClient,
                                                                world: World) -> None:
     for agents in ({"boss": {}},
                    {"tts": {"max_tokens": 500}},
+                   {"tts": {"video_provider": "heygen"}},
+                   {"video": {"video_provider": "unknown"}},
+                   {"video": {"model": HEYGEN_VIDEO_MODEL}},
                    {"transcribe": {"prompt": "слушай внимательно"}},
                    {"guard": {"key_tier": "cheap"}},
                    {"guard": {"max_tokens": 10}},
@@ -166,3 +169,18 @@ async def test_reset_returns_an_agent_to_its_defaults(api: ApiClient, world: Wor
     assert guard == {"model": None, "key_tier": "paid", "prompt": "", "max_tokens": 400,
                      "effective_model": "google/reply"}
     assert (await api.post(pp(world, "/agents/boss/reset"))).status_code == 404
+
+
+async def test_video_provider_switch_retains_the_google_model(api: ApiClient, world: World) -> None:
+    path = pp(world, "/agents")
+    google = "gemini/gemini-omni-1.2-flash"
+    for provider, effective in (("heygen", HEYGEN_VIDEO_MODEL), ("google", google)):
+        response = await api.put(path, json={
+            "agents": {"video": {"model": google, "video_provider": provider}}})
+        assert response.status_code == 200, response.text
+        card = (await api.get(path)).json()["agents"]["video"]
+        assert (card["video_provider"], card["model"], card["effective_model"]) == (
+            provider, google, effective)
+        if provider == "heygen":
+            legacy = await api.put(path, json={"agents": {"video": {"model": google}}})
+            assert legacy.json()["agents"]["video"]["video_provider"] == "heygen"

@@ -34,6 +34,7 @@ DEFAULT_MAX_TOKENS = 4096
 # does not matter at night, and subscription calls spend no Broker keys.
 NIGHT_MODEL = "codex-sub/gpt-6.1-sol"
 MAX_PROMPT_CHARS = 50_000
+HEYGEN_VIDEO_MODEL = "heygen/heygen-video-1"
 
 
 class KeyTier(StrEnum):
@@ -42,6 +43,11 @@ class KeyTier(StrEnum):
     AUTO = "auto"           # the Broker decides (the field is not sent)
     PAID = "paid"           # paid keys only: fast and reliable
     FREE = "free"           # free keys only: slower, may be refused at a quota
+
+
+class VideoProvider(StrEnum):
+    GOOGLE = "google"
+    HEYGEN = "heygen"
 
 
 class AgentKey(StrEnum):
@@ -205,7 +211,15 @@ def overrides_of(persona: HasAgents, key: str) -> Mapping[str, Any]:
     return stored if isinstance(stored, Mapping) else {}
 
 
+def video_provider(persona: HasAgents) -> VideoProvider:
+    return (VideoProvider.HEYGEN
+            if overrides_of(persona, AgentKey.VIDEO).get("video_provider") == VideoProvider.HEYGEN
+            else VideoProvider.GOOGLE)
+
+
 def _model(persona: HasAgents, spec: AgentSpec, seen: frozenset[str]) -> str:
+    if spec.key == AgentKey.VIDEO and video_provider(persona) == VideoProvider.HEYGEN:
+        return HEYGEN_VIDEO_MODEL
     own = own_model(spec, overrides_of(persona, spec.key))
     model = spec.model if own is None else own
     if not model and spec.fallback and spec.fallback not in seen:
@@ -274,4 +288,6 @@ def clean_override(spec: AgentSpec, data: Mapping[str, Any]) -> dict[str, Any]:
     tokens = valid_max_tokens(data.get("max_tokens")) if spec.max_tokens else None
     if tokens is not None and tokens != spec.max_tokens:
         out["max_tokens"] = tokens
+    if spec.key == AgentKey.VIDEO and data.get("video_provider") == VideoProvider.HEYGEN:
+        out["video_provider"] = VideoProvider.HEYGEN.value
     return out

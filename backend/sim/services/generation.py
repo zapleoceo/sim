@@ -290,6 +290,10 @@ class GenerationService:
             refs = await self._references(session, identity + continuity + rooms)
             prompt_args = {"action": generation.prompt, "scene": scene, "shot": shot,
                            "look": life.life.look, "room": room, "home": life.life.home}
+            video_agent = agent_config(persona, AgentKey.VIDEO)
+            if generation.kind in VIDEO_KINDS:
+                # A provider switch affects new jobs, not already queued video jobs.
+                video_agent = replace(video_agent, model=generation.model)
             return _Job(
                 id=generation.id, kind=generation.kind, persona_id=generation.persona_id,
                 chat_id=generation.chat_id, reply_run_id=generation.reply_run_id,
@@ -304,7 +308,7 @@ class GenerationService:
                     **prompt_args),
                 caption=generation.caption, tags=list(generation.tags or []),
                 image_agent=agent_config(persona, AgentKey.IMAGE),
-                video_agent=agent_config(persona, AgentKey.VIDEO),
+                video_agent=video_agent,
                 references=refs,
             )
 
