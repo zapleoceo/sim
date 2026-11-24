@@ -7,11 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
-import type { AgentRegistry, AgentSettings, AgentSpec, BrokerModel } from '@/lib/types';
+import type { AgentRegistry, AgentSettings, AgentSpec, BrokerModel, VideoProvider } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { availabilityLabel, modelOptions } from '../model-filter';
 import {
-  DEFAULT_MODEL, MODEL_OFF, canSwitchOff, defaultModelLabel, isSubscriptionModel, modelToSelect, promptText, promptValue,
+  DEFAULT_MODEL, HEYGEN_VIDEO_MODEL, MODEL_OFF, canSwitchOff, defaultModelLabel, isSubscriptionModel, modelToSelect, promptText, promptValue,
   selectToModel,
 } from './agents-logic';
 
@@ -60,7 +60,10 @@ export function AgentCard({
   spec, specs, settings, effective, models, tiers, tokensRange, onChange, onReset, resetting, children,
 }: AgentCardProps) {
   const id = `agent-${spec.key}`;
-  const options = modelOptions(models, spec.model_filter, settings.model ?? '');
+  const isVideo = spec.key === 'video';
+  const options = modelOptions(models, spec.model_filter, settings.model ?? '')
+    .filter((option) => !isVideo || option.value !== HEYGEN_VIDEO_MODEL);
+  const usesHeyGen = isVideo && settings.video_provider === 'heygen';
   const outsideFilter = options.some((o) => o.outsideFilter && o.value === effective);
   const set = (patch: Partial<AgentSettings>) => onChange({ ...settings, ...patch });
   const tierOptions = tiers.map((t) => ({
@@ -86,15 +89,28 @@ export function AgentCard({
         </Button>
       </header>
 
+      {isVideo && (
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-sm font-medium">Провайдер видео</span>
+          <Segmented<VideoProvider>
+            label="Провайдер видео"
+            value={settings.video_provider ?? 'google'}
+            options={[{ value: 'google', label: 'Google' }, { value: 'heygen', label: 'HeyGen' }]}
+            onChange={(video_provider) => set({ video_provider })}
+            className="w-full sm:w-fit"
+          />
+          <p className="text-xs text-muted-foreground">Оба работают через Broker. Ключи настраиваются в Broker.</p>
+        </div>
+      )}
       <div className="flex min-w-0 flex-col gap-1.5">
-        <label htmlFor={`${id}-model`} className="text-sm font-medium">Модель</label>
-        <NativeSelect id={`${id}-model`} value={modelToSelect(settings.model)} onChange={(e) => set({ model: selectToModel(e.target.value) })}>
+        {!usesHeyGen && <label htmlFor={`${id}-model`} className="text-sm font-medium">Модель</label>}
+        {!usesHeyGen && <NativeSelect id={`${id}-model`} value={modelToSelect(settings.model)} onChange={(e) => set({ model: selectToModel(e.target.value) })}>
           <option value={DEFAULT_MODEL}>{defaultModelLabel(spec, specs)}</option>
           {canSwitchOff(spec) && <option value={MODEL_OFF}>Не использовать</option>}
           {options.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
-        </NativeSelect>
+        </NativeSelect>}
         <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <ModelStatus effective={effective} models={models} outsideFilter={outsideFilter} />
         </p>

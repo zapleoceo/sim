@@ -199,6 +199,7 @@ class AgentIn(Struct, forbid_unknown_fields=True):
     key_tier: Literal["auto", "paid", "free"] | None = None
     prompt: Annotated[str, Meta(max_length=MAX_PROMPT_CHARS)] = ""
     max_tokens: Annotated[int, Meta(ge=MIN_MAX_TOKENS, le=MAX_MAX_TOKENS)] | None = None
+    video_provider: Literal["google", "heygen"] | None = None
 
 
 class AttentionIn(Struct, forbid_unknown_fields=True):

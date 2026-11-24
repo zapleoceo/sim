@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, ChatEvent, Generation, MediaAsset, Message, Persona
+from sim.domain.agents import HEYGEN_VIDEO_MODEL
 from sim.domain.enums import (
     EventKind,
     GenerationKind,
@@ -200,3 +201,26 @@ async def test_a_failing_send_defer_keeps_the_generation_done(
     # The message is committed `pending`: the reaper queues its send again.
     [message] = await all_rows(db, select(Message).where(Message.chat_id == chat.id))
     assert message.status == MessageStatus.PENDING
+
+
+async def test_provider_selection_is_kept_for_each_queued_note(
+        db: AsyncSession, deps: Deps, fakes: Fakes) -> None:
+    chat = await make_chat(db)
+    persona = await db.get(Persona, chat.persona_id)
+    assert persona is not None
+    persona.agents = {**(persona.agents or {}),
+                      "video": {"model": "video-model", "video_provider": "heygen"}}
+    heygen = await start_generation(db, persona=persona, chat_id=chat.id,
+                                    reply_run_id=None, kind=GenerationKind.VIDEO_NOTE, spec=NOTE)
+    persona.agents = {**persona.agents, "video": {"model": "video-model"}}
+    google = await start_generation(db, persona=persona, chat_id=chat.id,
+                                    reply_run_id=None, kind=GenerationKind.VIDEO_NOTE, spec=NOTE)
+    assert (heygen.model, google.model) == (HEYGEN_VIDEO_MODEL, "video-model")
+    for job in (heygen, google):
+        assert await GenerationService(deps).run(job.id) == GenerationStatus.DONE
+    assert [call["model"] for call in fakes.video_gen.calls] == [
+        HEYGEN_VIDEO_MODEL, "video-model"]
+    assert all("«Дима, привет! Ну как ты там?»" in call["prompt"]
+               for call in fakes.video_gen.calls)
+    messages = await all_rows(db, select(Message).where(Message.chat_id == chat.id))
+    assert [m.kind for m in messages] == [MessageKind.VIDEO_NOTE] * 2

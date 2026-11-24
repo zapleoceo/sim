@@ -1,4 +1,4 @@
-"""VideoGenPort over `POST /v1/video/jobs` (Gemini Omni), then the job poll: a vertical 720p clip
+"""VideoGenPort over `POST /v1/video/jobs` (Google or HeyGen), then the job poll: a vertical clip
 with the first frame taken from a generated photo (two-step generation, docs/spec-v2.md §10a)."""
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any
 
 from sim.adapters.broker.http import BrokerHttp, decode_b64, encode_b64, usage_of
 from sim.adapters.broker.tier import with_tier
+from sim.domain.agents import HEYGEN_VIDEO_MODEL
 from sim.ports import AUTO_TIER, MediaResult, PortError
 
 VIDEO_PATH = "/v1/video/jobs"
@@ -31,6 +32,11 @@ def video_job_body(*, prompt: str, first_frame: tuple[bytes, str] | None, model:
     }
     if model:
         body["model"] = model
+    if model == HEYGEN_VIDEO_MODEL:
+        if first_frame is None:
+            raise PortError("HeyGen video: first frame required")
+        body.update(provider="heygen", resolution="768p",
+                    duration_s=max(5, body["duration_s"]))
     if first_frame is not None:
         data, mime = first_frame
         kind = mime.lower()

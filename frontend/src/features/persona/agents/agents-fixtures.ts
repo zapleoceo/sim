@@ -11,6 +11,7 @@ const spec = (key: string, title: string, group: string, extra: Partial<AgentSpe
 export const REGISTRY: AgentRegistry = {
   groups: [
     { key: 'reply', title: 'Ответ', description: 'Должны отвечать быстро.', agents: ['attention', 'reply', 'guard', 'tts'] },
+    { key: 'media', title: 'Медиа', description: 'Видео.', agents: ['video'] },
     { key: 'background', title: 'Фон', description: 'Ответа никто не ждёт.', agents: ['life', 'memory'] },
   ],
   agents: [
@@ -22,6 +23,7 @@ export const REGISTRY: AgentRegistry = {
       fallback: 'reply', prompt: 'Проверь ответ {name}.', placeholders: ['name', 'language'], max_tokens: 400,
     }),
     spec('tts', 'Голос', 'reply', { port: 'speech', model_filter: [{ input: [], output: ['audio'], capabilities: [] }] }),
+    spec('video', 'Видеограф', 'media', { port: 'video', model_filter: [{ input: [], output: ['video'], capabilities: [] }] }),
     spec('life', 'Планировщик', 'background', {
       key_tier: 'auto', model: 'codex-sub/gpt-6.1-sol', prompt: 'План дня для {name}.', placeholders: ['name'], max_tokens: 6000,
     }),
@@ -43,6 +45,7 @@ export const SAVED: PersonaAgents = {
     reply: { model: 'gpt-text', key_tier: 'paid', prompt: '', max_tokens: 4096, effective_model: 'gpt-text' },
     guard: { model: null, key_tier: 'paid', prompt: '', max_tokens: 400, effective_model: 'gpt-text' },
     tts: { model: 'retired-tts', key_tier: 'paid', prompt: '', max_tokens: null, effective_model: 'retired-tts' },
+    video: { model: 'google/video', key_tier: 'paid', prompt: '', max_tokens: null, effective_model: 'google/video' },
     life: { model: null, key_tier: 'auto', prompt: '', max_tokens: 6000, effective_model: 'codex-sub/gpt-6.1-sol' },
     memory: { model: null, key_tier: 'auto', prompt: '', max_tokens: 4096, effective_model: 'gpt-text' },
   },
@@ -51,6 +54,8 @@ export const SAVED: PersonaAgents = {
 };
 
 export const MODELS: BrokerModel[] = [
+  { id: 'google/video', available: true, input_modalities: ['image'], output_modalities: ['video'], capabilities: [] },
+  { id: 'heygen/heygen-video-1', available: true, input_modalities: ['image'], output_modalities: ['video'], capabilities: [] },
   { id: 'gpt-text', available: true, input_modalities: ['text'], output_modalities: ['text'], capabilities: [] },
   { id: 'cheap-text', available: false, input_modalities: ['text'], output_modalities: ['text'], capabilities: [] },
   { id: 'gemini-tts', available: true, input_modalities: ['text'], output_modalities: ['audio'], capabilities: [] },

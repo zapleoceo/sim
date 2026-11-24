@@ -461,7 +461,10 @@ export interface AgentRegistry {
 }
 
 /** One agent's settings of a persona: null / '' = by default. */
+export type VideoProvider = 'google' | 'heygen';
+
 export interface AgentSettings {
+  video_provider?: VideoProvider;
   /** null = the default model; '' = not used (only where the default is a model). */
   model: string | null;
   key_tier: KeyTier;
