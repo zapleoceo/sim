@@ -90,6 +90,10 @@ class TaskQueue(Protocol):
         """Read what a WhatsApp account got while it was offline (after a reconnect)."""
         ...
 
+    async def sync_stickers(self, channel_id: int) -> None:
+        """Re-read the stickers of a Telegram account (docs/stickers.md)."""
+        ...
+
     async def place_call(self, contact_id: int) -> None:
         """Her call of a due planned contact, placed by the telegram process
         (docs/initiative.md). One job per contact."""

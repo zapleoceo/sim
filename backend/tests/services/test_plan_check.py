@@ -3,9 +3,21 @@ from __future__ import annotations
 import pytest
 
 from sim.domain.enums import MediaKind
-from sim.domain.plan import PhotoAction, TextAction, VideoAction, VideoNoteAction
+from sim.domain.plan import (
+    PhotoAction,
+    StickerAction,
+    TextAction,
+    VideoAction,
+    VideoNoteAction,
+)
 from sim.services.capabilities import Capabilities
-from sim.services.plan_check import PlanError, extract_json, parse_plan, validated_plan
+from sim.services.plan_check import (
+    PlanError,
+    extract_json,
+    parse_plan,
+    sticker_errors,
+    validated_plan,
+)
 from tests.services.factories import plan_json
 
 ALL = Capabilities(voice=True, photo=True, photo_generate=True, video=True, video_generate=True)
@@ -114,3 +126,47 @@ def test_speech_is_optional_for_a_video() -> None:
     plan = validated_plan(plan_json({"type": "video", "generate": NOTE_GEN}),
                           catalog=CATALOG, caps=ALL)
     assert isinstance(plan.messages[0], VideoAction)
+
+
+# --- her stickers (docs/stickers.md) ----------------------------------------------------------
+
+STICKERS = frozenset({17, 18})
+
+
+def sticker_errors_of(text: str, stickers: frozenset[int] = STICKERS) -> list[str]:
+    with pytest.raises(PlanError) as info:
+        validated_plan(text, catalog=CATALOG, caps=ALL, stickers=stickers)
+    return info.value.errors
+
+
+def test_a_sticker_from_her_list_passes() -> None:
+    plan = validated_plan(plan_json({"type": "text", "text": "ахах"},
+                                    {"type": "sticker", "sticker_id": 17}),
+                          catalog=CATALOG, caps=ALL, stickers=STICKERS)
+    sticker = plan.messages[1]
+    assert isinstance(sticker, StickerAction) and sticker.sticker_id == 17
+
+
+def test_a_sticker_must_come_from_her_list() -> None:
+    assert sticker_errors_of(plan_json({"type": "sticker", "sticker_id": 99})) == [
+        "стикера 99 нет в списке «Стикеры»"]
+    assert sticker_errors_of(plan_json({"type": "sticker", "sticker_id": 17}),
+                             frozenset()) == ["стикеров у тебя нет, ответь текстом"]
+    # Without the stickers argument (no list in the context) a sticker is never allowed.
+    unlisted = errors_of(plan_json({"type": "sticker", "sticker_id": 17}))
+    assert unlisted == ["стикеров у тебя нет, ответь текстом"]
+    assert sticker_errors_of('{"messages": [{"type": "sticker", "sticker_id": "кот"}]}')
+
+
+def test_one_sticker_per_turn() -> None:
+    errors = sticker_errors_of(plan_json({"type": "sticker", "sticker_id": 17},
+                                         {"type": "sticker", "sticker_id": 18}))
+    assert errors == ["не больше одного стикера за ход"]
+
+
+def test_sticker_errors_alone() -> None:
+    plan = parse_plan(plan_json({"type": "sticker", "sticker_id": 17},
+                                {"type": "sticker", "sticker_id": 5}))
+    assert sticker_errors(plan, STICKERS) == ["не больше одного стикера за ход",
+                                              "стикера 5 нет в списке «Стикеры»"]
+    assert sticker_errors(parse_plan(plan_json({"type": "text", "text": "a"})), frozenset()) == []

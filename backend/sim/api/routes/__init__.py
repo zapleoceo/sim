@@ -17,10 +17,11 @@ from sim.api.routes import (
     life,
     media,
     persona,
+    stickers,
 )
 
 API_ROUTES: list[Any] = [
     *auth.ROUTES, *chats.ROUTES, *persona.ROUTES, *life.ROUTES, *channels.ROUTES,
     *media.ROUTES, *clients.ROUTES, *events.ROUTES, *agents.ROUTES, *diary.ROUTES,
-    *hooks.ROUTES, *contacts.ROUTES, *calls.ROUTES,
+    *hooks.ROUTES, *contacts.ROUTES, *calls.ROUTES, *stickers.ROUTES,
 ]

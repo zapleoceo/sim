@@ -31,6 +31,7 @@ from sim.domain.enums import (
 from sim.domain.plan import (
     GenerateSpec,
     PhotoAction,
+    StickerAction,
     TextAction,
     VideoAction,
     VideoNoteAction,
@@ -47,6 +48,7 @@ from sim.services.actions.media import (
     VideoHandler,
     VideoNoteHandler,
 )
+from sim.services.actions.sticker import StickerHandler
 from sim.services.actions.text import TextHandler
 from sim.services.actions.voice import Spoken, VoiceFailed, VoiceHandler
 from sim.services.deps import Deps
@@ -213,6 +215,7 @@ def test_registry_has_a_handler_per_action() -> None:
     assert isinstance(handler_for(VoiceAction(type="voice", text="a")), VoiceHandler)
     assert isinstance(handler_for(PhotoAction(type="photo", media_id=1)), PhotoHandler)
     assert isinstance(handler_for(VideoAction(type="video", media_id=1)), VideoHandler)
+    assert isinstance(handler_for(StickerAction(type="sticker", sticker_id=1)), StickerHandler)
 
     class Unknown(BaseModel):
         pass
@@ -301,3 +304,4 @@ def test_each_handler_names_the_status_of_its_slow_work() -> None:
     assert busy(VideoNoteAction(type="video_note", generate=NOTE_SPEC)) == ("record_round",
                                                                             400.0)
     assert busy(VideoNoteAction(type="video_note", media_id=1)) is None
+    assert busy(StickerAction(type="sticker", sticker_id=1)) is None

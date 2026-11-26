@@ -39,6 +39,7 @@ from sim.tasks.queue import (
     REPLY_TASK,
     SEND_TASK,
     SUMMARIZE_DAY_TASK,
+    SYNC_STICKERS_TASK,
     UNDERSTAND_TASK,
     ProcrastinateQueue,
 )
@@ -214,6 +215,20 @@ async def test_her_call_is_one_job_per_contact_on_the_telegram_queue() -> None:
     await queue.place_call(3)                           # a waiting job already dials it
     assert app.deferred == [(PLACE_CALL_TASK, {"contact_id": 3},
                              {"queue": "telegram", "queueing_lock": "place-call:3"})]
+
+
+async def test_a_sticker_sync_is_one_waiting_job_per_account_on_the_telegram_queue() -> None:
+    app = FakeApp()
+    queue = ProcrastinateQueue(app)  # type: ignore[arg-type]
+    await queue.sync_stickers(4)
+    await queue.sync_stickers(4)                        # a waiting job reads them anyway
+    await queue.sync_stickers(5)
+    assert app.deferred == [
+        (SYNC_STICKERS_TASK, {"channel_id": 4}, {"queue": "telegram",
+                                                 "queueing_lock": "sync-stickers:4"}),
+        (SYNC_STICKERS_TASK, {"channel_id": 5}, {"queue": "telegram",
+                                                 "queueing_lock": "sync-stickers:5"}),
+    ]
 
 
 def test_the_minute_and_hourly_ticks_are_registered() -> None:

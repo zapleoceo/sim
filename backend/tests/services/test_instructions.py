@@ -34,3 +34,11 @@ def test_memory_and_recall_are_explained() -> None:
 def test_the_plan_schema_knows_video_notes_and_speech() -> None:
     schema = str(ReplyPlan.model_json_schema())
     assert "video_note" in schema and "speech" in schema
+
+
+def test_stickers_are_explained_only_from_her_list() -> None:
+    """docs/stickers.md: one sticker now and then, only from «Стикеры»."""
+    assert '{"type": "sticker", "sticker_id"' in FORMAT_RULES
+    assert "«Стикеры»" in FORMAT_RULES and "[стикер 😂]" in FORMAT_RULES
+    schema = str(ReplyPlan.model_json_schema())
+    assert "sticker" in schema and "sticker_id" in schema

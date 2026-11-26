@@ -39,6 +39,7 @@ Procrastinate (`ProcrastinateQueue`). Задачи ставятся по име�
 | `agent.reap_stuck(timestamp)` | `agent` | периодическая, `*/2 * * * *` | застрявшие строки: `pending`-сообщения и `queued`-генерации без задачи, генерации и ходы с умершим воркером ([deploy.md](deploy.md), «Застрявшие строки») |
 | `telegram.send_message(message_id)` | `telegram` | `lock=send:<chat_id>` | отправка (процесс `telegram`) |
 | `telegram:mark_read(message_id)` | `telegram` | `queueing_lock=mark-read:<id>` | «прочитано» до сообщения клиента |
+| `telegram:sync_stickers(channel_id)` | `telegram` | `queueing_lock=sync-stickers:<id>` | перечитать стикеры её аккаунта ([stickers.md](stickers.md)) |
 | `telegram:place_call(contact_id)` | `telegram` | `queueing_lock=place-call:<id>` | её звонок по запланированному контакту ([calls.md](calls.md), «Её звонок») |
 | `telegram:chat_action(chat_id, action, seconds)` | `telegram` | `lock=chat-action:<chat_id>` | живой статус: «печатает», «записывает кружок»… (`docs/telegram.md`) |
 

@@ -120,6 +120,15 @@ def _message_body(message: Message, media_text: str | None) -> str:
     return f"{media_text}; подпись: «{text}»" if text else media_text
 
 
+def sticker_text(message: Message, media: MediaAsset | None) -> str:
+    """«[стикер 😂] кот в очках»: the emoji it stands for is the message text (docs/stickers.md),
+    a picture sticker the client sent also has what «Зрение» saw."""
+    emoji = one_line(message.text)
+    seen = (one_line(media.description) if media is not None and media.description
+            and media.understanding == UnderstandingStatus.DONE else "")
+    return f"[стикер{f' {emoji}' if emoji else ''}]{f' {seen}' if seen else ''}"
+
+
 def _has_media(message: Message) -> bool:
     return message.kind != MessageKind.TEXT or message.media_id is not None
 
@@ -130,6 +139,11 @@ def _render_message(event: ChatEvent, data: dict[str, Any], rel: Related,
     if message is None:
         return None
     media = rel.media.get(message.media_id) if message.media_id else None
+    if message.kind == MessageKind.STICKER:
+        speaker = who.client if event.kind == EventKind.MESSAGE_IN else who.persona
+        if message.author == Author.OPERATOR:
+            speaker = f"{who.persona} (писал оператор)"
+        return f"{speaker}: {sticker_text(message, media)}"
     if event.kind == EventKind.MESSAGE_IN:
         media_text = incoming_media(message.kind, media) if _has_media(message) else None
         return f"{who.client}: {_message_body(message, media_text)}"

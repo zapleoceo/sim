@@ -367,6 +367,30 @@ class Message(Base):
         ForeignKey("reply_run.id", ondelete="SET NULL"), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True)
+    # Her sticker (kind sticker, outgoing): which one of her account's (docs/stickers.md).
+    sticker_id: Mapped[int | None] = mapped_column(
+        ForeignKey("persona_sticker.id", ondelete="SET NULL", use_alter=True), nullable=True)
+
+
+class PersonaSticker(Base):
+    """A sticker her Telegram account has — an installed set or a favourite — that she may send
+    (docs/stickers.md). Read from the account by the telegram process; `doc_id` and the set
+    are enough to send it (the file reference is fetched fresh at sending)."""
+
+    __tablename__ = "persona_sticker"
+    __table_args__ = (UniqueConstraint("channel_id", "doc_id"),)
+
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id", ondelete="CASCADE"),
+                                            index=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channel.id", ondelete="CASCADE"))
+    doc_id: Mapped[int] = mapped_column(BigInteger)
+    set_id: Mapped[int] = mapped_column(BigInteger)
+    set_access_hash: Mapped[int] = mapped_column(BigInteger)
+    set_name: Mapped[str] = mapped_column(String(100), default="")
+    set_title: Mapped[str] = mapped_column(String(200), default="")
+    emoji: Mapped[str] = mapped_column(String(32), default="")
+    faved: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class MediaAsset(Base):

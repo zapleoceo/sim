@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sim.channels.delivery import load_delivery
 from sim.clock import FixedClock
-from sim.db.models import MediaAsset, Message
+from sim.db.models import MediaAsset, Message, PersonaSticker
 from sim.domain.enums import (
     Author,
     Direction,
@@ -16,7 +17,8 @@ from sim.domain.enums import (
     MessageKind,
     MessageStatus,
 )
-from sim.ports import OutboundMessage, Peer, PortError
+from sim.ports import OutboundMessage, Peer, PortError, StickerRef
+from sim.services.stickers import save_account_stickers
 from sim.telegram.messenger import FloodWait, TelegramMessenger
 from sim.telegram.tasks import (
     MAX_RETRIES,
@@ -41,9 +43,11 @@ from tests.telegram.conftest import World, seed_world
 
 async def outgoing(db: AsyncSession, world: World, *, kind: MessageKind = MessageKind.TEXT,
                    text: str = "привет, как ты?", media_id: int | None = None,
-                   status: MessageStatus = MessageStatus.PENDING) -> Message:
+                   status: MessageStatus = MessageStatus.PENDING,
+                   sticker_id: int | None = None) -> Message:
     message = Message(chat_id=world.chat.id, direction=Direction.OUT, author=Author.PERSONA,
-                      kind=kind, text=text, media_id=media_id, status=status)
+                      kind=kind, text=text, media_id=media_id, status=status,
+                      sticker_id=sticker_id)
     db.add(message)
     await db.flush()
     await db.commit()
@@ -307,3 +311,89 @@ async def test_video_note_shows_recording_a_circle(db, sessions, clock):
     assert messenger.sent[0][1].kind == "video_note"
     assert {action for _, action in messenger.actions} == {"record_round"}
     assert sum(sleep.calls) == pytest.approx(4.0)
+
+
+# --- her stickers (docs/stickers.md) ----------------------------------------------------------
+
+
+async def her_sticker(db: AsyncSession, world: World) -> PersonaSticker:
+    sticker = PersonaSticker(persona_id=world.persona.id, channel_id=world.channel.id,
+                             doc_id=102, set_id=10, set_access_hash=11, emoji="😂",
+                             set_name="ducks", set_title="Утята")
+    db.add(sticker)
+    await db.flush()
+    return sticker
+
+
+async def test_her_sticker_goes_by_its_reference_without_a_file(db, sessions, clock):
+    world = await seed_world(db)
+    sticker = await her_sticker(db, world)
+    message = await outgoing(db, world, kind=MessageKind.STICKER, text="😂",
+                             sticker_id=sticker.id)
+    result, messenger, outbox, _ = await run(message, sessions, clock)
+    assert result == "sent"
+    [(channel_id, outbound)] = messenger.sent
+    assert channel_id == world.channel.id
+    assert outbound == OutboundMessage(
+        peer=Peer(external_id="1001", access_hash="555"), kind="sticker", text="😂",
+        key=message.id, sticker=StickerRef(doc_id=102, set_id=10, set_access_hash=11))
+    assert outbox.sent == [(message.id, "900", clock.now())]
+
+
+async def test_her_sticker_reaches_telegram_as_a_sticker(db, sessions, clock):
+    world = await seed_world(db)
+    sticker = await her_sticker(db, world)
+    message = await outgoing(db, world, kind=MessageKind.STICKER, text="😂",
+                             sticker_id=sticker.id)
+    client = FakeTelethonClient()
+    client.connected = True
+    client.sticker_sets[10] = SimpleNamespace(packs=[], documents=[
+        SimpleNamespace(id=102, access_hash=103, file_reference=b"fresh")])
+    messenger = TelegramMessenger(FakeRuntime(client), min_interval_s=0, sleep=RecordingSleep())
+    outbox = FakeOutbox()
+    result = await deliver(message.id, sessions=sessions, storage=FakeStorage(), clock=clock,
+                           messenger=messenger, outbox=outbox, final_attempt=False,
+                           sleep=RecordingSleep())
+    assert result == "sent"
+    [sent] = client.sent
+    assert sent["kind"] == "sticker" and sent["document"].id == 102
+    assert outbox.sent == [(message.id, str(sent["id"]), clock.now())]
+
+
+async def test_a_sticker_message_without_her_sticker_still_goes_as_a_file(db, sessions, clock):
+    world = await seed_world(db)
+    asset = MediaAsset(persona_id=world.persona.id, source=MediaSource.INCOMING,
+                       kind=MediaKind.PHOTO, storage_key="sticker/1", mime="image/webp",
+                       sha256="0" * 64, file_name="sticker.webp")
+    db.add(asset)
+    await db.flush()
+    message = await outgoing(db, world, kind=MessageKind.STICKER, text="", media_id=asset.id)
+    result, messenger, _, _ = await run(message, sessions, clock,
+                                        storage=FakeStorage({"sticker/1": b"WEBP"}))
+    assert result == "sent"
+    outbound = messenger.sent[0][1]
+    assert (outbound.kind, outbound.data, outbound.mime, outbound.sticker) == (
+        "file", b"WEBP", "image/webp", None)
+
+
+async def test_a_sticker_row_that_is_gone_can_not_be_delivered(db):
+    world = await seed_world(db)
+    lost = Message(chat_id=world.chat.id, direction=Direction.OUT, author=Author.PERSONA,
+                   kind=MessageKind.STICKER, text="😂", status=MessageStatus.PENDING,
+                   sticker_id=999_999)          # not stored: the row it points at is gone
+    with pytest.raises(PortError) as info:
+        await load_delivery(db, lost, FakeStorage())
+    assert not info.value.retryable and "sticker is gone" in str(info.value)
+
+
+async def test_a_pending_sticker_she_no_longer_has_fails_without_sending(db, sessions, clock):
+    world = await seed_world(db)
+    sticker = await her_sticker(db, world)
+    message = await outgoing(db, world, kind=MessageKind.STICKER, text="😂",
+                             sticker_id=sticker.id)
+    await save_account_stickers(db, persona_id=world.persona.id, channel_id=world.channel.id,
+                                stickers=[])          # the account dropped it before sending
+    await db.commit()                                   # `sessions` hands out this same `db`
+    result, messenger, outbox, _ = await run(message, sessions, clock)
+    assert result == "failed" and messenger.sent == []
+    assert [failed_id for failed_id, _ in outbox.failed] == [message.id]

@@ -296,6 +296,9 @@ class RecordingQueue:
     async def place_call(self, contact_id: int) -> None:
         self.calls.append(("place_call", contact_id))
 
+    async def sync_stickers(self, channel_id: int) -> None:
+        self.calls.append(("sync_stickers", channel_id))
+
     def actions(self) -> list[str]:
         """The chat actions asked for, in order."""
         return [call[2] for call in self.of("chat_action")]

@@ -27,12 +27,13 @@ from procrastinate.retry import BaseRetryStrategy, RetryDecision
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sim.db.models import Channel, Chat, ClientIdentity, MediaAsset, Message
+from sim.db.models import Channel, Chat, ClientIdentity, MediaAsset, Message, PersonaSticker
 from sim.db.session import transaction
 from sim.domain.channels import spec_of
 from sim.domain.enums import ChannelKind, Direction, MessageKind, MessageStatus
 from sim.domain.presence import ChatAction, chat_action_for
 from sim.ports import ClockPort, MediaStoragePort, MessengerPort, OutboundMessage, Peer, PortError
+from sim.services.stickers import ref_of
 
 log = logging.getLogger(__name__)
 
@@ -141,6 +142,17 @@ async def load_delivery(session: AsyncSession, message: Message,
         raise PortError("the chat is gone")
     channel_id, peer = address
     kind = MessageKind(message.kind).value
+    if kind == MessageKind.STICKER.value and message.sticker_id is not None:
+        # One of her account's stickers (docs/stickers.md): sent by its reference, no file.
+        sticker = await session.get(PersonaSticker, message.sticker_id)
+        if sticker is None:
+            raise PortError("the sticker is gone from her account")
+        return Delivery(channel_id, OutboundMessage(peer=peer, kind=kind, text=message.text,
+                                                    key=message.id, sticker=ref_of(sticker)),
+                        message.chat_id)
+    if kind == MessageKind.STICKER.value and message.media_id is None:
+        # Her sticker whose row a sync removed (sticker_id is set to NULL): nothing to send.
+        raise PortError("the sticker is gone from her account")
     if kind == MessageKind.STICKER.value:
         kind = MessageKind.FILE.value
     if kind == MessageKind.TEXT.value:

@@ -153,6 +153,9 @@ class RecordingTasks:
     async def place_call(self, contact_id: int) -> None:
         self.record("place_call", contact_id)
 
+    async def sync_stickers(self, channel_id: int) -> None:
+        self.record("sync_stickers", channel_id)
+
 
 @dataclass
 class FakeDeps:

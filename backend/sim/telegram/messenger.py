@@ -22,9 +22,10 @@ from typing import Any, Protocol
 
 from sim.channels.delivery import RetryAfter
 from sim.domain.presence import ChatAction
-from sim.ports import OutboundMessage, Peer, PortError
+from sim.ports import OutboundMessage, Peer, PortError, StickerRef
 from sim.telegram.peers import input_peer
 from sim.telegram.sending import invoke, media_request, new_message, random_id, text_request
+from sim.telegram.stickers import sticker_media
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ CHAT_ACTIONS: dict[str, str] = {
     ChatAction.UPLOAD_PHOTO: "SendMessageUploadPhotoAction",
     ChatAction.UPLOAD_VIDEO: "SendMessageUploadVideoAction",
     ChatAction.UPLOAD_DOCUMENT: "SendMessageUploadDocumentAction",
+    ChatAction.CHOOSE_STICKER: "SendMessageChooseStickerAction",
     ChatAction.CANCEL: "SendMessageCancelAction",
 }
 _UPLOAD_ACTIONS = frozenset({ChatAction.UPLOAD_PHOTO, ChatAction.UPLOAD_VIDEO,
@@ -174,6 +176,12 @@ class TelegramMessenger:
         client, entity = await self.address(channel_id, message.peer)
         if message.kind == "text":
             return await self.send_text(channel_id, client, entity, message)
+        if message.kind == "sticker" and message.sticker is not None:
+            rid = random_id(channel_id, message.key)
+            ref = message.sticker
+            sent_id = await self.throttled(
+                channel_id, lambda: self.send_sticker(client, entity, ref, rid))
+            return None if sent_id is None else str(sent_id)
         if not message.data:
             raise PortError(f"{message.kind} has no file to send")
         rid = random_id(channel_id, message.key)
@@ -234,6 +242,16 @@ class TelegramMessenger:
         return None if first is None else str(first)
 
     @staticmethod
+    async def send_sticker(client: Any, entity: Any, ref: StickerRef, rid: int) -> int | None:
+        """One of her account's stickers, as a real sticker (docs/stickers.md)."""
+        from telethon import functions
+
+        media = await sticker_media(client, ref)
+        request = functions.messages.SendMediaRequest(peer=entity, media=media, message="",
+                                                      random_id=rid)
+        return (await invoke(client, request))[0]
+
+    @staticmethod
     async def send_media(client: Any, entity: Any, message: OutboundMessage,
                          rid: int) -> int | None:
         file = io.BytesIO(message.data or b"")
@@ -256,6 +274,8 @@ class TelegramMessenger:
                     await self.sleep(wait)
             try:
                 result = await send()
+            except PortError:
+                raise                       # already decided (e.g. a sticker gone from its set)
             except Exception as exc:
                 raise to_port_error(exc) from exc
             finally:

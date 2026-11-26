@@ -174,15 +174,26 @@ class InboundMessage:
 
 
 @dataclass(frozen=True)
+class StickerRef:
+    """A sticker of her Telegram account to send: the document and its set (the set is re-read
+    for a fresh file reference, which Telegram expires; docs/stickers.md)."""
+
+    doc_id: int
+    set_id: int
+    set_access_hash: int
+
+
+@dataclass(frozen=True)
 class OutboundMessage:
     peer: Peer
-    kind: str                       # text | photo | video | voice | video_note | file
+    kind: str                       # text | photo | video | voice | video_note | file | sticker
     text: str = ""
     data: bytes | None = None
     mime: str | None = None
     file_name: str = ""
     duration_s: float | None = None
     key: int | None = None          # our message id: a retry of it is not delivered twice
+    sticker: StickerRef | None = None   # kind sticker
 
 
 class MessengerPort(Protocol):

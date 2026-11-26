@@ -109,9 +109,13 @@ def sent_at(message: Any) -> datetime:
 
 async def build_inbound(channel_id: int, peer: Peer, message: Any) -> InboundMessage:
     reply_to = getattr(message, "reply_to_msg_id", None)
+    text = str(getattr(message, "message", "") or "")
+    if not text and attachment_kind(message) == "sticker":
+        # The emoji a sticker stands for: what she sees even when the picture is not read.
+        text = str(getattr(getattr(message, "file", None), "emoji", "") or "")
     return InboundMessage(
         channel_id=channel_id, peer=peer, external_id=str(int(message.id)),
-        text=str(getattr(message, "message", "") or ""), sent_at=sent_at(message),
+        text=text, sent_at=sent_at(message),
         attachment=await download_attachment(message),
         reply_to_external_id=str(reply_to) if reply_to else None,
     )

@@ -22,6 +22,7 @@ import { LifeSection } from './life/life-section';
 import { MediaLibrarySection } from './media-library';
 import { PersonaEditor } from './persona-editor';
 import { PersonaIdProvider } from './persona-scope';
+import { StickersSection } from './stickers-section';
 import { avatarUrl } from './personas-page';
 import { usePersonaList } from './use-persona-list';
 
@@ -36,6 +37,7 @@ const TOC: { id: string; label: string }[] = [
   { id: 'agents', label: 'Агенты' },
   { id: 'life', label: 'Жизнь' },
   { id: 'channel', label: 'Канал' },
+  { id: 'stickers', label: 'Стикеры' },
   { id: 'media', label: 'Медиатека' },
 ];
 
@@ -102,7 +104,7 @@ export function PersonaHeader({ persona }: { persona: Persona }) {
   );
 }
 
-/** One persona: every setting on one page, her life, channel and media library. */
+/** One persona: every setting on one page, her life, channel, stickers and media library. */
 export function PersonaPage() {
   const { personaId } = route.useParams();
   const id = positiveInt(personaId) ?? 0;
@@ -143,6 +145,7 @@ export function PersonaPage() {
                 <AgentsSection />
                 <LifeSection />
                 <ChannelSection />
+                <StickersSection />
                 <MediaLibrarySection />
               </div>
             </UnsavedChangesProvider>

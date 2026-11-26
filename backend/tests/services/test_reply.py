@@ -48,7 +48,9 @@ from tests.services.factories import (
     make_chat,
     make_media,
     make_persona,
+    make_sticker,
     ok_verdict,
+    olya_chat,
     plan_json,
 )
 
@@ -528,3 +530,60 @@ async def test_a_failing_defer_after_the_commit_keeps_the_run_sent(
     assert deferred == [first.id, second.id]            # the next defers still go out
     # The first message stays `pending` until the reaper queues its send again.
     assert first.status == second.status == MessageStatus.PENDING
+
+
+# --- her stickers (docs/stickers.md) ----------------------------------------------------------
+
+
+async def test_a_sticker_from_her_list_is_queued_as_her_sticker(db: AsyncSession, deps: Deps,
+                                                                fakes: Fakes,
+                                                                clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock)
+    sticker = await make_sticker(db, chat, emoji="🥰")
+    fakes.llm.script("reply-model",
+                     plan_json(TEXT, {"type": "sticker", "sticker_id": sticker.id}))
+    fakes.llm.script("guard-model", ok_verdict())
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+
+    sent = await outgoing(db, chat)
+    assert [(m.kind, m.text, m.sticker_id) for m in sent] == [
+        (MessageKind.TEXT, "привет!", None), (MessageKind.STICKER, "🥰", sticker.id)]
+    assert [c[1] for c in fakes.tasks.of("send")] == [m.id for m in sent]
+    user = fakes.llm.calls_for("reply-model")[0]["messages"][1].parts[0].text or ""
+    assert f"- {sticker.id} 🥰 (Утята)" in user
+    guard = fakes.llm.calls_for("guard-model")[0]["messages"][1].parts[0].text or ""
+    assert "2. [стикер]" in guard
+
+
+async def test_a_sticker_not_in_her_list_is_repaired(db: AsyncSession, deps: Deps,
+                                                     fakes: Fakes, clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock)
+    await make_sticker(db, chat)
+    foreign = await make_sticker(db, await olya_chat(db))          # another persona's
+    fakes.llm.script("reply-model", plan_json({"type": "sticker", "sticker_id": foreign.id}),
+                     plan_json(TEXT))
+    fakes.llm.always("guard-model", ok_verdict())
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+
+    repair = fakes.llm.calls_for("reply-model")[1]["messages"][-1].parts[0].text or ""
+    assert f"стикера {foreign.id} нет в списке «Стикеры»" in repair
+    sent = await outgoing(db, chat)
+    assert [(m.kind, m.text) for m in sent] == [(MessageKind.TEXT, "привет!")]
+
+
+async def test_without_stickers_a_sticker_plan_is_answered_with_text(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    chat = await setup_chat(db, clock)
+    fakes.llm.script("reply-model", plan_json({"type": "sticker", "sticker_id": 1}),
+                     plan_json(TEXT))
+    fakes.llm.always("guard-model", ok_verdict())
+
+    assert (await ReplyService(deps).run(chat.id)).status == RunStatus.SENT
+
+    first = fakes.llm.calls_for("reply-model")[0]["messages"][1].parts[0].text or ""
+    assert "# Стикеры" not in first
+    repair = fakes.llm.calls_for("reply-model")[1]["messages"][-1].parts[0].text or ""
+    assert "стикеров у тебя нет, ответь текстом" in repair
+    assert [m.kind for m in await outgoing(db, chat)] == [MessageKind.TEXT]

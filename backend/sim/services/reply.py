@@ -284,7 +284,8 @@ class ReplyService:
             return self._validate(turn, raw), raw
 
     def _validate(self, turn: _Turn, raw: str) -> ReplyPlan:
-        plan = validated_plan(raw, catalog=turn.ctx.catalog, caps=turn.ctx.capabilities)
+        plan = validated_plan(raw, catalog=turn.ctx.catalog, caps=turn.ctx.capabilities,
+                              stickers=turn.ctx.stickers)
         if plan.wants_recall and turn.recall is not None:
             raise PlanError([RECALLED_NOTE])
         return plan
