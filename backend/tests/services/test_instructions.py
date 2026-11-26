@@ -40,5 +40,8 @@ def test_stickers_are_explained_only_from_her_list() -> None:
     """docs/stickers.md: one sticker now and then, only from «Стикеры»."""
     assert '{"type": "sticker", "sticker_id"' in FORMAT_RULES
     assert "«Стикеры»" in FORMAT_RULES and "[стикер 😂]" in FORMAT_RULES
+    # Dima (2026-11-27): twice a joke and a sticker got only text — a sticker invites one.
+    assert "на стикер люди чаще всего отвечают стикером" in FORMAT_RULES
+    assert "не два хода подряд" in FORMAT_RULES
     schema = str(ReplyPlan.model_json_schema())
     assert "sticker" in schema and "sticker_id" in schema

@@ -38,7 +38,14 @@ from sim.services.actions.voice import VoiceHandler
 from sim.services.context.builder import ContextBuilder
 from sim.services.deps import Deps
 from sim.services.generation import GenerationService, start_generation
-from sim.services.life.planner import LifePlanner, Outcome, days_to_plan, needs_plan
+from sim.services.life.planner import (
+    OUTFIT_VARIETY,
+    LifePlanner,
+    Outcome,
+    days_to_plan,
+    needs_plan,
+    outfits_of,
+)
 from sim.services.reply import ReplyService
 from tests.services.conftest import Fakes
 from tests.services.factories import (
@@ -123,6 +130,32 @@ async def test_planner_plans_a_day_moves_an_arc_and_sums_up_yesterday(
     fakes.llm.script(LIFE_MODEL, plan_answer())
     assert await LifePlanner(deps).plan(persona.id, SUNDAY, force=True) == Outcome.PLANNED
     assert len(fakes.llm.calls_for(LIFE_MODEL)) == 2
+
+
+async def test_planner_sees_what_she_wore_lately_and_dresses_her_differently(
+        db: AsyncSession, deps: Deps, fakes: Fakes) -> None:
+    """The owner: «она в одном и том же ходит?» — the past days' clothes, each once, and the
+    rule to vary them go to the planner."""
+    persona = await life_persona(db)
+    await add_day(db, persona, FRIDAY, day_plan())
+    fakes.llm.script(LIFE_MODEL, plan_answer())
+
+    assert await LifePlanner(deps).plan(persona.id, SATURDAY) == Outcome.PLANNED
+
+    [call] = fakes.llm.calls_for(LIFE_MODEL)
+    prompt = call["messages"][1].parts[0].text or ""
+    assert ("Одета была: чёрный беговой костюм; серый домашний свитер и тёмные леггинсы; "
+            "синие джинсы, бежевый свитер и тёмное пальто\n") in prompt
+    assert prompt.count("серый домашний свитер") == 1 and OUTFIT_VARIETY in prompt
+    assert "изо дня в день одежда разная" in (call["messages"][0].parts[0].text or "")
+
+
+def test_outfits_of_a_day_are_listed_once_in_order() -> None:
+    events = day_plan()
+    assert outfits_of(events) == ["чёрный беговой костюм",
+                                  "серый домашний свитер и тёмные леггинсы",
+                                  "синие джинсы, бежевый свитер и тёмное пальто"]
+    assert outfits_of([events[1].model_copy(update={"outfit": "  "})]) == []
 
 
 async def test_planner_repairs_once_then_records_the_failure(db: AsyncSession, deps: Deps,

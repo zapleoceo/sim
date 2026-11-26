@@ -52,6 +52,13 @@ PROMPT_CHARS = 6000
 CANON_FOR_PLANNER = 20
 PLAN_SCHEMA = DayPlan.model_json_schema()
 
+# The owner (2026-11-27): «у Марины та же одежда, что и всегда дома?» — her prompt says only
+# «дома джинсы и свитер», so without the past days' clothes every day came out the same.
+OUTFIT_VARIETY = ("Одежда: живой человек не ходит в одном и том же каждый день. Сегодня одень "
+                  "её иначе, чем в эти дни («Одета была»): другие вещи и цвета в её стиле — "
+                  "дома, например, другой свитер или кофта, футболка, худи, домашний костюм, "
+                  "платье, леггинсы; на выход — по погоде и поводу.")
+
 REPAIR_NOTE = ("Ответ не подошёл: {errors}. Верни исправленный JSON-объект строго по схеме, "
                "без текста вокруг.")
 
@@ -116,6 +123,16 @@ class _Input:
     summary_day: date | None
 
 
+def outfits_of(events: list[DayEvent]) -> list[str]:
+    """What she wore that day, each outfit once, in order (the planner varies the next day's)."""
+    worn: list[str] = []
+    for event in events:
+        outfit = one_line(event.outfit)
+        if outfit and outfit.casefold() not in {seen.casefold() for seen in worn}:
+            worn.append(outfit)
+    return worn
+
+
 def _events_lines(events: list[DayEvent]) -> list[str]:
     return [f"- {e.start}–{e.end} {one_line(e.title)}"
             + (f" ({one_line(e.place)})" if e.place.strip() else "")
@@ -145,10 +162,13 @@ def planner_messages(persona: Persona, day: date, *, history: Mapping[date, Pers
         text = [title]
         if row.summary.strip():
             text.append(f"Как прошёл: {one_line(row.summary)}")
-        text += _events_lines(day_events(row.events))
+        events = day_events(row.events)
+        text += _events_lines(events)
+        if worn := outfits_of(events):
+            text.append("Одета была: " + "; ".join(worn))
         past.append("\n".join(text))
     if past:
-        blocks.append("# Последние дни\n" + "\n\n".join(past))
+        blocks.append("# Последние дни\n" + "\n\n".join(past) + f"\n\n{OUTFIT_VARIETY}")
     if canon:
         blocks.append("# Что она уже рассказывала о себе (не противоречь)\n"
                       + "\n".join(f"- {one_line(fact)}" for fact in canon))
