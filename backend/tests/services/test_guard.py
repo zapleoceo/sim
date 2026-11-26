@@ -88,3 +88,9 @@ def test_owner_guard_prompt_replaces_the_default() -> None:
                                      persona_tz="Europe/Kyiv"))
     system = guard_messages(persona, facts, [], PLAN)[0].parts[0].text
     assert system == 'Проверь ответ Марина (uk). {"ok"}'
+
+
+def test_a_sticker_is_shown_to_the_guard_as_a_sticker() -> None:
+    plan = ReplyPlan.model_validate({"messages": [
+        {"type": "text", "text": "ахах"}, {"type": "sticker", "sticker_id": 17}]})
+    assert outgoing_lines(plan) == ["1. [текст] ахах", "2. [стикер]"]

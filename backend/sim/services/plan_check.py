@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ from sim.domain.plan import (
     MediaAction,
     PhotoAction,
     ReplyPlan,
+    StickerAction,
     VideoAction,
     VideoNoteAction,
     VoiceAction,
@@ -81,8 +83,8 @@ def parse_plan(text: str) -> ReplyPlan:
 
 
 def plan_errors(plan: ReplyPlan, *, catalog: Mapping[int, MediaKind],
-                caps: Capabilities) -> list[str]:
-    errors = media_choice_errors(plan) + speech_errors(plan)
+                caps: Capabilities, stickers: AbstractSet[int] = frozenset()) -> list[str]:
+    errors = media_choice_errors(plan) + speech_errors(plan) + sticker_errors(plan, stickers)
     seen: set[int] = set()
     generations = 0
     for i, action in enumerate(plan.messages):
@@ -124,11 +126,24 @@ def plan_errors(plan: ReplyPlan, *, catalog: Mapping[int, MediaKind],
     return errors
 
 
+def sticker_errors(plan: ReplyPlan, stickers: AbstractSet[int]) -> list[str]:
+    """A sticker only from «Стикеры», at most one per turn (a human sends one)."""
+    errors = []
+    sent = [action for action in plan.messages if isinstance(action, StickerAction)]
+    if len(sent) > 1:
+        errors.append("не больше одного стикера за ход")
+    for action in sent:
+        if action.sticker_id not in stickers:
+            errors.append(f"стикера {action.sticker_id} нет в списке «Стикеры»"
+                          if stickers else "стикеров у тебя нет, ответь текстом")
+    return errors
+
+
 def validated_plan(text: str, *, catalog: Mapping[int, MediaKind],
-                   caps: Capabilities) -> ReplyPlan:
+                   caps: Capabilities, stickers: AbstractSet[int] = frozenset()) -> ReplyPlan:
     """Parse + check; raises PlanError with every problem found."""
     plan = parse_plan(text)
-    errors = plan_errors(plan, catalog=catalog, caps=caps)
+    errors = plan_errors(plan, catalog=catalog, caps=caps, stickers=stickers)
     if errors:
         raise PlanError(errors)
     return plan

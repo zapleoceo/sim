@@ -19,6 +19,7 @@ class ChatAction(StrEnum):
     UPLOAD_PHOTO = "upload_photo"
     UPLOAD_VIDEO = "upload_video"
     UPLOAD_DOCUMENT = "upload_document"
+    CHOOSE_STICKER = "choose_sticker"
     CANCEL = "cancel"
 
 
@@ -28,6 +29,7 @@ ACTION_BY_KIND: Mapping[str, ChatAction] = {
     "video_note": ChatAction.RECORD_ROUND,
     "photo": ChatAction.UPLOAD_PHOTO,
     "video": ChatAction.UPLOAD_VIDEO,
+    "sticker": ChatAction.CHOOSE_STICKER,
 }
 # How long the slow work before a message of this kind may take (TTS, generation), seconds.
 SLOW_WORK_S: Mapping[str, float] = {"voice": 30.0, "photo": 120.0, "video": 400.0,

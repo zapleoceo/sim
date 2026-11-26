@@ -195,6 +195,12 @@ declined | failed`), `external_id`, `started_at`, `ended_at`, `duration_s`, `tra
 `recording_key`, `recording_s` (`0010`) — запись разговора в хранилище медиа, удаляется через
 `persona.call_recording_days` ([calls.md](calls.md), «Запись звонка»).
 
+### `persona_sticker`
+Миграция `0012`, [stickers.md](stickers.md): стикеры её аккаунта Telegram, которые она может
+отправить. `persona_id`, `channel_id`, `doc_id` (уникально с `channel_id`), `set_id`,
+`set_access_hash`, `set_name`, `set_title`, `emoji`, `faved`, `position`. Пишет процесс
+`telegram` после чтения аккаунта. `message.sticker_id` — какой из них её исходящий стикер.
+
 ### `planned_contact`
 Миграция `0010`, [initiative.md](initiative.md): она пишет или звонит первой. `chat_id`,
 `kind` (`message | call`), `source` (`manager | persona`), `status` (`planned | started |

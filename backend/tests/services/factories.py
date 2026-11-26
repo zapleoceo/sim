@@ -19,6 +19,7 @@ from sim.db.models import (
     MediaAsset,
     Message,
     Persona,
+    PersonaSticker,
 )
 from sim.domain.enums import (
     Author,
@@ -92,6 +93,26 @@ async def make_chat(db: AsyncSession, persona: Persona | None = None, *, client_
     db.add(chat)
     await db.flush()
     return chat
+
+
+async def olya_chat(db: AsyncSession) -> Chat:
+    """A chat of another persona (persona names are unique)."""
+    return await make_chat(db, await make_persona(db, name="Оля", prompt="Ты Оля."), name="Петя")
+
+
+async def make_sticker(db: AsyncSession, chat: Chat, *, emoji: str = "😂",
+                       set_title: str = "Утята", set_name: str = "ducks", faved: bool = False,
+                       position: int = 0, doc_id: int | None = None,
+                       channel_id: int | None = None) -> PersonaSticker:
+    """One of her account's stickers on the chat's channel (docs/stickers.md)."""
+    sticker = PersonaSticker(persona_id=chat.persona_id,
+                             channel_id=channel_id or chat.channel_id,
+                             doc_id=doc_id if doc_id is not None else 9_000_000 + next(_seq),
+                             set_id=77, set_access_hash=88, set_name=set_name,
+                             set_title=set_title, emoji=emoji, faved=faved, position=position)
+    db.add(sticker)
+    await db.flush()
+    return sticker
 
 
 DEFAULT_MIMES = {MediaKind.PHOTO: "image/jpeg", MediaKind.VIDEO: "video/mp4",

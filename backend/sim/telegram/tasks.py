@@ -12,6 +12,8 @@ again, and neither delivers twice.
 
 `mark_read(message_id)` marks the chat read up to an incoming message (best effort).
 
+`sync_stickers(channel_id)` re-reads her account's stickers (docs/stickers.md).
+
 `place_call(contact_id)` places her call of a due planned contact (docs/initiative.md) through
 the call backends of this process (`set_dialer`); without calls here the contact fails.
 
@@ -60,14 +62,15 @@ SEND_TASK = f"{NAMESPACE}:send_message"
 MARK_READ_TASK = f"{NAMESPACE}:mark_read"
 CHAT_ACTION_TASK = f"{NAMESPACE}:chat_action"
 PLACE_CALL_TASK = f"{NAMESPACE}:place_call"
+SYNC_STICKERS_TASK = f"{NAMESPACE}:sync_stickers"
 NO_CALLS = "не позвонила: звонки этого процесса выключены"
 
 # The shared delivery, re-exported for the telegram process and its tests.
 __all__ = [
     "CHAT_ACTIONS", "CHAT_ACTION_TASK", "MARK_READ_TASK", "MAX_RETRIES", "NAMESPACE",
-    "PLACE_CALL_TASK", "QUEUE", "SEND_TASK", "Delivery", "SendRetry", "acknowledge",
-    "action_seconds", "blueprint", "chat_address", "deliver", "fail", "get_messenger",
-    "get_presence", "load_delivery", "peer_of", "request_presence", "retry_delay",
+    "PLACE_CALL_TASK", "QUEUE", "SEND_TASK", "SYNC_STICKERS_TASK", "Delivery", "SendRetry",
+    "acknowledge", "action_seconds", "blueprint", "chat_address", "deliver", "fail",
+    "get_messenger", "get_presence", "load_delivery", "peer_of", "request_presence", "retry_delay",
     "set_dialer", "set_runtime", "show_action",
 ]
 
@@ -164,3 +167,14 @@ async def place_call(contact_id: int) -> None:
         await fail_started(deps.sessions, contact_id, NO_CALLS, deps.clock.now())
         return
     await dialer.dial(contact_id)
+
+
+@blueprint.task(name="sync_stickers", queue=QUEUE)
+async def sync_stickers(channel_id: int) -> None:
+    """«Обновить стикеры»: re-read her account's stickers now (docs/stickers.md)."""
+    from sim.telegram.stickers import StickerSync
+
+    runtime = _registry.get("runtime")
+    if runtime is None:
+        raise PortError("telegram runtime is not running in this process", retryable=True)
+    await StickerSync(_deps().sessions).sync(channel_id, runtime.client(channel_id))

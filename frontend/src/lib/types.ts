@@ -671,6 +671,21 @@ export interface ChannelList extends Items<Channel> {
   kinds?: ChannelKindInfo[];
 }
 
+/** One sticker of her own Telegram account: from an installed set or her favourites (`faved`). */
+export interface Sticker {
+  id: number;
+  channel_id: number;
+  emoji: string;
+  set_name: string;
+  set_title: string;
+  faved: boolean;
+}
+
+/** `POST …/stickers/sync` (202): the Telegram channels whose stickers are being re-read. */
+export interface StickerSync {
+  channels: number[];
+}
+
 /** The messenger of a chat (chat rows and the chat header show its icon). */
 export interface ChatChannel {
   id: number;

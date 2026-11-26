@@ -30,6 +30,23 @@ function DeliveryIcon({ message }: { message: TimelineMessage }) {
   return <Check className="size-3" aria-hidden="true" />;
 }
 
+/**
+ * A sticker's emoji (`message.text`) with a small «стикер»: large on its own (her sent stickers have
+ * no file), smaller under the picture of an incoming one. Never an empty bubble.
+ */
+function StickerLine({ emoji, large }: { emoji: string; large: boolean }) {
+  return (
+    <p className="flex items-end gap-2">
+      {emoji && (
+        <span role="img" aria-label={`Стикер ${emoji}`} className={cn('leading-none', large ? 'text-4xl' : 'text-2xl')}>
+          {emoji}
+        </span>
+      )}
+      <span className="text-[11px] text-muted-foreground">стикер</span>
+    </p>
+  );
+}
+
 function MessageBubble({ item, message, onExplain }: {
   item: TimelineItem;
   message: TimelineMessage;
@@ -57,8 +74,12 @@ function MessageBubble({ item, message, onExplain }: {
         )}
       >
         {message.media && <MediaView media={message.media} messageKind={message.kind} />}
-        {text && <p className="break-words whitespace-pre-wrap">{text}</p>}
-        {!message.media && !text && (
+        {message.kind === 'sticker' ? (
+          <StickerLine emoji={text} large={!message.media} />
+        ) : (
+          text && <p className="break-words whitespace-pre-wrap">{text}</p>
+        )}
+        {message.kind !== 'sticker' && !message.media && !text && (
           <p className="text-muted-foreground italic">{MESSAGE_KIND_LABEL[message.kind] || 'Пустое сообщение'}</p>
         )}
       </div>

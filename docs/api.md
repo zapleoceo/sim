@@ -79,6 +79,8 @@ LlmCall = {id, purpose, model, request, response, tokens_in, tokens_out, cost_us
 | GET | `/models` | → `{items: [{id, available, input_modalities, output_modalities, capabilities}]}` из Broker |
 | GET | `/calls/{id}/recording` | → OGG записи разговора (Range); 404 — записи нет или удалена ([calls.md](calls.md)) |
 | POST | `/personas/{id}/call-recordings/purge` | `{days: int|null}` — удалить записи звонков персонажа старше `days` (`null` — её срок, `0` — все) → `{deleted}` |
+| GET | `/personas/{id}/stickers` | → `{items: [{id, channel_id, emoji, set_name, set_title, faved}]}` — стикеры её аккаунта Telegram ([stickers.md](stickers.md)) |
+| POST | `/personas/{id}/stickers/sync` | перечитать стикеры её аккаунтов Telegram сейчас → 202 `{channels}` |
 | GET | `/voices` | → `{items: [{id, label, gender: female|male, tone}]}` голоса Gemini TTS |
 | GET | `/voices/{id}/sample?persona_id=` | → WAV: короткая фраза этим голосом моделью агента «Голос» персонажа; кэш в процессе (каждый голос — один вызов TTS); 404 — нет голоса, 400 — нет модели, 502 — Broker отказал |
 

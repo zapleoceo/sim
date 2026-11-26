@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from telethon import errors, types
 
-from sim.ports import OutboundMessage, Peer, PortError
+from sim.ports import OutboundMessage, Peer, PortError, StickerRef
 from sim.telegram.messenger import (
     CHAT_ACTIONS,
     FloodWait,
@@ -283,3 +283,62 @@ def test_sent_id_reads_the_answer():
     assert sent_id(by_random_id, rid) == 502
     assert sent_id(answer(503, []), rid) == 503
     assert sent_id(types.Updates(updates=[], users=[], chats=[], date=None, seq=0), rid) is None
+
+
+# --- her stickers (docs/stickers.md) ----------------------------------------------------------
+
+STICKER = StickerRef(doc_id=102, set_id=10, set_access_hash=11)
+
+
+def with_sticker_set(client: FakeTelethonClient) -> None:
+    """The set as Telegram gives it now: the file references are fresh."""
+    client.sticker_sets[10] = SimpleNamespace(packs=[], documents=[
+        SimpleNamespace(id=101, access_hash=1, file_reference=b"other"),
+        SimpleNamespace(id=102, access_hash=103, file_reference=b"fresh")])
+
+
+async def test_a_sticker_goes_as_its_document_with_a_fresh_file_reference():
+    messenger, client, _, _ = await make()
+    with_sticker_set(client)
+    external_id = await messenger.send(3, OutboundMessage(peer=PEER, kind="sticker", text="😂",
+                                                          key=42, sticker=STICKER))
+    [sent] = client.sent
+    assert external_id == str(sent["id"])
+    assert sent["kind"] == "sticker" and sent["caption"] == ""     # the emoji is not a caption
+    document = sent["document"]
+    assert isinstance(document, types.InputDocument)
+    assert (document.id, document.access_hash, document.file_reference) == (102, 103, b"fresh")
+    assert sent["random_id"] == random_id(3, 42)
+    assert (sent["entity"].user_id, sent["entity"].access_hash) == (1001, 555)
+    [request] = client.requests
+    assert type(request).__name__ == "GetStickerSetRequest"
+    assert (request.stickerset.id, request.stickerset.access_hash) == (10, 11)
+
+
+async def test_a_sticker_gone_from_its_set_is_a_permanent_error():
+    messenger, client, _, _ = await make()
+    with pytest.raises(PortError) as info:
+        await messenger.send(3, OutboundMessage(peer=PEER, kind="sticker", key=1,
+                                                sticker=STICKER))
+    assert not info.value.retryable                 # retrying can not bring it back
+    assert client.sent == []
+
+
+async def test_a_sticker_without_its_reference_has_nothing_to_send():
+    messenger, client, _, _ = await make()
+    with pytest.raises(PortError) as info:
+        await messenger.send(3, OutboundMessage(peer=PEER, kind="sticker", text="😂"))
+    assert not info.value.retryable and client.sent == []
+
+
+async def test_a_sticker_retry_after_a_lost_answer_is_not_delivered_twice():
+    messenger, client, _, _ = await make()
+    with_sticker_set(client)
+    client.lost_answers = 1
+    message = OutboundMessage(peer=PEER, kind="sticker", key=42, sticker=STICKER)
+    with pytest.raises(PortError) as info:
+        await messenger.send(3, message)
+    assert info.value.retryable
+    assert await messenger.send(3, message) is None
+    [sent] = client.sent
+    assert sent["random_id"] == random_id(3, 42)

@@ -93,6 +93,7 @@ class FakeFile:
     duration: float | None = None
     width: int | None = None
     height: int | None = None
+    emoji: str | None = None        # a sticker's emoji (Telethon's `File.emoji`)
 
 
 class FakeTgMessage:
@@ -165,6 +166,9 @@ class FakeTelethonClient:
         self.errors: list[Exception] = []
         self.ids = itertools.count(500)
         self.entities: dict[int, Any] = {}
+        # Sticker sets by id, as `messages.GetStickerSetRequest` answers (an unknown set is
+        # answered empty: the sticker is gone).
+        self.sticker_sets: dict[int, Any] = {}
         self.random_ids: set[int] = set()
         self.lost_answers = 0
 
@@ -226,7 +230,10 @@ class FakeTelethonClient:
         self.random_ids.add(request.random_id)
         message_id = next(self.ids)
         options = getattr(request, "media", None)
-        if isinstance(options, dict):
+        if isinstance(options, types.InputMediaDocument):       # a sticker by its document
+            entry = {"kind": "sticker", "caption": request.message, "document": options.id}
+            media = None
+        elif isinstance(options, dict):
             entry = {"kind": "file", "caption": request.message, **options}
             media = SimpleNamespace(document=SimpleNamespace(
                 attributes=options.get("attributes") or []))
@@ -261,6 +268,9 @@ class FakeTelethonClient:
         if isinstance(request, messages.SendMessageRequest | messages.SendMediaRequest):
             return self._deliver(request)
         self.requests.append(request)
+        if isinstance(request, messages.GetStickerSetRequest):
+            return self.sticker_sets.get(request.stickerset.id,
+                                         SimpleNamespace(packs=[], documents=[]))
         return True
 
 

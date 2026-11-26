@@ -58,6 +58,8 @@ export const qk = {
   personaList: ['personas', 'list'] as const,
   persona: (id: number) => ['personas', id] as const,
   channels: (id: number) => ['personas', id, 'channels'] as const,
+  /** Her Telegram stickers (installed sets and favourites). */
+  stickers: (id: number) => ['personas', id, 'stickers'] as const,
   life: (id: number) => ['personas', id, 'life', 'world'] as const,
   arcs: (id: number) => ['personas', id, 'life', 'arcs'] as const,
   days: (id: number) => ['personas', id, 'life', 'days'] as const,

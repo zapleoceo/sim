@@ -6,7 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.clock import FixedClock
 from sim.config import Settings
-from sim.db.models import Call, Channel, Chat, ChatDay, ChatWeek, Client, Generation
+from sim.db.models import (
+    Call,
+    Channel,
+    Chat,
+    ChatDay,
+    ChatWeek,
+    Client,
+    Generation,
+    Persona,
+)
 from sim.domain.enums import (
     CallDirection,
     CallStatus,
@@ -22,7 +31,15 @@ from sim.domain.memory import with_notes
 from sim.services.context.builder import ContextBuilder, ReplyContext
 from sim.services.context.instructions import REPLY_TURN
 from sim.services.writing import NO_REFUSALS
-from tests.services.factories import add_event, add_message, make_chat, make_media, make_persona
+from tests.services.factories import (
+    add_event,
+    add_message,
+    make_channel,
+    make_chat,
+    make_media,
+    make_persona,
+    make_sticker,
+)
 
 FRIDAY = date(2026, 11, 20)            # the clock is Saturday 21.11, 20:30 in Kyiv
 
@@ -264,3 +281,33 @@ async def test_call_context(db: AsyncSession, clock: FixedClock, settings: Setti
     assert "[звонок входящий, 1:05]\n  Дима: алло" in ctx.system
     assert "звонков: 1" in ctx.system and "Вчера переписывались." in ctx.system
     assert ctx.system.index("# Прошлые дни") < ctx.system.index("# Факты")
+
+
+async def test_her_stickers_follow_the_media_catalog(db: AsyncSession, clock: FixedClock,
+                                                     settings: Settings) -> None:
+    """docs/stickers.md: only the stickers of the chat's own account, after «Каталог медиа»."""
+    chat = await make_chat(db)
+    await add_message(db, chat, "смешно", at=clock.now())
+    duck = await make_sticker(db, chat, emoji="😂", set_title="Утята")
+    fav = await make_sticker(db, chat, emoji="🥰", set_title="", set_name="", faved=True)
+    persona = await db.get(Persona, chat.persona_id)
+    assert persona is not None
+    other_account = await make_channel(db, persona)
+    elsewhere = await make_sticker(db, chat, channel_id=other_account.id, emoji="🙈")
+
+    ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
+
+    user = user_text(ctx)
+    assert (f"# Стикеры (можешь отправить)\n- {fav.id} 🥰 (избранное)\n"
+            f"- {duck.id} 😂 (Утята)") in user
+    assert user.index("# Каталог медиа") < user.index("# Стикеры") < user.index(REPLY_TURN)
+    assert "🙈" not in user
+    assert ctx.stickers == frozenset({fav.id, duck.id}) and elsewhere.id not in ctx.stickers
+
+
+async def test_without_stickers_there_is_no_sticker_block(db: AsyncSession, clock: FixedClock,
+                                                          settings: Settings) -> None:
+    chat = await make_chat(db)
+    await add_message(db, chat, "привет", at=clock.now())
+    ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
+    assert "# Стикеры" not in user_text(ctx) and ctx.stickers == frozenset()

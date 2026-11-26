@@ -18,7 +18,13 @@ from sim.domain.enums import (
     MessageStatus,
     UnderstandingStatus,
 )
-from sim.services.context.render import Related, Speakers, render_event, render_events
+from sim.services.context.render import (
+    Related,
+    Speakers,
+    render_event,
+    render_events,
+    sticker_text,
+)
 
 AT = datetime(2026, 11, 21, 18, 30, tzinfo=UTC)      # 20:30 in Kyiv
 WHO = Speakers(client="Дима", persona="Марина", tz="Europe/Kyiv")
@@ -177,3 +183,32 @@ def test_hidden_kinds_are_not_rendered() -> None:
     assert all(render_one(ev, rel) is None for ev in hidden)
     lines = render_events([*hidden, event(EventKind.MESSAGE_IN, id=9, message_id=10)], rel, WHO)
     assert [(line.event_id, line.text) for line in lines] == [(9, "[21.11 20:30] Дима: привет")]
+
+
+def test_stickers_show_their_emoji_both_ways() -> None:
+    """docs/stickers.md: «[стикер 😂]», plus what «Зрение» saw in a client's picture sticker."""
+    rel = Related(
+        messages={10: message(10, kind=MessageKind.STICKER, text="😂", media_id=5),
+                  11: message(11, kind=MessageKind.STICKER, text="🙈", media_id=6),
+                  12: message(12, kind=MessageKind.STICKER, media_id=7),
+                  20: message(20, direction=Direction.OUT, author=Author.PERSONA,
+                              kind=MessageKind.STICKER, text="🥰")},
+        media={5: media(5, description="кот в очках"),
+               6: media(6, description="старое", understanding=UnderstandingStatus.PENDING),
+               7: media(7, understanding=UnderstandingStatus.SKIPPED)},
+    )
+    lines = [render_one(event(EventKind.MESSAGE_IN, id=i, message_id=m), rel)
+             for i, m in enumerate((10, 11, 12), start=1)]
+    assert lines == [
+        "[21.11 20:30] Дима: [стикер 😂] кот в очках",
+        "[21.11 20:30] Дима: [стикер 🙈]",
+        "[21.11 20:30] Дима: [стикер]",
+    ]
+    assert render_one(event(EventKind.MESSAGE_OUT, message_id=20), rel) == \
+        "[21.11 20:30] Марина: [стикер 🥰]"
+
+
+def test_sticker_text_needs_no_picture() -> None:
+    padded = message(1, kind=MessageKind.STICKER, text=" 😂 ")
+    assert sticker_text(padded, None) == "[стикер 😂]"
+    assert sticker_text(message(2, kind=MessageKind.STICKER), None) == "[стикер]"

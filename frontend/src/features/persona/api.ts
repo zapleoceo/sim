@@ -1,7 +1,7 @@
 import { api } from '@/lib/api';
 import type {
   AgentRegistry, BrokerModel, Channel, ChannelList, ClonePart, Items, LoginResponse, Media, Persona, PersonaAgents,
-  PersonaAgentsPatch, PersonaPatch, PersonaRow, Voice,
+  PersonaAgentsPatch, PersonaPatch, PersonaRow, Sticker, StickerSync, Voice,
 } from '@/lib/types';
 
 export type MediaSourceFilter = 'all' | 'library' | 'generated';
@@ -88,6 +88,13 @@ export const channelApi = {
     api.delete(personaPath(personaId, `/channels/${channelId}/login`)),
   disable: (personaId: number, channelId: number) =>
     api.post<Channel>(personaPath(personaId, `/channels/${channelId}/disable`)),
+};
+
+/** Her own Telegram stickers (docs/stickers.md): the list and re-reading it from Telegram. */
+export const stickerApi = {
+  list: (personaId: number) => api.get<Items<Sticker>>(personaPath(personaId, '/stickers')),
+  /** Queues a re-read (202); the list changes a few seconds later. */
+  sync: (personaId: number) => api.post<StickerSync>(personaPath(personaId, '/stickers/sync')),
 };
 
 export const mediaApi = {

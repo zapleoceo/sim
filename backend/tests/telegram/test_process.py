@@ -5,8 +5,9 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+from sim.config import Settings
 from sim.telegram import tasks
-from sim.telegram.process import serve
+from sim.telegram.process import build_runtime, serve
 
 
 class FakeRuntime:
@@ -57,3 +58,13 @@ async def test_serve_runs_the_worker_until_stopped():
     await asyncio.wait_for(task, 1)
     assert app.cancelled
     assert runtime.log == ["start", "stop"]
+
+
+async def test_the_runtime_hooks_receive_messages_and_read_her_stickers(clock):
+    """Every fresh connection of an account: its messages to the inbox and its stickers re-read
+    (docs/stickers.md); with calls off nothing else is attached."""
+    deps = SimpleNamespace(sessions=None, settings=Settings(env="test", calls_enabled=False),
+                           clock=clock, live=None, tasks=None, tools=None, storage=None)
+    runtime, _ = build_runtime(deps)
+    owners = [type(hook.__self__).__name__ for hook in runtime.hooks]
+    assert owners == ["Receiver", "StickerSync"]

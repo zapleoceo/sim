@@ -83,6 +83,24 @@ async def test_a_failed_download_still_records_the_attachment():
     assert att is not None and att.kind == "photo" and att.data == b""
 
 
+async def test_a_sticker_without_text_brings_its_emoji():
+    """docs/stickers.md: the emoji a sticker stands for is what she reads, picture or not."""
+    file = FakeFile("image/webp", 3, "sticker.webp", width=512, height=512, emoji="😂")
+    inbox = await receive(FakeTgMessage(17, "", media="sticker", data=b"abc", file=file))
+    [msg] = inbox.ingested
+    assert msg.text == "😂"
+    assert msg.attachment is not None and msg.attachment.kind == "sticker"
+
+
+async def test_only_a_sticker_takes_the_emoji_as_its_text():
+    no_emoji = await receive(FakeTgMessage(18, "", media="sticker", data=b"abc",
+                                           file=FakeFile("image/webp", 3)))
+    assert no_emoji.ingested[0].text == ""
+    photo = await receive(FakeTgMessage(19, "", media="photo", data=b"abc",
+                                        file=FakeFile(size=3, emoji="😂")))
+    assert photo.ingested[0].text == ""
+
+
 async def test_a_link_preview_is_not_an_attachment():
     message = FakeTgMessage(14, "https://example.com", media="photo", data=b"x",
                             web_preview=True)

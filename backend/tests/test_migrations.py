@@ -40,11 +40,13 @@ attention = load("migration_0006", BACKEND / "migrations" / "versions" / "0006_a
 day_memory = load("migration_0007", BACKEND / "migrations" / "versions" / "0007_day_memory.py")
 channels = load("migration_0009", BACKEND / "migrations" / "versions" / "0009_channels.py")
 initiative = load("migration_0010", BACKEND / "migrations" / "versions" / "0010_initiative.py")
+stickers = load("migration_0012", BACKEND / "migrations" / "versions" / "0012_stickers.py")
 ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
                **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS,
                **day_memory.ENUM_CHECKS, **channels.ENUM_CHECKS, **initiative.ENUM_CHECKS}
 # Tables in creation order over all revisions.
-TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES, *initiative.TABLES)
+TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES, *initiative.TABLES,
+          *stickers.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
@@ -56,7 +58,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0011"
+    assert sim_head is not None and sim_head.revision == "0012"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -262,3 +264,12 @@ def test_calls_out_on_revision_follows_the_initiative_one(scripts):
     assert revision is not None and revision.down_revision == "0010"
     column = Base.metadata.tables["chat"].columns["calls_out"]
     assert str(column.server_default.arg) == "true"      # her own tool: on by default
+
+
+def test_stickers_revision_follows_the_calls_out_one(scripts):
+    revision = scripts.get_revision("0012")
+    assert revision is not None and revision.down_revision == "0011"
+    column = Base.metadata.tables["message"].columns["sticker_id"]
+    assert column.nullable and next(iter(column.foreign_keys)).use_alter
+    assert {"doc_id", "set_id", "set_access_hash", "emoji", "faved"} <= set(
+        Base.metadata.tables["persona_sticker"].columns.keys())

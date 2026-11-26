@@ -76,6 +76,7 @@ SEND_TASK = "telegram:send_message"   # sim.telegram.tasks blueprint, namespace 
 MARK_READ_TASK = "telegram:mark_read"
 CHAT_ACTION_TASK = "telegram:chat_action"
 PLACE_CALL_TASK = "telegram:place_call"      # her call (docs/initiative.md)
+SYNC_STICKERS_TASK = "telegram:sync_stickers"  # her account's stickers (docs/stickers.md)
 CONTACTS_TICK_TASK = "agent.contacts_tick"    # periodic: planned messages and calls now due
 CONTACTS_TICK_CRON = "* * * * *"
 RECORDINGS_TICK_TASK = "agent.recordings_tick"  # periodic: call recordings past their days
@@ -211,6 +212,11 @@ class ProcrastinateQueue:
                           kwargs={"chat_id": chat_id, "action": action,
                                   "seconds": float(seconds)},
                           lock=f"chat-action:{chat_id}")
+
+    async def sync_stickers(self, channel_id: int) -> None:
+        await self._defer(SYNC_STICKERS_TASK, queue=TELEGRAM_QUEUE,
+                          kwargs={"channel_id": channel_id},
+                          queueing_lock=f"sync-stickers:{channel_id}")
 
     async def place_call(self, contact_id: int) -> None:
         await self._defer(PLACE_CALL_TASK, queue=TELEGRAM_QUEUE,

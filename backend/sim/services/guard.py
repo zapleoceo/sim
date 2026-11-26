@@ -18,6 +18,7 @@ from sim.domain.plan import (
     MediaAction,
     PhotoAction,
     ReplyPlan,
+    StickerAction,
     TextAction,
     VideoAction,
     VideoNoteAction,
@@ -46,6 +47,8 @@ def outgoing_lines(plan: ReplyPlan) -> list[str]:
             lines.append(f"{i}. [текст] {action.text}")
         elif isinstance(action, VoiceAction):
             lines.append(f"{i}. [голосовое, вслух] {action.text}")
+        elif isinstance(action, StickerAction):
+            lines.append(f"{i}. [стикер]")
         elif isinstance(action, MediaAction):
             parts = [f"{i}. [{MEDIA_WORDS[type(action)]}]"]
             speech = action.generate.speech if action.generate else ""

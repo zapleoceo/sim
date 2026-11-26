@@ -182,6 +182,26 @@ describe('TimelineEntry', () => {
     const { container } = show(item({ kind: 'media_understood' }));
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('her sticker (no file) is its emoji, large, with «стикер» — never an empty bubble', () => {
+    show(item({ kind: 'message_out', message: message({ direction: 'out', author: 'persona', kind: 'sticker', text: '😘', status: 'sent' }) }));
+    expect(screen.getByRole('img', { name: 'Стикер 😘' })).toHaveClass('text-4xl');
+    expect(screen.getByText('стикер')).toBeInTheDocument();
+    expect(screen.queryByText('Стикер')).not.toBeInTheDocument();          // not the «empty message» label
+  });
+
+  it('an incoming sticker keeps its picture and adds the emoji', () => {
+    show(item({ message: message({ kind: 'sticker', text: '🐱', media: media({ mime: 'image/webp', description: 'кот машет лапой' }) }) }));
+    expect(screen.getByRole('img', { name: 'кот машет лапой' })).toHaveAttribute('src', '/api/media/5/file');
+    expect(screen.getByRole('img', { name: 'Стикер 🐱' })).toHaveClass('text-2xl');
+    expect(screen.getByText('стикер')).toBeInTheDocument();
+  });
+
+  it('a sticker without an emoji still says «стикер»', () => {
+    show(item({ message: message({ kind: 'sticker', text: null }) }));
+    expect(screen.getByText('стикер')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
 });
 
 describe('systemLine', () => {
@@ -204,5 +224,6 @@ describe('lastMessagePreview', () => {
     expect(lastMessagePreview({ kind: 'text', direction: 'in', author: 'client', text: 'ау' })).toBe('ау');
     expect(lastMessagePreview({ kind: 'photo', direction: 'out', author: 'persona', text: null })).toBe('Она: Фото');
     expect(lastMessagePreview({ kind: 'voice', direction: 'out', author: 'operator', text: 'да' })).toBe('Оператор: Голосовое · да');
+    expect(lastMessagePreview({ kind: 'sticker', direction: 'out', author: 'persona', text: '😘' })).toBe('Она: Стикер · 😘');
   });
 });

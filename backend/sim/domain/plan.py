@@ -78,10 +78,17 @@ class VideoNoteAction(_Strict):
     generate: GenerateSpec | None = None
 
 
+class StickerAction(_Strict):
+    """One of her account's stickers, by its id in «Стикеры» (docs/stickers.md)."""
+
+    type: Literal["sticker"]
+    sticker_id: int
+
+
 MediaAction = PhotoAction | VideoAction | VideoNoteAction
 
-Action = Annotated[TextAction | VoiceAction | PhotoAction | VideoAction | VideoNoteAction,
-                   Field(discriminator="type")]
+Action = Annotated[TextAction | VoiceAction | PhotoAction | VideoAction | VideoNoteAction
+                   | StickerAction, Field(discriminator="type")]
 
 
 class ClientFact(_Strict):

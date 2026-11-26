@@ -21,6 +21,7 @@ from sim.telegram.calls import CallsAttacher
 from sim.telegram.calls.service import CallService
 from sim.telegram.client import ChannelRuntime, Hook
 from sim.telegram.receiver import Receiver
+from sim.telegram.stickers import StickerSync
 from sim.telegram.tasks import QUEUE, get_presence, set_dialer, set_runtime
 
 log = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def build_runtime(deps: Any) -> tuple[ChannelRuntime, CallService]:
         sessions=deps.sessions, settings=deps.settings, clock=deps.clock, live=deps.live,
         inbox=inbox, context=ContextBuilder(deps.clock, deps.settings), tasks=deps.tasks,
         tools=deps.tools, storage=deps.storage)
-    hooks: list[Hook] = [Receiver(inbox).attach]
+    hooks: list[Hook] = [Receiver(inbox).attach, StickerSync(deps.sessions).attach]
     set_dialer(None)
     if deps.settings.calls_enabled:
         attacher = CallsAttacher(service)

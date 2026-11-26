@@ -71,6 +71,7 @@ from sim.services.initiative import her_call_block
 from sim.services.life.render import LifeBlocks, life_blocks
 from sim.services.life.store import load_life
 from sim.services.media_library import catalog_for_chat
+from sim.services.stickers import chat_stickers, stickers_block
 from sim.services.writing import style_block, writing_mode
 
 MIN_TIMELINE_TOKENS = 2_000
@@ -168,6 +169,8 @@ class ReplyFrame:
     system: str                             # persona prompt + format rules
     catalog: str                            # rendered media catalog
     allowed: dict[int, MediaKind]           # catalog media ids -> kind
+    stickers: str = ""                      # «Стикеры» block; "" = she has none here
+    sticker_ids: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -189,6 +192,7 @@ class ReplyContext:
     stable_prefix: str = ""
     today: date | None = None
     writing: WritingMode = DEFAULT_MODE     # for the «phone» of the text handler
+    stickers: frozenset[int] = frozenset()  # her stickers the plan may send (docs/stickers.md)
 
 
 @dataclass
@@ -423,11 +427,15 @@ class ContextBuilder:
             raise ChatNotFound(f"chat {chat_id} has no persona")
         available, sent = await catalog_for_chat(session, persona.id, chat.id)
         catalog = catalog_text(available, sent, persona.timezone)
+        stickers = await chat_stickers(session, chat)
+        sticker_text = stickers_block(stickers)
         system = f"{persona.prompt.strip()}\n\n{FORMAT_RULES}".strip()
-        know = await self.knowledge(session, chat_id,
-                                    fixed_tokens=estimate_tokens(system + catalog))
+        know = await self.knowledge(
+            session, chat_id, fixed_tokens=estimate_tokens(system + catalog + sticker_text))
         return ReplyFrame(knowledge=know, system=system, catalog=catalog,
-                          allowed={asset.id: asset.kind for asset in available})
+                          allowed={asset.id: asset.kind for asset in available},
+                          stickers=sticker_text,
+                          sticker_ids=frozenset(row.id for row in stickers))
 
     async def for_reply(self, session: AsyncSession, chat_id: int) -> ReplyContext:
         frame = await self.reply_frame(session, chat_id)
@@ -438,7 +446,8 @@ class ContextBuilder:
         style = style_block(know.writing, no_refusals=chat.no_refusals,
                             channel=know.channel_kind)
         user = "\n\n".join([stable, *know.volatile_blocks(), style,
-                            f"# Каталог медиа\n{catalog}", REPLY_TURN])
+                            f"# Каталог медиа\n{catalog}",
+                            *([frame.stickers] if frame.stickers else []), REPLY_TURN])
         event_ids = [line.event_id for line in know.lines]
         client_lines = [line.text for line in know.lines
                         if line.kind == EventKind.MESSAGE_IN][-GUARD_CLIENT_LINES:]
@@ -451,6 +460,7 @@ class ContextBuilder:
             last_event_id=know.all_lines[-1].event_id if know.all_lines else None,
             needs_compression=know.needs_compression, event_ids=event_ids,
             stable_prefix=stable, today=know.today, writing=know.writing,
+            stickers=frame.sticker_ids,
         )
 
     # --- calls ----------------------------------------------------------------------------
