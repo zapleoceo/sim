@@ -393,8 +393,7 @@ async def test_a_pending_sticker_she_no_longer_has_fails_without_sending(db, ses
                              sticker_id=sticker.id)
     await save_account_stickers(db, persona_id=world.persona.id, channel_id=world.channel.id,
                                 stickers=[])          # the account dropped it before sending
-    await db.commit()
-    await db.refresh(message)
+    await db.commit()                                   # `sessions` hands out this same `db`
     result, messenger, outbox, _ = await run(message, sessions, clock)
     assert result == "failed" and messenger.sent == []
     assert [failed_id for failed_id, _ in outbox.failed] == [message.id]

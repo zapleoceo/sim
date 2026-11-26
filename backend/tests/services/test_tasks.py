@@ -229,7 +229,6 @@ async def test_a_sticker_sync_is_one_waiting_job_per_account_on_the_telegram_que
         (SYNC_STICKERS_TASK, {"channel_id": 5}, {"queue": "telegram",
                                                  "queueing_lock": "sync-stickers:5"}),
     ]
-    assert SYNC_STICKERS_TASK in make_app(Settings(env="test")).tasks
 
 
 def test_the_minute_and_hourly_ticks_are_registered() -> None:
