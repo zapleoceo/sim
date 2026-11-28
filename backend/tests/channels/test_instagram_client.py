@@ -1,62 +1,54 @@
-"""The password key of an Instagram login (sim/channels/instagram/client.py): Instagram answers
-instagrapi's `qe/sync` 404 now, so the key comes from launcher/sync (prod, 2026-11-28:
-«Не удалось войти (TypeError)»). A fake client; nothing reaches Instagram."""
+"""instagrapi 3.2 under SIM (sim/channels/instagram/client.py, login.py). On prod (2026-11-28)
+2.16 could not log in at all: Instagram answers its `qe/sync` 404 («TypeError») and its legacy
+`accounts/login` with `needs_upgrade`. Nothing here reaches Instagram."""
 from __future__ import annotations
-
-from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
-from sim.channels.instagram.client import (
-    KEY_ID_HEADER,
-    PUB_KEY_HEADER,
-    PasswordKeyMissing,
-    launcher_password_key,
-)
-from sim.channels.instagram.login import error_text
-
-KEYED = {KEY_ID_HEADER: "41", PUB_KEY_HEADER: "LS0tLS1CRUdJTi..."}
+from sim.channels.instagram.login import error_text, two_factor_kind
+from tests.fakes.channels import FakeIgClient, TwoFactorRequired
 
 
-class Launcher:
-    """`last_response` as instagrapi keeps it; each `sync_launcher` answers the next headers."""
+class UnknownError(Exception):
+    """instagrapi's ClientError family: `message` is what Instagram said."""
 
-    def __init__(self, last: dict[str, str] | None, *answers: dict[str, str]) -> None:
-        self.last_response: Any = SimpleNamespace(headers=last) if last is not None else None
-        self.answers = list(answers)
-        self.synced: list[bool] = []
-
-    def sync_launcher(self, login: bool = False) -> None:
-        self.synced.append(login)
-        self.last_response = SimpleNamespace(headers=self.answers.pop(0))
+    def __init__(self, message: str, error_type: str = "") -> None:
+        super().__init__(message)
+        self.message, self.error_type = message, error_type
 
 
-def test_the_key_comes_from_the_launcher_sync_the_login_just_made() -> None:
-    client = Launcher(KEYED)
-    assert launcher_password_key(client) == (41, "LS0tLS1CRUdJTi...")
-    assert client.synced == []                          # no extra request
+def test_an_unknown_error_shows_what_instagram_said() -> None:
+    exc = UnknownError("Your version of Instagram is out of date. Please upgrade your app to "
+                       "log in to Instagram.", "needs_upgrade")
+    assert error_text(exc) == ("Не удалось войти (UnknownError: Your version of Instagram is "
+                               "out of date. Please upgrade your app to log in to Instagram.)")
+    assert error_text(UnknownError("x " * 200)).endswith("x)")
+    assert len(error_text(UnknownError("x " * 200))) < 200
+    assert error_text(TypeError("int() argument")) == "Не удалось войти (TypeError)"
 
 
-def test_without_a_key_in_the_last_answer_launcher_sync_is_asked_again() -> None:
-    client = Launcher({"ig-set-x-mid": "m"}, KEYED)     # e.g. the 429 pre_login_flow ignored
-    assert launcher_password_key(client) == (41, "LS0tLS1CRUdJTi...")
-    assert client.synced == [True]
-    assert launcher_password_key(Launcher(None, KEYED)) == (41, "LS0tLS1CRUdJTi...")
+def test_the_2fa_kind_of_a_legacy_and_of_a_bloks_login() -> None:
+    client = FakeIgClient()
+    client.last_json = {"two_factor_info": {"totp_two_factor_on": True}}
+    assert two_factor_kind(client) == "totp"
+    client.last_json = {}
+    bloks = TwoFactorRequired("Instagram returned a Bloks two-factor context from the CAA login "
+                              "flow; provide verification_code for login")
+    assert two_factor_kind(client, bloks) == "code"
+    with_context = TwoFactorRequired("2FA")
+    with_context.two_step_verification_context = "ctx"  # type: ignore[attr-defined]
+    assert two_factor_kind(client, with_context) == "code"
+    assert two_factor_kind(client, TwoFactorRequired("approve")) == "device"
 
 
-def test_no_key_at_all_is_a_clear_error_not_a_type_error() -> None:
-    client = Launcher({}, {KEY_ID_HEADER: "41"})        # the public key is missing
-    with pytest.raises(PasswordKeyMissing) as raised:
-        launcher_password_key(client)
-    assert client.synced == [True]
-    assert "sessionid" in error_text(raised.value)
-
-
-def test_every_client_takes_the_password_key_from_launcher_sync() -> None:
+def test_the_real_client_logs_in_the_current_way() -> None:
     pytest.importorskip("instagrapi")
+    from importlib.metadata import version
+
     from sim.channels.instagram.client import build_ig_client
 
-    client = build_ig_client()
-    client.last_response = SimpleNamespace(headers=KEYED)
-    assert client.password_publickeys() == (41, "LS0tLS1CRUdJTi...")
+    assert tuple(int(part) for part in version("instagrapi").split(".")[:2]) >= (3, 2)
+    client = build_ig_client(proxy="socks5://u:p@10.0.0.1:1080", lang="de", tz_offset_s=3600)
+    assert client.bloks_versioning_id                   # the CAA login needs it
+    assert hasattr(client, "login_legacy") and hasattr(client, "bloks_caa_login")
+    assert (client.country, client.locale) == ("DE", "de_DE")

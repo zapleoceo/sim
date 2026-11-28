@@ -297,6 +297,7 @@ describe('channel logic', () => {
   it('names the code, the statuses and the kinds', () => {
     expect(codeLabel('code', 'totp')).toBe('Код из приложения-аутентификатора');
     expect(codeLabel('challenge', 'email')).toBe('Код из письма Instagram');
+    expect(codeLabel('code', 'code')).toBe('Код двухфакторной проверки');     // a Bloks (CAA) login
     expect(channelStatus('challenge')).toEqual({ label: 'нужен повторный вход', variant: 'destructive' });
     expect(channelStatus('pending').label).toBe('идёт вход');
     expect(needsRelogin('challenge') && !needsRelogin('connected')).toBe(true);

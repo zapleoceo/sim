@@ -18,6 +18,7 @@ from tests.fakes.channels import (
     ChallengeRequired,
     FakeIgClient,
     FakeIgFactory,
+    bloks_two_factor,
     challenge,
     code_is,
     raising,
@@ -86,6 +87,17 @@ async def test_a_totp_code_and_a_wrong_one() -> None:
     assert done.state == LoginState.CONNECTED
     assert factory.last.login_calls[-1] == ("olya.ig", "secret", "123456")
     assert len(factory.made) == 1                       # the same client (device) all along
+
+
+async def test_a_bloks_login_asks_for_a_code_not_for_an_approval() -> None:
+    # instagrapi 3.2 (the CAA login of the current app) does not say totp or sms.
+    flow, factory = logins(bloks_two_factor(), code_is("654321"))
+    asked = await flow.start(1, PASSWORD)
+    assert (asked.state, asked.detail) == (LoginState.CODE, "code")
+    assert "двухфакторной" in asked.message
+    done = await flow.answer(1, "654 321")
+    assert done.state == LoginState.CONNECTED
+    assert factory.last.login_calls[-1] == ("olya.ig", "secret", "654321")
 
 
 async def test_an_sms_code_is_named_as_such() -> None:
