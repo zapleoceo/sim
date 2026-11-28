@@ -24,10 +24,10 @@ from sim.api.queries import (
     chats_of_client,
     get_or_404,
     search_clients,
-    timeline_items,
+    stream_items,
 )
 from sim.api.schemas import ClientPatchIn, OtherClientIn, check_timezone, sent_fields
-from sim.db.models import Channel, Chat, ChatEvent, Client, Message, Persona
+from sim.db.models import Chat, Client, Message, Persona
 from sim.domain.client_match import Suggestion
 from sim.domain.enums import EventKind, LeadStage
 from sim.domain.passport import apply_edit, passport_of, stored
@@ -144,17 +144,8 @@ async def client_timeline(client_id: int, db: AsyncSession, before_id: int | Non
     """The journal of every chat of the client in one stream, newest first (event ids grow
     across chats); each item names its chat and messenger."""
     await get_or_404(db, Client, client_id, "Клиент")
-    chats = {c.id: c for c in await db.scalars(select(Chat).where(Chat.client_id == client_id))}
-    channels = await by_ids(db, Channel, (c.channel_id for c in chats.values()))
-    stmt = select(ChatEvent).where(ChatEvent.chat_id.in_(list(chats)))
-    if before_id is not None:
-        stmt = stmt.where(ChatEvent.id < before_id)
-    events = list(await db.scalars(stmt.order_by(ChatEvent.id.desc()).limit(limit)))
-    items = await timeline_items(db, events)
-    return {"items": [
-        {**item, "chat_id": event.chat_id,
-         "channel": views.channel_brief(channels.get(chats[event.chat_id].channel_id))}
-        for event, item in zip(events, items, strict=True)]}
+    chats = list(await db.scalars(select(Chat).where(Chat.client_id == client_id)))
+    return {"items": await stream_items(db, chats, before_id=before_id, limit=limit)}
 
 
 @patch("/clients/{client_id:int}")

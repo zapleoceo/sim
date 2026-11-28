@@ -8,7 +8,7 @@ import type { EventKind } from './types';
 
 const ev = (kind: EventKind, chat_id = 7): LiveEvent => ({ chat_id, event_id: 1, kind });
 /** Every event of a chat re-reads its timeline, «Статус Марины» and the client journal on screen. */
-const always = (chatId = 7) => [qk.timeline(chatId), qk.chatStatus(chatId), qk.clientTimelines];
+const always = (chatId = 7) => [qk.timelines, qk.chatStatus(chatId), qk.clientTimelines];
 
 describe('invalidationsFor', () => {
   it('a client message refreshes the timeline, the status, the chat lists, that chat and the clients', () => {
@@ -82,7 +82,7 @@ describe('connectLiveEvents', () => {
 
     source.onmessage?.(new MessageEvent('message', { data: '{"chat_id": 4, "event_id": 9, "kind": "operator_note"}' }));
     expect(invalidate).toHaveBeenCalledTimes(3);
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.timeline(4) });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.timelines });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.chatStatus(4) });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.clientTimelines });
 

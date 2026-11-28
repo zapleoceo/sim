@@ -212,3 +212,44 @@ describe('ChatList as a full-width table', () => {
     await waitFor(() => expect(router.state.location.search).toEqual({ id: 7, source: 'whatsapp' }));
   });
 });
+
+describe('ChatList: one row per person', () => {
+  const person = (): ChatRow => ({
+    ...row(7, { id: 1, name: 'Марина' }),
+    channel: { id: 70, kind: 'whatsapp', title: '' },
+    unread_count: 1,
+    unread_total: 3,
+    chats: [
+      { id: 7, channel: { id: 70, kind: 'whatsapp', title: '' }, unread_count: 1, last_message_at: '2026-11-28T11:00:00Z',
+        last_client_at: '2026-11-28T09:00:00Z', ai_enabled: true, needs_operator: false },
+      { id: 3, channel: { id: 30, kind: 'telegram_user', title: '' }, unread_count: 2, last_message_at: '2026-11-28T10:00:00Z',
+        last_client_at: '2026-11-28T10:30:00Z', ai_enabled: true, needs_operator: true },
+    ],
+  });
+
+  it('a card shows every messenger, the total unread and opens the chat the client wrote in last', async () => {
+    fakeApi({ 'GET /api/personas': { items: [persona(1, 'Марина')] }, 'GET /api/chats': { items: [person()] } });
+    await renderChats('/chats?id=3');
+    const list = await screen.findByRole('list', { name: 'Чаты' });
+    const [card] = within(list).getAllByRole('listitem');
+    expect(within(card).getAllByRole('img', { name: 'Telegram' }).length).toBeGreaterThan(0);
+    expect(within(card).getAllByRole('img', { name: 'WhatsApp' }).length).toBeGreaterThan(0);
+    expect(within(card).getByLabelText('Непрочитанных: 3')).toBeInTheDocument();
+    expect(within(card).getByText('нужен оператор')).toBeInTheDocument();
+    const link = within(card).getByRole('link');
+    expect(new URL(link.getAttribute('href') ?? '', 'http://localhost').searchParams.get('id')).toBe('3');
+    // The open chat (Telegram) is one of the person's: the card is the current one.
+    expect(link).toHaveAttribute('aria-current');
+  });
+
+  it('a table row names both messengers and opens the reply chat', async () => {
+    fakeApi({ 'GET /api/personas': { items: [persona(1, 'Марина')] }, 'GET /api/chats': { items: [person()] } });
+    const { router } = await renderAtRoute(<ChatList layout="table" />, { path: '/chats', url: '/chats', validateSearch: parseChatsSearch });
+    const table = await screen.findByRole('table', { name: 'Чаты' });
+    const [, dataRow] = within(table).getAllByRole('row');
+    expect(within(dataRow).getAllByRole('cell')[0]).toHaveTextContent('WhatsApp · Telegram');
+    expect(within(dataRow).getByLabelText('Непрочитанных: 3')).toBeInTheDocument();
+    await userEvent.click(within(dataRow).getAllByRole('cell')[2]);
+    await waitFor(() => expect(router.state.location.search).toEqual({ id: 3 }));
+  });
+});

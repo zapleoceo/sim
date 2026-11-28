@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { qk } from '@/lib/query';
 import type {
-  ChatDetail, ChatRow, ChatSource, Contact, ContactCreate, Items, PersonaStatus, ReplyRun, TimelineItem,
+  ChatDetail, ChatRow, ChatSource, ClientTimelineItem, Contact, ContactCreate, Items, PersonaStatus, ReplyRun, TimelineItem,
 } from '@/lib/types';
 
 export const CHATS_PAGE = 50;
@@ -27,7 +27,13 @@ export const chatsApi = {
   get: (id: number) => api.get<ChatDetail>(`/chats/${id}`),
   /** «Статус Марины» of one chat, team-only (docs/attention.md). */
   status: (id: number) => api.get<PersonaStatus>(`/chats/${id}/status`),
-  /** Newest first; `beforeId` pages back in time. */
+  /**
+   * The journal of every chat of this chat's client with this persona in one stream, newest first;
+   * `beforeId` pages back in time. The conversation shows it (one feed per person).
+   */
+  feed: (id: number, beforeId?: number | null) =>
+    api.get<Items<ClientTimelineItem>>(`/chats/${id}/feed`, { params: { before_id: beforeId, limit: TIMELINE_PAGE } }),
+  /** One chat only, newest first; `beforeId` pages back in time. */
   timeline: (id: number, beforeId?: number | null) =>
     api.get<Items<TimelineItem>>(`/chats/${id}/timeline`, { params: { before_id: beforeId, limit: TIMELINE_PAGE } }),
   sendText: (id: number, text: string) => api.post<TimelineItem>(`/chats/${id}/messages`, { text }),

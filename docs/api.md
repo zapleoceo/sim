@@ -17,11 +17,12 @@
 
 | Метод | Путь | |
 |---|---|---|
-| GET | `/chats?q=&limit=50&before=<last_message_at>&persona_id=&channel=` | → `{items: [ChatRow]}`; `persona_id` — только чаты этого персонажа; `channel` — мессенджеры через запятую (`telegram_user,whatsapp,instagram`), пусто — все; неизвестный — 400 |
+| GET | `/chats?q=&limit=50&before=<last_message_at>&persona_id=&channel=` | → `{items: [ChatRow]}` — одна строка на человека (клиент у персонажа): его самый свежий чат, в `chats` — все его чаты с этим персонажем; `persona_id` — только люди этого персонажа; `channel` — мессенджеры через запятую (`telegram_user,whatsapp,instagram`), человек показан, если хоть один его чат в них; пусто — все; неизвестный — 400 |
 | GET | `/chats/sources?persona_id=` | → `{items: [{kind, chats, unread}]}` — мессенджеры, в которых есть чаты: сколько чатов и непрочитанных (счётчики фильтра «Источник») |
 | GET | `/chats/{id}` | → `ChatRow` + `client: Client` |
 | GET | `/chats/{id}/status` | → `PersonaStatus` — «Статус Марины» этого чата сейчас (только для команды, [attention.md](attention.md), «Статус для команды») |
-| GET | `/chats/{id}/timeline?before_id=&limit=50` | → `{items: [TimelineItem]}` от новых к старым |
+| GET | `/chats/{id}/timeline?before_id=&limit=50` | → `{items: [TimelineItem]}` от новых к старым, только этот чат |
+| GET | `/chats/{id}/feed?before_id=&limit=50` | → `{items: [TimelineItem & {chat_id, channel}]}` — лента человека: события всех чатов клиента этого чата с тем же персонажем, от новых к старым; чаты с другим персонажем не входят |
 | POST | `/chats/{id}/messages` | `{text}` или multipart (`file`, `caption`) — пишет оператор от имени персонажа → `TimelineItem` |
 | POST | `/chats/{id}/ai` | `{enabled}` → `ChatRow` |
 | POST | `/chats/{id}/attention-instant` | `{enabled}` — «Отвечать сразу» в этом чате (без проверок телефона, [attention.md](attention.md)) → `ChatRow` |
@@ -40,7 +41,11 @@ ChatRow = {id, client: {id, name, username, ai_enabled}, persona: PersonaBrief |
            channel: {id, kind, title} | null,  // мессенджер чата: значок в списке и шапке
            ai_enabled, attention_instant, no_refusals, needs_operator, unread_count, last_message_at,
            last_message: {kind, direction, author, text} | null,
-           persona_status: PersonaStatus}
+           persona_status: PersonaStatus,
+           chats: [PersonChat],   // все чаты клиента с этим персонажем, свежие сначала (с этим)
+           unread_total}          // непрочитанные по ним
+PersonChat = {id, channel, unread_count, last_message_at, last_client_at /* когда клиент писал */,
+              ai_enabled, needs_operator}
 PersonaBrief = {id, name, avatar_media_id}     // персонаж, который отвечает в этом чате
 PersonaStatus = {code, tone: "ok" | "wait" | "busy" | "warn" | "off",
                  title,               // «Прочитала, ответит около 20:40»

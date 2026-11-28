@@ -10,7 +10,8 @@ import msgspec
 from litestar import Request, get, post
 from litestar.exceptions import ClientException
 from litestar.params import Parameter
-from sqlalchemy import Select, func, select
+from sqlalchemy import exists, func, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api import views
@@ -21,6 +22,7 @@ from sim.api.queries import (
     get_or_404,
     message_item,
     search_clients,
+    stream_items,
     timeline_items,
 )
 from sim.api.schemas import AiToggleIn, TextIn
@@ -66,26 +68,39 @@ def channel_kinds(channel: str | None) -> set[ChannelKind]:
     return kinds
 
 
-def filter_chats(stmt: Select[Any], *, persona_id: int | None,
-                 kinds: set[ChannelKind]) -> Select[Any]:
-    """The persona and messenger filters of the chat list (`stmt` already joins `Channel`)."""
-    if persona_id is not None:
-        stmt = stmt.where(Chat.persona_id == persona_id)
-    if kinds:
-        stmt = stmt.where(Channel.kind.in_(sorted(kinds)))
-    return stmt
+def latest_of_each_person() -> Any:
+    """Ids of the most recent chat of every client with every persona: the chat list shows one
+    row per person (docs/frontend.md, «Одна лента на клиента»)."""
+    rank = func.row_number().over(
+        partition_by=(Chat.client_id, Chat.persona_id),
+        order_by=(Chat.last_message_at.desc().nulls_last(), Chat.id.desc()))
+    return select(Chat.id.label("id"), rank.label("rank")).subquery()
+
+
+def in_messengers(kinds: set[ChannelKind]) -> Any:
+    """The person has a chat (with the same persona) in one of these messengers."""
+    other, its_channel = aliased(Chat), aliased(Channel)
+    return exists(select(other.id).join(its_channel, its_channel.id == other.channel_id)
+                  .where(other.client_id == Chat.client_id, other.persona_id == Chat.persona_id,
+                         its_channel.kind.in_(sorted(kinds))))
 
 
 @get("/chats")
 async def list_chats(db: AsyncSession, ctx: ApiContext, q: str | None = None,
                      limit: Limit = 50, before: datetime | None = None,
                      persona_id: int | None = None, channel: str | None = None) -> Json:
-    """Newest activity first; `persona_id` keeps the chats that persona answers in, `channel`
-    (comma-separated kinds) the chats of those messengers. Every row carries
-    `persona_status` (statuses of the page in a fixed number of queries)."""
+    """One row per person (a client with a persona), newest activity first: the row is their
+    most recent chat and lists every chat of theirs with that persona (`chats`). `persona_id`
+    keeps that persona's people, `channel` (comma-separated kinds) the people who have a chat
+    in one of those messengers. Every row carries `persona_status` (statuses of the page in a
+    fixed number of queries)."""
+    latest = latest_of_each_person()
     stmt = search_clients(select(Chat, Client).join(Client, Client.id == Chat.client_id)
-                          .join(Channel, Channel.id == Chat.channel_id), q)
-    stmt = filter_chats(stmt, persona_id=persona_id, kinds=channel_kinds(channel))
+                          .join(latest, latest.c.id == Chat.id).where(latest.c.rank == 1), q)
+    if persona_id is not None:
+        stmt = stmt.where(Chat.persona_id == persona_id)
+    if kinds := channel_kinds(channel):
+        stmt = stmt.where(in_messengers(kinds))
     if before is not None:
         stmt = stmt.where(Chat.last_message_at < before)
     stmt = stmt.order_by(Chat.last_message_at.desc().nulls_last(), Chat.id.desc()).limit(limit)
@@ -97,9 +112,11 @@ async def list_chats(db: AsyncSession, ctx: ApiContext, q: str | None = None,
 async def list_sources(db: AsyncSession, persona_id: int | None = None) -> Json:
     """The messengers that have chats, with how many chats and unread messages each: the
     counters of the source filter. The persona filter applies, the source filter does not."""
-    stmt = filter_chats(
-        select(Channel.kind, func.count(Chat.id), func.coalesce(func.sum(Chat.unread_count), 0))
-        .join(Channel, Channel.id == Chat.channel_id), persona_id=persona_id, kinds=set())
+    unread = func.coalesce(func.sum(Chat.unread_count), 0)
+    stmt = (select(Channel.kind, func.count(Chat.id), unread)
+            .join(Channel, Channel.id == Chat.channel_id))
+    if persona_id is not None:
+        stmt = stmt.where(Chat.persona_id == persona_id)
     rows = (await db.execute(stmt.group_by(Channel.kind).order_by(Channel.kind))).all()
     return {"items": [{"kind": str(kind), "chats": chats, "unread": int(unread)}
                       for kind, chats, unread in rows]}
@@ -130,6 +147,18 @@ async def get_timeline(chat_id: int, db: AsyncSession, before_id: int | None = N
         stmt = stmt.where(ChatEvent.id < before_id)
     events = list(await db.scalars(stmt.order_by(ChatEvent.id.desc()).limit(limit)))
     return {"items": await timeline_items(db, events)}
+
+
+@get("/chats/{chat_id:int}/feed")
+async def get_feed(chat_id: int, db: AsyncSession, before_id: int | None = None,
+                   limit: Limit = 50) -> Json:
+    """The journal of every chat of this chat's client with this chat's persona, in one stream
+    newest first; each item names its chat and messenger. The persona's chats only: what the
+    client wrote to another persona is not this conversation."""
+    chat = await get_or_404(db, Chat, chat_id, "Чат")
+    chats = list(await db.scalars(select(Chat).where(Chat.client_id == chat.client_id,
+                                                     Chat.persona_id == chat.persona_id)))
+    return {"items": await stream_items(db, chats, before_id=before_id, limit=limit)}
 
 
 @post("/chats/{chat_id:int}/messages", status_code=201)
@@ -252,6 +281,6 @@ async def get_reply_run(run_id: int, db: AsyncSession) -> Json:
     return views.reply_run_view(run, calls)
 
 
-ROUTES = [list_chats, list_sources, get_chat, get_status, get_timeline, send_message, toggle_ai,
-          toggle_attention_instant, toggle_no_refusals, toggle_calls_out, mark_read, add_note,
-          operator_done, get_reply_run]
+ROUTES = [list_chats, list_sources, get_chat, get_status, get_timeline, get_feed, send_message,
+          toggle_ai, toggle_attention_instant, toggle_no_refusals, toggle_calls_out, mark_read,
+          add_note, operator_done, get_reply_run]

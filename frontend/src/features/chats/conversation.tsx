@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowLeft, CheckCircle2, MessageSquareDashed, EllipsisVertical, StickyNote } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ChannelIcon } from '@/components/channel-icon';
+import { channelLook } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { MutationSwitch } from '@/components/mutation-switch';
 import { Button } from '@/components/ui/button';
@@ -19,12 +19,15 @@ import { PassportSheet } from '@/features/leads/passport-summary';
 import { useInView } from '@/hooks/use-in-view';
 import { dayKey, dayLabel } from '@/lib/format';
 import { qk } from '@/lib/query';
-import type { ChatDetail, TimelineItem } from '@/lib/types';
-import { clientName } from '@/lib/utils';
+import type { ChatDetail, ClientTimelineItem, PersonChat } from '@/lib/types';
+import { clientName, cn } from '@/lib/utils';
 import { TIMELINE_PAGE, chatsApi, invalidateChat } from './api';
 import { ChatFlagMenuItem, ChatFlagSwitch } from './chat-flag-switch';
+import { MessengerBadges, UnreadBadge } from './chat-row-parts';
 import { Composer } from './composer';
 import { ContactsSheet } from './contacts-sheet';
+import { MessengerChange, messengerChanged } from './messenger-change';
+import { personChats, personMessengers } from './person-logic';
 import { PersonaStatusStrip } from './persona-status';
 import { ReplyRunSheet } from './reply-run-sheet';
 import { TimelineEntry } from './timeline-entry';
@@ -149,7 +152,7 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
           {name}
         </Link>
         <span className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
-          {chat.channel && <ChannelIcon kind={chat.channel.kind} />}
+          <MessengerBadges kinds={personMessengers(chat)} size={18} />
           {chat.persona && <span className="font-medium text-foreground/80">отвечает {chat.persona.name} · </span>}
           {chat.client.username ? `@${chat.client.username}` : 'без username'}
           {!chat.client.ai_enabled && ' · ИИ выключен у клиента'}
@@ -188,18 +191,23 @@ function ChatHeader({ chat, onBack }: { chat: ChatDetail; onBack?: () => void })
 }
 
 /**
- * Timeline, newest at the bottom. The scroller is `flex-col-reverse`, so it opens at the bottom,
- * stays there when new events arrive, and keeps its place when older pages load at the top.
+ * The person's feed, newest at the bottom: every chat of the client with this persona in one
+ * stream (`GET /chats/{id}/feed`). With more than one messenger each message carries its
+ * messenger's icon and «→ WhatsApp» marks where the feed moves to another one. The scroller is
+ * `flex-col-reverse`, so it opens at the bottom, stays there when new events arrive, and keeps its
+ * place when older pages load at the top.
  */
 function Timeline({ chatId, onExplain }: { chatId: number; onExplain: (runId: number) => void }) {
   const timeline = useInfiniteQuery({
+    // Under the chat's timeline key: whatever refreshes this chat's timeline refreshes the feed.
     queryKey: qk.timeline(chatId),
-    queryFn: ({ pageParam }) => chatsApi.timeline(chatId, pageParam),
+    queryFn: ({ pageParam }) => chatsApi.feed(chatId, pageParam),
     initialPageParam: null as number | null,
     getNextPageParam: (last) =>
       last.items.length < TIMELINE_PAGE ? undefined : (last.items[last.items.length - 1]?.id ?? undefined),
   });
-  const items: TimelineItem[] = timeline.data?.pages.flatMap((p) => p.items) ?? []; // newest first
+  const items: ClientTimelineItem[] = timeline.data?.pages.flatMap((p) => p.items) ?? []; // newest first
+  const several = new Set(items.map((i) => i.channel?.kind)).size > 1;
   const canLoadMore = timeline.hasNextPage && !timeline.isFetchingNextPage;
   const sentinel = useInView<HTMLDivElement>(() => void timeline.fetchNextPage(), canLoadMore);
 
@@ -225,7 +233,8 @@ function Timeline({ chatId, onExplain }: { chatId: number; onExplain: (runId: nu
           const newDay = !older || dayKey(older.created_at) !== dayKey(item.created_at);
           return (
             <Fragment key={item.id}>
-              <TimelineEntry item={item} onExplain={onExplain} />
+              <TimelineEntry item={item} onExplain={onExplain} channel={several ? item.channel?.kind : undefined} />
+              {several && messengerChanged(item, older) && <MessengerChange kind={item.channel?.kind} />}
               {newDay && (
                 <div className="sticky top-0 z-10 flex justify-center py-1">
                   <span className="rounded-full bg-background/90 px-3 py-0.5 text-xs text-muted-foreground shadow-xs backdrop-blur">
@@ -253,20 +262,61 @@ function Timeline({ chatId, onExplain }: { chatId: number; onExplain: (runId: nu
   );
 }
 
-/** Right pane: header, timeline, composer; marks the chat read while it is open. */
-export function Conversation({ chatId, onBack }: { chatId: number; onBack?: () => void }) {
+/**
+ * «Ответить в»: the person's chats as buttons over the composer (more than one messenger only).
+ * The pressed one is the open chat — the header, the status and the composer act on it; another
+ * one switches the open chat (`?id=`), the feed stays the same.
+ */
+function MessengerSwitch({ chats, chatId, onSelect }: { chats: PersonChat[]; chatId: number; onSelect: (id: number) => void }) {
+  return (
+    <div role="group" aria-label="Ответить в" className="flex flex-none items-center gap-1.5 overflow-x-auto border-t px-3 pt-2 scrollbar-none sm:px-4">
+      <span className="flex-none text-xs text-muted-foreground">Ответить в:</span>
+      {chats.map((c) => {
+        const { label, icon: Icon, text, soft } = channelLook(c.channel?.kind);
+        const pressed = c.id === chatId;
+        return (
+          <button
+            key={c.id}
+            type="button"
+            aria-pressed={pressed}
+            onClick={() => onSelect(c.id)}
+            className={cn(
+              'inline-flex h-7 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              pressed ? cn('border-transparent text-foreground', soft) : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+          >
+            <Icon aria-hidden="true" className={cn('size-3.5', text)} />
+            {label}
+            <UnreadBadge count={c.unread_count} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Right pane: header, the person's feed over every messenger, «Ответить в» and the composer;
+ * marks every chat of the person read while it is open. `onSelectChat` switches the open chat to
+ * another messenger of the same person.
+ */
+export function Conversation({ chatId, onBack, onSelectChat }: {
+  chatId: number;
+  onBack?: () => void;
+  onSelectChat?: (id: number) => void;
+}) {
   const queryClient = useQueryClient();
   const [runId, setRunId] = useState<number | null>(null);
   const chat = useQuery({ queryKey: qk.chat(chatId), queryFn: () => chatsApi.get(chatId) });
-  const unread = chat.data?.unread_count ?? 0;
+  const person = chat.data ? personChats(chat.data) : [];
+  const unreadIds = person.filter((c) => c.unread_count > 0).map((c) => c.id).join(',');
 
   useEffect(() => {
-    if (unread <= 0) return;
-    chatsApi
-      .markRead(chatId)
+    if (!unreadIds) return;
+    Promise.all(unreadIds.split(',').map((id) => chatsApi.markRead(Number(id))))
       .then(() => queryClient.invalidateQueries({ queryKey: qk.chatLists }))
       .catch(() => undefined); // not worth a toast: the badge simply stays
-  }, [chatId, unread, queryClient]);
+  }, [unreadIds, queryClient]);
 
   if (chat.isPending) {
     return (
@@ -296,6 +346,7 @@ export function Conversation({ chatId, onBack }: { chatId: number; onBack?: () =
       <ChatHeader chat={chat.data} onBack={onBack} />
       <PersonaStatusStrip chatId={chatId} initial={chat.data.persona_status} />
       <Timeline chatId={chatId} onExplain={setRunId} />
+      {onSelectChat && person.length > 1 && <MessengerSwitch chats={person} chatId={chatId} onSelect={onSelectChat} />}
       <Composer chatId={chatId} />
       <ReplyRunSheet runId={runId} onClose={() => setRunId(null)} />
     </div>

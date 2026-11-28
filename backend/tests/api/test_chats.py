@@ -1,6 +1,7 @@
 """Chats: list, detail, timeline, operator actions, reply-run details."""
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from sim.db.models import (
 from sim.domain.enums import (
     Author,
     ChannelKind,
+    Direction,
     EventKind,
     LlmPurpose,
     MediaSource,
@@ -27,6 +29,7 @@ from sim.domain.enums import (
     MessageStatus,
     RunStatus,
 )
+from sim.events import append_event
 from tests.api.fakes import PNG, FakeDeps
 from tests.api.helpers import ApiClient, World
 
@@ -102,6 +105,76 @@ async def test_list_chats_filters_by_messenger_and_counts_sources(
                        {"kind": "whatsapp", "chats": 1, "unread": 2}]
     foreign = (await api.get("/api/chats/sources", params={"persona_id": 999999})).json()
     assert foreign["items"] == []
+
+
+async def whatsapp_chat_of_the_world_client(db: AsyncSession, world: World) -> int:
+    """The world's client (Telegram) writes to the same persona from WhatsApp too — newer."""
+    whatsapp = Channel(persona_id=world.persona_id, kind=ChannelKind.WHATSAPP, title="WA")
+    db.add(whatsapp)
+    await db.flush()
+    chat = Chat(persona_id=world.persona_id, client_id=world.client_id, channel_id=whatsapp.id,
+                unread_count=2)
+    db.add(chat)
+    await db.flush()
+    message = Message(chat_id=chat.id, direction=Direction.IN, author=Author.CLIENT,
+                      kind=MessageKind.TEXT, text="и в ватсапе", status=MessageStatus.RECEIVED)
+    db.add(message)
+    await db.flush()
+    await append_event(db, chat_id=chat.id, kind=EventKind.MESSAGE_IN, actor="client",
+                       message_id=message.id)
+    telegram = await db.get(Chat, world.chat_id)
+    assert telegram is not None and telegram.last_message_at is not None
+    chat.last_message_at = telegram.last_message_at + timedelta(minutes=1)
+    chat_id = chat.id
+    await db.commit()
+    return chat_id
+
+
+async def test_one_row_per_person_lists_every_messenger(api: ApiClient, world: World,
+                                                        db: AsyncSession) -> None:
+    wa_chat = await whatsapp_chat_of_the_world_client(db, world)
+    [row] = (await api.get("/api/chats")).json()["items"]
+    assert row["id"] == wa_chat                                  # the most recent chat
+    assert row["last_message"]["text"] == "и в ватсапе"
+    assert [c["id"] for c in row["chats"]] == [wa_chat, world.chat_id]
+    assert [c["channel"]["kind"] for c in row["chats"]] == ["whatsapp", "telegram_user"]
+    assert row["unread_total"] == 5                              # 2 in WhatsApp + 3 in Telegram
+    assert all(c["last_client_at"] is not None for c in row["chats"])
+    # A person with a chat in the chosen messenger is shown by their most recent chat.
+    for kind in ("telegram_user", "whatsapp"):
+        [found] = (await api.get("/api/chats", params={"channel": kind})).json()["items"]
+        assert found["id"] == wa_chat, kind
+    assert (await api.get("/api/chats", params={"channel": "instagram"})).json()["items"] == []
+    # The chat's own card lists the same chats.
+    detail = (await api.get(f"/api/chats/{world.chat_id}")).json()
+    assert [c["id"] for c in detail["chats"]] == [wa_chat, world.chat_id]
+
+
+async def test_feed_joins_the_persons_chats_with_this_persona_only(
+        api: ApiClient, world: World, db: AsyncSession) -> None:
+    wa_chat = await whatsapp_chat_of_the_world_client(db, world)
+    olya = Persona(name="Оля")
+    db.add(olya)
+    await db.flush()
+    olya_channel = Channel(persona_id=olya.id, kind=ChannelKind.TELEGRAM_USER, title="Оля")
+    db.add(olya_channel)
+    await db.flush()
+    olya_chat = Chat(persona_id=olya.id, client_id=world.client_id, channel_id=olya_channel.id)
+    db.add(olya_chat)
+    await db.flush()
+    await append_event(db, chat_id=olya_chat.id, kind=EventKind.OPERATOR_NOTE,
+                       actor="operator:1", data={"text": "у Оли"})
+    await db.commit()
+
+    for chat_id in (world.chat_id, wa_chat):                     # the same stream from either
+        items = (await api.get(f"/api/chats/{chat_id}/feed")).json()["items"]
+        assert [(i["chat_id"], i["channel"]["kind"]) for i in items] == [
+            (wa_chat, "whatsapp"), (world.chat_id, "telegram_user")]
+        assert items[0]["message"]["text"] == "и в ватсапе"
+    page = (await api.get(f"/api/chats/{wa_chat}/feed",
+                          params={"before_id": items[0]["id"], "limit": 1})).json()["items"]
+    assert [i["chat_id"] for i in page] == [world.chat_id]
+    assert (await api.get("/api/chats/999999/feed")).status_code == 404
 
 
 async def test_list_chats_before_cursor(api: ApiClient, world: World) -> None:
