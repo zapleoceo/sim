@@ -16,6 +16,7 @@ from sim.clock import FixedClock
 from sim.domain.enums import ChannelKind, ChannelStatus
 from sim.ports import OutboundMessage, Peer, PortError
 from tests.channels.ig_fixtures import INBOX, NOW_US, PENDING
+from tests.fakes.ai import FakeMediaTools
 from tests.fakes.channels import (
     ChallengeRequired,
     FakeIgClient,
@@ -24,7 +25,6 @@ from tests.fakes.channels import (
     FeedbackRequired,
     ig_credentials,
 )
-from tests.fakes.ai import FakeMediaTools
 from tests.fakes.telegram import FakeInbox
 
 NOW = datetime.fromtimestamp(NOW_US / 1_000_000, tz=UTC)
