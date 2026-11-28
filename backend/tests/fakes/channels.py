@@ -68,6 +68,7 @@ class FakeIgClient:
         self.requested: list[str] = []          # private-API endpoints, in order
         self.sent: list[tuple[str, Any, list[int]]] = []
         self.seen: list[int] = []
+        self.seen_items: list[tuple[int, int]] = []
         self.send_error: Exception | None = None
         self.poll_error: Exception | None = None
         self.next_id = 100
@@ -131,10 +132,18 @@ class FakeIgClient:
         return self._sent(data, thread_ids or [])
 
     def direct_send_seen(self, thread_id: int) -> Any:
+        # The real one reads the thread through instagrapi's extractor first (it fails on
+        # shared reels): SIM must not need it while it knows the item.
         if self.send_error is not None:
             raise self.send_error
         self.seen.append(thread_id)
         return {"status": "ok"}
+
+    def direct_message_seen(self, thread_id: int, message_id: int) -> Any:
+        if self.send_error is not None:
+            raise self.send_error
+        self.seen_items.append((thread_id, message_id))
+        return True
 
 
 class FakeIgFactory:

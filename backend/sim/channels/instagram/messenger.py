@@ -1,12 +1,16 @@
 """`MessengerPort` for Instagram Direct (docs/channels.md, «Отправка»).
 
 - text: `direct_send(text, thread_ids=[thread])`;
-- photo: `direct_send_photo(file, thread_ids=[thread])`, the caption goes as a text after it;
-- voice, video, video note, file: not in the private API — a permanent error (the plan check
-  never asks for them).
+- photo: `direct_send_photo(file, thread_ids=[thread])` (instagrapi 3.2: upload to
+  `rupload.facebook.com/messenger_image/` + `photo_attachment`, the retired `configure_photo`
+  is gone), the caption goes as a text after it;
+- voice, video, video note, file: not sent by SIM — a permanent error (the plan check never
+  asks for them; instagrapi 3.2 has voice / video sends, not wired yet: docs/channels.md).
 
-The address is the chat's Direct thread (`Peer.thread_id`). `mark_read` = `direct_send_seen`
-(the client sees «Просмотрено»). There is no typing status in the private API: `set_typing`
+The address is the chat's Direct thread (`Peer.thread_id`). `mark_read` = the item's
+`direct_message_seen` (the client sees «Просмотрено»): one request, and not
+`direct_send_seen`, which first reads the thread through instagrapi's extractor — the one that
+fails on shared reels and posts. There is no typing status in the private API: `set_typing`
 does nothing (the queue does not even defer it, sim/tasks/queue.py)."""
 from __future__ import annotations
 
@@ -82,6 +86,10 @@ class InstagramMessenger:
         account = await self.accounts.get(channel_id)
         async with account.lock:
             try:
-                await asyncio.to_thread(account.client.direct_send_seen, thread)
+                if external_id.isdigit():
+                    await asyncio.to_thread(account.client.direct_message_seen, thread,
+                                            int(external_id))
+                else:
+                    await asyncio.to_thread(account.client.direct_send_seen, thread)
             except Exception as exc:
                 raise await self.accounts.fault(account, exc, "seen") from None

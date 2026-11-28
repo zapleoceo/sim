@@ -135,7 +135,13 @@ async def test_a_checkpoint_asks_the_owner_to_log_in_again() -> None:
 async def test_mark_read_is_seen_and_typing_does_nothing() -> None:
     accounts, _, factory, _ = runtime()
     messenger = InstagramMessenger(accounts)
-    await messenger.mark_read(7, PEER, "item-1")
+    # A real item id: «seen» on that item, one request, no thread read through instagrapi's
+    # extractor (it fails on shared reels).
+    await messenger.mark_read(7, PEER, "32661234567890123456789012345")
+    assert factory.last.seen_items == [(340282366841710300949128,
+                                        32661234567890123456789012345)]
+    assert factory.last.seen == []
+    await messenger.mark_read(7, PEER, "item-1")            # not an Instagram id: the thread
     await messenger.set_typing(7, PEER, "typing")
     assert factory.last.seen == [340282366841710300949128]
     assert factory.last.sent == []
