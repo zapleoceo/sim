@@ -18,7 +18,13 @@ from sim.domain.enums import (
 )
 from sim.ports import PortError
 from sim.services.deps import Deps
-from sim.services.understanding import NOT_SEEN, VIDEO_FRAMES, Understanding, pick_strategy
+from sim.services.understanding import (
+    NOT_SEEN,
+    VIDEO_FRAMES,
+    Understanding,
+    pick_strategy,
+    with_self,
+)
 from tests.services.conftest import Fakes
 from tests.services.factories import add_message, all_rows, fresh, make_chat, make_media
 
@@ -83,6 +89,56 @@ async def test_photo_is_described_by_the_vision_model(db: AsyncSession, deps: De
     assert event.media_id == media.id and not event.in_context
     # Done once: a second task does nothing.
     assert await Understanding(deps).understand(media.id) is None
+
+
+async def her_photos(db: AsyncSession, fakes: Fakes, *data: bytes) -> Persona:
+    persona = (await db.scalars(select(Persona).order_by(Persona.id.desc()))).first()
+    assert persona is not None
+    for item in data:
+        await make_media(db, persona.id, is_reference=True, storage=fakes.storage, data=item)
+    return persona
+
+
+async def test_a_photo_of_her_is_told_to_her(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                             clock: FixedClock) -> None:
+    # The owner (2026-11-28) sent her own library photo; she answered «Ну точно не я».
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.PHOTO,
+                             kind=MediaKind.PHOTO, mime="image/jpeg", data=b"SENT")
+    persona = await her_photos(db, fakes, b"REF1", b"REF2", b"REF3")
+    fakes.llm.script("vision-model", "Женщина с каре на белом диване.\nЭто она: да.")
+
+    assert await Understanding(deps).understand(media.id) == UnderstandingStatus.DONE
+
+    media = await understood(db, media)
+    assert media.description == (f"На фото — ты сама ({persona.name}). "
+                                 "Женщина с каре на белом диване.")
+    [call] = fakes.llm.calls_for("vision-model")
+    parts = call["messages"][0].parts
+    assert [p.data for p in parts[1:]] == [b"SENT", b"REF1", b"REF2"]    # SELF_REFS = 2
+    assert "Это она: да" in (parts[0].text or "") and persona.name in (parts[0].text or "")
+
+
+async def test_someone_else_or_no_face_leaves_the_description(
+        db: AsyncSession, deps: Deps, fakes: Fakes, clock: FixedClock) -> None:
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.PHOTO,
+                             kind=MediaKind.PHOTO, mime="image/jpeg", data=b"SENT")
+    await her_photos(db, fakes, b"REF1")
+    fakes.llm.script("vision-model", "Мужчина в кепке у машины.\nЭто она: нет")
+    await Understanding(deps).understand(media.id)
+    assert (await understood(db, media)).description == "Мужчина в кепке у машины."
+    assert with_self("Кот на окне.\nЭто она: не видно", "Марина") == "Кот на окне."
+    assert with_self("Просто текст без отметки.", "Марина") == "Просто текст без отметки."
+
+
+async def test_a_sticker_is_not_compared_with_her(db: AsyncSession, deps: Deps, fakes: Fakes,
+                                                  clock: FixedClock) -> None:
+    media = await attachment(db, fakes, clock, message_kind=MessageKind.STICKER,
+                             kind=MediaKind.PHOTO, mime="image/webp", data=b"WEBP")
+    await her_photos(db, fakes, b"REF1")
+    fakes.llm.script("vision-model", "Смеющийся кот.")
+    await Understanding(deps).understand(media.id)
+    [call] = fakes.llm.calls_for("vision-model")
+    assert [p.data for p in call["messages"][0].parts[1:]] == [b"WEBP"]
 
 
 async def test_voice_is_transcribed(db: AsyncSession, deps: Deps, fakes: Fakes,
