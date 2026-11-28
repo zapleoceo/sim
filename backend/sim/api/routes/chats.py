@@ -11,8 +11,8 @@ from litestar import Request, get, post
 from litestar.exceptions import ClientException
 from litestar.params import Parameter
 from sqlalchemy import exists, func, select
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from sim.api import views
 from sim.api.context import AdminContext, ApiContext

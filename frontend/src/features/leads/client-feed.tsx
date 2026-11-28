@@ -10,7 +10,6 @@ import { TimelineEntry } from '@/features/chats/timeline-entry';
 import { useInView } from '@/hooks/use-in-view';
 import { dayKey, dayLabel } from '@/lib/format';
 import { qk } from '@/lib/query';
-import type { ClientTimelineItem } from '@/lib/types';
 import { CLIENT_TIMELINE_PAGE, leadsApi } from './api';
 
 /** The day chip of the feed. */
