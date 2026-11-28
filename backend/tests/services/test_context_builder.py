@@ -311,3 +311,54 @@ async def test_without_stickers_there_is_no_sticker_block(db: AsyncSession, cloc
     await add_message(db, chat, "привет", at=clock.now())
     ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
     assert "# Стикеры" not in user_text(ctx) and ctx.stickers == frozenset()
+
+
+async def test_the_same_client_in_another_messenger_is_shown_with_its_label(
+        db: AsyncSession, clock: FixedClock, settings: Settings) -> None:
+    """Merged clients (docs/leads.md): the Telegram chat's context shows what he wrote her in
+    WhatsApp — the latest day summaries and lines, marked with the messenger; another persona's
+    chat with him is not hers to know."""
+    chat = await make_chat(db)
+    await add_message(db, chat, "привет из телеги", at=clock.now() - timedelta(minutes=5))
+    whatsapp = Channel(persona_id=chat.persona_id, kind=ChannelKind.WHATSAPP, title="WA")
+    db.add(whatsapp)
+    await db.flush()
+    wa_chat = Chat(persona_id=chat.persona_id, client_id=chat.client_id, channel_id=whatsapp.id,
+                   last_message_at=clock.now() - timedelta(hours=1))
+    db.add(wa_chat)
+    await db.flush()
+    await add_message(db, wa_chat, "скинь фото в ватсап", at=clock.now() - timedelta(hours=1))
+    await add_message(db, wa_chat, "это было давно", at=clock.now() - timedelta(days=5))
+    await summarize(db, wa_chat, FRIDAY, "Договорились созвониться")
+    olya = await make_persona(db, name="Оля", prompt="Ты Оля.")
+    olya_channel = await make_channel(db, olya)
+    olya_chat = Chat(persona_id=olya.id, client_id=chat.client_id, channel_id=olya_channel.id)
+    db.add(olya_chat)
+    await db.flush()
+    await add_message(db, olya_chat, "секрет для Оли", at=clock.now() - timedelta(minutes=30))
+    builder = ContextBuilder(clock, settings)
+
+    ctx = await builder.for_reply(db, chat.id)
+    text = user_text(ctx)
+    assert "# Он же в других мессенджерах" in text and "отвечаешь в Telegram" in text
+    block = ctx.snapshot["other_chats"]
+    assert "## WhatsApp" in block and "Договорились созвониться" in block
+    assert "скинь фото в ватсап" in block
+    assert "это было давно" not in block                    # older than the last days
+    assert "секрет для Оли" not in text
+    # The block sits in the stable part, before today's timeline.
+    assert text.index("# Он же в других мессенджерах") < text.index("# Лента за сегодня")
+    assert ctx.stable_prefix == (await builder.for_reply(db, chat.id)).stable_prefix
+
+    # From the WhatsApp chat the Telegram one is the other messenger.
+    wa_text = user_text(await builder.for_reply(db, wa_chat.id))
+    assert "## Telegram" in wa_text and "привет из телеги" in wa_text
+
+
+async def test_no_other_messengers_block_for_a_client_with_one_chat(
+        db: AsyncSession, clock: FixedClock, settings: Settings) -> None:
+    chat = await make_chat(db)
+    await add_message(db, chat, "привет", at=clock.now())
+    ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
+    assert ctx.snapshot["other_chats"] == ""
+    assert "Он же в других мессенджерах" not in user_text(ctx)

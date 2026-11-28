@@ -20,7 +20,7 @@ NOTIFY_CHANNEL = "sim_events"
 HIDDEN_FROM_AGENT = frozenset({
     EventKind.GUARD_BLOCKED, EventKind.OPERATOR_NEEDED, EventKind.AI_TOGGLED,
     EventKind.CLIENT_UPDATED, EventKind.MEMORY_UPDATED, EventKind.MEDIA_UNDERSTOOD,
-    EventKind.ATTENTION,
+    EventKind.ATTENTION, EventKind.CLIENT_MERGED,
 })
 
 

@@ -176,6 +176,32 @@ def apply_edit(old: Passport, changes: dict[str, Any], now: datetime) -> Passpor
     return Passport.model_validate(data)
 
 
+MERGE_SEPARATOR = "\n\n"
+
+
+def merge_passports(keep: Passport, other: Passport, now: datetime) -> Passport:
+    """Two passports of one person (two clients merged, docs/leads.md): nothing known is lost.
+    The texts are joined (the kept one first, a duplicate once); a structured field keeps its
+    value and takes the other's only when it is empty (a stage only when still `new`); the
+    temperature is the higher one; a field locked in either stays locked. The passport writer
+    rewrites the joined text at the next update."""
+    data = keep.model_dump()
+    texts = [t for t in (keep.text, other.text) if t]
+    data["text"] = MERGE_SEPARATOR.join(dict.fromkeys(texts))[:TEXT_MAX]
+    for field in STRUCTURED_FIELDS:
+        mine, theirs = getattr(keep, field), getattr(other, field)
+        if field == "temperature":
+            data[field] = max(mine, theirs)
+        elif field == "stage":
+            data[field] = theirs if mine == LeadStage.NEW else mine
+        elif mine in (None, ""):
+            data[field] = theirs
+    data["locked_fields"] = [f for f in STRUCTURED_FIELDS
+                             if f in keep.locked_fields or f in other.locked_fields]
+    data["updated_at"] = now.isoformat()
+    return Passport.model_validate(data)
+
+
 def passport_lines(passport: Passport) -> list[str]:
     """The passport as the persona reads it in the client card (docs/context.md §2)."""
     p = passport

@@ -220,3 +220,4 @@ class EventKind(StrEnum):
     MEMORY_UPDATED = "memory_updated"       # the chat summary was refreshed
     ATTENTION = "attention"                 # she looked at the chat: read, later, now…
     INITIATIVE = "initiative"               # a planned contact is due: she writes first
+    CLIENT_MERGED = "client_merged"         # the operator merged another client into this one

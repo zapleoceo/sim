@@ -17,7 +17,8 @@ export type EventKind =
   | 'client_updated'
   | 'memory_updated'
   | 'attention'
-  | 'initiative';
+  | 'initiative'
+  | 'client_merged';
 
 export type Direction = 'in' | 'out';
 export type Author = 'client' | 'persona' | 'operator';
@@ -215,7 +216,35 @@ export type ChatDetail = Omit<ChatRow, 'client'> & { client: Client };
 
 export interface ClientDetail extends Client {
   persona: PersonaBrief | null;
+  /** The messengers the client has an account in (one per messenger, docs/leads.md). */
+  messengers: string[];
   chats: ChatRow[];
+}
+
+/** One side of a «возможно, один человек» pair (`GET /clients/matches`). */
+export interface MatchClient extends ChatRowClient {
+  phone: string | null;
+  messengers: string[];
+  persona: PersonaBrief | null;
+  last_seen_at: string | null;
+}
+
+export interface MatchReason {
+  kind: 'phone' | 'username' | 'name' | 'mention';
+  /** Russian, for the operator: «один телефон …994811889». */
+  text: string;
+}
+
+/** Two clients that may be one person; the smaller id first. Never merged by itself. */
+export interface ClientMatch {
+  clients: [MatchClient, MatchClient];
+  reasons: MatchReason[];
+}
+
+/** An event of the client's journal over every chat (`GET /clients/{id}/timeline`). */
+export interface ClientTimelineItem extends TimelineItem {
+  chat_id: number;
+  channel: ChatChannel | null;
 }
 
 export interface TimelineMessage {

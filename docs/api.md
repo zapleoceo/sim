@@ -228,13 +228,21 @@ Canon = {id, fact, status: "active"|"rejected", chat_id, event_id, created_at}
 | Метод | Путь | |
 |---|---|---|
 | GET | `/clients?q=&persona_id=&stage=` | → `{items: [Lead]}`: последний контакт сначала, до 1000; `stage` — стадия паспорта (пустой паспорт = `new`); 400 — неизвестная стадия |
-| GET | `/clients/{id}` | → `Client` + `persona: PersonaBrief` + `chats: [ChatRow]` |
+| GET | `/clients/{id}` | → `ClientDetail` = `Client` + `persona: PersonaBrief` + `messengers: [kind]` (где у него аккаунты) + `chats: [ChatRow]` |
+| GET | `/clients/matches` | → `{items: [ClientMatch]}` — «Возможно, один человек» ([leads.md](leads.md) §6): пары клиентов с причинами, сначала пары с большим числом причин; пары с аккаунтами в одном мессенджере и отмеченные «Разные люди» не входят |
+| GET | `/clients/{id}/matches` | → `{items: [ClientMatch]}` — пары этого клиента; 404 — нет клиента |
+| POST | `/clients/{id}/merge` | `{other_id}` — объединить `other_id` с этим клиентом: identities, чаты (с памятью) переходят сюда, профиль и паспорт складываются, `client_merged` в журнал каждого чата, второй клиент удаляется → `ClientDetail`; 409 — тот же клиент или у обоих аккаунт в одном мессенджере; 404 — нет клиента |
+| POST | `/clients/{id}/distinct` | `{other_id}` — «Разные люди»: пара больше не предлагается → 204; 400 — тот же клиент |
+| GET | `/clients/{id}/timeline?before_id=&limit=50` | → `{items: [TimelineItem & {chat_id, channel}]}` — журнал всех чатов клиента одним потоком, от новых к старым |
 | PATCH | `/clients/{id}` | `{name?, phone?, notes?, timezone?, ai_enabled?, passport?: PassportPatch}` → `Client` |
 
 ```ts
 Client = {id, persona_id, name, username, phone, timezone, notes, ai_enabled,
           passport: Passport, created_at, last_seen_at}
 Lead = Client & {persona: PersonaBrief | null, chats_count, messages_count}
+ClientMatch = {clients: [MatchClient, MatchClient] /* меньший id первым */,
+               reasons: [{kind: "phone"|"username"|"name"|"mention", text}]}
+MatchClient = {id, name, username, ai_enabled, phone, messengers: [kind], persona, last_seen_at}
 Passport = {text, name, age: number | null, gender, city, country, timezone, occupation,
             stage: "new"|"acquainted"|"interested"|"warm"|"hot"|"client"|"lost",
             temperature /* 0–100 */, next_step, updated_at, locked_fields: string[]}

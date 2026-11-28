@@ -77,4 +77,10 @@ export const qk = {
   /** `personaId` 0 / `stage` '' = no filter. */
   clientList: (q: string, personaId = 0, stage = '') => ['clients', 'list', q, personaId, stage] as const,
   client: (id: number) => ['clients', 'detail', id] as const,
+  /** «Возможно, один человек»: every pair (0) or the pairs of one client. */
+  clientMatches: (id = 0) => ['clients', 'matches', id] as const,
+  /** Prefix of every client's journal: any chat event may belong to the one on screen. */
+  clientTimelines: ['clients', 'timeline'] as const,
+  /** The journal of every chat of one client, in one stream. */
+  clientTimeline: (id: number) => ['clients', 'timeline', id] as const,
 };
