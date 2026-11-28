@@ -95,6 +95,7 @@ export function instagramRequest(form: InstagramForm): { errors: string[]; body:
 /** The code field's label for the Instagram question (2FA or a challenge). */
 export function codeLabel(state: LoginStateName | undefined, detail: string | null | undefined): string {
   if (state === 'challenge') return detail === 'email' ? 'Код из письма Instagram' : 'Код из SMS от Instagram';
+  if (detail === 'code') return 'Код двухфакторной проверки';
   return detail === 'totp' ? 'Код из приложения-аутентификатора' : 'Код из SMS';
 }
 

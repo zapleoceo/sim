@@ -159,6 +159,15 @@ def two_factor(kind: str) -> Step:
     return step
 
 
+def bloks_two_factor() -> Step:
+    """instagrapi 3.2's CAA (Bloks) login stopping at 2FA: no `two_factor_info`, only this."""
+    def step(client: FakeIgClient, *_: str) -> None:
+        client.last_json = {"layout": {"bloks_payload": {}}}
+        raise TwoFactorRequired("Instagram returned a Bloks two-factor context from the CAA "
+                                "login flow; provide verification_code for login")
+    return step
+
+
 def raising(exc: Exception) -> Step:
     def step(*_: Any) -> None:
         raise exc

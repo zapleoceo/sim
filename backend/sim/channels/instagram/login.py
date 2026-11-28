@@ -51,11 +51,15 @@ ATTEMPT_S = 90.0
 CODE_WAIT_S = 540.0                         # the challenge handler waits this long for a code
 DEVICE_BACKOFF_S = (8.0, 15.0, 25.0, 40.0, 60.0)
 MAX_CODE_TRIES = 5
+BLOKS_TWO_FACTOR = "two-factor context"     # instagrapi 3.2: a CAA login wants a 2FA code
+SAID_MAX = 160                              # Instagram's own reason, shown to the owner
 
 EXPIRED = "Вход не начат или устарел. Нажмите «Подключить» ещё раз."
 TEXTS = {
     "totp": "Введите код из приложения-аутентификатора (Google Authenticator и т. п.).",
     "sms": "Введите код из SMS, которое прислал Instagram.",
+    "code": ("Instagram просит код двухфакторной проверки: из приложения-аутентификатора или из "
+             "SMS. Введите его."),
     "device": ("Подтвердите вход в приложении Instagram на телефоне («Это я»). SIM повторит "
                "вход сам через несколько секунд."),
     "challenge": "Instagram прислал код подтверждения ({where}). Введите его.",
@@ -74,8 +78,6 @@ ERRORS = {
     "ClientConnectionError": "Не удалось подключиться к Instagram (сеть или прокси)",
     "ClientRequestTimeout": "Instagram не ответил вовремя (сеть или прокси)",
     "CodeRequired": "Код не введён вовремя. Начните вход заново",
-    "PasswordKeyMissing": ("Instagram не дал ключ для пароля. Попробуйте ещё раз через минуту "
-                           "или войдите по sessionid"),
     "SessionInvalid": "Сессия недействительна: войдите в Instagram в браузере заново",
     "BadSession": "Сессия недействительна: войдите в Instagram в браузере заново",
 }
@@ -147,20 +149,29 @@ class _Pending:
     code_tries: int = 0
 
 
-def two_factor_kind(client: Any) -> str:
-    """totp | sms when a code is to be typed; device = approve a push on another device."""
+def two_factor_kind(client: Any, exc: BaseException | None = None) -> str:
+    """totp | sms when a code is to be typed; code = a code of the Bloks (CAA) login, which
+    does not say which; device = approve a push on another device."""
     last = getattr(client, "last_json", None)
     info = (last.get("two_factor_info") or {}) if isinstance(last, dict) else {}
     if info.get("totp_two_factor_on"):
         return "totp"
     if info.get("sms_two_factor_on"):
         return "sms"
+    if exc is not None and (getattr(exc, "two_step_verification_context", None)
+                            or BLOKS_TWO_FACTOR in str(exc).lower()):
+        return "code"
     return "device"
 
 
 def error_text(exc: BaseException) -> str:
+    """Our text for a known error; otherwise its name and what Instagram said (its `message`
+    is the user-facing reason, e.g. «Your version of Instagram is out of date»)."""
     name = type(exc).__name__
-    return ERRORS.get(name, f"Не удалось войти ({name})")
+    if name in ERRORS:
+        return ERRORS[name]
+    said = " ".join(str(getattr(exc, "message", "") or "").split())[:SAID_MAX].rstrip()
+    return f"Не удалось войти ({name}: {said})" if said else f"Не удалось войти ({name})"
 
 
 class InstagramLogins:
@@ -313,7 +324,7 @@ class InstagramLogins:
         if name == "TwoFactorRequired":
             if is_manual(exc):
                 return self._park(channel_id, login, LoginState.MANUAL, None)
-            kind = two_factor_kind(login.client)
+            kind = two_factor_kind(login.client, exc)
             if kind == "device":
                 return self._park(channel_id, login, LoginState.DEVICE, None)
             if login.state == LoginState.CODE and login.code_tries:
@@ -325,7 +336,8 @@ class InstagramLogins:
             return self._park(channel_id, login, LoginState.MANUAL, None)
         if login.state == LoginState.CODE and name not in ("BadPassword", "BadCredentials"):
             return self._retry_code(channel_id, login)
-        log.warning("instagram login channel=%s failed: %s", channel_id, name)
+        log.warning("instagram login channel=%s failed: %s %s", channel_id, name,
+                    getattr(exc, "error_type", "") or "")
         await self.cancel(channel_id)
         return LoginResult(LoginState.ERROR, error_text(exc))
 
