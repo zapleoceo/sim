@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { qk } from '@/lib/query';
 import type {
-  ChatDetail, ChatRow, Contact, ContactCreate, Items, PersonaStatus, ReplyRun, TimelineItem,
+  ChatDetail, ChatRow, ChatSource, Contact, ContactCreate, Items, PersonaStatus, ReplyRun, TimelineItem,
 } from '@/lib/types';
 
 export const CHATS_PAGE = 50;
@@ -17,9 +17,13 @@ const FLAG_PATHS: Record<ChatFlag, string> = {
 };
 
 export const chatsApi = {
-  /** `personaId` 0 = the chats of every persona. */
-  list: (q: string, before?: string | null, personaId = 0) =>
-    api.get<Items<ChatRow>>('/chats', { params: { q, limit: CHATS_PAGE, before, persona_id: personaId || null } }),
+  /** `personaId` 0 = the chats of every persona; `source` '' = every messenger. */
+  list: (q: string, before?: string | null, personaId = 0, source = '') =>
+    api.get<Items<ChatRow>>('/chats', {
+      params: { q, limit: CHATS_PAGE, before, persona_id: personaId || null, channel: source || null },
+    }),
+  /** Messengers that have chats, with chat and unread counters (the source filter). */
+  sources: (personaId = 0) => api.get<Items<ChatSource>>('/chats/sources', { params: { persona_id: personaId || null } }),
   get: (id: number) => api.get<ChatDetail>(`/chats/${id}`),
   /** «Статус Марины» of one chat, team-only (docs/attention.md). */
   status: (id: number) => api.get<PersonaStatus>(`/chats/${id}/status`),

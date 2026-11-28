@@ -37,8 +37,10 @@ export const qk = {
 
   chats: ['chats'] as const,
   chatLists: ['chats', 'list'] as const,
-  /** `personaId` 0 = every persona. */
-  chatList: (q: string, personaId = 0) => ['chats', 'list', q, personaId] as const,
+  /** `personaId` 0 = every persona; `source` = the messengers (`whatsapp,instagram`), '' = all. */
+  chatList: (q: string, personaId = 0, source = '') => ['chats', 'list', q, personaId, source] as const,
+  /** The counters of the source filter: under `chatLists`, so they refresh with the list. */
+  chatSources: (personaId = 0) => ['chats', 'list', '@sources', personaId] as const,
   chat: (id: number) => ['chats', 'detail', id] as const,
   /** «Статус Марины» of one chat (the strip in the conversation header). */
   chatStatus: (id: number) => ['chats', 'status', id] as const,

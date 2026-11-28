@@ -693,6 +693,13 @@ export interface ChatChannel {
   title: string;
 }
 
+/** A messenger of the source filter with its counters (`GET /chats/sources`). */
+export interface ChatSource {
+  kind: ChannelKind | string;
+  chats: number;
+  unread: number;
+}
+
 /**
  * One step of connecting an account (no secrets ever come back): `qr` (Telegram, WhatsApp),
  * `password` (Telegram 2FA), `code` (Instagram 2FA, `detail` = totp | sms), `device` (approve in

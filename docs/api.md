@@ -17,7 +17,8 @@
 
 | Метод | Путь | |
 |---|---|---|
-| GET | `/chats?q=&limit=50&before=<last_message_at>&persona_id=` | → `{items: [ChatRow]}`; `persona_id` — только чаты этого персонажа |
+| GET | `/chats?q=&limit=50&before=<last_message_at>&persona_id=&channel=` | → `{items: [ChatRow]}`; `persona_id` — только чаты этого персонажа; `channel` — мессенджеры через запятую (`telegram_user,whatsapp,instagram`), пусто — все; неизвестный — 400 |
+| GET | `/chats/sources?persona_id=` | → `{items: [{kind, chats, unread}]}` — мессенджеры, в которых есть чаты: сколько чатов и непрочитанных (счётчики фильтра «Источник») |
 | GET | `/chats/{id}` | → `ChatRow` + `client: Client` |
 | GET | `/chats/{id}/status` | → `PersonaStatus` — «Статус Марины» этого чата сейчас (только для команды, [attention.md](attention.md), «Статус для команды») |
 | GET | `/chats/{id}/timeline?before_id=&limit=50` | → `{items: [TimelineItem]}` от новых к старым |
