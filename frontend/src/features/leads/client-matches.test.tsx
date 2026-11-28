@@ -27,6 +27,8 @@ describe('«Возможно, один человек» in the lead card', () =>
     expect(within(section).getByText('один телефон …994811889')).toBeInTheDocument();
     expect(within(section).getByRole('img', { name: 'WhatsApp' })).toBeInTheDocument();
     expect(within(section).queryByRole('link', { name: 'Дима' })).not.toBeInTheDocument();
+    // The card's column is narrow: the row stays a column (who, why, buttons) at any width.
+    expect(within(section).getAllByRole('listitem')[0].className).not.toContain('flex-row');
 
     await userEvent.click(within(section).getByRole('button', { name: 'Объединить' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Объединить «Zaporozhets Dmitry» с «Дима»?' });
@@ -62,6 +64,7 @@ describe('«Возможно, один человек» on the leads page', () =
     const panel = await screen.findByRole('region', { name: 'Возможно, один человек: 1' });
     expect(within(panel).getByRole('link', { name: 'Дима' })).toBeInTheDocument();
     expect(within(panel).getByRole('link', { name: 'Zaporozhets Dmitry' })).toBeInTheDocument();
+    expect(within(panel).getAllByRole('listitem')[0].className).toContain('xl:flex-row');
     await userEvent.click(within(panel).getByRole('button', { name: 'Разные люди' }));
     await waitFor(() => expect(log.find((r) => r.path === '/api/clients/1/distinct')?.body).toEqual({ other_id: 7 }));
   });
