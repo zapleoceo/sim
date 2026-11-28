@@ -1,7 +1,6 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link, getRouteApi } from '@tanstack/react-router';
-import { AlertTriangle, MessagesSquare } from 'lucide-react';
-import { Avatar } from '@/components/avatar';
+import { MessagesSquare } from 'lucide-react';
 import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { SearchInput } from '@/components/search-input';
@@ -12,24 +11,29 @@ import { usePersonaList } from '@/features/persona/use-persona-list';
 import { useInView } from '@/hooks/use-in-view';
 import { formatShort } from '@/lib/format';
 import { qk } from '@/lib/query';
-import type { ChatRow } from '@/lib/types';
+import type { ChannelKind, ChatRow } from '@/lib/types';
 import type { ChatsSearch } from '@/router';
 import { clientName, cn } from '@/lib/utils';
 import { CHATS_PAGE, chatsApi } from './api';
+import { ChatAvatar, OperatorBadge, UnreadBadge } from './chat-row-parts';
+import { ChatTable } from './chat-table';
 import { PersonaStatusPill } from './persona-status';
 import { STATUS_REFRESH_MS } from './persona-status-logic';
-import { aiActive, lastMessagePreview } from './timeline-logic';
+import { SourceFilter } from './source-filter';
+import { parseSources, sourcesParam } from './sources-logic';
+import { lastMessagePreview } from './timeline-logic';
 
 const route = getRouteApi('/_app/chats');
+
+type Filters = Omit<ChatsSearch, 'id'>;
 
 function ChatListItem({ chat, active, showPersona, filters }: {
   chat: ChatRow;
   active: boolean;
   showPersona: boolean;
-  /** The list's search and persona filter: opening a chat keeps them in the address. */
-  filters: Omit<ChatsSearch, 'id'>;
+  /** The list's search and filters: opening a chat keeps them in the address. */
+  filters: Filters;
 }) {
-  const ai = aiActive(chat);
   const name = clientName(chat.client);
   return (
     <li>
@@ -42,18 +46,7 @@ function ChatListItem({ chat, active, showPersona, filters }: {
           active && 'bg-accent',
         )}
       >
-        <span className="relative flex-none">
-          <Avatar name={name} size={42} />
-          <span
-            className={cn(
-              'absolute right-0 bottom-0 size-3 rounded-full border-2 border-background',
-              ai ? 'bg-success' : 'bg-muted-foreground/50',
-            )}
-            role="img"
-            aria-label={ai ? 'ИИ отвечает' : 'ИИ выключен'}
-            title={ai ? 'ИИ отвечает' : 'ИИ выключен'}
-          />
-        </span>
+        <ChatAvatar chat={chat} />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
             {chat.channel && <ChannelIcon kind={chat.channel.kind} className="translate-y-0.5" />}
@@ -73,20 +66,8 @@ function ChatListItem({ chat, active, showPersona, filters }: {
           )}
           <span className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{lastMessagePreview(chat.last_message)}</span>
-            {chat.needs_operator && (
-              <span className="inline-flex flex-none items-center gap-1 rounded-md bg-warning/15 px-1.5 py-0.5 text-[11px] font-medium text-warning">
-                <AlertTriangle className="size-3" />
-                нужен оператор
-              </span>
-            )}
-            {chat.unread_count > 0 && (
-              <span
-                className="flex h-5 min-w-5 flex-none items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground tabular"
-                aria-label={`Непрочитанных: ${chat.unread_count}`}
-              >
-                {chat.unread_count > 99 ? '99+' : chat.unread_count}
-              </span>
-            )}
+            {chat.needs_operator && <OperatorBadge />}
+            <UnreadBadge count={chat.unread_count} />
           </span>
         </span>
       </Link>
@@ -94,22 +75,48 @@ function ChatListItem({ chat, active, showPersona, filters }: {
   );
 }
 
+function LoadingRows() {
+  return (
+    <ul aria-label="Загрузка чатов" className="flex flex-col">
+      {Array.from({ length: 8 }, (_, i) => (
+        <li key={i} className="flex items-center gap-3 border-b px-3 py-2.5">
+          <Skeleton className="size-[42px] rounded-full" />
+          <span className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-3/4" />
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * Left pane: search + persona filter + chats, newest activity first, more pages on scroll. Each
- * row names the persona that answers in that chat (when there is more than one persona). The
- * open chat, the search and the filter live in the address (`/chats?id=5&q=анна&persona=2`).
+ * The chats, newest activity first, more pages on scroll, with search, persona and source
+ * filters. `table` (no chat open on a wide screen) shows them as one full-width table; `list`
+ * (a chat is open, or a phone) as the narrow column of cards. The open chat, the search and the
+ * filters live in the address (`/chats?id=5&q=анна&persona=2&source=whatsapp,instagram`).
  */
-export function ChatList() {
-  const { id: activeId, q = '', persona: personaId = 0 } = route.useSearch();
+export function ChatList({ layout = 'list' }: { layout?: 'list' | 'table' }) {
+  const { id: activeId, q = '', persona: personaId = 0, source = '' } = route.useSearch();
   const navigate = route.useNavigate();
-  const filters = { ...(q ? { q } : {}), ...(personaId ? { persona: personaId } : {}) };
-  const setFilters = (next: { q?: string; persona?: number }): void =>
+  const sources = parseSources(source);
+  const filters: Filters = {
+    ...(q ? { q } : {}), ...(personaId ? { persona: personaId } : {}), ...(source ? { source } : {}),
+  };
+  const setFilters = (next: Filters): void =>
     void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true });
+  const setSources = (kinds: ChannelKind[]): void => setFilters({ source: sourcesParam(kinds) });
   const { rows: personaRows } = usePersonaList();
   const showPersona = personaRows.length > 1 && personaId === 0;
+  const counts = useQuery({
+    queryKey: qk.chatSources(personaId),
+    queryFn: () => chatsApi.sources(personaId),
+    refetchInterval: STATUS_REFRESH_MS,
+  });
   const chats = useInfiniteQuery({
-    queryKey: qk.chatList(q, personaId),
-    queryFn: ({ pageParam }) => chatsApi.list(q, pageParam, personaId),
+    queryKey: qk.chatList(q, personaId, source),
+    queryFn: ({ pageParam }) => chatsApi.list(q, pageParam, personaId, source),
     initialPageParam: null as string | null,
     getNextPageParam: (last) =>
       last.items.length < CHATS_PAGE ? undefined : (last.items[last.items.length - 1]?.last_message_at ?? undefined),
@@ -119,45 +126,38 @@ export function ChatList() {
   const items = chats.data?.pages.flatMap((p) => p.items) ?? [];
   const canLoadMore = chats.hasNextPage && !chats.isFetchingNextPage;
   const sentinel = useInView<HTMLDivElement>(() => void chats.fetchNextPage(), canLoadMore);
+  const filtered = Boolean(q || sources.length);
+  const wide = layout === 'table';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex-none border-b p-3">
+      <div className={cn('flex flex-none flex-col gap-2 border-b p-3', wide && 'gap-3 px-4 lg:flex-row lg:flex-wrap lg:items-center')}>
         <SearchInput
           value={q}
           onChange={(text) => setFilters({ q: text || undefined })}
           label="Поиск по чатам"
           placeholder="Имя, username или текст"
+          className={wide ? 'lg:w-72' : undefined}
         />
         {personaRows.length > 1 && (
-          <div className="mt-2">
+          <div className={wide ? 'lg:w-48' : undefined}>
             <PersonaFilter value={personaId} onChange={(id) => setFilters({ persona: id || undefined })} personas={personaRows} />
           </div>
         )}
+        <SourceFilter value={sources} onChange={setSources} counts={counts.data?.items} className={wide ? 'lg:ml-auto' : undefined} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-        {chats.isPending && (
-          <ul aria-label="Загрузка чатов" className="flex flex-col">
-            {Array.from({ length: 8 }, (_, i) => (
-              <li key={i} className="flex items-center gap-3 border-b px-3 py-2.5">
-                <Skeleton className="size-[42px] rounded-full" />
-                <span className="flex flex-1 flex-col gap-1.5">
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-3 w-3/4" />
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {chats.isPending && <LoadingRows />}
         {chats.isError && <ErrorState onRetry={() => void chats.refetch()} />}
         {chats.isSuccess && items.length === 0 && (
           <EmptyState
             icon={MessagesSquare}
-            title={q ? 'Ничего не найдено' : 'Чатов пока нет'}
-            hint={q ? 'Попробуйте другое имя или слово.' : 'Когда клиент напишет персонажу, чат появится здесь.'}
+            title={filtered ? 'Ничего не найдено' : 'Чатов пока нет'}
+            hint={filtered ? 'Попробуйте другое имя, слово или источник.' : 'Когда клиент напишет персонажу, чат появится здесь.'}
           />
         )}
-        {items.length > 0 && (
+        {items.length > 0 && wide && <ChatTable items={items} showPersona={showPersona} filters={filters} />}
+        {items.length > 0 && !wide && (
           <ul aria-label="Чаты" className="flex flex-col">
             {items.map((chat) => (
               <ChatListItem key={chat.id} chat={chat} active={chat.id === activeId} showPersona={showPersona} filters={filters} />

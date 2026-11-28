@@ -1,6 +1,8 @@
 """Chats: list, detail, timeline, operator actions, reply-run details."""
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +10,7 @@ from sim.db.models import (
     Channel,
     Chat,
     ChatEvent,
+    Client,
     LlmCall,
     MediaAsset,
     Message,
@@ -64,6 +67,41 @@ async def test_list_chats_shows_and_filters_the_persona(api: ApiClient, world: W
     assert [r["id"] for r in mine["items"]] == [world.chat_id]
     theirs = (await api.get("/api/chats", params={"persona_id": other.id})).json()["items"]
     assert [r["persona"]["id"] for r in theirs] == [other.id]
+
+
+async def test_list_chats_filters_by_messenger_and_counts_sources(
+        api: ApiClient, world: World, db: AsyncSession) -> None:
+    whatsapp = Channel(persona_id=world.persona_id, kind=ChannelKind.WHATSAPP, title="WA")
+    db.add(whatsapp)
+    await db.flush()
+    other = Client(persona_id=world.persona_id, name="Оксана")
+    db.add(other)
+    await db.flush()
+    wa_chat = Chat(persona_id=world.persona_id, client_id=other.id, channel_id=whatsapp.id,
+                   unread_count=2)
+    db.add(wa_chat)
+    await db.commit()
+
+    def ids(response: Any) -> list[int]:
+        assert response.status_code == 200, response.text
+        return sorted(r["id"] for r in response.json()["items"])
+
+    assert ids(await api.get("/api/chats")) == sorted([world.chat_id, wa_chat.id])
+    assert ids(await api.get("/api/chats", params={"channel": "whatsapp"})) == [wa_chat.id]
+    assert ids(await api.get("/api/chats", params={"channel": "telegram_user"})) == [
+        world.chat_id]
+    both = await api.get("/api/chats", params={"channel": "telegram_user, whatsapp"})
+    assert ids(both) == sorted([world.chat_id, wa_chat.id])
+    assert ids(await api.get("/api/chats", params={"channel": "instagram"})) == []
+    unknown = await api.get("/api/chats", params={"channel": "icq"})
+    assert unknown.status_code == 400
+    assert "icq" in unknown.text
+
+    sources = (await api.get("/api/chats/sources")).json()["items"]
+    assert sources == [{"kind": "telegram_user", "chats": 1, "unread": 3},
+                       {"kind": "whatsapp", "chats": 1, "unread": 2}]
+    foreign = (await api.get("/api/chats/sources", params={"persona_id": 999999})).json()
+    assert foreign["items"] == []
 
 
 async def test_list_chats_before_cursor(api: ApiClient, world: World) -> None:

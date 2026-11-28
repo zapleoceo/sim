@@ -10,7 +10,7 @@ import msgspec
 from litestar import Request, get, post
 from litestar.exceptions import ClientException
 from litestar.params import Parameter
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.api import views
@@ -25,8 +25,15 @@ from sim.api.queries import (
 )
 from sim.api.schemas import AiToggleIn, TextIn
 from sim.api.uploads import read_upload, upload_mime
-from sim.db.models import Chat, ChatEvent, Client, LlmCall, ReplyRun
-from sim.domain.enums import Author, EventKind, MediaKind, MediaSource, MessageKind
+from sim.db.models import Channel, Chat, ChatEvent, Client, LlmCall, ReplyRun
+from sim.domain.enums import (
+    Author,
+    ChannelKind,
+    EventKind,
+    MediaKind,
+    MediaSource,
+    MessageKind,
+)
 from sim.events import append_event
 from sim.services.ai_switch import plan_wakes, wake
 from sim.services.media_library import add_media
@@ -45,20 +52,57 @@ MESSAGE_KIND_BY_MEDIA = {
 }
 
 
+def channel_kinds(channel: str | None) -> set[ChannelKind]:
+    """`?channel=whatsapp,instagram` -> the messengers to keep (empty = all); an unknown kind
+    is a 400, not a silently empty list."""
+    kinds: set[ChannelKind] = set()
+    for part in (channel or "").split(","):
+        if not (value := part.strip()):
+            continue
+        try:
+            kinds.add(ChannelKind(value))
+        except ValueError as exc:
+            raise ClientException(detail=f"Неизвестный мессенджер: {value}") from exc
+    return kinds
+
+
+def filter_chats(stmt: Select[Any], *, persona_id: int | None,
+                 kinds: set[ChannelKind]) -> Select[Any]:
+    """The persona and messenger filters of the chat list (`stmt` already joins `Channel`)."""
+    if persona_id is not None:
+        stmt = stmt.where(Chat.persona_id == persona_id)
+    if kinds:
+        stmt = stmt.where(Channel.kind.in_(sorted(kinds)))
+    return stmt
+
+
 @get("/chats")
 async def list_chats(db: AsyncSession, ctx: ApiContext, q: str | None = None,
                      limit: Limit = 50, before: datetime | None = None,
-                     persona_id: int | None = None) -> Json:
-    """Newest activity first; `persona_id` keeps the chats that persona answers in. Every row
-    carries `persona_status` (statuses of the page in a fixed number of queries)."""
-    stmt = search_clients(select(Chat, Client).join(Client, Client.id == Chat.client_id), q)
-    if persona_id is not None:
-        stmt = stmt.where(Chat.persona_id == persona_id)
+                     persona_id: int | None = None, channel: str | None = None) -> Json:
+    """Newest activity first; `persona_id` keeps the chats that persona answers in, `channel`
+    (comma-separated kinds) the chats of those messengers. Every row carries
+    `persona_status` (statuses of the page in a fixed number of queries)."""
+    stmt = search_clients(select(Chat, Client).join(Client, Client.id == Chat.client_id)
+                          .join(Channel, Channel.id == Chat.channel_id), q)
+    stmt = filter_chats(stmt, persona_id=persona_id, kinds=channel_kinds(channel))
     if before is not None:
         stmt = stmt.where(Chat.last_message_at < before)
     stmt = stmt.order_by(Chat.last_message_at.desc().nulls_last(), Chat.id.desc()).limit(limit)
     pairs = [(chat, client) for chat, client in (await db.execute(stmt)).all()]
     return {"items": await chat_rows(db, pairs, ctx.deps.clock.now())}
+
+
+@get("/chats/sources")
+async def list_sources(db: AsyncSession, persona_id: int | None = None) -> Json:
+    """The messengers that have chats, with how many chats and unread messages each: the
+    counters of the source filter. The persona filter applies, the source filter does not."""
+    stmt = filter_chats(
+        select(Channel.kind, func.count(Chat.id), func.coalesce(func.sum(Chat.unread_count), 0))
+        .join(Channel, Channel.id == Chat.channel_id), persona_id=persona_id, kinds=set())
+    rows = (await db.execute(stmt.group_by(Channel.kind).order_by(Channel.kind))).all()
+    return {"items": [{"kind": str(kind), "chats": chats, "unread": int(unread)}
+                      for kind, chats, unread in rows]}
 
 
 @get("/chats/{chat_id:int}")
@@ -208,6 +252,6 @@ async def get_reply_run(run_id: int, db: AsyncSession) -> Json:
     return views.reply_run_view(run, calls)
 
 
-ROUTES = [list_chats, get_chat, get_status, get_timeline, send_message, toggle_ai,
+ROUTES = [list_chats, list_sources, get_chat, get_status, get_timeline, send_message, toggle_ai,
           toggle_attention_instant, toggle_no_refusals, toggle_calls_out, mark_read, add_note,
           operator_done, get_reply_run]

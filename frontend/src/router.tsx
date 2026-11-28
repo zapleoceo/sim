@@ -4,6 +4,7 @@ import {
 } from '@tanstack/react-router';
 import { RouteError, RoutePending } from '@/components/route-states';
 import { session } from '@/features/auth/session';
+import { parseSources, sourcesParam } from '@/features/chats/sources-logic';
 import { isStage } from '@/features/leads/passport-logic';
 import { AppShell } from '@/layouts/app-shell';
 import type { LeadStage } from '@/lib/types';
@@ -12,8 +13,11 @@ import { positiveInt } from '@/lib/utils';
 export interface RouterContext { queryClient: QueryClient }
 
 export interface LoginSearch { returnUrl?: string }
-/** `/chats?id=5&q=анна&persona=2`: the open chat and the list's filters (they survive opening a chat). */
-export interface ChatsSearch { id?: number; q?: string; persona?: number }
+/**
+ * `/chats?id=5&q=анна&persona=2&source=whatsapp,instagram`: the open chat and the list's filters
+ * (they survive opening a chat). `source` is normalized by `sourcesParam`.
+ */
+export interface ChatsSearch { id?: number; q?: string; persona?: number; source?: string }
 
 /** Only same-app paths are allowed as a post-login target (no open redirect). */
 export function safeReturnUrl(value: unknown): string | undefined {
@@ -42,7 +46,8 @@ function parseFilters(s: Record<string, unknown>): { q?: string; persona?: numbe
 
 export function parseChatsSearch(s: Record<string, unknown>): ChatsSearch {
   const id = positiveInt(s.id);
-  return { ...(id ? { id } : {}), ...parseFilters(s) };
+  const source = sourcesParam(parseSources(s.source));
+  return { ...(id ? { id } : {}), ...parseFilters(s), ...(source ? { source } : {}) };
 }
 
 /** `/leads?q=анна&persona=2&stage=hot`: the filters live in the address (a link may preselect them). */

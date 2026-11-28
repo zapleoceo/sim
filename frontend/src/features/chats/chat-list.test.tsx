@@ -124,3 +124,76 @@ describe('ChatList with many personas', () => {
     expect(within(second).getByText('Прочитала, ответит около 20:42').closest('[data-tone]')).toHaveAttribute('data-tone', 'wait');
   });
 });
+
+describe('ChatList source filter', () => {
+  it('filters by several messengers, shows their counters and keeps the choice in the address', async () => {
+    const log = fakeApi({
+      'GET /api/personas': { items: [persona(1, 'Марина')] },
+      'GET /api/chats/sources': { items: [{ kind: 'telegram_user', chats: 6, unread: 0 }, { kind: 'whatsapp', chats: 1, unread: 3 }] },
+      'GET /api/chats': { items: [{ ...row(7, { id: 1, name: 'Марина' }), channel: { id: 4, kind: 'whatsapp', title: 'WA' } }] },
+    });
+    const { router } = await renderChats();
+    const filter = await screen.findByRole('group', { name: 'Источник' });
+    expect(within(filter).getByRole('button', { name: 'Все' })).toHaveAttribute('aria-pressed', 'true');
+    await within(filter).findByLabelText('чатов: 1, непрочитанных: 3');
+
+    await userEvent.click(within(filter).getByRole('button', { name: /WhatsApp/ }));
+    await userEvent.click(within(filter).getByRole('button', { name: /Instagram/ }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ source: 'whatsapp,instagram' }));
+    await waitFor(() => expect(log.some((r) => r.path === '/api/chats' && r.query.get('channel') === 'whatsapp,instagram')).toBe(true));
+    expect(within(filter).getByRole('button', { name: /WhatsApp/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(filter).getByRole('button', { name: 'Все' })).toHaveAttribute('aria-pressed', 'false');
+
+    // The chat link keeps the source for «назад».
+    const link = await within(await screen.findByRole('list', { name: 'Чаты' })).findByRole('link');
+    expect(new URL(link.getAttribute('href') ?? '', 'http://localhost').searchParams.get('source')).toBe('whatsapp,instagram');
+
+    await userEvent.click(within(filter).getByRole('button', { name: 'Все' }));
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+  });
+
+  it('opens with the source of the address', async () => {
+    const log = fakeApi({
+      'GET /api/personas': { items: [persona(1, 'Марина')] },
+      'GET /api/chats': { items: [] },
+    });
+    await renderChats('/chats?source=instagram');
+    expect(await screen.findByText('Ничего не найдено')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Instagram/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(log.some((r) => r.path === '/api/chats' && r.query.get('channel') === 'instagram')).toBe(true);
+  });
+});
+
+describe('ChatList as a full-width table', () => {
+  const renderTable = (url = '/chats') =>
+    renderAtRoute(<ChatList layout="table" />, { path: '/chats', url, validateSearch: parseChatsSearch });
+
+  it('shows messenger, client, last message, status, AI and time in one row and opens the chat on click', async () => {
+    fakeApi({
+      'GET /api/personas': { items: [persona(1, 'Марина')] },
+      'GET /api/chats': {
+        items: [{
+          ...row(7, { id: 1, name: 'Марина' }),
+          client: { id: 7, name: 'Zaporozhets Dmitry', username: 'dima', ai_enabled: false },
+          channel: { id: 4, kind: 'whatsapp', title: 'WA' },
+          needs_operator: true, unread_count: 2,
+        }],
+      },
+    });
+    const { router } = await renderTable('/chats?source=whatsapp');
+    const table = await screen.findByRole('table', { name: 'Чаты' });
+    const [, dataRow] = within(table).getAllByRole('row');
+    const cells = within(dataRow).getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent('WhatsApp');
+    expect(cells[1]).toHaveTextContent('Zaporozhets Dmitry');
+    expect(cells[1]).toHaveTextContent('@dima');
+    expect(within(cells[1]).getByLabelText('Непрочитанных: 2')).toBeInTheDocument();
+    expect(cells[2]).toHaveTextContent('привет');
+    expect(cells[3]).toHaveTextContent('Прочитала, ответит около 20:47');
+    expect(cells[4]).toHaveTextContent('выключен');
+    expect(cells[4]).toHaveTextContent('нужен оператор');
+
+    await userEvent.click(cells[2]);
+    await waitFor(() => expect(router.state.location.search).toEqual({ id: 7, source: 'whatsapp' }));
+  });
+});
