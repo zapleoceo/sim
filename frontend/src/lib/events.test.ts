@@ -7,8 +7,8 @@ import { qk } from './query';
 import type { EventKind } from './types';
 
 const ev = (kind: EventKind, chat_id = 7): LiveEvent => ({ chat_id, event_id: 1, kind });
-/** Every event of a chat re-reads its timeline and «Статус Марины». */
-const always = (chatId = 7) => [qk.timeline(chatId), qk.chatStatus(chatId)];
+/** Every event of a chat re-reads its timeline, «Статус Марины» and the client journal on screen. */
+const always = (chatId = 7) => [qk.timeline(chatId), qk.chatStatus(chatId), qk.clientTimelines];
 
 describe('invalidationsFor', () => {
   it('a client message refreshes the timeline, the status, the chat lists, that chat and the clients', () => {
@@ -25,6 +25,10 @@ describe('invalidationsFor', () => {
     for (const kind of ['message_out', 'send_failed', 'call'] as const) {
       expect(invalidationsFor(ev(kind))).toEqual([...always(), qk.chatLists, qk.chat(7), qk.contacts(7)]);
     }
+  });
+
+  it('a merge of two clients refreshes the chat rows, that chat and the clients', () => {
+    expect(invalidationsFor(ev('client_merged'))).toEqual([...always(), qk.chatLists, qk.chat(7), qk.clients]);
   });
 
   it('a planned contact refreshes the timeline and the plan only', () => {
@@ -77,12 +81,13 @@ describe('connectLiveEvents', () => {
     expect(open).toHaveBeenCalledWith(EVENTS_URL);
 
     source.onmessage?.(new MessageEvent('message', { data: '{"chat_id": 4, "event_id": 9, "kind": "operator_note"}' }));
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledTimes(3);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.timeline(4) });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.chatStatus(4) });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.clientTimelines });
 
     source.onmessage?.(new MessageEvent('message', { data: 'broken' }));
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledTimes(3);
 
     stop();
     expect(source.close).toHaveBeenCalled();

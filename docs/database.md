@@ -102,7 +102,16 @@ next_step, updated_at, locked_fields}` ([leads.md](leads.md)), `last_seen_at`.
 мессенджерах или у двух персонажей остаётся одним клиентом. `Inbox.resolve_chat` ищет
 клиента по этой таблице. `external_id`: Telegram — user id, Instagram — pk пользователя,
 WhatsApp — jid телефона (`…@s.whatsapp.net`), а если WhatsApp его не дал — `…@lid`.
-Отправка берёт идентичность того вида, что и канал чата (`sim/channels/delivery.peer_of`).
+Отправка берёт идентичность того вида, что и канал чата (`sim/channels/delivery.peer_of`),
+поэтому у клиента не больше одной identity на мессенджер. Оператор может объединить двух
+клиентов (`POST /clients/{id}/merge`, [leads.md](leads.md) §6): identities и чаты второго
+переходят к первому, второй удаляется.
+
+### `client_distinct`
+Миграция `0013`, [leads.md](leads.md) §6: пары клиентов, которые оператор отметил «Разные
+люди», — подсказка «Возможно, один человек» их больше не предлагает. `client_id` < `other_id`
+(порядок держит `sim/services/client_match.mark_distinct`), уникально `(client_id, other_id)`,
+оба FK на `client` с `ON DELETE CASCADE`.
 
 ### `chat`
 Переписка клиента через канал: `persona_id` (= персонаж канала; он и отвечает в чате),
@@ -215,7 +224,8 @@ done | failed | cancelled`), `topic`, `due_at`, `created_by` (`operator:<id>` и
 `generation_started`, `generation_failed`, `guard_blocked`, `operator_needed`, `ai_toggled`,
 `operator_note`, `client_updated`, `memory_updated`, `attention` — что она сделала с чатом на
 проверке телефона, `0006`; `initiative` — наступило запланированное сообщение, она пишет
-первой, `0010`), `in_context` (видит ли агент), ссылки
+первой, `0010`; `client_merged` — оператор объединил с этим клиентом другого, только для
+оператора, `0013`), `in_context` (видит ли агент), ссылки
 `message_id`, `media_id`, `call_id`, `generation_id`, `reply_run_id`, `actor`
 (`client | persona | operator | guard | system`), `data` (мелкие факты для отображения: было/стало,
 причина блокировки, текст удалённого и т. п.).

@@ -19,6 +19,7 @@ import { clientName } from '@/lib/utils';
 import type { LeadsSearch } from '@/router';
 import { leadsApi, type LeadFilters } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
+import { MatchesPanel } from './client-matches';
 import { STAGES, isStage, stageInfo } from './passport-logic';
 
 const route = getRouteApi('/_app/leads');
@@ -108,7 +109,7 @@ export const LEAD_COLUMNS: ColumnDef<Lead, unknown>[] = [
 
 /**
  * «Лиды»: every client of every persona, filters by persona and stage, search; a click opens the
- * card. The filters live in the address (`/leads?q=анна&persona=2&stage=hot`): «назад» from a card
+ * card. Above the table — «Возможно, один человек» (pairs to merge, docs/leads.md). The filters live in the address (`/leads?q=анна&persona=2&stage=hot`): «назад» from a card
  * and a shared link keep them; «Персонажи» links here with `?persona=`.
  */
 export function LeadsPage() {
@@ -150,6 +151,7 @@ export function LeadsPage() {
           className="w-full sm:w-72"
         />
       </PageHeader>
+      <MatchesPanel />
       {leads.isError ? (
         <ErrorState onRetry={() => void leads.refetch()} />
       ) : (

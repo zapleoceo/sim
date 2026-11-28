@@ -41,12 +41,14 @@ day_memory = load("migration_0007", BACKEND / "migrations" / "versions" / "0007_
 channels = load("migration_0009", BACKEND / "migrations" / "versions" / "0009_channels.py")
 initiative = load("migration_0010", BACKEND / "migrations" / "versions" / "0010_initiative.py")
 stickers = load("migration_0012", BACKEND / "migrations" / "versions" / "0012_stickers.py")
+client_merge = load("migration_0013", BACKEND / "migrations" / "versions" / "0013_client_merge.py")
 ENUM_CHECKS = {**initial.ENUM_CHECKS, **video_note.ENUM_CHECKS, **life.ENUM_CHECKS,
                **leads.ENUM_CHECKS, **agents.ENUM_CHECKS, **attention.ENUM_CHECKS,
-               **day_memory.ENUM_CHECKS, **channels.ENUM_CHECKS, **initiative.ENUM_CHECKS}
+               **day_memory.ENUM_CHECKS, **channels.ENUM_CHECKS, **initiative.ENUM_CHECKS,
+               **client_merge.ENUM_CHECKS}
 # Tables in creation order over all revisions.
 TABLES = (*initial.TABLES, *life.TABLES, *day_memory.TABLES, *initiative.TABLES,
-          *stickers.TABLES)
+          *stickers.TABLES, *client_merge.TABLES)
 smoke = load("ci_postgres_smoke", BACKEND / "scripts" / "ci_postgres_smoke.py")
 
 
@@ -58,7 +60,7 @@ def scripts() -> ScriptDirectory:
 def test_two_branches_sim_and_procrastinate(scripts):
     assert len(scripts.get_heads()) == 2        # hence `alembic upgrade heads` everywhere
     sim_head = scripts.get_revision("sim@head")
-    assert sim_head is not None and sim_head.revision == "0012"
+    assert sim_head is not None and sim_head.revision == "0013"
     procrastinate_head = scripts.get_revision("procrastinate@head")
     assert procrastinate_head is not None
     assert procrastinate_head.revision.startswith("procrastinate_")
@@ -273,3 +275,16 @@ def test_stickers_revision_follows_the_calls_out_one(scripts):
     assert column.nullable and next(iter(column.foreign_keys)).use_alter
     assert {"doc_id", "set_id", "set_access_hash", "emoji", "faved"} <= set(
         Base.metadata.tables["persona_sticker"].columns.keys())
+
+
+def test_client_merge_revision_follows_the_stickers_one(scripts):
+    revision = scripts.get_revision("0013")
+    assert revision is not None and revision.down_revision == "0012"
+    kinds = client_merge.ENUM_CHECKS[("chat_event", "kind")][1]
+    assert kinds[:-1] == client_merge.PREVIOUS_EVENT_KINDS == initiative.ENUM_CHECKS[
+        ("chat_event", "kind")][1]
+    assert kinds[-1] == "client_merged"
+    assert client_merge.TABLES == ("client_distinct",)
+    columns = Base.metadata.tables["client_distinct"].columns
+    assert {fk.column.table.name for c in ("client_id", "other_id")
+            for fk in columns[c].foreign_keys} == {"client"}

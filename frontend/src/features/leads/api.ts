@@ -8,11 +8,15 @@ import type {
   ChatDaysResponse,
   Client,
   ClientDetail,
+  ClientMatch,
   ClientPatch,
+  ClientTimelineItem,
   Items,
   Lead,
   LeadStage,
 } from '@/lib/types';
+
+export const CLIENT_TIMELINE_PAGE = 50;
 
 export interface LeadFilters {
   q: string;
@@ -27,6 +31,15 @@ export const leadsApi = {
     api.get<Items<Lead>>('/clients', { params: { q, persona_id: personaId || null, stage: stage || null } }),
   get: (id: number) => api.get<ClientDetail>(`/clients/${id}`),
   update: (id: number, patch: ClientPatch) => api.patch<Client>(`/clients/${id}`, patch),
+  /** «Возможно, один человек»: every pair, or (`id`) the pairs of one client (docs/leads.md). */
+  matches: (id = 0) => api.get<Items<ClientMatch>>(id ? `/clients/${id}/matches` : '/clients/matches'),
+  /** Merge `otherId` into `id`: its chats, memory and passport move here, it disappears. */
+  merge: (id: number, otherId: number) => api.post<ClientDetail>(`/clients/${id}/merge`, { other_id: otherId }),
+  /** «Это разные люди»: the pair is not suggested again. */
+  distinct: (id: number, otherId: number) => api.post<void>(`/clients/${id}/distinct`, { other_id: otherId }),
+  /** The journal of every chat of the client, newest first; `beforeId` pages back. */
+  timeline: (id: number, beforeId?: number | null) =>
+    api.get<Items<ClientTimelineItem>>(`/clients/${id}/timeline`, { params: { before_id: beforeId, limit: CLIENT_TIMELINE_PAGE } }),
 };
 
 /** One chat's day memory (docs/memory.md, docs/api.md «Дни»). */

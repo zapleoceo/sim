@@ -131,6 +131,17 @@ def client_view(client: Client) -> Json:
     }
 
 
+def messengers(client: Client) -> list[str]:
+    """The messengers the client has an identity in, sorted (one identity per messenger)."""
+    return sorted({str(identity.channel_kind) for identity in client.identities})
+
+
+def match_brief(client: Client, persona: Persona | None) -> Json:
+    """One side of a «возможно, один человек» pair: who it is and where they write."""
+    return {**client_brief(client), "phone": client.phone, "messengers": messengers(client),
+            "persona": persona_brief(persona), "last_seen_at": client.last_seen_at}
+
+
 def channel_brief(channel: Channel | None) -> Json | None:
     """Which messenger a chat is in (the dashboard shows its icon)."""
     return None if channel is None else {"id": channel.id, "kind": channel.kind,

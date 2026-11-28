@@ -146,6 +146,8 @@ export function systemLine(item: TimelineItem): SystemLine | null {
       return { text: attentionLine(d), tone: 'muted' };
     case 'initiative':
       return { text: initiativeLine(d), tone: 'muted' };
+    case 'client_merged':
+      return { text: withReason('Клиент объединён', str(d, 'from_name') && `с «${str(d, 'from_name')}»`), tone: 'muted' };
     default:
       return null;
   }

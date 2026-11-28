@@ -19,12 +19,12 @@ export interface LiveEvent {
 const CHAT_ROW_KINDS: ReadonlySet<string> = new Set<EventKind>([
   'message_in', 'message_out', 'message_edited', 'message_deleted', 'send_failed', 'call',
   'guard_blocked', 'operator_needed', 'ai_toggled', 'attention', 'generation_started',
-  'generation_failed',
+  'generation_failed', 'client_merged',
 ]);
 
 /** Events that change what the clients table or a client card shows. */
 const CLIENT_KINDS: ReadonlySet<string> = new Set<EventKind>([
-  'message_in', 'client_updated', 'memory_updated', 'ai_toggled',
+  'message_in', 'client_updated', 'memory_updated', 'ai_toggled', 'client_merged',
 ]);
 
 /** Events that may move a planned contact along (planned, its message sent, its call made). */
@@ -41,12 +41,13 @@ export function parseLiveEvent(data: string): LiveEvent | null {
 }
 
 /**
- * What to re-read after an event. The chat's own timeline and «Статус Марины» always; the chat
+ * What to re-read after an event. The chat's own timeline, «Статус Марины» and the client
+ * journal on screen («Лента» of a lead card, which joins every chat of the client) always; the chat
  * lists when its row changed; that chat's header when its row or its client changed (the header
  * shows the client's passport); the clients when a client's data changed.
  */
 export function invalidationsFor(event: LiveEvent): QueryKey[] {
-  const keys: QueryKey[] = [qk.timeline(event.chat_id), qk.chatStatus(event.chat_id)];
+  const keys: QueryKey[] = [qk.timeline(event.chat_id), qk.chatStatus(event.chat_id), qk.clientTimelines];
   const rowChanged = CHAT_ROW_KINDS.has(event.kind);
   const clientChanged = CLIENT_KINDS.has(event.kind);
   if (rowChanged) keys.push(qk.chatLists);

@@ -71,6 +71,12 @@ class PassportPatchIn(Struct):
                              Meta(max_length=20)] | UnsetType = UNSET
 
 
+class OtherClientIn(Struct):
+    """The second client of a pair: merged into this one, or marked «разные люди»."""
+
+    other_id: Annotated[int, Meta(gt=0)]
+
+
 class ClientPatchIn(Struct):
     name: Annotated[str, Meta(max_length=200)] | UnsetType = UNSET
     phone: Annotated[str, Meta(max_length=32)] | UnsetType | None = UNSET

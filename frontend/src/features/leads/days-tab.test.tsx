@@ -24,7 +24,8 @@ function chat(id: number, persona: string): ChatRow {
 const CLIENT: ClientDetail = {
   id: 1, persona_id: 1, name: 'Дима', username: 'dima', phone: null, timezone: null, notes: '', ai_enabled: true,
   passport: PASSPORT, created_at: '2026-11-01T10:00:00Z', last_seen_at: null,
-  persona: { id: 1, name: 'Марина', avatar_media_id: null }, chats: [chat(7, 'Марина'), chat(8, 'Оля')],
+  persona: { id: 1, name: 'Марина', avatar_media_id: null }, messengers: ['telegram_user'],
+  chats: [chat(7, 'Марина'), chat(8, 'Оля')],
 };
 
 function day(patch: Partial<ChatDay>): ChatDay {

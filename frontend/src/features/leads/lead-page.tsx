@@ -4,6 +4,7 @@ import { AlertTriangle, MessagesSquare, Save } from 'lucide-react';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { Avatar } from '@/components/avatar';
+import { ChannelIcon, channelLook } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Field, Section } from '@/components/field';
 import { BackLink, Page } from '@/components/page';
@@ -20,6 +21,8 @@ import type { ClientDetail, ClientPatch } from '@/lib/types';
 import { clientName, positiveInt } from '@/lib/utils';
 import { leadsApi, useUpdateClient } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
+import { ClientFeed } from './client-feed';
+import { ClientMatches, MessengerIcons } from './client-matches';
 import { DaysTab } from './days-tab';
 import { PassportEditor } from './passport-editor';
 
@@ -85,7 +88,10 @@ function LeadCard({ client }: { client: ClientDetail }) {
       <header className="flex flex-wrap items-center gap-3">
         <Avatar name={name} size={48} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <h1 className="truncate text-lg font-semibold sm:text-2xl">{name}</h1>
+          <h1 className="flex min-w-0 items-center gap-2 text-lg font-semibold sm:text-2xl">
+            <span className="truncate">{name}</span>
+            <MessengerIcons kinds={client.messengers} />
+          </h1>
           <p className="text-sm text-muted-foreground">
             {[
               client.username && `@${client.username}`,
@@ -100,6 +106,7 @@ function LeadCard({ client }: { client: ClientDetail }) {
       <Tabs defaultValue="card">
         <TabsList aria-label="Карточка лида">
           <TabsTrigger value="card">Карточка</TabsTrigger>
+          <TabsTrigger value="feed">Лента</TabsTrigger>
           <TabsTrigger value="days">Дни</TabsTrigger>
         </TabsList>
         {/* forceMount keeps what is being typed when the tab changes. */}
@@ -115,6 +122,7 @@ function LeadCard({ client }: { client: ClientDetail }) {
               </Section>
             </div>
             <div className="flex min-w-0 flex-col gap-4">
+              <ClientMatches client={client} />
               <Section id="profile" title="Профиль">
                 <ProfileForm client={client} />
               </Section>
@@ -130,11 +138,11 @@ function LeadCard({ client }: { client: ClientDetail }) {
                           search={{ id: chat.id }}
                           className="flex items-center gap-3 rounded-md px-1 py-2.5 hover:bg-accent/60"
                         >
-                          <MessagesSquare className="size-4 flex-none text-muted-foreground" />
+                          <ChannelIcon kind={chat.channel?.kind} className="size-4" />
                           <span className="flex min-w-0 flex-1 flex-col">
                             <span className="truncate text-sm">{lastMessagePreview(chat.last_message)}</span>
                             <span className="text-xs text-muted-foreground">
-                              {chat.persona ? `${chat.persona.name} · ` : ''}
+                              {channelLook(chat.channel?.kind).label} · {chat.persona ? `${chat.persona.name} · ` : ''}
                               {formatShort(chat.last_message_at) || 'без сообщений'}
                               {!chat.ai_enabled && ' · ИИ в чате выключен'}
                             </span>
@@ -149,6 +157,10 @@ function LeadCard({ client }: { client: ClientDetail }) {
             </div>
           </div>
         </TabsContent>
+        {/* Mounted only when open: the stream loads on demand. */}
+        <TabsContent value="feed">
+          <ClientFeed clientId={client.id} />
+        </TabsContent>
         <TabsContent value="days" forceMount className="data-[state=inactive]:hidden">
           <DaysTab client={client} />
         </TabsContent>
@@ -157,7 +169,11 @@ function LeadCard({ client }: { client: ClientDetail }) {
   );
 }
 
-/** The lead card: passport, profile and notes, AI switch, the lead's chats; «Дни» — her day memory. */
+/**
+ * The lead card: passport, profile and notes, AI switch, the lead's chats in every messenger and
+ * «возможно, один человек» (merge, docs/leads.md); «Лента» — every chat in one stream; «Дни» — her
+ * day memory.
+ */
 export function LeadPage() {
   const { clientId } = route.useParams();
   const id = positiveInt(clientId) ?? 0;

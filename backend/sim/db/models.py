@@ -266,6 +266,19 @@ class ClientIdentity(Base):
     client: Mapped[Client] = relationship(back_populates="identities")
 
 
+class ClientDistinct(Base):
+    """Two clients the operator marked «это разные люди»: the «возможно, один человек» hint
+    never offers this pair again (docs/leads.md). Stored once per pair, `client_id <
+    other_id` (sim/services/client_match.py keeps the order)."""
+
+    __tablename__ = "client_distinct"
+    __table_args__ = (UniqueConstraint("client_id", "other_id"),)
+
+    client_id: Mapped[int] = mapped_column(ForeignKey("client.id", ondelete="CASCADE"))
+    other_id: Mapped[int] = mapped_column(ForeignKey("client.id", ondelete="CASCADE"),
+                                          index=True)
+
+
 class Chat(Base):
     __tablename__ = "chat"
     __table_args__ = (UniqueConstraint("channel_id", "client_id"),)

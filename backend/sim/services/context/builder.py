@@ -7,7 +7,9 @@ byte-identical prefix and the provider's prompt cache hits (docs/context.md §2)
 prompt and format rules (system, shared by all her chats) → her routine, story arcs, canon
 (shared by her chats) → this client's card and passport, the week and day summaries (change at
 night) → today's verbatim timeline (append-only) → the notes of the day, the facts of «now»,
-her current scene, the media catalog and the turn instruction (change every turn)."""
+her current scene, the media catalog and the turn instruction (change every turn). When the same
+person writes to her in other messengers too, what he wrote there follows the diary
+(«Он же в других мессенджерах», sim/services/context/other_chats.py)."""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -31,6 +33,7 @@ from sim.db.models import (
     Persona,
 )
 from sim.domain.agents import AgentKey, agent_config
+from sim.domain.channels import spec_of
 from sim.domain.enums import (
     CallStatus,
     ChannelKind,
@@ -57,6 +60,7 @@ from sim.services.context.instructions import (
     FORMAT_RULES,
     REPLY_TURN,
 )
+from sim.services.context.other_chats import load_other_chats, other_chats_block
 from sim.services.context.render import (
     GENERATION_LABELS,
     Related,
@@ -116,6 +120,8 @@ class Knowledge:
     writing: WritingMode = DEFAULT_MODE     # how she types right now (docs/writing.md)
     # The chat's messenger: what she can send and how people write there (docs/channels.md).
     channel_kind: ChannelKind = ChannelKind.TELEGRAM_USER
+    # «Он же в других мессенджерах»: the same client's other chats with her ("" = none).
+    other_chats: str = ""
 
     @property
     def summary(self) -> str:
@@ -133,7 +139,7 @@ class Knowledge:
     def shared_blocks(self) -> list[str]:
         """The stable part, most stable first: her world, the client, the past."""
         return [*self.life.shared(), f"# Собеседник\n{self.client_card}",
-                *self.diary.stable_blocks()]
+                *self.diary.stable_blocks(), *([self.other_chats] if self.other_chats else [])]
 
     def timeline_block(self) -> str:
         """Today's verbatim timeline: lines are only appended during the day."""
@@ -159,7 +165,7 @@ class Knowledge:
             "event_ids": [line.event_id for line in self.lines], "trimmed": self.trimmed,
             "facts": list(self.facts.lines), "facts_values": self.facts.values,
             "now": self.life.now, "writing": asdict(self.writing),
-            "channel": self.channel_kind.value,
+            "channel": self.channel_kind.value, "other_chats": self.other_chats,
         }
 
 
@@ -363,13 +369,17 @@ class ContextBuilder:
         today = local_day(now, persona.timezone)
         notes = notes_of(chat.day_notes, today)
         diary, days = await load_diary(session, chat.id, today, chat.summary, notes)
+        others = other_chats_block(spec_of(kind).label, await load_other_chats(
+            session, chat,
+            lambda chat_id, since: timeline_lines(session, chat_id, speakers, since=since),
+            today=today, now=now))
         start = window_start(now, persona.timezone,
                              yesterday_ready=usable(days.get(today - timedelta(days=1))),
                              unanswered_at=await first_unanswered_at(session, chat.id))
         all_lines = await timeline_lines(session, chat.id, speakers, since=start,
                                          after_id=notes.morning_until)
         fixed = fixed_tokens + estimate_tokens(
-            facts.text + card + notes.morning + "\n\n".join(
+            facts.text + card + notes.morning + others + "\n\n".join(
                 [*life.texts(), *diary.stable_blocks(), diary.notes_block()]))
         budget = max(self.settings.context_budget_tokens - fixed, MIN_TIMELINE_TOKENS)
         return Knowledge(
@@ -379,7 +389,7 @@ class ContextBuilder:
             lines=fit_newest(all_lines, budget), timeline_budget=budget,
             writing=writing_mode(state.scene() if state.has_life else None,
                                  to_local(now, persona.timezone)),
-            channel_kind=kind,
+            channel_kind=kind, other_chats=others,
         )
 
     async def _facts_input(self, session: AsyncSession, chat: Chat, persona: Persona,
