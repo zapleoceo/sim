@@ -142,7 +142,7 @@ Telegram (вход по QR, [personas.md](personas.md), п. 3), Instagram Direct
 | POST | `/personas/{id}/channels/telegram/login` | `{api_id, api_hash, proxy?}` → `LoginStep` |
 | POST | `/personas/{id}/channels/instagram/login` | ровно один способ: `{username, password, proxy}`, или `{sessionid, proxy}`, или `{settings_json, proxy}`; прокси необязателен (пусто и нет `SIM_IG_DEFAULT_PROXY` — с IP сервера); лишнее поле → 400 → `LoginStep` |
 | POST | `/personas/{id}/channels/whatsapp/login` | `{phone?}` (только подпись) → `LoginStep` с QR; канал сразу `pending` и хранит инстанс и секрет вебхука |
-| GET | `/personas/{id}/channels/{cid}/login` | → `LoginStep`; дашборд спрашивает раз в 2 с, пока `state` = `qr` или `device` (Instagram повторяет вход сам) |
+| GET | `/personas/{id}/channels/{cid}/login` | → `LoginStep`; дашборд спрашивает раз в 2 с, пока `state` = `qr`, `device` (Instagram повторяет вход сам) или `wait` (Instagram ещё отвечает) |
 | POST | `/personas/{id}/channels/{cid}/login/code` | `{code}` — код 2FA / подтверждения Instagram; пустой — «Повторить» / «Я подтвердил» → `LoginStep` |
 | POST | `/personas/{id}/channels/{cid}/login/password` | `{password}` — облачный пароль 2FA Telegram → `LoginStep` |
 | DELETE | `/personas/{id}/channels/{cid}/login` | отменить вход → 204; незавершённая привязка WhatsApp ещё и отвязывается в Evolution (logout + delete), канал снова `new` |
@@ -157,10 +157,10 @@ Channel = {id, persona_id, kind: "telegram_user" | "instagram" | "whatsapp", tit
 ChannelKindInfo = {kind, label, available, reason}   // reason: «Сервис WhatsApp не запущен на сервере»
 LoginStep = {channel: Channel,
              login: {state: "none" | "qr" | "password" | "code" | "device" | "challenge"
-                          | "manual" | "connected" | "error",
+                          | "manual" | "wait" | "connected" | "error",
                      message,
                      qr: string | null,      // data URI QR (Telegram, WhatsApp)
-                     detail: string | null}} // code: totp | sms; challenge: email | sms
+                     detail: string | null}} // code: totp | sms | code; challenge: email | sms
 ```
 
 Статус канала во время входа: начатый вход переводит `new` / `error` / `challenge` в `pending`;

@@ -223,6 +223,28 @@ describe('ChannelSection: Instagram', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Подключение Instagram' })).not.toBeInTheDocument());
     expect(polls).toBe(2);
   });
+
+  it('shows «Instagram проверяет вход…» and re-reads until Instagram asks for a code', async () => {
+    // instagrapi 3.2's login takes up to minutes (prod, 2026-11-28: the request hung).
+    let polls = 0;
+    fakeApi({
+      'GET /api/personas/2/channels': { items: [], kinds: ALL_KINDS },
+      'POST /api/personas/2/channels/instagram/login': step({ state: 'wait', qr: null, message: 'Instagram проверяет вход…' }, {}, IG),
+      'GET /api/personas/2/channels/7/login': () => {
+        polls += 1;
+        return polls < 2 ? step({ state: 'wait', qr: null, message: 'Instagram проверяет вход…' }, {}, IG)
+          : step({ state: 'code', qr: null, detail: 'code', message: 'Введите код' }, {}, IG);
+      },
+    });
+    await render();
+    await pick('Instagram');
+    await userEvent.type(screen.getByLabelText('Логин Instagram'), 'olya.ig');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'secret');
+    await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    expect(await screen.findByText('Instagram проверяет вход…')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Код подтверждения входа')).toBeInTheDocument();
+    expect(polls).toBe(2);
+  });
 });
 
 describe('ChannelSection: WhatsApp QR', () => {
@@ -264,9 +286,10 @@ describe('ChannelSection: WhatsApp QR', () => {
 });
 
 describe('channel logic', () => {
-  it('polls only while a QR may be scanned or the app approval is awaited', () => {
+  it('polls only while a QR may be scanned, the app approval is awaited or Instagram still answers', () => {
     expect(shouldPoll('qr')).toBe(true);
     expect(shouldPoll('device')).toBe(true);
+    expect(shouldPoll('wait')).toBe(true);
     for (const state of ['password', 'code', 'challenge', 'manual', 'connected', 'error', 'none', undefined] as const) {
       expect(shouldPoll(state)).toBe(false);
     }
@@ -297,7 +320,7 @@ describe('channel logic', () => {
   it('names the code, the statuses and the kinds', () => {
     expect(codeLabel('code', 'totp')).toBe('Код из приложения-аутентификатора');
     expect(codeLabel('challenge', 'email')).toBe('Код из письма Instagram');
-    expect(codeLabel('code', 'code')).toBe('Код двухфакторной проверки');     // a Bloks (CAA) login
+    expect(codeLabel('code', 'code')).toBe('Код подтверждения входа');     // a Bloks (CAA) login
     expect(channelStatus('challenge')).toEqual({ label: 'нужен повторный вход', variant: 'destructive' });
     expect(channelStatus('pending').label).toBe('идёт вход');
     expect(needsRelogin('challenge') && !needsRelogin('connected')).toBe(true);

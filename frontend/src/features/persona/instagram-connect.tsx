@@ -129,6 +129,13 @@ export function InstagramConnect(props: ConnectProps) {
         </form>
       )}
 
+      {state === 'wait' && step && (
+        <p className="flex items-center gap-2 text-sm" aria-live="polite">
+          <Loader2 className="size-4 animate-spin" />
+          {step.login.message}
+        </p>
+      )}
+
       {(state === 'device' || state === 'manual') && step && (
         <div className="flex flex-col gap-3">
           <p className="text-sm">{step.login.message}</p>

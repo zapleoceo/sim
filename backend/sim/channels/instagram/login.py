@@ -17,7 +17,8 @@ geo set; a proxy, once used, stays the account's for good.
 A challenge asks for its code from INSIDE instagrapi (`challenge_code_handler`), so the login
 runs in a thread whose handler waits for the code the owner types (`CodeBridge`); a 2FA code
 logs in again on the same client with `verification_code`. Every step answers within
-`ATTEMPT_S`: signed in, a question for the owner, or an error.
+`ANSWER_S`: signed in, a question for the owner, an error, or «wait» (the attempt goes on, up to
+`ATTEMPT_S`; the dashboard re-reads).
 
 One pending login per channel, in this process's memory, dropped after `LOGIN_TTL_S`. The
 password lives only there; on success the route stores {settings, proxy, username, lang,
@@ -47,7 +48,13 @@ from sim.channels.login import LoginResult, LoginState
 log = logging.getLogger(__name__)
 
 LOGIN_TTL_S = 600.0
-ATTEMPT_S = 90.0
+# instagrapi 3.2's CAA login takes 30–90 s (many Bloks steps with human pauses) and may loop
+# through its legacy fallback once (prod, 2026-11-28: the dashboard request hung past 90 s). So a
+# step answers within `ANSWER_S`: the result, a question, or «wait» (the dashboard re-reads every
+# 2 s, `POLL_WAIT_S` each); the attempt itself may run up to `ATTEMPT_S`.
+ATTEMPT_S = 300.0
+ANSWER_S = 20.0
+POLL_WAIT_S = 1.0
 CODE_WAIT_S = 540.0                         # the challenge handler waits this long for a code
 DEVICE_BACKOFF_S = (8.0, 15.0, 25.0, 40.0, 60.0)
 MAX_CODE_TRIES = 5
@@ -58,14 +65,15 @@ EXPIRED = "Вход не начат или устарел. Нажмите «По
 TEXTS = {
     "totp": "Введите код из приложения-аутентификатора (Google Authenticator и т. п.).",
     "sms": "Введите код из SMS, которое прислал Instagram.",
-    "code": ("Instagram просит код двухфакторной проверки: из приложения-аутентификатора или из "
-             "SMS. Введите его."),
+    "code": ("Instagram просит код подтверждения входа (двухфакторной проверки): из SMS, "
+             "письма или приложения-аутентификатора. Введите его."),
     "device": ("Подтвердите вход в приложении Instagram на телефоне («Это я»). SIM повторит "
                "вход сам через несколько секунд."),
     "challenge": "Instagram прислал код подтверждения ({where}). Введите его.",
     "manual": ("Instagram просит подтвердить вход в его приложении. Откройте Instagram на "
                "телефоне, подтвердите, затем нажмите «Повторить»."),
     "connected": "Аккаунт подключён",
+    "wait": "Instagram проверяет вход… Это может занять до пары минут, не закрывайте окно.",
 }
 ERRORS = {
     "BadPassword": "Неверный логин или пароль",
@@ -144,6 +152,9 @@ class _Pending:
     state: LoginState = LoginState.NONE
     detail: str | None = None
     task: asyncio.Task[Any] | None = None
+    asked: asyncio.Future[str] | None = None    # a challenge code asked by the running attempt
+    attempt_started: float = 0.0
+    resume_state: LoginState = LoginState.NONE   # the state a «wait» was entered from
     retry_at: float = 0.0
     retries: int = 0
     code_tries: int = 0
@@ -179,13 +190,16 @@ class InstagramLogins:
 
     def __init__(self, factory: ClientFactory = build_ig_client, *,
                  default_proxy: str = "", ttl_s: float = LOGIN_TTL_S,
-                 attempt_s: float = ATTEMPT_S,
+                 attempt_s: float = ATTEMPT_S, answer_s: float = ANSWER_S,
+                 poll_wait_s: float = POLL_WAIT_S,
                  monotonic: Callable[[], float] = time.monotonic,
                  backoff_s: tuple[float, ...] = DEVICE_BACKOFF_S) -> None:
         self.factory = factory
         self.default_proxy = default_proxy
         self.ttl_s = ttl_s
         self.attempt_s = attempt_s
+        self.answer_s = answer_s
+        self.poll_wait_s = poll_wait_s
         self.monotonic = monotonic
         self.backoff_s = backoff_s
         self.pending: dict[int, _Pending] = {}
@@ -238,6 +252,8 @@ class InstagramLogins:
         login = self.pending.get(channel_id)
         if login is None:
             return LoginResult(LoginState.NONE, EXPIRED)
+        if login.state == LoginState.WAIT:
+            return await self._wait(channel_id, login, self.poll_wait_s)
         if login.state == LoginState.DEVICE and self.monotonic() >= login.retry_at:
             return await self._attempt(channel_id, login.first)
         return self._question(login)
@@ -250,11 +266,13 @@ class InstagramLogins:
         if login is None:
             return LoginResult(LoginState.NONE, EXPIRED)
         code = "".join(code.split())
+        if login.state == LoginState.WAIT:
+            return self._question(login)                # the attempt is still running
         if login.state == LoginState.CHALLENGE and code:
             login.code_tries += 1
             if login.task is not None and not login.task.done():
                 login.bridge.give(code)                 # the handler is waiting for it
-                return await self._wait(channel_id, login)
+                return await self._wait(channel_id, login, self.answer_s)
             # The last code was refused and that attempt is over: log in again, Instagram
             # sends a new code and asks for it.
             return await self._attempt(channel_id, login.first)
@@ -293,15 +311,19 @@ class InstagramLogins:
     async def _attempt(self, channel_id: int, call: Callable[[], Any]) -> LoginResult:
         login = self.pending[channel_id]
         login.task = asyncio.create_task(asyncio.to_thread(call))
-        return await self._wait(channel_id, login)
+        login.attempt_started = self.monotonic()
+        return await self._wait(channel_id, login, self.answer_s)
 
-    async def _wait(self, channel_id: int, login: _Pending) -> LoginResult:
-        """Until the running attempt ends or Instagram asks for a challenge code."""
+    async def _wait(self, channel_id: int, login: _Pending, timeout: float) -> LoginResult:
+        """Up to `timeout`: the attempt's end, a challenge code Instagram asks for, or «wait»
+        (the attempt goes on; the dashboard re-reads). Past `attempt_s` it is given up."""
         task = login.task
         if task is None:
             return self._question(login)
-        asked = login.bridge.arm()
-        done, _ = await asyncio.wait({task, asked}, timeout=self.attempt_s,
+        if login.asked is None or login.asked.done():
+            login.asked = login.bridge.arm()
+        asked = login.asked
+        done, _ = await asyncio.wait({task, asked}, timeout=timeout,
                                      return_when=asyncio.FIRST_COMPLETED)
         if task in done:
             asked.cancel()
@@ -310,6 +332,11 @@ class InstagramLogins:
             login.state, login.detail = LoginState.CHALLENGE, asked.result()
             log.info("instagram login channel=%s: challenge code asked", channel_id)
             return self._question(login)
+        if self.monotonic() - login.attempt_started < self.attempt_s:
+            if login.state != LoginState.WAIT:
+                login.resume_state = login.state        # a refused code is told against it
+            login.state = LoginState.WAIT
+            return self._question(login)
         asked.cancel()
         log.warning("instagram login channel=%s: no answer from Instagram", channel_id)
         await self.cancel(channel_id)
@@ -317,6 +344,8 @@ class InstagramLogins:
 
     async def _outcome(self, channel_id: int, login: _Pending,
                        task: asyncio.Task[Any]) -> LoginResult:
+        if login.state == LoginState.WAIT:
+            login.state = login.resume_state
         exc = task.exception() if not task.cancelled() else CodeRequired("cancelled")
         if exc is None:
             return await self._finish(channel_id, login)
@@ -366,7 +395,7 @@ class InstagramLogins:
             where = "на почту" if login.detail == "email" else "в SMS"
             return LoginResult(state, TEXTS["challenge"].format(where=where),
                                detail=login.detail)
-        if state in (LoginState.DEVICE, LoginState.MANUAL):
+        if state in (LoginState.DEVICE, LoginState.MANUAL, LoginState.WAIT):
             return LoginResult(state, TEXTS[state.value])
         return LoginResult(LoginState.NONE, EXPIRED)
 
