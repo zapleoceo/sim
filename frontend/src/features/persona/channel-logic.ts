@@ -9,9 +9,9 @@ export interface LoginForm {
 
 export const EMPTY_LOGIN_FORM: LoginForm = { api_id: '', api_hash: '', proxy: '' };
 
-/** The dashboard re-reads the login while a QR may be scanned or the Instagram app approval is awaited. */
+/** The dashboard re-reads the login while a QR may be scanned, the Instagram app approval is awaited or Instagram is still answering («wait»). */
 export function shouldPoll(state: LoginStateName | undefined): boolean {
-  return state === 'qr' || state === 'device';
+  return state === 'qr' || state === 'device' || state === 'wait';
 }
 
 /** States in which the owner still has something to do (the login can be cancelled). */
@@ -95,7 +95,7 @@ export function instagramRequest(form: InstagramForm): { errors: string[]; body:
 /** The code field's label for the Instagram question (2FA or a challenge). */
 export function codeLabel(state: LoginStateName | undefined, detail: string | null | undefined): string {
   if (state === 'challenge') return detail === 'email' ? 'Код из письма Instagram' : 'Код из SMS от Instagram';
-  if (detail === 'code') return 'Код двухфакторной проверки';
+  if (detail === 'code') return 'Код подтверждения входа';
   return detail === 'totp' ? 'Код из приложения-аутентификатора' : 'Код из SMS';
 }
 

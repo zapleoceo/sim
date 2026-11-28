@@ -18,12 +18,13 @@ class LoginState(StrEnum):
     DEVICE = "device"           # approve the login in the app on the phone (retried by itself)
     CHALLENGE = "challenge"     # a code Instagram sent by e-mail / SMS (`detail` = where)
     MANUAL = "manual"           # Instagram wants a check in its app first, then «Повторить»
+    WAIT = "wait"               # the messenger is still answering (Instagram: up to minutes)
     CONNECTED = "connected"     # signed in: `credentials` are set
     ERROR = "error"             # the login is over; `message` says why
 
 
 # States in which the dashboard re-reads the login by itself.
-POLLED = frozenset({LoginState.QR, LoginState.DEVICE, LoginState.MANUAL})
+POLLED = frozenset({LoginState.QR, LoginState.DEVICE, LoginState.MANUAL, LoginState.WAIT})
 
 
 @dataclass

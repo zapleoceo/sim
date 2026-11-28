@@ -697,10 +697,10 @@ export interface ChatChannel {
  * One step of connecting an account (no secrets ever come back): `qr` (Telegram, WhatsApp),
  * `password` (Telegram 2FA), `code` (Instagram 2FA, `detail` = totp | sms), `device` (approve in
  * the Instagram app, retried by itself), `challenge` (a code Instagram sent, `detail` = email |
- * sms), `manual` (check in the app, then «Повторить»).
+ * sms), `manual` (check in the app, then «Повторить»), `wait` (Instagram is still answering: re-read).
  */
 export type LoginStateName =
-  | 'qr' | 'password' | 'code' | 'device' | 'challenge' | 'manual' | 'connected' | 'error' | 'none';
+  | 'qr' | 'password' | 'code' | 'device' | 'challenge' | 'manual' | 'wait' | 'connected' | 'error' | 'none';
 
 export interface LoginView {
   state: LoginStateName;

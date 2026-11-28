@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 
 from sim.channels.instagram.login import (
     CODE_WRONG,
@@ -18,6 +19,7 @@ from tests.fakes.channels import (
     ChallengeRequired,
     FakeIgClient,
     FakeIgFactory,
+    TwoFactorRequired,
     bloks_two_factor,
     challenge,
     code_is,
@@ -38,14 +40,14 @@ class Clock:
         return self.now
 
 
-def logins(*steps: object, clock: Clock | None = None,
-           default_proxy: str = "") -> tuple[InstagramLogins, FakeIgFactory]:
+def logins(*steps: object, clock: Clock | None = None, default_proxy: str = "",
+           **timing: float) -> tuple[InstagramLogins, FakeIgFactory]:
     def prepare(client: FakeIgClient) -> None:
         client.logins = list(steps)  # type: ignore[arg-type]
 
     factory = FakeIgFactory(prepare)
-    return InstagramLogins(factory, default_proxy=default_proxy, attempt_s=5,
-                           monotonic=clock or Clock()), factory
+    return InstagramLogins(factory, default_proxy=default_proxy,
+                           **{"attempt_s": 5, **timing}, monotonic=clock or Clock()), factory
 
 
 async def test_password_login_connects_and_keeps_only_the_session() -> None:
@@ -75,6 +77,64 @@ async def test_without_a_proxy_she_logs_in_from_the_server_or_through_its_defaul
     flow, factory = logins(default_proxy=PROXY)
     result = await flow.start(1, IgLoginRequest(proxy="", username="a", password="b"))
     assert result.state == LoginState.CONNECTED and factory.last.proxy == PROXY
+
+
+async def test_a_slow_instagram_answers_wait_and_the_poll_gets_the_result() -> None:
+    # instagrapi 3.2's CAA login takes up to minutes (prod, 2026-11-28: the request hung).
+    gate = threading.Event()
+
+    def slow(client: FakeIgClient, username: str, *_: str) -> bool:
+        gate.wait(5)
+        return client.signed_in(username)
+
+    flow, _ = logins(slow, answer_s=0.05, poll_wait_s=0.05)
+    first = await flow.start(1, PASSWORD)
+    assert first.state == LoginState.WAIT and "проверяет вход" in first.message
+    assert (await flow.poll(1)).state == LoginState.WAIT
+    assert (await flow.answer(1, "123456")).state == LoginState.WAIT   # nothing to answer yet
+    gate.set()
+    done = await flow.poll(1)
+    for _ in range(40):
+        if done.state != LoginState.WAIT:
+            break
+        done = await flow.poll(1)
+    assert done.state == LoginState.CONNECTED
+
+
+async def test_a_wait_past_the_attempt_limit_gives_up() -> None:
+    gate = threading.Event()
+    clock = Clock()
+
+    def stuck(*_: object) -> bool:
+        gate.wait(5)
+        return False
+
+    flow, _ = logins(stuck, clock=clock, answer_s=0.05, poll_wait_s=0.05, attempt_s=300)
+    assert (await flow.start(1, PASSWORD)).state == LoginState.WAIT
+    clock.now += 301
+    gone = await flow.poll(1)
+    gate.set()
+    assert gone.state == LoginState.ERROR and "не ответил вовремя" in gone.message
+    assert (await flow.poll(1)).state == LoginState.NONE
+
+
+async def test_a_refused_code_after_a_wait_is_told_as_such() -> None:
+    gate = threading.Event()
+
+    def slow_refusal(*_: object) -> bool:
+        gate.wait(5)
+        raise TwoFactorRequired("wrong code")
+
+    flow, _ = logins(two_factor("totp"), slow_refusal, answer_s=0.05, poll_wait_s=0.05)
+    assert (await flow.start(1, PASSWORD)).state == LoginState.CODE
+    assert (await flow.answer(1, "000000")).state == LoginState.WAIT
+    gate.set()
+    refused = await flow.poll(1)
+    for _ in range(40):
+        if refused.state != LoginState.WAIT:
+            break
+        refused = await flow.poll(1)
+    assert (refused.state, refused.message) == (LoginState.CODE, CODE_WRONG)
 
 
 async def test_a_totp_code_and_a_wrong_one() -> None:
