@@ -27,7 +27,7 @@ function backend(extra: Record<string, FakeReply> = {}) {
   return fakeApi({
     'GET /api/chats/7': CHAT,
     'GET /api/chats/7/status': CHAT.persona_status,
-    'GET /api/chats/7/timeline': { items: [] },
+    'GET /api/chats/7/feed': { items: [] },
     ...extra,
   });
 }
@@ -119,5 +119,59 @@ describe('Conversation header', () => {
     expect(ai).toBeDisabled();
     release();
     await waitFor(() => expect(ai).toBeEnabled());
+  });
+});
+
+describe('Conversation of a person in two messengers', () => {
+  const TWO: ChatDetail = {
+    ...CHAT,
+    channel: { id: 70, kind: 'whatsapp', title: '' },
+    unread_count: 1,
+    chats: [
+      { id: 7, channel: { id: 70, kind: 'whatsapp', title: '' }, unread_count: 1, last_message_at: '2026-11-28T11:00:00Z',
+        last_client_at: '2026-11-28T11:00:00Z', ai_enabled: true, needs_operator: false },
+      { id: 3, channel: { id: 30, kind: 'telegram_user', title: '' }, unread_count: 2, last_message_at: '2026-11-28T10:00:00Z',
+        last_client_at: '2026-11-28T10:00:00Z', ai_enabled: true, needs_operator: false },
+    ],
+    unread_total: 3,
+  };
+  const message = (id: number, kind: string, text: string, at: string) => ({
+    id, kind: 'message_in' as const, actor: 'client', created_at: at, in_context: true, reply_run_id: null, data: {},
+    message: { id, direction: 'in' as const, author: 'client' as const, kind: 'text' as const, text, status: 'received' as const, error: null, sent_at: at },
+    chat_id: kind === 'whatsapp' ? 7 : 3, channel: { id: kind === 'whatsapp' ? 70 : 30, kind, title: '' },
+  });
+
+  it('shows one feed with the messenger of each message, marks every chat read and switches the reply chat', async () => {
+    const log = fakeApi({
+      'GET /api/chats/7': TWO,
+      'GET /api/chats/7/status': TWO.persona_status,
+      'GET /api/chats/7/feed': { items: [
+        message(20, 'whatsapp', 'и в ватсапе', '2026-11-28T11:00:00Z'),
+        message(10, 'telegram_user', 'привет из телеги', '2026-11-28T10:00:00Z'),
+      ] },
+      'POST /api/chats/7/read': null,
+      'POST /api/chats/3/read': null,
+    });
+    const picked: number[] = [];
+    await renderWithApp(<Conversation chatId={7} onSelectChat={(id) => picked.push(id)} />);
+
+    const feed = await screen.findByRole('log', { name: 'Переписка' });
+    expect(await within(feed).findByText('и в ватсапе')).toBeInTheDocument();
+    expect(within(feed).getByRole('separator', { name: 'Дальше — WhatsApp' })).toBeInTheDocument();
+    expect(within(feed).getAllByRole('img', { name: 'Telegram' }).length).toBeGreaterThan(0);
+    await waitFor(() => expect(log.filter((r) => r.method === 'POST').map((r) => r.path).sort()).toEqual([
+      '/api/chats/3/read', '/api/chats/7/read']));
+
+    const replyIn = screen.getByRole('group', { name: 'Ответить в' });
+    expect(within(replyIn).getByRole('button', { name: /WhatsApp/ })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(within(replyIn).getByRole('button', { name: /Telegram/ }));
+    expect(picked).toEqual([3]);
+  });
+
+  it('a person in one messenger has no «Ответить в»', async () => {
+    backend();
+    await renderWithApp(<Conversation chatId={7} onSelectChat={() => undefined} />);
+    await screen.findByRole('button', { name: 'Ещё действия с чатом' });
+    expect(screen.queryByRole('group', { name: 'Ответить в' })).not.toBeInTheDocument();
   });
 });

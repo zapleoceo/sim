@@ -2,6 +2,7 @@ import {
   AlertCircle, Check, CheckCheck, Clock, Image as ImageIcon, Loader2, PhoneIncoming, PhoneMissed, PhoneOutgoing,
   Sparkles, Video, Mic, XCircle,
 } from 'lucide-react';
+import { ChannelIcon } from '@/components/channel-icon';
 import { formatDuration, formatTime } from '@/lib/format';
 import type { TimelineCall, TimelineGeneration, TimelineItem, TimelineMessage } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -47,10 +48,11 @@ function StickerLine({ emoji, large }: { emoji: string; large: boolean }) {
   );
 }
 
-function MessageBubble({ item, message, onExplain }: {
+function MessageBubble({ item, message, onExplain, channel }: {
   item: TimelineItem;
   message: TimelineMessage;
   onExplain: (runId: number) => void;
+  channel?: string | null;
 }) {
   const mine = message.author !== 'client';
   const failed = message.status === 'failed' || item.kind === 'send_failed';
@@ -84,6 +86,7 @@ function MessageBubble({ item, message, onExplain }: {
         )}
       </div>
       <div className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
+        {channel && <ChannelIcon kind={channel} className="size-3" />}
         <time dateTime={message.sent_at ?? item.created_at} className="tabular">
           {formatTime(message.sent_at ?? item.created_at)}
         </time>
@@ -184,9 +187,17 @@ export function GenerationChip({ generation }: { generation: TimelineGeneration 
 }
 
 /** One row of the conversation, by journal event kind. */
-export function TimelineEntry({ item, onExplain }: { item: TimelineItem; onExplain: (runId: number) => void }) {
+/**
+ * One journal event. `channel` — the messenger the message came through, shown as a small icon
+ * by its time in a feed over several messengers (the person's conversation).
+ */
+export function TimelineEntry({ item, onExplain, channel }: {
+  item: TimelineItem;
+  onExplain: (runId: number) => void;
+  channel?: string | null;
+}) {
   if (item.message && (item.kind === 'message_in' || item.kind === 'message_out' || item.kind === 'send_failed')) {
-    return <MessageBubble item={item} message={item.message} onExplain={onExplain} />;
+    return <MessageBubble item={item} message={item.message} onExplain={onExplain} channel={channel} />;
   }
   if (item.kind === 'call' && item.call) return <CallCard call={item.call} at={item.created_at} />;
   if ((item.kind === 'generation_started' || item.kind === 'generation_failed') && item.generation) {

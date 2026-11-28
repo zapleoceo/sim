@@ -1,41 +1,31 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { MessageSquareDashed } from 'lucide-react';
 import { Fragment, useState } from 'react';
-import { channelLook } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MessengerChange, messengerChanged } from '@/features/chats/messenger-change';
 import { ReplyRunSheet } from '@/features/chats/reply-run-sheet';
 import { TimelineEntry } from '@/features/chats/timeline-entry';
 import { useInView } from '@/hooks/use-in-view';
 import { dayKey, dayLabel } from '@/lib/format';
 import { qk } from '@/lib/query';
-import type { ClientTimelineItem } from '@/lib/types';
 import { CLIENT_TIMELINE_PAGE, leadsApi } from './api';
 
-/** A separator chip: the day and/or the messenger the following events come from. */
-function Separator({ item, day, messenger }: { item: ClientTimelineItem; day: boolean; messenger: boolean }) {
-  const { label, icon: Icon } = channelLook(item.channel?.kind);
+/** The day chip of the feed. */
+function DayChip({ at }: { at: string }) {
   return (
     <div className="flex justify-center py-1">
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-0.5 text-xs text-muted-foreground">
-        {day && <span>{dayLabel(item.created_at)}</span>}
-        {day && messenger && <span aria-hidden>·</span>}
-        {messenger && (
-          <>
-            <Icon aria-hidden="true" className="size-3.5" />
-            <span>{label}</span>
-          </>
-        )}
-      </span>
+      <span className="rounded-full bg-muted px-3 py-0.5 text-xs text-muted-foreground">{dayLabel(at)}</span>
     </div>
   );
 }
 
 /**
  * «Лента» of the lead card: the journal of every chat of the client in one stream (Telegram,
- * WhatsApp, Instagram), newest at the bottom like a chat. A chip names the messenger whenever
- * it changes and the day whenever a new one starts; older pages load on scroll up.
+ * WhatsApp, Instagram), newest at the bottom like a chat. «→ WhatsApp» marks where the messenger
+ * changes (the same separator as in /chats), each message has its messenger's icon, a chip names
+ * the day; older pages load on scroll up.
  */
 export function ClientFeed({ clientId }: { clientId: number }) {
   const [runId, setRunId] = useState<number | null>(null);
@@ -72,11 +62,11 @@ export function ClientFeed({ clientId }: { clientId: number }) {
           {items.map((item, i) => {
             const older = items[i + 1];
             const day = !older || dayKey(older.created_at) !== dayKey(item.created_at);
-            const messenger = !older || older.channel?.kind !== item.channel?.kind;
             return (
               <Fragment key={item.id}>
-                <TimelineEntry item={item} onExplain={setRunId} />
-                {(day || messenger) && <Separator item={item} day={day} messenger={messenger} />}
+                <TimelineEntry item={item} onExplain={setRunId} channel={item.channel?.kind} />
+                {messengerChanged(item, older) && <MessengerChange kind={item.channel?.kind} />}
+                {day && <DayChip at={item.created_at} />}
               </Fragment>
             );
           })}

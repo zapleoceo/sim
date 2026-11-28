@@ -208,11 +208,30 @@ export interface ChatRow {
   unread_count: number;
   /** What she is doing about this chat now — visible to the team only. */
   persona_status: PersonaStatus;
+  /**
+   * Every chat of this client with this persona, itself included, most recent first (the list
+   * shows one row per person, docs/frontend.md «Одна лента на клиента»).
+   */
+  chats?: PersonChat[];
+  /** Unread over `chats`. */
+  unread_total?: number;
   last_message_at: string | null;
   last_message: LastMessage | null;
 }
 
 export type ChatDetail = Omit<ChatRow, 'client'> & { client: Client };
+
+/** One of the client's chats with a persona (`ChatRow.chats`). */
+export interface PersonChat {
+  id: number;
+  channel: ChatChannel | null;
+  unread_count: number;
+  last_message_at: string | null;
+  /** When the client last wrote in this chat (the operator answers there by default). */
+  last_client_at: string | null;
+  ai_enabled: boolean;
+  needs_operator: boolean;
+}
 
 export interface ClientDetail extends Client {
   persona: PersonaBrief | null;

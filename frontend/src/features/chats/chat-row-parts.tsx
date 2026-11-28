@@ -19,6 +19,15 @@ export function ChatAvatar({ chat, size = 44, messenger = true }: { chat: ChatRo
   );
 }
 
+/** The person's messengers as overlapping coloured badges (most recent first). */
+export function MessengerBadges({ kinds, size = 28 }: { kinds: readonly string[]; size?: number }) {
+  return (
+    <span className="inline-flex flex-none items-center -space-x-1.5">
+      {kinds.map((kind) => <ChannelBadge key={kind} kind={kind} size={size} className="ring-2 ring-background" />)}
+    </span>
+  );
+}
+
 /** «отвечает» / «ИИ выключен»: whether she answers here (the chat's and the client's switches). */
 export function AiState({ chat }: { chat: ChatRow }) {
   const on = aiActive(chat);

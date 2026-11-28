@@ -1,19 +1,21 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChannelBadge, channelLook } from '@/components/channel-icon';
+import { channelLook } from '@/components/channel-icon';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTime, formatShort } from '@/lib/format';
 import type { ChatRow } from '@/lib/types';
 import type { ChatsSearch } from '@/router';
 import { clientName, cn } from '@/lib/utils';
-import { AiState, ChatAvatar, OperatorBadge, UnreadBadge } from './chat-row-parts';
+import { AiState, ChatAvatar, MessengerBadges, OperatorBadge, UnreadBadge } from './chat-row-parts';
 import { PersonaStatusPill } from './persona-status';
+import { needsOperator, personMessengers, replyChatId, unreadTotal } from './person-logic';
 import { lastMessagePreview } from './timeline-logic';
 
 /**
- * The wide chat list (no chat open, from 1024 px): one row per chat across the whole width —
- * messenger, client, the last message, «Статус Марины», the persona (with more than one), AI and
+ * The wide chat list (no chat open, from 1024 px): one row per person (a client with a persona)
+ * across the whole width — their messengers, client, the last message, «Статус Марины», the persona (with more than one), AI and
  * time with the unread counter under it. A row with unread messages has an accent bar on the
- * left. A click anywhere on the row opens the chat; the client's name is the keyboard link.
+ * left. A click anywhere on the row opens the person's feed on the chat the client wrote in last;
+ * the client's name is the keyboard link.
  */
 export function ChatTable({ items, showPersona, filters }: {
   items: ChatRow[];
@@ -23,6 +25,7 @@ export function ChatTable({ items, showPersona, filters }: {
 }) {
   const navigate = useNavigate();
   const open = (id: number): void => void navigate({ to: '/chats', search: { ...filters, id } });
+  const messengersOf = (chat: ChatRow): string => personMessengers(chat).map((k) => channelLook(k).label).join(' · ');
   return (
     <Table aria-label="Чаты">
       <TableHeader className="bg-muted/40">
@@ -39,18 +42,20 @@ export function ChatTable({ items, showPersona, filters }: {
       <TableBody>
         {items.map((chat) => {
           const name = clientName(chat.client);
-          const unread = chat.unread_count > 0;
+          const unreadCount = unreadTotal(chat);
+          const unread = unreadCount > 0;
+          const target = replyChatId(chat);
           return (
             <TableRow
               key={chat.id}
               data-unread={unread || undefined}
               className="h-16 cursor-pointer data-[unread]:bg-primary/[0.03]"
-              onClick={() => open(chat.id)}
+              onClick={() => open(target)}
             >
               <TableCell className={cn('pl-4', unread && 'shadow-[inset_3px_0_0_var(--primary)]')}>
-                <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                  <ChannelBadge kind={chat.channel?.kind} />
-                  {channelLook(chat.channel?.kind).label}
+                <span className="inline-flex items-center gap-2">
+                  <MessengerBadges kinds={personMessengers(chat)} />
+                  <span className="max-w-28 text-xs leading-tight">{messengersOf(chat)}</span>
                 </span>
               </TableCell>
               <TableCell className="max-w-64">
@@ -59,7 +64,7 @@ export function ChatTable({ items, showPersona, filters }: {
                   <span className="flex min-w-0 flex-col">
                     <Link
                       to="/chats"
-                      search={{ ...filters, id: chat.id }}
+                      search={{ ...filters, id: target }}
                       onClick={(e) => e.stopPropagation()}
                       className={cn('truncate hover:underline', unread ? 'font-semibold' : 'font-medium')}
                     >
@@ -83,7 +88,7 @@ export function ChatTable({ items, showPersona, filters }: {
               <TableCell>
                 <span className="flex flex-col items-start gap-1">
                   <AiState chat={chat} />
-                  {chat.needs_operator && <OperatorBadge />}
+                  {needsOperator(chat) && <OperatorBadge />}
                 </span>
               </TableCell>
               <TableCell className="pr-4 text-right">
@@ -95,7 +100,7 @@ export function ChatTable({ items, showPersona, filters }: {
                   >
                     {formatShort(chat.last_message_at) || '—'}
                   </time>
-                  <UnreadBadge count={chat.unread_count} />
+                  <UnreadBadge count={unreadCount} />
                 </span>
               </TableCell>
             </TableRow>

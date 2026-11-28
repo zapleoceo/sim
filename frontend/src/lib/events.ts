@@ -41,13 +41,16 @@ export function parseLiveEvent(data: string): LiveEvent | null {
 }
 
 /**
- * What to re-read after an event. The chat's own timeline, «Статус Марины» and the client
+ * What to re-read after an event. The timelines on screen (the conversation shows the client's
+ * chats in every messenger), the chat's «Статус Марины» and the client
  * journal on screen («Лента» of a lead card, which joins every chat of the client) always; the chat
  * lists when its row changed; that chat's header when its row or its client changed (the header
  * shows the client's passport); the clients when a client's data changed.
  */
 export function invalidationsFor(event: LiveEvent): QueryKey[] {
-  const keys: QueryKey[] = [qk.timeline(event.chat_id), qk.chatStatus(event.chat_id), qk.clientTimelines];
+  // Every timeline: the open conversation joins the client's chats in all messengers, so an event
+  // of a sibling chat belongs to it too (only mounted timelines refetch).
+  const keys: QueryKey[] = [qk.timelines, qk.chatStatus(event.chat_id), qk.clientTimelines];
   const rowChanged = CHAT_ROW_KINDS.has(event.kind);
   const clientChanged = CLIENT_KINDS.has(event.kind);
   if (rowChanged) keys.push(qk.chatLists);

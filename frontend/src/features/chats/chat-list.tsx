@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link, getRouteApi } from '@tanstack/react-router';
 import { MessagesSquare, SearchX } from 'lucide-react';
+import { ChannelIcon } from '@/components/channel-icon';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import { clientName, cn } from '@/lib/utils';
 import { CHATS_PAGE, chatsApi } from './api';
 import { emptyChatsText } from './chat-list-logic';
 import { ChatAvatar, OperatorBadge, UnreadBadge } from './chat-row-parts';
+import { isPersonOf, needsOperator, personMessengers, replyChatId, unreadTotal } from './person-logic';
 import { ChatTable } from './chat-table';
 import { PersonaStatusPill } from './persona-status';
 import { STATUS_REFRESH_MS } from './persona-status-logic';
@@ -35,12 +37,14 @@ function ChatListItem({ chat, active, showPersona, filters }: {
   filters: Filters;
 }) {
   const name = clientName(chat.client);
-  const unread = chat.unread_count > 0;
+  const unreadCount = unreadTotal(chat);
+  const unread = unreadCount > 0;
+  const messengers = personMessengers(chat);
   return (
     <li>
       <Link
         to="/chats"
-        search={{ ...filters, id: chat.id }}
+        search={{ ...filters, id: replyChatId(chat) }}
         aria-current={active ? 'true' : undefined}
         className={cn(
           'flex items-center gap-3 border-b px-3 py-3 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none',
@@ -51,7 +55,11 @@ function ChatListItem({ chat, active, showPersona, filters }: {
         <ChatAvatar chat={chat} />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
-            <span className={cn('min-w-0 flex-1 truncate text-sm', unread ? 'font-semibold' : 'font-medium')}>{name}</span>
+            <span className={cn('min-w-0 truncate text-sm', unread ? 'font-semibold' : 'font-medium')}>{name}</span>
+            {/* More than one messenger: all of them after the name (the avatar shows the latest). */}
+            <span className="flex flex-1 items-center gap-1">
+              {messengers.length > 1 && messengers.map((kind) => <ChannelIcon key={kind} kind={kind} />)}
+            </span>
             <time
               className={cn('flex-none text-[11px] tabular', unread ? 'font-medium text-primary' : 'text-muted-foreground')}
               dateTime={chat.last_message_at ?? undefined}
@@ -63,13 +71,13 @@ function ChatListItem({ chat, active, showPersona, filters }: {
             <span className={cn('min-w-0 flex-1 truncate text-xs', unread ? 'text-foreground' : 'text-muted-foreground')}>
               {lastMessagePreview(chat.last_message)}
             </span>
-            <UnreadBadge count={chat.unread_count} />
+            <UnreadBadge count={unreadCount} />
           </span>
           <span className="flex min-w-0 items-center gap-2">
             <span className="flex min-w-0 flex-1">
               <PersonaStatusPill status={chat.persona_status} />
             </span>
-            {chat.needs_operator && <OperatorBadge />}
+            {needsOperator(chat) && <OperatorBadge />}
             {showPersona && chat.persona && (
               <span className="flex-none truncate text-[11px] text-muted-foreground">
                 <span className="sr-only">Отвечает </span>
@@ -175,7 +183,7 @@ export function ChatList({ layout = 'list' }: { layout?: 'list' | 'table' }) {
         {items.length > 0 && !wide && (
           <ul aria-label="Чаты" className="flex flex-col">
             {items.map((chat) => (
-              <ChatListItem key={chat.id} chat={chat} active={chat.id === activeId} showPersona={showPersona} filters={filters} />
+              <ChatListItem key={chat.id} chat={chat} active={isPersonOf(chat, activeId)} showPersona={showPersona} filters={filters} />
             ))}
           </ul>
         )}

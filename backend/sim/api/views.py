@@ -2,6 +2,7 @@
 route that returns a `ChatRow`, `Media`, `TimelineItem`… goes through the same builder."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sim.api.schemas import PERSONA_FIELDS
@@ -148,11 +149,21 @@ def channel_brief(channel: Channel | None) -> Json | None:
                                          "title": channel.title}
 
 
+def person_chat(chat: Chat, channel: Channel | None, last_client_at: datetime | None) -> Json:
+    """One of the client's chats with a persona, as the chat row lists them (`chats`)."""
+    return {"id": chat.id, "channel": channel_brief(channel), "unread_count": chat.unread_count,
+            "last_message_at": chat.last_message_at, "last_client_at": last_client_at,
+            "ai_enabled": chat.ai_enabled, "needs_operator": chat.needs_operator}
+
+
 def chat_row(chat: Chat, client: Client, last: Message | None,
              persona: Persona | None = None, *, status: Json | None = None,
-             channel: Channel | None = None) -> Json:
+             channel: Channel | None = None, chats: list[Json] | None = None) -> Json:
     """`persona_status` — what she is doing about this chat now, for the team only
-    (sim/services/persona_status.py); `channel` — the messenger of the chat."""
+    (sim/services/persona_status.py); `channel` — the messenger of the chat; `chats` — every
+    chat of this client with this persona (itself included), most recent first, and
+    `unread_total` over them (docs/frontend.md, «Одна лента на клиента»)."""
+    chats = chats or []
     return {
         "id": chat.id, "client": client_brief(client), "persona": persona_brief(persona),
         "channel": channel_brief(channel),
@@ -161,6 +172,8 @@ def chat_row(chat: Chat, client: Client, last: Message | None,
         "calls_out": chat.calls_out,
         "needs_operator": chat.needs_operator, "unread_count": chat.unread_count,
         "persona_status": status,
+        "chats": chats,
+        "unread_total": sum(c["unread_count"] for c in chats) if chats else chat.unread_count,
         "last_message_at": chat.last_message_at,
         "last_message": None if last is None else {
             "kind": last.kind, "direction": last.direction, "author": last.author,
