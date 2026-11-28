@@ -105,7 +105,8 @@ class PasswordIn(Struct):
 
 class InstagramLoginIn(Struct, forbid_unknown_fields=True):
     """One way in (docs/channels.md): username + password, OR the browser's sessionid, OR an
-    instagrapi settings JSON; the proxy is required (or SIM_IG_DEFAULT_PROXY). Never logged."""
+    instagrapi settings JSON; the proxy is optional (empty and no SIM_IG_DEFAULT_PROXY = the
+    server's own IP). Never logged."""
 
     proxy: Annotated[str, Meta(max_length=300)] = ""
     username: Annotated[str, Meta(max_length=64)] = ""

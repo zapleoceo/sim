@@ -59,14 +59,13 @@ export const EMPTY_INSTAGRAM_FORM: InstagramForm = {
 };
 
 export const PROXY_HINT =
-  'Обязателен: вход с серверного IP Instagram считает взломом. Страна прокси — страна аккаунта, и прокси потом не менять.';
+  'Пусто — вход с IP сервера (Германия). С прокси: страна прокси — страна аккаунта, и прокси потом не менять.';
 
 /** Form errors in Russian, or the body of the chosen way in (only its own fields are sent). */
 export function instagramRequest(form: InstagramForm): { errors: string[]; body: InstagramLogin | null } {
   const errors: string[] = [];
   const proxy = form.proxy.trim();
-  if (!proxy) errors.push('Укажите прокси');
-  else if (!proxyOk(proxy)) errors.push('Прокси вида socks5://user:pass@host:port');
+  if (proxy && !proxyOk(proxy)) errors.push('Прокси вида socks5://user:pass@host:port');
   let body: InstagramLogin = { proxy };
   if (form.method === 'password') {
     const username = form.username.trim().replace(/^@/, '');

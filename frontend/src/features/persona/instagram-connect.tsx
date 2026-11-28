@@ -20,8 +20,8 @@ const METHODS = [
 ] as const;
 
 /**
- * Instagram login: login + password (or the browser's sessionid, or a session JSON) through a
- * required proxy → a 2FA / challenge code, «подтвердите вход в приложении» (retried by itself) or
+ * Instagram login: login + password (or the browser's sessionid, or a session JSON), through a
+ * proxy or from the server's IP → a 2FA / challenge code, «подтвердите вход в приложении» (retried by itself) or
  * a manual check in the app with «Повторить» → connected.
  */
 export function InstagramConnect(props: ConnectProps) {
@@ -89,7 +89,7 @@ export function InstagramConnect(props: ConnectProps) {
                 <Input id="ig-sessionid" type="password" autoComplete="off" value={form.sessionid} onChange={(e) => set({ sessionid: e.target.value })} />
               </Field>
             )}
-            <Field id="ig-proxy" label="Прокси" hint={PROXY_HINT}>
+            <Field id="ig-proxy" label="Прокси (необязательно)" hint={PROXY_HINT}>
               <Input id="ig-proxy" autoComplete="off" placeholder="socks5://user:pass@host:port" value={form.proxy} onChange={(e) => set({ proxy: e.target.value })} />
             </Field>
           </div>
