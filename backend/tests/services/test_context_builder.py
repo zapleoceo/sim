@@ -153,8 +153,9 @@ async def test_the_chats_messenger_shapes_style_and_capabilities(
     await db.flush()
     ctx = await ContextBuilder(clock, settings).for_reply(db, chat.id)
     assert "директ Instagram" in user_text(ctx) and ctx.snapshot["channel"] == "instagram"
-    assert not ctx.capabilities.voice and not ctx.capabilities.video_note
-    assert "голосовые — нет" in user_text(ctx) and "в этом мессенджере их нет" in user_text(ctx)
+    # instagrapi 3.2 sends voice notes and videos to Direct; Instagram has no round videos.
+    assert ctx.capabilities.voice and ctx.capabilities.video and not ctx.capabilities.video_note
+    assert "голосовые — да" in user_text(ctx) and "в этом мессенджере их нет" in user_text(ctx)
 
 
 async def test_only_a_generation_still_in_progress_is_promised(db: AsyncSession, clock: FixedClock,

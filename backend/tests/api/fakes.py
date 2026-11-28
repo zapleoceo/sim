@@ -94,6 +94,9 @@ class FakeTools:
     async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
         return mp4, 1.0
 
+    async def to_m4a(self, data: bytes, mime: str) -> bytes:
+        return data
+
     async def call_recording(self, stereo_pcm: bytes, rate_hz: int) -> tuple[bytes, float]:
         return b"OggS" + stereo_pcm, round(len(stereo_pcm) / (4 * rate_hz), 2)
 

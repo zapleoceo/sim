@@ -104,7 +104,7 @@ class ChannelsRuntime:
             evolution = HttpEvolution(settings.evolution_url, settings.evolution_api_key)
         self.evolution = evolution
         messengers: dict[ChannelKind, MessengerPort] = {
-            ChannelKind.INSTAGRAM: InstagramMessenger(self.accounts)}
+            ChannelKind.INSTAGRAM: InstagramMessenger(self.accounts, deps.tools)}
         if evolution is not None:
             messengers[ChannelKind.WHATSAPP] = WhatsAppMessenger(evolution, self.store)
         self.messenger = DispatchMessenger(deps.sessions, messengers)

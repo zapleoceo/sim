@@ -46,7 +46,25 @@ def test_text_of_every_bubble_a_person_reads() -> None:
     assert text_of({"ephemeralMessage": {"message": {"conversation": "исчезну"}}}) == "исчезну"
     assert text_of({"viewOnceMessageV2": {"message": {"imageMessage": {"caption": "раз"}}}}) \
         == "раз"
-    assert text_of({"reactionMessage": {"text": "👍"}}) == ""
+    # Bubbles without text of their own get a line.
+    assert text_of({"reactionMessage": {"text": "👍"}}) == "👍"
+    assert text_of({"reactionMessage": {"text": ""}}) == ""          # taken back
+    assert text_of({"locationMessage": {"degreesLatitude": 50.45, "degreesLongitude": 30.52,
+                                        "name": "Кафе", "address": "Крещатик, 1"}}) == (
+        "📍 геопозиция Кафе · Крещатик, 1 https://maps.google.com/?q=50.45,30.52")
+    assert text_of({"contactMessage": {"displayName": "Оля"}}) == "👤 контакт: Оля"
+    assert text_of({"contactsArrayMessage": {"contacts": [
+        {"displayName": "Оля"}, {"displayName": "Петя"}]}}) == "👤 контакты: Оля, Петя"
+
+
+def test_a_reaction_is_its_emoji_on_the_message_it_reacts_to() -> None:
+    msg = inbound_of(5, record({"reactionMessage": {
+        "key": {"remoteJid": JID, "fromMe": True, "id": "OUR-1"}, "text": "❤️"}}, mid="R1"))
+    assert msg is not None
+    assert (msg.external_id, msg.text, msg.reply_to_external_id, msg.attachment) == (
+        "R1", "❤️", "OUR-1", None)
+    taken_back = record({"reactionMessage": {"key": {"id": "OUR-1"}, "text": ""}}, mid="R2")
+    assert inbound_of(5, taken_back) is None
 
 
 def test_an_incoming_text_message() -> None:
@@ -62,6 +80,10 @@ def test_a_reply_keeps_what_it_answers() -> None:
     msg = inbound_of(5, record({"extendedTextMessage": {
         "text": "да", "contextInfo": {"stanzaId": "M0"}}}))
     assert msg is not None and msg.reply_to_external_id == "M0"
+    # A voice note or a photo quoting a message answers it too.
+    voice = inbound_of(5, record({"audioMessage": {"ptt": True,
+                                                   "contextInfo": {"stanzaId": "M7"}}}))
+    assert voice is not None and voice.reply_to_external_id == "M7"
 
 
 def test_an_lid_chat_is_addressed_by_its_phone_when_known() -> None:
@@ -101,6 +123,25 @@ def test_media_comes_in_the_event() -> None:
         "photo", b"", 800)
     song = inbound_of(5, record({"audioMessage": {"mimetype": "audio/mpeg", "ptt": False}}))
     assert song is not None and song.attachment is not None and song.attachment.kind == "audio"
+
+
+@pytest.mark.parametrize(("message", "kind", "mime"), [
+    # The round «video message» (кружок): it used to be dropped as an empty message.
+    ({"ptvMessage": {"mimetype": "video/mp4", "seconds": 5, "width": 480, "height": 480}},
+     "video_note", "video/mp4"),
+    ({"videoMessage": {"mimetype": "video/mp4", "caption": ""}}, "video", "video/mp4"),
+    ({"stickerMessage": {"mimetype": "image/webp", "isAnimated": True}}, "sticker",
+     "image/webp"),
+    ({"stickerMessage": {"mimetype": "image/webp"}}, "sticker", "image/webp"),
+    ({"documentMessage": {"mimetype": "application/pdf", "fileName": "cv.pdf"}}, "file",
+     "application/pdf"),
+])
+def test_every_kind_of_media_is_an_attachment(message: dict, kind: str, mime: str) -> None:
+    data = base64.b64encode(b"BYTES").decode()
+    msg = inbound_of(5, {**record(message), "message": {**message, "base64": data}})
+    assert msg is not None and msg.attachment is not None
+    assert (msg.attachment.kind, msg.attachment.mime, msg.attachment.data) == (
+        kind, mime, b"BYTES")
 
 
 def test_events_and_answers_of_every_shape() -> None:

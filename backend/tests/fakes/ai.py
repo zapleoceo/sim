@@ -234,6 +234,10 @@ class FakeMediaTools:
             raise self.video_note_error
         return b"ROUND:" + mp4, 8.0
 
+    async def to_m4a(self, data: bytes, mime: str) -> bytes:
+        self.calls.append(("to_m4a", mime))
+        return b"M4A:" + data
+
     async def call_recording(self, stereo_pcm: bytes, rate_hz: int) -> tuple[bytes, float]:
         """Stereo s16le of a call -> «OGG»; `recording_error` is raised instead."""
         self.calls.append(("call_recording", len(stereo_pcm), rate_hz))

@@ -243,6 +243,9 @@ class MediaToolsPort(Protocol):
     async def to_video_note(self, mp4: bytes) -> tuple[bytes, float]:
         """A round video message: square 640x640, H.264 + AAC, at most 60 s. (bytes, seconds)"""
         ...
+    async def to_m4a(self, data: bytes, mime: str) -> bytes:
+        """Any audio -> mono AAC in .m4a (the voice Instagram Direct takes)."""
+        ...
 
 
 @dataclass(frozen=True)

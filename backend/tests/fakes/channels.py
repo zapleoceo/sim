@@ -67,6 +67,7 @@ class FakeIgClient:
         self.pending_total: int | None = None   # the chats' `pending_requests_total`
         self.requested: list[str] = []          # private-API endpoints, in order
         self.sent: list[tuple[str, Any, list[int]]] = []
+        self.suffixes: list[str] = []           # file suffixes of video / voice uploads
         self.seen: list[int] = []
         self.seen_items: list[tuple[int, int]] = []
         self.send_error: Exception | None = None
@@ -130,6 +131,14 @@ class FakeIgClient:
     def direct_send_photo(self, path: Any, user_ids: Any = None, thread_ids: Any = None) -> Any:
         data = Path(path).read_bytes()          # the file exists while the call runs
         return self._sent(data, thread_ids or [])
+
+    def direct_send_video(self, path: Any, user_ids: Any = None, thread_ids: Any = None) -> Any:
+        self.suffixes.append(Path(path).suffix)
+        return self._sent(Path(path).read_bytes(), thread_ids or [])
+
+    def direct_send_voice(self, path: Any, user_ids: Any = None, thread_ids: Any = None) -> Any:
+        self.suffixes.append(Path(path).suffix)
+        return self._sent(Path(path).read_bytes(), thread_ids or [])
 
     def direct_send_seen(self, thread_id: int) -> Any:
         # The real one reads the thread through instagrapi's extractor first (it fails on

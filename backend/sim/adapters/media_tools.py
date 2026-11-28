@@ -51,6 +51,10 @@ OGG_OPUS_ARGS = ("-vn", "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "
 CALL_RECORDING_ARGS = ("-ac", "2", "-c:a", "libopus", "-b:a", "32k", "-application", "voip",
                        "-f", "ogg")
 PCM16K_ARGS = ("-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-c:a", "pcm_s16le")
+# AAC in an MP4 box (.m4a): the only voice Instagram Direct takes (instagrapi direct_send_voice).
+M4A_MIME = "audio/mp4"
+M4A_ARGS = ("-vn", "-ac", "1", "-ar", "44100", "-c:a", "aac", "-b:a", "64k",
+            "-movflags", "+faststart", "-f", "mp4")
 # First frame, shrunk to fit a 2048 px box (never enlarged), as a good-quality JPEG.
 FIT_FILTER = (f"scale=w='min({MODEL_IMAGE_MAX_SIDE},iw)':h='min({MODEL_IMAGE_MAX_SIDE},ih)'"
               ":force_original_aspect_ratio=decrease")
@@ -102,6 +106,27 @@ async def run_process(args: Sequence[str], limit_s: float) -> ProcessResult:
         raise PortError(f"{args[0]} timed out after {limit_s:g}s", retryable=True) from exc
     return ProcessResult(code=proc.returncode or 0, stdout=out[:MAX_OUTPUT_BYTES],
                          stderr=err[-STDERR_LIMIT:])
+
+
+def is_animated_webp(data: bytes) -> bool:
+    """RIFF/WEBP with an extended header (VP8X) whose animation flag is set."""
+    return (len(data) > 20 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+            and data[12:16] == b"VP8X" and bool(data[20] & 0x02))
+
+
+def first_frame_png(data: bytes) -> bytes:
+    """The first frame of an animated image as PNG (Pillow, which instagrapi brings along;
+    imported here only, so nothing else loads it)."""
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.seek(0)
+            out = io.BytesIO()
+            image.convert("RGBA").save(out, format="PNG")
+    except Exception as exc:                # a broken file: Pillow raises many kinds
+        raise PortError(f"animated image not readable: {type(exc).__name__}") from exc
+    return out.getvalue()
 
 
 def sniff_mime(data: bytes, declared: str) -> str:
@@ -331,11 +356,20 @@ class FfmpegMediaTools:
     async def document_text(self, data: bytes, mime: str, file_name: str) -> str | None:
         return await asyncio.to_thread(extract_document_text, data, mime, file_name)
 
+    async def to_m4a(self, data: bytes, mime: str) -> bytes:
+        """Any audio (her OGG/Opus voice note) -> mono AAC in .m4a, for Instagram Direct."""
+        if not data:
+            raise PortError("ffmpeg: empty audio")
+        return await self._convert(data, sniff_mime(data, mime), "out.m4a", M4A_ARGS)
+
     async def image_for_model(self, data: bytes, mime: str) -> tuple[bytes, str]:
         """JPEG or PNG within 2048 px and 4 MB is sent as is; anything else (HEIC, WebP, GIF,
-        large photos) becomes a JPEG that fits a 2048 px box."""
+        large photos) becomes a JPEG that fits a 2048 px box. An animated WebP (a WhatsApp
+        sticker) is read by its first frame: ffmpeg 7 can not decode animated WebP."""
         if not data:
             raise PortError("ffmpeg: empty image")
+        if is_animated_webp(data):
+            data = await asyncio.to_thread(first_frame_png, data)
         kind = sniff_mime(data, mime)
         if kind in MODEL_IMAGE_MIMES and len(data) <= MODEL_IMAGE_MAX_BYTES:
             probe = await self.probe(data, kind)
