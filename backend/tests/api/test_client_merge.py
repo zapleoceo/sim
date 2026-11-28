@@ -147,11 +147,12 @@ async def test_merge_is_refused_for_one_messenger_the_same_client_and_unknown_on
     other_telegram = Client(persona_id=world.persona_id, name="Второй Дима")
     db.add(other_telegram)
     await db.flush()
-    db.add(ClientIdentity(client_id=other_telegram.id, channel_kind=ChannelKind.TELEGRAM_USER,
+    other_id = other_telegram.id
+    db.add(ClientIdentity(client_id=other_id, channel_kind=ChannelKind.TELEGRAM_USER,
                           external_id="42"))
     await db.commit()
     refused = await api.post(f"/api/clients/{world.client_id}/merge",
-                             json={"other_id": other_telegram.id})
+                             json={"other_id": other_id})
     assert refused.status_code == 409 and "Telegram" in refused.text
     same = await api.post(f"/api/clients/{twin.client_id}/merge",
                           json={"other_id": twin.client_id})
@@ -161,7 +162,7 @@ async def test_merge_is_refused_for_one_messenger_the_same_client_and_unknown_on
     assert (await api.post(f"/api/clients/{twin.client_id}/merge",
                            json={"other_id": 0})).status_code == 400
     db.expire_all()
-    assert await db.get(Client, other_telegram.id) is not None
+    assert await db.get(Client, other_id) is not None
 
 
 async def test_client_timeline_is_one_stream_over_every_chat(api: ApiClient, world: World,

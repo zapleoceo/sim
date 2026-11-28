@@ -19,12 +19,12 @@ function Separator({ item, day, messenger }: { item: ClientTimelineItem; day: bo
   return (
     <div className="flex justify-center py-1">
       <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-0.5 text-xs text-muted-foreground">
-        {day && dayLabel(item.created_at)}
+        {day && <span>{dayLabel(item.created_at)}</span>}
         {day && messenger && <span aria-hidden>·</span>}
         {messenger && (
           <>
             <Icon aria-hidden="true" className="size-3.5" />
-            {label}
+            <span>{label}</span>
           </>
         )}
       </span>

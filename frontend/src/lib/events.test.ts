@@ -81,12 +81,13 @@ describe('connectLiveEvents', () => {
     expect(open).toHaveBeenCalledWith(EVENTS_URL);
 
     source.onmessage?.(new MessageEvent('message', { data: '{"chat_id": 4, "event_id": 9, "kind": "operator_note"}' }));
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledTimes(3);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.timeline(4) });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.chatStatus(4) });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: qk.clientTimelines });
 
     source.onmessage?.(new MessageEvent('message', { data: 'broken' }));
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledTimes(3);
 
     stop();
     expect(source.close).toHaveBeenCalled();
