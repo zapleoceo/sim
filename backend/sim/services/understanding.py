@@ -13,6 +13,11 @@
 The agents (docs/agents.md) come from `agent_config`: model, key tier, max_tokens and the
 vision prompt (one text, four sections; a missing section is its default).
 
+Is it her? A client's photo goes to «Зрение» together with `SELF_REFS` of her own reference
+photos, and the model ends with «Это она: да / нет / не видно»; «да» becomes «На фото — ты
+сама (Марина).» in front of the description (the owner, 2026-11-28: he sent her own photo from
+her library and she said «Ну точно не я»). Without reference photos nothing changes.
+
 The result goes to `media_asset.description` (`understanding=done`) or the error to
 `understanding_error` (`failed`); a `media_understood` event is written either way. Every
 Broker call is logged in `llm_call`. Model calls run outside any database transaction."""
@@ -20,11 +25,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sim.db.models import Chat, MediaAsset, Message, Persona
 from sim.db.session import transaction
@@ -48,6 +55,7 @@ from sim.domain.links import is_link_key
 from sim.events import append_event
 from sim.ports import ChatMessage, ChatPart, PortError
 from sim.services.deps import Deps
+from sim.services.generation import reference_ids
 from sim.services.llm_log import describe_messages, logged_call
 
 log = logging.getLogger(__name__)
@@ -58,6 +66,25 @@ NOT_SEEN = "картинку разглядеть не получилось"
 FRAMES_NOTE = ("Это {n} кадров видео по порядку, через равные промежутки (модель не принимает "
                "видео целиком). Опиши видео по ним; звука нет.")
 DOCUMENT_TEXT_LIMIT = 6_000
+SELF_REFS = 2             # her own reference photos shown with a client's photo
+SELF_NOTE = ("После присланного изображения — {n} фото {name}: это она сама, та, кому прислали "
+             "изображение. Если на присланном изображении есть человек, сравни его лицо, волосы "
+             "и фигуру с ней и последней отдельной строкой напиши ровно одно: «Это она: да», "
+             "«Это она: нет» или «Это она: не видно» (людей нет или лица не разобрать). Её фото "
+             "не описывай.")
+SELF_MARK = re.compile(r"\s*Это она:\s*(да|нет|не видно)\W*$", re.IGNORECASE)
+SELF_SEEN = "На фото — ты сама ({name})."
+
+
+def with_self(text: str, name: str) -> str:
+    """The model's last line «Это она: …» -> «На фото — ты сама» in front, or nothing."""
+    match = SELF_MARK.search(text)
+    if match is None:
+        return text
+    body = text[:match.start()].rstrip()
+    if match.group(1).lower() != "да":
+        return body
+    return f"{SELF_SEEN.format(name=name)} {body}".strip()
 
 
 class UnderstandingError(Exception):
@@ -77,6 +104,8 @@ class Attachment:
     vision: AgentConfig             # «Зрение»: its prompt holds one section per kind
     hearing: AgentConfig            # «Слух»
     link: str = ""                  # a clip by its link, downloaded before it is understood
+    persona_name: str = ""
+    self_refs: tuple[tuple[bytes, str], ...] = ()   # her reference photos (a client's photo)
 
     def prompt(self, section: str) -> str:
         return vision_sections(self.vision.prompt)[section]
@@ -144,7 +173,19 @@ class Understanding:
                 file_name=media.file_name, data=data,
                 vision=agent_config(persona, AgentKey.VISION),
                 hearing=agent_config(persona, AgentKey.TRANSCRIBE), link=link,
+                persona_name=persona.name,
+                self_refs=await self._self_refs(session, persona.id)
+                if message.kind == MessageKind.PHOTO else (),
             )
+
+    async def _self_refs(self, session: AsyncSession,
+                         persona_id: int) -> tuple[tuple[bytes, str], ...]:
+        refs: list[tuple[bytes, str]] = []
+        for media_id in (await reference_ids(session, persona_id))[:SELF_REFS]:
+            ref = await session.get(MediaAsset, media_id)
+            if ref is not None:
+                refs.append((await self.deps.storage.get(ref.storage_key), ref.mime))
+        return tuple(refs)
 
     async def _fetch(self, att: Attachment) -> Attachment:
         """Download the clip of a link and keep it in the library like a sent video; the
@@ -224,7 +265,12 @@ class Understanding:
 
     async def _image(self, att: Attachment) -> str:
         data, mime = await self.deps.tools.image_for_model(att.data, att.mime)
-        return await self._vision(att, VISION_PHOTO, data, mime)
+        if not att.self_refs:
+            return await self._vision(att, VISION_PHOTO, data, mime)
+        refs = [await self.deps.tools.image_for_model(d, m) for d, m in att.self_refs]
+        text = await self._look(att, VISION_PHOTO, [(data, mime), *refs],
+                                note=SELF_NOTE.format(n=len(refs), name=att.persona_name))
+        return with_self(text, att.persona_name)
 
     async def _video(self, att: Attachment) -> str:
         return await self._see_video(att, VISION_VIDEO)
