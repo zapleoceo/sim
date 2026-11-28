@@ -161,6 +161,8 @@ describe('Conversation of a person in two messengers', () => {
     expect(within(feed).getAllByRole('img', { name: 'Telegram' }).length).toBeGreaterThan(0);
     await waitFor(() => expect(log.filter((r) => r.method === 'POST').map((r) => r.path).sort()).toEqual([
       '/api/chats/3/read', '/api/chats/7/read']));
+    // After reading, the card is re-read: «Ответить в» shows the fresh unread.
+    await waitFor(() => expect(log.filter((r) => r.method === 'GET' && r.path === '/api/chats/7').length).toBeGreaterThan(1));
 
     const replyIn = screen.getByRole('group', { name: 'Ответить в' });
     expect(within(replyIn).getByRole('button', { name: /WhatsApp/ })).toHaveAttribute('aria-pressed', 'true');
