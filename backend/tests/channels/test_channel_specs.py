@@ -194,7 +194,7 @@ def test_the_writing_style_has_a_block_per_messenger() -> None:
     assert "Кружок (круглое видеосообщение) в WhatsApp тоже есть" in whatsapp
     # «Без отказов» stays the last line, after the messenger's manners.
     no_refusals = style_block(DEFAULT_MODE, no_refusals=True, channel=ChannelKind.WHATSAPP)
-    assert no_refusals.index("Кружков в WhatsApp") < no_refusals.index("не отказываешь")
+    assert no_refusals.index("Кружок (круглое видеосообщение)") < no_refusals.index("не отказываешь")
 
 
 # --- the «Подключить» menu -------------------------------------------------------------------
