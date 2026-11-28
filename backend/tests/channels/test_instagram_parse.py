@@ -13,7 +13,7 @@ from sim.channels.instagram.parse import (
     item_text,
     media_of,
     media_text,
-    paged_threads,
+    read_box,
     thread_items,
 )
 from tests.channels.ig_fixtures import INBOX, LEAD, OWN, PENDING, SHARED_REEL, VIEW_ONCE
@@ -77,7 +77,7 @@ def test_timestamps_are_microseconds() -> None:
     assert item.at == datetime.fromtimestamp(1_763_750_000 - 7 * 60, tz=UTC)
 
 
-def test_paged_threads_reads_pages_until_there_are_no_older() -> None:
+def test_read_box_reads_pages_until_there_are_no_older() -> None:
     class Client:
         def __init__(self) -> None:
             self.calls: list[dict[str, str]] = []
@@ -86,11 +86,23 @@ def test_paged_threads_reads_pages_until_there_are_no_older() -> None:
             self.calls.append(params)
             if "cursor" not in params:
                 return {"inbox": {"threads": [{"thread_id": "a"}], "has_older": True,
-                                  "oldest_cursor": "c1"}}
-            return {"inbox": {"threads": [{"thread_id": "b"}], "has_older": False}}
+                                  "oldest_cursor": "c1"}, "pending_requests_total": 2}
+            return {"inbox": {"threads": [{"thread_id": "b"}], "has_older": False},
+                    "pending_requests_total": 9}
 
     client = Client()
-    assert [t["thread_id"] for t in paged_threads(client, "direct_v2/inbox/", amount=40)] == [
-        "a", "b"]
+    box = read_box(client, "direct_v2/inbox/", amount=40)
+    assert [t["thread_id"] for t in box.threads] == ["a", "b"]
+    assert box.pending == 2                                 # the first page says it
     assert client.calls[1]["cursor"] == "c1" and client.calls[1]["direction"] == "older"
     assert client.calls[0]["thread_message_limit"] == "10"
+
+
+@pytest.mark.parametrize(("value", "pending"), [
+    (0, 0), ("3", 3), (None, None), ("many", None), (True, None), (-1, 0)])
+def test_the_waiting_requests_count_is_read_strictly(value: object, pending: int | None) -> None:
+    class Client:
+        def private_request(self, endpoint: str, params: dict[str, str]) -> dict:
+            return {"inbox": {"threads": []}, "pending_requests_total": value}
+
+    assert read_box(Client(), "direct_v2/inbox/").pending == pending

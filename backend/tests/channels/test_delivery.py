@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,8 +19,11 @@ from sim.channels.delivery import (
     deliver,
     retry_delay,
 )
+from sim.channels.instagram.poller import Polled, PollPace, PollSchedule
+from sim.channels.store import ChannelStore
 from sim.channels.tasks import DispatchMessenger
 from sim.clock import FixedClock
+from sim.crypto import encrypt_json
 from sim.db.models import ClientIdentity, Message
 from sim.db.session import transaction
 from sim.domain.enums import Author, ChannelKind, Direction, MessageKind, MessageStatus
@@ -155,3 +159,40 @@ async def test_the_instagram_tick_queues_the_accounts_that_are_due(clock: FixedC
     finally:
         channel_tasks.set_runtime(None)
     assert deferred == [(7, 2.0)]
+
+
+async def test_a_poll_queues_the_next_poll_of_its_chain(clock: FixedClock) -> None:
+    deferred: list[tuple[Any, ...]] = []
+    answers = [Polled(chain=True, count=2, latest=clock.now()), Polled(chain=False)]
+
+    class Tasks:
+        async def poll_instagram(self, channel_id: int, delay_s: float = 0) -> None:
+            deferred.append((channel_id, delay_s))
+
+    class Poller:
+        async def poll(self, channel_id: int) -> Polled:
+            return answers.pop(0)
+
+    schedule = PollSchedule(PollPace(), uniform=lambda: 0.0)
+    runtime = SimpleNamespace(poller=Poller(), schedule=schedule,
+                              deps=SimpleNamespace(tasks=Tasks(), clock=clock))
+    channel_tasks.set_runtime(runtime)  # type: ignore[arg-type]
+    try:
+        await channel_tasks.poll_instagram(7)
+        await channel_tasks.poll_instagram(7)       # not polled: the chain stops
+    finally:
+        channel_tasks.set_runtime(None)
+    assert deferred == [(7, 45.0)]                  # a message just now: the active pace
+
+
+async def test_the_stored_account_carries_the_personas_time_zone(
+        world: World, sessions: TestSessions, db: AsyncSession) -> None:
+    key = Fernet.generate_key().decode()
+    world.persona.timezone = "Asia/Bangkok"
+    world.instagram.credentials_enc = encrypt_json({"settings": {"a": 1}}, key)
+    await db.flush()
+    await db.commit()
+    stored = await ChannelStore(sessions, key).account(world.instagram.id,
+                                                       ChannelKind.INSTAGRAM)
+    assert stored.timezone == "Asia/Bangkok"
+    assert stored.credentials == {"settings": {"a": 1}}

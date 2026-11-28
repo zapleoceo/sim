@@ -7,8 +7,9 @@ an Instagram client only for a connected account, and Evolution is reached per r
                                        `exclusive`: claimed, sent and marked in one transaction
   channels:mark_read(message_id)      «прочитано» (Instagram «Просмотрено», WhatsApp blue ticks)
   channels:chat_action(chat_id, ...)  WhatsApp «печатает…» / «записывает аудио…»
-  channels:instagram_tick             every minute: queue the polls of the accounts that are due
-  channels:poll_instagram(channel_id) one poll of an account's Direct (sim/channels/instagram)
+  channels:instagram_tick             every minute: the watchdog of the accounts' poll chains
+  channels:poll_instagram(channel_id) one poll of an account's Direct (sim/channels/instagram),
+                                       then the next one at the pace of the conversation
   channels:whatsapp_catch_up(channel) what a WhatsApp account got while offline
 
 Registered under these exact names in every process (`register_channel_tasks`), so the API and
@@ -31,7 +32,7 @@ from sim.channels.delivery import (
 )
 from sim.channels.instagram.account import InstagramAccounts
 from sim.channels.instagram.messenger import InstagramMessenger
-from sim.channels.instagram.poller import InstagramPoller, PollSchedule
+from sim.channels.instagram.poller import InstagramPoller, PollPace, PollSchedule
 from sim.channels.store import ChannelStore
 from sim.channels.whatsapp.evolution import EvolutionTransport, HttpEvolution
 from sim.channels.whatsapp.messenger import WhatsAppMessenger
@@ -110,7 +111,9 @@ class ChannelsRuntime:
         self.presence = Presence(self.messenger)
         inbox = _inbox(deps)
         self.poller = poller or InstagramPoller(self.accounts, inbox, deps.clock)
-        self.schedule = PollSchedule(settings.ig_poll_interval_s, deps.uniform)
+        self.schedule = PollSchedule(
+            PollPace(active_s=settings.ig_poll_active_s, normal_s=settings.ig_poll_interval_s,
+                     quiet_s=settings.ig_poll_quiet_s), deps.uniform)
         self.receiver = WhatsAppReceiver(deps.sessions, settings.secret_key, inbox, deps.clock,
                                          deps.tasks)
 
@@ -179,8 +182,8 @@ async def chat_action(chat_id: int, action: str, seconds: float) -> None:
 
 
 async def instagram_tick(timestamp: int) -> None:
-    """Every minute: the connected Instagram accounts that are due get a poll (with jitter).
-    Without Instagram channels it is one query and nothing else."""
+    """Every minute, the watchdog of the poll chains: a connected Instagram account without a
+    live chain gets a poll. Without Instagram channels it is one query and nothing else."""
     runtime = get_runtime()
     channel_ids = await runtime.store.connected(ChannelKind.INSTAGRAM)
     for channel_id, delay_s in runtime.schedule.due(channel_ids, runtime.deps.clock.now()):
@@ -188,9 +191,16 @@ async def instagram_tick(timestamp: int) -> None:
 
 
 async def poll_instagram(channel_id: int) -> None:
-    count = await get_runtime().poller.poll(channel_id)
-    if count:
-        log.info("instagram channel %s: %s new messages", channel_id, count)
+    """One poll, then the next poll of the chain at the pace of the conversation (the running
+    job is not «waiting», so the next one is queued while it ends)."""
+    runtime = get_runtime()
+    polled = await runtime.poller.poll(channel_id)
+    if polled.count:
+        log.info("instagram channel %s: %s new messages", channel_id, polled.count)
+    if not polled.chain:
+        return
+    delay_s = runtime.schedule.after_poll(channel_id, runtime.deps.clock.now(), polled)
+    await runtime.deps.tasks.poll_instagram(channel_id, delay_s)
 
 
 async def whatsapp_catch_up(channel_id: int) -> None:

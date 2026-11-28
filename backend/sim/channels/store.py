@@ -25,6 +25,7 @@ class StoredAccount:
     status: ChannelStatus
     token: str = field(repr=False)              # the encrypted blob: changes on a new login
     credentials: dict[str, Any] = field(repr=False)
+    timezone: str = "UTC"                       # the persona's: her night paces the Instagram poll
 
 
 class ChannelStore:
@@ -43,13 +44,16 @@ class ChannelStore:
                 raise PortError(f"channel {channel_id} is switched off")
             token = channel.credentials_enc or ""
             snapshot = (channel.persona_id, ChannelStatus(channel.status))
+            persona = await session.get(Persona, channel.persona_id)
+            timezone = (persona.timezone if persona is not None else "") or "UTC"
         if not token:
             raise PortError(f"channel {channel_id} has no stored account")
         try:
             credentials = decrypt_json(token, self.secret_key)
         except CryptoError as exc:
             raise PortError(f"channel {channel_id}: {exc}") from None
-        return StoredAccount(channel_id, snapshot[0], kind, snapshot[1], token, credentials)
+        return StoredAccount(channel_id, snapshot[0], kind, snapshot[1], token, credentials,
+                             timezone)
 
     async def save(self, channel_id: int, credentials: dict[str, Any]) -> None:
         """Store refreshed credentials (Instagram's cookies change as it is used)."""

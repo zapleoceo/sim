@@ -64,8 +64,11 @@ class FakeIgClient:
         self.logins: list[Step] = []
         self.login_calls: list[tuple[str, str, str]] = []
         self.threads: dict[str, list[dict[str, Any]]] = {}
+        self.pending_total: int | None = None   # the chats' `pending_requests_total`
+        self.requested: list[str] = []          # private-API endpoints, in order
         self.sent: list[tuple[str, Any, list[int]]] = []
         self.seen: list[int] = []
+        self.seen_items: list[tuple[int, int]] = []
         self.send_error: Exception | None = None
         self.poll_error: Exception | None = None
         self.next_id = 100
@@ -105,9 +108,14 @@ class FakeIgClient:
     # --- direct ------------------------------------------------------------------------------
 
     def private_request(self, endpoint: str, data: Any = None, params: Any = None) -> Any:
+        self.requested.append(endpoint)
         if self.poll_error is not None:
             raise self.poll_error
-        return {"inbox": {"threads": self.threads.get(endpoint, []), "has_older": False}}
+        answer: dict[str, Any] = {
+            "inbox": {"threads": self.threads.get(endpoint, []), "has_older": False}}
+        if self.pending_total is not None:
+            answer["pending_requests_total"] = self.pending_total
+        return answer
 
     def _sent(self, what: Any, thread_ids: list[int]) -> Any:
         if self.send_error is not None:
@@ -124,10 +132,18 @@ class FakeIgClient:
         return self._sent(data, thread_ids or [])
 
     def direct_send_seen(self, thread_id: int) -> Any:
+        # The real one reads the thread through instagrapi's extractor first (it fails on
+        # shared reels): SIM must not need it while it knows the item.
         if self.send_error is not None:
             raise self.send_error
         self.seen.append(thread_id)
         return {"status": "ok"}
+
+    def direct_message_seen(self, thread_id: int, message_id: int) -> Any:
+        if self.send_error is not None:
+            raise self.send_error
+        self.seen_items.append((thread_id, message_id))
+        return True
 
 
 class FakeIgFactory:
@@ -206,6 +222,7 @@ class FakeStore:
     changes: list[tuple[int, ChannelStatus, str | None]] = field(default_factory=list)
     saved: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     kinds: dict[int, ChannelKind] = field(default_factory=dict)
+    timezone: str = "UTC"                       # the persona's
 
     def add(self, channel_id: int, kind: ChannelKind, credentials: dict[str, Any],
             status: ChannelStatus = ChannelStatus.CONNECTED) -> None:
@@ -220,7 +237,7 @@ class FakeStore:
             raise PortError("switched off")
         creds = self.accounts[channel_id]
         return StoredAccount(channel_id, 1, kind, self.statuses[channel_id],
-                             f"token-{len(self.saved)}", dict(creds))
+                             f"token-{len(self.saved)}", dict(creds), self.timezone)
 
     async def save(self, channel_id: int, credentials: dict[str, Any]) -> None:
         self.accounts[channel_id] = dict(credentials)
