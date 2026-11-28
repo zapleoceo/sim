@@ -313,10 +313,11 @@ export function Conversation({ chatId, onBack, onSelectChat }: {
 
   useEffect(() => {
     if (!unreadIds) return;
+    // The list and this chat's card (its `chats` carry the unread of «Ответить в»).
     Promise.all(unreadIds.split(',').map((id) => chatsApi.markRead(Number(id))))
-      .then(() => queryClient.invalidateQueries({ queryKey: qk.chatLists }))
+      .then(() => Promise.all([qk.chatLists, qk.chat(chatId)].map((queryKey) => queryClient.invalidateQueries({ queryKey }))))
       .catch(() => undefined); // not worth a toast: the badge simply stays
-  }, [unreadIds, queryClient]);
+  }, [unreadIds, chatId, queryClient]);
 
   if (chat.isPending) {
     return (
