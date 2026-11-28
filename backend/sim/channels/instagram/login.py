@@ -74,6 +74,8 @@ ERRORS = {
     "ClientConnectionError": "Не удалось подключиться к Instagram (сеть или прокси)",
     "ClientRequestTimeout": "Instagram не ответил вовремя (сеть или прокси)",
     "CodeRequired": "Код не введён вовремя. Начните вход заново",
+    "PasswordKeyMissing": ("Instagram не дал ключ для пароля. Попробуйте ещё раз через минуту "
+                           "или войдите по sessionid"),
     "SessionInvalid": "Сессия недействительна: войдите в Instagram в браузере заново",
     "BadSession": "Сессия недействительна: войдите в Instagram в браузере заново",
 }
