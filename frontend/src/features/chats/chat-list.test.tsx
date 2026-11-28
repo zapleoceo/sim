@@ -135,7 +135,11 @@ describe('ChatList source filter', () => {
     const { router } = await renderChats();
     const filter = await screen.findByRole('group', { name: 'Источник' });
     expect(within(filter).getByRole('button', { name: 'Все' })).toHaveAttribute('aria-pressed', 'true');
-    await within(filter).findByLabelText('чатов: 1, непрочитанных: 3');
+    const whatsapp = within(filter).getByRole('button', { name: /WhatsApp/ });
+    await within(whatsapp).findByLabelText('чатов: 1');
+    expect(within(whatsapp).getByLabelText('непрочитанных: 3')).toBeInTheDocument();
+    // Telegram has no unread: no blue dot.
+    expect(within(within(filter).getByRole('button', { name: /Telegram/ })).queryByLabelText(/непрочитанных/)).toBeNull();
 
     await userEvent.click(within(filter).getByRole('button', { name: /WhatsApp/ }));
     await userEvent.click(within(filter).getByRole('button', { name: /Instagram/ }));
@@ -158,9 +162,19 @@ describe('ChatList source filter', () => {
       'GET /api/chats': { items: [] },
     });
     await renderChats('/chats?source=instagram');
-    expect(await screen.findByText('Ничего не найдено')).toBeInTheDocument();
+    expect(await screen.findByText('Чатов в Instagram пока нет')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Instagram/ })).toHaveAttribute('aria-pressed', 'true');
     expect(log.some((r) => r.path === '/api/chats' && r.query.get('channel') === 'instagram')).toBe(true);
+  });
+
+  it('an empty filtered list offers to reset the filters; an empty app — to connect a messenger', async () => {
+    fakeApi({ 'GET /api/personas': { items: [persona(1, 'Марина')] }, 'GET /api/chats': { items: [] } });
+    const { router } = await renderChats('/chats?source=instagram&q=anna');
+    expect(await screen.findByText('Ничего не найдено по «anna» в Instagram')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+    expect(await screen.findByText('Чатов пока нет')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Подключить мессенджер' })).toHaveAttribute('href', '/personas');
   });
 });
 
@@ -187,10 +201,11 @@ describe('ChatList as a full-width table', () => {
     expect(cells[0]).toHaveTextContent('WhatsApp');
     expect(cells[1]).toHaveTextContent('Zaporozhets Dmitry');
     expect(cells[1]).toHaveTextContent('@dima');
-    expect(within(cells[1]).getByLabelText('Непрочитанных: 2')).toBeInTheDocument();
+    expect(within(cells[5]).getByLabelText('Непрочитанных: 2')).toBeInTheDocument();
+    expect(dataRow).toHaveAttribute('data-unread', 'true');
     expect(cells[2]).toHaveTextContent('привет');
     expect(cells[3]).toHaveTextContent('Прочитала, ответит около 20:47');
-    expect(cells[4]).toHaveTextContent('выключен');
+    expect(cells[4]).toHaveTextContent('ИИ выключен');
     expect(cells[4]).toHaveTextContent('нужен оператор');
 
     await userEvent.click(cells[2]);

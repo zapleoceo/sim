@@ -6,7 +6,7 @@ import { qk } from '@/lib/query';
 import type { PersonaStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { chatsApi } from './api';
-import { STATUS_REFRESH_MS, TEAM_ONLY, TONE_CLASS, statusText, untilLine } from './persona-status-logic';
+import { STATUS_REFRESH_MS, TEAM_ONLY, TONE_CLASS, TONE_DOT, statusText, untilLine } from './persona-status-logic';
 
 /**
  * «Статус Марины» in a chat-list row: one colored line under the client's name with the reason
@@ -26,11 +26,13 @@ export function PersonaStatusPill({ status }: { status: PersonaStatus }) {
       <span
         data-tone={status.tone}
         className={cn(
-          'inline-flex max-w-full min-w-0 items-center gap-1.5 self-start rounded-full px-2 py-0.5 text-[11px] leading-4 font-medium',
+          'inline-flex max-w-full min-w-0 items-center gap-1.5 self-start rounded-full py-0.5 text-[11px] leading-4',
+          // The quiet «ok» has no background: no padding either, it lines up with the text above.
+          status.tone === 'ok' ? 'px-0' : 'px-2 font-medium',
           TONE_CLASS[status.tone],
         )}
       >
-        <span aria-hidden className="size-1.5 flex-none rounded-full bg-current" />
+        <span aria-hidden className={cn('size-1.5 flex-none rounded-full', TONE_DOT[status.tone])} />
         <span className="sr-only">Статус для команды: </span>
         <span className="truncate">
           {status.title}
@@ -63,7 +65,7 @@ export function PersonaStatusStrip({ chatId, initial }: { chatId: number; initia
       data-tone={status.tone}
       className={cn('flex flex-none items-start gap-2 border-b px-3 py-1.5 text-xs sm:px-4', TONE_CLASS[status.tone])}
     >
-      <span aria-hidden className="mt-1 size-2 flex-none rounded-full bg-current" />
+      <span aria-hidden className={cn('mt-1 size-2 flex-none rounded-full', TONE_DOT[status.tone])} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="flex flex-wrap items-baseline gap-x-2">
           <span className="sr-only">Статус для команды: </span>

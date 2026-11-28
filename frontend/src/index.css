@@ -35,6 +35,11 @@
   --bubble-ai: oklch(0.94 0.035 268);
   --bubble-operator: oklch(0.94 0.04 155);
 
+  /* Messengers (chat rows, source filter, channel badges): recognisable, not the brands' exact hues. */
+  --telegram: oklch(0.6 0.13 235);
+  --whatsapp: oklch(0.6 0.15 150);
+  --instagram: oklch(0.6 0.2 355);
+
   /* Native controls (option lists, date pickers, scrollbars) follow the theme. */
   color-scheme: light;
 }
@@ -66,6 +71,10 @@
   --bubble-client: oklch(0.25 0.006 270);
   --bubble-ai: oklch(0.29 0.05 268);
   --bubble-operator: oklch(0.29 0.05 155);
+
+  --telegram: oklch(0.74 0.12 235);
+  --whatsapp: oklch(0.76 0.15 150);
+  --instagram: oklch(0.72 0.17 355);
 }
 
 @theme inline {
@@ -98,6 +107,9 @@
   --color-bubble-client: var(--bubble-client);
   --color-bubble-ai: var(--bubble-ai);
   --color-bubble-operator: var(--bubble-operator);
+  --color-telegram: var(--telegram);
+  --color-whatsapp: var(--whatsapp);
+  --color-instagram: var(--instagram);
 }
 
 /*
@@ -160,6 +172,11 @@
 
 @utility scrollbar-thin {
   scrollbar-width: thin;
+}
+
+/* A row that scrolls sideways on a phone (filter chips) without a visible bar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
 }
 
 @keyframes sim-progress {
