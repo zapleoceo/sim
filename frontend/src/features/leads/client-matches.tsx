@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { qk } from '@/lib/query';
 import type { ClientMatch, MatchClient, MatchReason } from '@/lib/types';
-import { clientName } from '@/lib/utils';
+import { clientName, cn } from '@/lib/utils';
 import { leadsApi } from './api';
 
 /** The messengers a client writes from, as icons (one account per messenger). */
@@ -88,10 +88,10 @@ function Reasons({ reasons }: { reasons: readonly MatchReason[] }) {
   );
 }
 
-function Who({ client }: { client: MatchClient }) {
+function Who({ client, className }: { client: MatchClient; className?: string }) {
   const name = clientName(client);
   return (
-    <span className="flex min-w-0 items-center gap-2.5">
+    <span className={cn('flex min-w-0 items-center gap-2.5', className)}>
       <Avatar name={name} size={32} />
       <span className="flex min-w-0 flex-col">
         <Link to="/leads/$clientId" params={{ clientId: String(client.id) }} className="truncate font-medium hover:underline">
@@ -119,11 +119,12 @@ function MatchRow({ keep, other, reasons, showKeep }: {
   const { merge, pending } = useMergeClients();
   const distinct = useMarkDistinct();
   return (
-    <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 md:flex-row md:items-center md:gap-4">
-      <span className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center md:gap-4">
-        {showKeep && <Who client={keep} />}
-        {showKeep && <span aria-hidden className="hidden text-muted-foreground md:inline">↔</span>}
-        <Who client={other} />
+    // One line only on the wide leads page; in the card's narrow column: who, why, buttons.
+    <li className={cn('flex flex-col gap-2 py-3 first:pt-0 last:pb-0', showKeep && 'xl:flex-row xl:items-center xl:gap-4')}>
+      <span className={cn('flex min-w-0 flex-1 flex-col gap-2', showKeep && 'xl:flex-row xl:items-center xl:gap-4')}>
+        {showKeep && <Who client={keep} className="xl:w-60 xl:flex-none" />}
+        {showKeep && <span aria-hidden className="hidden text-muted-foreground xl:inline">↔</span>}
+        <Who client={other} className={showKeep ? 'xl:w-60 xl:flex-none' : undefined} />
         <Reasons reasons={reasons} />
       </span>
       <span className="flex flex-none gap-2">
