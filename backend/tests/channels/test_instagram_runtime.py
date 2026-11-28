@@ -1,6 +1,7 @@
 """Instagram in the worker (sim/channels/instagram/{account,messenger,poller}.py) with a fake
 instagrapi client and a fake channel store: the client restored from the stored session (never a
-new login), sends and their caps, soft blocks and checkpoints, polls with a cursor, fail closed."""
+new login), sends and their caps, soft blocks and checkpoints, polls with a cursor, fail closed,
+message requests read only while some wait, the pace of the poll chain and its watchdog."""
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -10,7 +11,7 @@ import pytest
 from sim.channels.delivery import RetryAfter
 from sim.channels.instagram.account import RELOGIN, SOFT_BLOCK_S, InstagramAccounts, SendLimiter
 from sim.channels.instagram.messenger import InstagramMessenger
-from sim.channels.instagram.poller import InstagramPoller, PollSchedule
+from sim.channels.instagram.poller import InstagramPoller, Polled, PollPace, PollSchedule
 from sim.clock import FixedClock
 from sim.domain.enums import ChannelKind, ChannelStatus
 from sim.ports import OutboundMessage, Peer, PortError
@@ -148,7 +149,7 @@ def poll_factory() -> FakeIgFactory:
 
 
 async def test_a_poll_hands_new_client_messages_to_the_inbox_once() -> None:
-    accounts, store, _, _ = runtime(poll_factory())
+    accounts, store, factory, _ = runtime(poll_factory())
     inbox = FakeInbox()
     downloads: list[str] = []
 
@@ -157,7 +158,9 @@ async def test_a_poll_hands_new_client_messages_to_the_inbox_once() -> None:
         return b"DATA"
 
     poller = InstagramPoller(accounts, inbox, FixedClock(NOW), download=download)
-    assert await poller.poll(7) == 6
+    polled = await poller.poll(7)
+    assert (polled.chain, polled.count, polled.backoff_s) == (True, 6, 0.0)
+    assert polled.latest == NOW - timedelta(minutes=1)     # the voice, the newest item
     ids = [m.external_id for m in inbox.ingested]
     # Not our own item, not the 2-day-old one on the first poll after a start.
     assert ids == ["i-new", "i-story", "i-reel", "i-photo", "i-raven", "i-voice"]
@@ -170,16 +173,49 @@ async def test_a_poll_hands_new_client_messages_to_the_inbox_once() -> None:
     voice = next(m for m in inbox.ingested if m.external_id == "i-voice")
     assert voice.attachment is not None and voice.attachment.kind == "voice"
     assert len(downloads) == 3
-    assert await poller.poll(7) == 0                        # the cursor remembers
+    assert (await poller.poll(7)).count == 0               # the cursor remembers
     assert store.statuses[7] == ChannelStatus.CONNECTED
+    # Instagram did not say how many requests wait: both boxes are read.
+    assert factory.last.requested[:2] == ["direct_v2/inbox/", "direct_v2/pending_inbox/"]
+
+
+async def test_message_requests_are_read_only_while_some_wait() -> None:
+    accounts, store, factory, _ = runtime(poll_factory())
+    store.timezone = "Asia/Tokyo"
+    inbox = FakeInbox()
+    poller = InstagramPoller(accounts, inbox, FixedClock(NOW), download=fake_download)
+    await accounts.get(7)                                  # the client the polls will use
+    factory.last.pending_total = 0
+    found = await poller.poll(7)
+    assert factory.last.requested == ["direct_v2/inbox/"]   # one request, not two
+    assert "i-new" not in [m.external_id for m in inbox.ingested]
+    assert found.timezone == "Asia/Tokyo"                   # the persona's, for her night
+    factory.last.pending_total = 1                          # a stranger wrote
+    await poller.poll(7)
+    assert factory.last.requested[1:] == ["direct_v2/inbox/", "direct_v2/pending_inbox/"]
+    assert "i-new" in [m.external_id for m in inbox.ingested]
+
+
+async def fake_download(url: str) -> bytes:
+    return b"DATA"
 
 
 async def test_a_poll_without_our_own_id_does_nothing() -> None:
     accounts, store, _, _ = runtime(poll_factory())
     store.accounts[7]["settings"]["authorization_data"] = {}
     inbox = FakeInbox()
-    assert await InstagramPoller(accounts, inbox, FixedClock(NOW)).poll(7) == 0
+    assert await InstagramPoller(accounts, inbox, FixedClock(NOW)).poll(7) == Polled(chain=False)
     assert inbox.ingested == []
+
+
+async def test_a_soft_block_stretches_the_next_poll_to_15_minutes() -> None:
+    def prepare(client: FakeIgClient) -> None:
+        client.poll_error = FeedbackRequired("feedback_required")
+
+    accounts, store, _, _ = runtime(FakeIgFactory(prepare))
+    polled = await InstagramPoller(accounts, FakeInbox(), FixedClock(NOW)).poll(7)
+    assert (polled.chain, polled.count, polled.backoff_s) == (True, 0, SOFT_BLOCK_S)
+    assert store.statuses[7] == ChannelStatus.CONNECTED
 
 
 async def test_a_poll_of_a_blocked_account_is_skipped() -> None:
@@ -187,15 +223,50 @@ async def test_a_poll_of_a_blocked_account_is_skipped() -> None:
         client.poll_error = ChallengeRequired("challenge_required")
 
     accounts, store, _, _ = runtime(FakeIgFactory(prepare))
-    assert await InstagramPoller(accounts, FakeInbox(), FixedClock(NOW)).poll(7) == 0
+    poller = InstagramPoller(accounts, FakeInbox(), FixedClock(NOW))
+    assert (await poller.poll(7)).backoff_s == SOFT_BLOCK_S
     assert store.statuses[7] == ChannelStatus.CHALLENGE
+    assert await poller.poll(7) == Polled(chain=False)      # then no request, the chain stops
     disabled, _, _, _ = runtime(status=ChannelStatus.DISABLED)
-    assert await InstagramPoller(disabled, FakeInbox(), FixedClock(NOW)).poll(7) == 0
+    assert await InstagramPoller(disabled, FakeInbox(), FixedClock(NOW)).poll(7) == Polled(
+        chain=False)
 
 
-def test_the_poll_schedule_spreads_accounts() -> None:
-    schedule = PollSchedule(120.0, uniform=lambda: 0.5)
-    assert schedule.due([1, 2], NOW) == [(1, 3.0), (2, 3.0)]
+def polled(minutes_ago: float | None, *, timezone: str = "UTC",
+           backoff_s: float = 0.0) -> Polled:
+    latest = None if minutes_ago is None else NOW - timedelta(minutes=minutes_ago)
+    return Polled(chain=True, latest=latest, timezone=timezone, backoff_s=backoff_s)
+
+
+@pytest.mark.parametrize(("found", "delay_s"), [
+    (polled(2), 50.6),                                     # a conversation: 45 s + 12.5 %
+    (polled(30), 135.0),                                   # 120 s
+    (polled(120), 337.5),                                  # quiet for an hour: 300 s
+    (polled(None), 337.5),                                 # nothing in Direct at all
+    (polled(2, timezone="Asia/Tokyo"), 337.5),             # 03:33 at her place: night
+    (polled(2, backoff_s=SOFT_BLOCK_S), 1012.5),           # «please wait»
+])
+def test_the_pace_follows_the_conversation(found: Polled, delay_s: float) -> None:
+    schedule = PollSchedule(PollPace(), uniform=lambda: 0.5)
+    assert schedule.after_poll(1, NOW, found) == delay_s
+    assert schedule.next_at[1] == NOW + timedelta(seconds=delay_s)
+
+
+def test_the_newest_item_seen_is_kept() -> None:
+    schedule = PollSchedule(PollPace(), uniform=lambda: 0.0)
+    assert schedule.after_poll(1, NOW, polled(2)) == 45.0
+    # A later poll that saw only older items (a box came back short) keeps the conversation.
+    assert schedule.after_poll(1, NOW, polled(50)) == 45.0
+    assert schedule.after_poll(1, NOW + timedelta(minutes=20), polled(None)) == 120.0
+
+
+def test_the_watchdog_starts_only_missing_or_late_chains() -> None:
+    schedule = PollSchedule(PollPace(), uniform=lambda: 0.5)
+    assert schedule.due([1, 2], NOW) == [(1, 3.8), (2, 3.8)]
     assert schedule.due([1, 2], NOW + timedelta(seconds=60)) == []
-    assert schedule.due([1], NOW + timedelta(seconds=133)) == [(1, 3.0)]
+    schedule.after_poll(1, NOW + timedelta(seconds=60), polled(1))     # its chain goes on
+    assert schedule.due([1, 2], NOW + timedelta(seconds=200)) == []    # 2: not late yet
+    schedule.after_poll(1, NOW + timedelta(seconds=180), polled(1))
+    assert schedule.due([1, 2], NOW + timedelta(seconds=245)) == [(2, 3.8)]
+    assert schedule.due([1], NOW + timedelta(seconds=400)) == [(1, 3.8)]  # 1's chain is lost
     assert set(schedule.next_at) == {1}                     # account 2 is gone

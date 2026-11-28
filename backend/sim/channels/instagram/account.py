@@ -5,8 +5,8 @@ client per channel, made only when a job needs it and rebuilt when the owner log
   (sim/channels/instagram/client.py) — never by logging in again: a fresh login from a server
   is the shortest way to a checkpoint.
 - One account does one thing at a time (`lock`): a poll and a send never share the client.
-- Send caps per account: `ig_hourly_cap` / `ig_daily_cap` (150 / 800 by default). Over a cap the
-  send waits (`RetryAfter`) until a slot frees.
+- Send caps per account: `ig_hourly_cap` / `ig_daily_cap` (60 / 400 by default: a lively
+  person, not a mailing). Over a cap the send waits (`RetryAfter`) until a slot frees.
 - What an error means (`fault`): a checkpoint or a dead session -> the channel becomes
   `challenge` («нужен повторный вход») and the job waits 15 min; a soft block («please wait»,
   feedback_required, 429) -> waits 15 min; the network -> a normal retry; no such thread / user
@@ -68,6 +68,7 @@ class IgAccount:
     credentials: dict[str, Any] = field(repr=False)
     limiter: SendLimiter
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    timezone: str = "UTC"                       # the persona's (paces the poll at her night)
 
 
 class InstagramAccounts:
@@ -91,6 +92,7 @@ class InstagramAccounts:
         if account is None or account.token != stored.token:
             account = await self._build(stored, account)
             self._accounts[channel_id] = account
+        account.timezone = stored.timezone          # the owner may move her at any time
         return account
 
     async def _build(self, stored: StoredAccount, old: IgAccount | None) -> IgAccount:

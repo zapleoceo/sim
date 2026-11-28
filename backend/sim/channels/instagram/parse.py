@@ -2,7 +2,8 @@
 
 instagrapi's own extractor crashes on shared media (a shared post / reel item carries an
 `instagram://` URL that fails its validation) and would take the whole poll down, so the poll
-reads the raw JSON of `direct_v2/inbox/` and `direct_v2/pending_inbox/` and this module turns
+reads the raw JSON of `direct_v2/inbox/` (and of `direct_v2/pending_inbox/` while message
+requests wait) and this module turns
 every item into text + an optional media URL. Nothing is silently lost: a shared post, reel,
 story or profile becomes a captioned line, real media in the DM gets its CDN URL.
 
@@ -19,7 +20,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 LIVE_THREADS = 20           # newest threads per box: each page is an API call + 2-5 s delay
 THREAD_MESSAGES = 10        # newest items per thread
-INBOXES = ("direct_v2/inbox/", "direct_v2/pending_inbox/")    # chats, message requests
+INBOX, PENDING = "direct_v2/inbox/", "direct_v2/pending_inbox/"   # chats, message requests
 
 # item_type values that are system events, not messages.
 SKIP_TYPES = frozenset({"action_log", "video_call_event", "placeholder"})
@@ -220,22 +221,43 @@ def thread_items(threads: list[dict[str, Any]], own_id: str) -> list[IgItem]:
     return out
 
 
-def paged_threads(client: Any, endpoint: str,
-                  amount: int = LIVE_THREADS) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class Box:
+    """The newest raw threads of one box, and how many message requests wait: the chats'
+    answer carries `pending_requests_total` (None when Instagram did not say)."""
+
+    threads: list[dict[str, Any]]
+    pending: int | None = None
+
+
+def read_box(client: Any, endpoint: str, amount: int = LIVE_THREADS) -> Box:
     """The newest `amount` raw threads of one box (blocking: run it in a thread)."""
     threads: list[dict[str, Any]] = []
+    pending: int | None = None
     cursor = None
-    for _ in range(max(1, (amount + 19) // 20)):
+    for page in range(max(1, (amount + 19) // 20)):
         params = {"visual_message_return_type": "unseen", "persistentBadging": "true",
                   "thread_message_limit": str(THREAD_MESSAGES), "limit": "20"}
         if cursor:
             params.update(cursor=cursor, direction="older")
-        inbox = (client.private_request(endpoint, params=params) or {}).get("inbox") or {}
+        answer = client.private_request(endpoint, params=params) or {}
+        if page == 0:
+            pending = _count(answer.get("pending_requests_total"))
+        inbox = answer.get("inbox") or {}
         threads.extend(inbox.get("threads") or [])
         cursor = inbox.get("oldest_cursor")
         if len(threads) >= amount or not inbox.get("has_older") or not cursor:
             break
-    return threads[:amount]
+    return Box(threads[:amount], pending)
+
+
+def _count(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def media_text(text: str, media_kind: str | None) -> str:

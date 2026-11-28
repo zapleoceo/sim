@@ -41,10 +41,13 @@ class Settings(BaseSettings):
     tg_min_send_interval_s: float = 1.5
 
     # Instagram Direct (docs/channels.md): the session lives encrypted in the channel, like
-    # Telegram's. Poll pace and send caps per account; a default proxy for accounts without one.
+    # Telegram's. Poll pace (a conversation going on / normal / quiet or her night) and send caps
+    # per account; a default proxy for accounts without one.
+    ig_poll_active_s: float = 45.0
     ig_poll_interval_s: float = 120.0
-    ig_hourly_cap: int = 150
-    ig_daily_cap: int = 800
+    ig_poll_quiet_s: float = 300.0
+    ig_hourly_cap: int = 60
+    ig_daily_cap: int = 400
     ig_default_proxy: str = ""
     # Clips by links (TikTok, Reels, Shorts): the proxy yt-dlp goes through; empty = the
     # Instagram default proxy, if any (docs/reply.md, «Ролик по ссылке»).
