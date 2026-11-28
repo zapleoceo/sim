@@ -1,7 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link, getRouteApi } from '@tanstack/react-router';
-import { MessagesSquare } from 'lucide-react';
-import { ChannelIcon } from '@/components/channel-icon';
+import { MessagesSquare, SearchX } from 'lucide-react';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
@@ -15,6 +14,7 @@ import type { ChannelKind, ChatRow } from '@/lib/types';
 import type { ChatsSearch } from '@/router';
 import { clientName, cn } from '@/lib/utils';
 import { CHATS_PAGE, chatsApi } from './api';
+import { emptyChatsText } from './chat-list-logic';
 import { ChatAvatar, OperatorBadge, UnreadBadge } from './chat-row-parts';
 import { ChatTable } from './chat-table';
 import { PersonaStatusPill } from './persona-status';
@@ -35,6 +35,7 @@ function ChatListItem({ chat, active, showPersona, filters }: {
   filters: Filters;
 }) {
   const name = clientName(chat.client);
+  const unread = chat.unread_count > 0;
   return (
     <li>
       <Link
@@ -42,32 +43,39 @@ function ChatListItem({ chat, active, showPersona, filters }: {
         search={{ ...filters, id: chat.id }}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          'flex items-center gap-3 border-b px-3 py-2.5 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none',
+          'flex items-center gap-3 border-b px-3 py-3 transition-colors hover:bg-accent/60 focus-visible:bg-accent focus-visible:outline-none',
+          unread && 'shadow-[inset_3px_0_0_var(--primary)]',
           active && 'bg-accent',
         )}
       >
         <ChatAvatar chat={chat} />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
-            {chat.channel && <ChannelIcon kind={chat.channel.kind} className="translate-y-0.5" />}
-            <span className={cn('min-w-0 flex-1 truncate text-sm', chat.unread_count > 0 ? 'font-semibold' : 'font-medium')}>
-              {name}
-            </span>
-            <time className="flex-none text-[11px] text-muted-foreground tabular" dateTime={chat.last_message_at ?? undefined}>
+            <span className={cn('min-w-0 flex-1 truncate text-sm', unread ? 'font-semibold' : 'font-medium')}>{name}</span>
+            <time
+              className={cn('flex-none text-[11px] tabular', unread ? 'font-medium text-primary' : 'text-muted-foreground')}
+              dateTime={chat.last_message_at ?? undefined}
+            >
               {formatShort(chat.last_message_at)}
             </time>
           </span>
-          <PersonaStatusPill status={chat.persona_status} />
-          {showPersona && chat.persona && (
-            <span className="truncate text-[11px] text-muted-foreground">
-              <span className="sr-only">Отвечает </span>
-              {chat.persona.name}
-            </span>
-          )}
           <span className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{lastMessagePreview(chat.last_message)}</span>
-            {chat.needs_operator && <OperatorBadge />}
+            <span className={cn('min-w-0 flex-1 truncate text-xs', unread ? 'text-foreground' : 'text-muted-foreground')}>
+              {lastMessagePreview(chat.last_message)}
+            </span>
             <UnreadBadge count={chat.unread_count} />
+          </span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="flex min-w-0 flex-1">
+              <PersonaStatusPill status={chat.persona_status} />
+            </span>
+            {chat.needs_operator && <OperatorBadge />}
+            {showPersona && chat.persona && (
+              <span className="flex-none truncate text-[11px] text-muted-foreground">
+                <span className="sr-only">Отвечает </span>
+                {chat.persona.name}
+              </span>
+            )}
           </span>
         </span>
       </Link>
@@ -126,7 +134,8 @@ export function ChatList({ layout = 'list' }: { layout?: 'list' | 'table' }) {
   const items = chats.data?.pages.flatMap((p) => p.items) ?? [];
   const canLoadMore = chats.hasNextPage && !chats.isFetchingNextPage;
   const sentinel = useInView<HTMLDivElement>(() => void chats.fetchNextPage(), canLoadMore);
-  const filtered = Boolean(q || sources.length);
+  const empty = emptyChatsText({ q, sources, persona: personaId });
+  const reset = (): void => setFilters({ q: undefined, persona: undefined, source: undefined });
   const wide = layout === 'table';
 
   return (
@@ -144,17 +153,23 @@ export function ChatList({ layout = 'list' }: { layout?: 'list' | 'table' }) {
             <PersonaFilter value={personaId} onChange={(id) => setFilters({ persona: id || undefined })} personas={personaRows} />
           </div>
         )}
-        <SourceFilter value={sources} onChange={setSources} counts={counts.data?.items} className={wide ? 'lg:ml-auto' : undefined} />
+        <SourceFilter value={sources} onChange={setSources} counts={counts.data?.items} className={wide ? 'lg:ml-auto lg:overflow-visible' : undefined} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
         {chats.isPending && <LoadingRows />}
         {chats.isError && <ErrorState onRetry={() => void chats.refetch()} />}
         {chats.isSuccess && items.length === 0 && (
-          <EmptyState
-            icon={MessagesSquare}
-            title={filtered ? 'Ничего не найдено' : 'Чатов пока нет'}
-            hint={filtered ? 'Попробуйте другое имя, слово или источник.' : 'Когда клиент напишет персонажу, чат появится здесь.'}
-          />
+          <EmptyState icon={empty.filtered ? SearchX : MessagesSquare} title={empty.title} hint={empty.hint}>
+            {empty.filtered ? (
+              <Button variant="outline" size="sm" onClick={reset}>
+                Сбросить фильтры
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/personas">Подключить мессенджер</Link>
+              </Button>
+            )}
+          </EmptyState>
         )}
         {items.length > 0 && wide && <ChatTable items={items} showPersona={showPersona} filters={filters} />}
         {items.length > 0 && !wide && (

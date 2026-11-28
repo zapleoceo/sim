@@ -8,11 +8,21 @@ export const TEAM_ONLY = 'Видно только команде: клиенту
 
 /** Tinted background and readable text per tone, light and dark. */
 export const TONE_CLASS: Record<PersonaStatusTone, string> = {
-  ok: 'bg-success/15 text-success',
+  // «Всё отвечено» is the usual state: quiet, so the ones that need a look stand out.
+  ok: 'text-muted-foreground',
   wait: 'bg-primary/10 text-primary',
   busy: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300',
   warn: 'bg-warning/15 text-warning',
   off: 'bg-muted text-muted-foreground',
+};
+
+/** The dot before the status: the tone's colour (green for the quiet «ok»). */
+export const TONE_DOT: Record<PersonaStatusTone, string> = {
+  ok: 'bg-success',
+  wait: 'bg-current',
+  busy: 'bg-current',
+  warn: 'bg-current',
+  off: 'bg-current',
 };
 
 /** «через 12 мин», «через 1 ч 5 мин»; '' without a time; «уже сейчас» once it has passed. */
