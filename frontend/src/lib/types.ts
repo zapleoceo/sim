@@ -144,6 +144,8 @@ export interface Client {
 /** A row of «Лиды» (GET /clients). */
 export interface Lead extends Client {
   persona: PersonaBrief | null;
+  /** The messengers the lead has an account in (two leads sharing one can not be merged). */
+  messengers: string[];
   chats_count: number;
   messages_count: number;
 }

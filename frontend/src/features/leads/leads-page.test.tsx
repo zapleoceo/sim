@@ -22,7 +22,7 @@ function lead(patch: Partial<Lead>): Lead {
   return {
     id: 1, persona_id: 1, name: 'Дима', username: 'dima', phone: '+380501112233', timezone: null, notes: '', ai_enabled: true,
     passport: passport({ stage: 'warm', temperature: 60, city: 'Киев', age: 34 }), created_at: '2026-11-01T10:00:00Z',
-    last_seen_at: '2026-11-20T18:30:00Z', persona: { id: 1, name: 'Марина', avatar_media_id: null }, chats_count: 1,
+    last_seen_at: '2026-11-20T18:30:00Z', persona: { id: 1, name: 'Марина', avatar_media_id: null }, messengers: ['telegram_user'], chats_count: 1,
     messages_count: 12, ...patch,
   };
 }

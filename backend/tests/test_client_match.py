@@ -9,6 +9,7 @@ from sim.domain.client_match import (
     ReasonKind,
     build_profile,
     handle_key,
+    handle_stem,
     name_key,
     phone_key,
     reasons,
@@ -19,6 +20,7 @@ from sim.domain.client_match import (
 )
 from sim.domain.client_merge import Profile, merge_profiles, merge_refusal
 from sim.domain.enums import ChannelKind, LeadStage
+from sim.domain.names import name_words
 from sim.domain.passport import Passport, merge_passports
 
 NOW = datetime(2026, 11, 28, 12, 0, tzinfo=UTC)
@@ -52,8 +54,32 @@ def test_the_real_case_one_phone_in_telegram_and_whatsapp() -> None:
         "380994811889@s.whatsapp.net")], handles=[None], names=["Zaporozhets Dmitry"], texts=[])
     [found] = suggest({1: telegram, 7: whatsapp})
     assert (found.client_id, found.other_id) == (1, 7)
-    assert [r.kind for r in found.reasons] == [ReasonKind.PHONE]
+    assert [r.kind for r in found.reasons] == [ReasonKind.PHONE, ReasonKind.NAME]
     assert found.reasons[0].text == "один телефон …994811889"
+    assert found.reasons[1].text == "похожие имена: «Дима» и «Zaporozhets Dmitry»"
+
+
+def test_names_in_any_alphabet_and_spelling() -> None:
+    assert name_words("Дмитрий Dmitriy Dmitry Dmytro Дима") == ["dmitri"] * 5
+    assert name_words("Zaporozhets Запорожец") == ["zaporozec"] * 2
+    assert name_words("Саша Alexander Олена Lena") == ["aleksandr", "aleksandr", "elena", "elena"]
+    assert name_key("Dmitriy Zaporozhets") == name_key("Запорожец Дмитрий") is not None
+
+
+def test_the_instagram_case_similar_usernames_and_a_shared_first_name() -> None:
+    telegram = build_profile(1, messengers=[TG, WA], phones=["+380994811889"],
+                             handles=["zapleosoft"], names=["Дима", "Дима"], texts=[])
+    instagram = profile(8, IG, username="zapleo_ceo", name="Dmitriy Zaporozhets")
+    [found] = suggest({1: telegram, 8: instagram})
+    assert [r.text for r in found.reasons] == [
+        "похожие username @zapleosoft и @zapleo_ceo",
+        "похожие имена: «Дима» и «Dmitriy Zaporozhets»"]
+    assert handle_stem("zapleo_ceo") == "zapleo" and handle_stem("max_1") is None
+
+
+def test_a_first_name_alone_suggests_nothing() -> None:
+    assert suggest({1: profile(1, TG, name="Дима"), 2: profile(2, IG, name="Dmitriy Petrov")}) == []
+    assert reasons(profile(1, TG, username="anna_k"), profile(2, IG, username="max_p")) == []
 
 
 def test_mentions_usernames_and_names_are_reasons_too() -> None:

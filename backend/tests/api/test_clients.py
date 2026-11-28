@@ -139,3 +139,17 @@ async def test_switching_the_client_ai_on_answers_waiting_chats(
     assert response.status_code == 200
     [(name, args, in_transaction)] = deps.tasks.calls
     assert (name, args[0], in_transaction) == ("phone_check", world.persona_id, False)
+
+
+async def test_leads_are_found_by_phone_and_name_their_messengers(
+        api: ApiClient, world: World, db: AsyncSession) -> None:
+    client = await db.get(Client, world.client_id)
+    assert client is not None
+    client.phone = "+380994811889"
+    await db.commit()
+    for q in ("0994811889", "099 481-18", "+380 99"):
+        found = (await api.get("/api/clients", params={"q": q})).json()["items"]
+        assert [c["id"] for c in found] == [world.client_id], q
+    assert (await api.get("/api/clients", params={"q": "55555"})).json()["items"] == []
+    [lead] = (await api.get("/api/clients")).json()["items"]
+    assert lead["messengers"] == []                     # the seeded client has no identity yet
