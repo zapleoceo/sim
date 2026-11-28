@@ -53,10 +53,11 @@ SPECS: Mapping[ChannelKind, ChannelSpec] = {
         sends=frozenset({MessageKind.TEXT, MessageKind.PHOTO}), typing=False,
         read_receipts=True, calls=False, receive=ReceiveMode.POLL, queue=CHANNELS_QUEUE,
         namespace="channels"),
-    # Everything but the round video (WhatsApp has none): a voice note is a real PTT bubble.
+    # Everything: a voice note is a real PTT bubble, a round video WhatsApp's video message
+    # (PTV, the owner 2026-11-28: «все функции приложения воцап, как в телеграм»).
     ChannelKind.WHATSAPP: ChannelSpec(
         kind=ChannelKind.WHATSAPP, label="WhatsApp", url_name="whatsapp",
-        sends=_EVERYTHING - {MessageKind.VIDEO_NOTE}, typing=True, read_receipts=True,
+        sends=_EVERYTHING, typing=True, read_receipts=True,
         calls=False, receive=ReceiveMode.WEBHOOK, queue=CHANNELS_QUEUE, namespace="channels"),
 }
 

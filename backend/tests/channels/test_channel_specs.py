@@ -70,10 +70,11 @@ def test_every_kind_has_one_spec() -> None:
         TELEGRAM_QUEUE, "telegram", ReceiveMode.PUSH)
     assert (instagram.queue, instagram.receive) == (CHANNELS_QUEUE, ReceiveMode.POLL)
     assert (whatsapp.queue, whatsapp.receive) == (CHANNELS_QUEUE, ReceiveMode.WEBHOOK)
-    # Calls and round videos: Telegram only; Instagram's private API has no voice or typing.
+    # Calls: Telegram only; round videos: Telegram and WhatsApp (its video message, PTV);
+    # Instagram's private API has no voice or typing.
     assert [s.calls for s in (telegram, instagram, whatsapp)] == [True, False, False]
     assert [s.can_send(MessageKind.VIDEO_NOTE) for s in (telegram, instagram, whatsapp)] == [
-        True, False, False]
+        True, False, True]
     assert instagram.sends == {MessageKind.TEXT, MessageKind.PHOTO} and not instagram.typing
     assert whatsapp.can_send(MessageKind.VOICE) and whatsapp.can_send(MessageKind.FILE)
     assert kind_by_url_name("telegram") == ChannelKind.TELEGRAM_USER
@@ -153,7 +154,7 @@ def persona(**overrides: Any) -> Persona:
 @pytest.mark.parametrize(("kind", "expected"), [
     (ChannelKind.TELEGRAM_USER, (True, True, True, True)),
     (ChannelKind.INSTAGRAM, (False, True, False, False)),
-    (ChannelKind.WHATSAPP, (True, True, True, False)),
+    (ChannelKind.WHATSAPP, (True, True, True, True)),
 ])
 def test_capabilities_follow_the_messenger(kind: ChannelKind,
                                            expected: tuple[bool, ...]) -> None:
@@ -163,11 +164,11 @@ def test_capabilities_follow_the_messenger(kind: ChannelKind,
 
 
 def test_the_plan_check_refuses_what_the_messenger_can_not_show() -> None:
-    whatsapp = Capabilities(voice=True, photo=True, photo_generate=True, video=True,
-                            video_generate=True, video_note=False)
+    no_round_video = Capabilities(voice=True, photo=True, photo_generate=True, video=True,
+                                  video_generate=True, video_note=False)
     note = plan_json({"type": "video_note", "media_id": 15})
     with pytest.raises(PlanError) as refused:
-        validated_plan(note, catalog={15: MediaKind.VIDEO}, caps=whatsapp)
+        validated_plan(note, catalog={15: MediaKind.VIDEO}, caps=no_round_video)
     assert any("кружок сейчас отправлять нельзя" in e for e in refused.value.errors)
     instagram = Capabilities(voice=False, photo=True, photo_generate=True, video=False,
                              video_generate=False, video_note=False)
@@ -190,7 +191,7 @@ def test_the_writing_style_has_a_block_per_messenger() -> None:
     assert "директ Instagram" in instagram and "сторис" in instagram
     assert "Голосовых и кружков в директе нет" in instagram
     assert "голосовые — норма" in whatsapp and "записывает аудио" in whatsapp
-    assert "Кружков в WhatsApp нет" in whatsapp
+    assert "Кружок (круглое видеосообщение) в WhatsApp тоже есть" in whatsapp
     # «Без отказов» stays the last line, after the messenger's manners.
     no_refusals = style_block(DEFAULT_MODE, no_refusals=True, channel=ChannelKind.WHATSAPP)
     assert no_refusals.index("Кружков в WhatsApp") < no_refusals.index("не отказываешь")

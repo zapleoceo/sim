@@ -5,7 +5,9 @@
   note, not an audio file;
 - photo / video / file / sticker: `POST /message/sendMedia/{inst}` {number, mediatype,
   mimetype, media: base64, caption, fileName};
-- video note: none in WhatsApp — a permanent error (the plan check never asks for it).
+- video note: `POST /message/sendPtv/{inst}` {number, video: base64} — WhatsApp's round
+  «video message» (PTV), the same square 640×640 mp4 SIM makes for Telegram, no caption
+  (neither has one).
 
 Statuses: `POST /chat/sendPresence/{inst}` — `composing` («печатает…»), `recording`
 («записывает аудио…»), `paused` to stop; read: `POST /chat/markMessageAsRead/{inst}` (blue
@@ -24,8 +26,8 @@ from sim.ports import OutboundMessage, Peer, PortError
 
 PRESENCE_MS = 5000
 MEDIA_TYPES = {"photo": "image", "video": "video", "file": "document", "sticker": "image"}
-PRESENCE = {ChatAction.CANCEL.value: "paused", ChatAction.RECORD_AUDIO.value: "recording",
-            ChatAction.RECORD_ROUND.value: "recording"}
+# WhatsApp shows «записывает аудио» only for audio; a round video is «печатает» like the rest.
+PRESENCE = {ChatAction.CANCEL.value: "paused", ChatAction.RECORD_AUDIO.value: "recording"}
 
 
 def number_of(peer: Peer) -> str:
@@ -54,6 +56,8 @@ class WhatsAppMessenger:
         number = number_of(message.peer)
         if message.kind == "text":
             path, body = "sendText", {"number": number, "text": message.text}
+        elif message.kind == "video_note":
+            path, body = "sendPtv", {"number": number, "video": _b64(message)}
         elif message.kind == "voice":
             path, body = "sendWhatsAppAudio", {"number": number, "audio": _b64(message),
                                                "encoding": True}

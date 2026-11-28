@@ -215,11 +215,23 @@ async def test_sends_text_voice_and_media() -> None:
         "image", "я")
 
 
-async def test_no_round_video_in_whatsapp_and_4xx_is_final() -> None:
+async def test_a_round_video_is_whatsapps_video_message() -> None:
+    # The owner (2026-11-28): «все функции приложения воцап, как в телеграм».
+    api = FakeEvolution()
+    peer = Peer(external_id=JID, thread_id=JID)
+    await whatsapp(api).send(5, OutboundMessage(peer=peer, kind="video_note", data=b"MP4"))
+    (_, path, body), = api.requests
+    assert (path, body) == ("/message/sendPtv/sim-5",
+                            {"number": JID, "video": base64.b64encode(b"MP4").decode()})
+    with pytest.raises(PortError):                      # nothing to send
+        await whatsapp(FakeEvolution()).send(5, OutboundMessage(peer=peer, kind="video_note"))
+
+
+async def test_an_unknown_kind_and_4xx_are_final() -> None:
     peer = Peer(external_id=JID, thread_id=JID)
     with pytest.raises(PortError) as refused:
-        await whatsapp(FakeEvolution()).send(5, OutboundMessage(peer=peer, kind="video_note",
-                                                                data=b"MP4"))
+        await whatsapp(FakeEvolution()).send(5, OutboundMessage(peer=peer, kind="location",
+                                                                data=b"?"))
     assert not refused.value.retryable
     assert not EvolutionError("bad", status=400).retryable
     assert EvolutionError("down").retryable and EvolutionError("boom", status=502).retryable
@@ -230,10 +242,11 @@ async def test_typing_and_read_receipts() -> None:
     messenger = whatsapp(api)
     peer = Peer(external_id=JID, thread_id=JID)
     await messenger.set_typing(5, peer, "record_audio")
+    await messenger.set_typing(5, peer, "record_round")   # no «records a video» in WhatsApp
     await messenger.set_typing(5, peer, "cancel")
     await messenger.mark_read(5, peer, "M1")
     presence = [body["presence"] for m, p, body in api.requests if "sendPresence" in p and body]
-    assert presence == ["recording", "paused"]
+    assert presence == ["recording", "composing", "paused"]
     _, path, body = api.requests[-1]
     assert path == "/chat/markMessageAsRead/sim-5"
     assert body == {"readMessages": [{"remoteJid": JID, "fromMe": False, "id": "M1"}]}
