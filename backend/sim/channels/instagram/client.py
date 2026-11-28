@@ -8,6 +8,11 @@ on every build; country / locale / time zone follow the proxy only when there is
 locale over a datacenter IP is a worse mismatch than none). The settings dump (device ids,
 cookies) is restored with `set_settings`, never by logging in again.
 
+The password key: instagrapi 2.16 asks `GET qe/sync/` for the key that encrypts the password,
+but Instagram answers it 404 now (seen on prod 2026-11-28: «Не удалось войти (TypeError)»,
+`int(None)` of the missing header). The app gets the same key with `launcher/sync`, the request
+the login sends just before, so `launcher_password_key` takes it from that answer.
+
 Errors are told apart by class name, so nothing here imports instagrapi's exceptions."""
 from __future__ import annotations
 
@@ -32,8 +37,29 @@ MANUAL_MARKERS = ("manual verification required", "complete verification in the 
 SOFT_BLOCK_MARKERS = ("feedback_required", "please wait", "too many requests", "rate limit")
 
 
+KEY_ID_HEADER = "ig-set-password-encryption-key-id"
+PUB_KEY_HEADER = "ig-set-password-encryption-pub-key"
+
+
 class CodeRequired(Exception):
     """Instagram asked for a code nobody typed in time (a server never waits on input())."""
+
+
+class PasswordKeyMissing(Exception):
+    """Instagram gave no key to encrypt the password with (neither answer of launcher/sync)."""
+
+
+def launcher_password_key(client: Any) -> tuple[int, str]:
+    """(key id, public key) for the password, from launcher/sync: the answer the login's
+    `pre_login_flow` just got, or a fresh one when that answer has no key (a 429 it ignored)."""
+    for attempt in range(2):
+        if attempt:
+            client.sync_launcher(True)
+        headers = getattr(getattr(client, "last_response", None), "headers", None) or {}
+        key_id, key = headers.get(KEY_ID_HEADER), headers.get(PUB_KEY_HEADER)
+        if key_id and key:
+            return int(key_id), str(key)
+    raise PasswordKeyMissing("no password encryption key in launcher/sync")
 
 
 class IgClient(Protocol):
@@ -75,6 +101,7 @@ def build_ig_client(session_settings: dict[str, Any] | None = None, *, proxy: st
     client.request_timeout = REQUEST_TIMEOUT_S
     client.challenge_code_handler = code_handler or no_code
     client.change_password_handler = no_code
+    client.password_publickeys = lambda: launcher_password_key(client)   # qe/sync is gone
     if session_settings:
         client.set_settings(session_settings)
     if proxy:
