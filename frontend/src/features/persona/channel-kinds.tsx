@@ -23,7 +23,7 @@ const entry = (kind: ChannelKind, Connect: ComponentType<ConnectProps>, hint: st
 /** One row per messenger; a new channel = a row here + its connect form. */
 export const CHANNEL_KINDS: readonly ChannelKindEntry[] = [
   entry('telegram_user', TelegramConnect, 'личный аккаунт, вход по QR'),
-  entry('instagram', InstagramConnect, 'директ, вход через прокси'),
+  entry('instagram', InstagramConnect, 'директ, прокси по желанию'),
   entry('whatsapp', WhatsAppConnect, 'связанное устройство, QR'),
 ];
 

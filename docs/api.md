@@ -140,7 +140,7 @@ Telegram (вход по QR, [personas.md](personas.md), п. 3), Instagram Direct
 |---|---|---|
 | GET | `/personas/{id}/channels` | → `{items: [Channel], kinds: [ChannelKindInfo]}` |
 | POST | `/personas/{id}/channels/telegram/login` | `{api_id, api_hash, proxy?}` → `LoginStep` |
-| POST | `/personas/{id}/channels/instagram/login` | ровно один способ: `{username, password, proxy}`, или `{sessionid, proxy}`, или `{settings_json, proxy}`; прокси обязателен (или `SIM_IG_DEFAULT_PROXY`); лишнее поле → 400 → `LoginStep` |
+| POST | `/personas/{id}/channels/instagram/login` | ровно один способ: `{username, password, proxy}`, или `{sessionid, proxy}`, или `{settings_json, proxy}`; прокси необязателен (пусто и нет `SIM_IG_DEFAULT_PROXY` — с IP сервера); лишнее поле → 400 → `LoginStep` |
 | POST | `/personas/{id}/channels/whatsapp/login` | `{phone?}` (только подпись) → `LoginStep` с QR; канал сразу `pending` и хранит инстанс и секрет вебхука |
 | GET | `/personas/{id}/channels/{cid}/login` | → `LoginStep`; дашборд спрашивает раз в 2 с, пока `state` = `qr` или `device` (Instagram повторяет вход сам) |
 | POST | `/personas/{id}/channels/{cid}/login/code` | `{code}` — код 2FA / подтверждения Instagram; пустой — «Повторить» / «Я подтвердил» → `LoginStep` |

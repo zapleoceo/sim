@@ -8,7 +8,6 @@ import json
 
 from sim.channels.instagram.login import (
     CODE_WRONG,
-    PROXY_HINT,
     IgLoginRequest,
     InstagramLogins,
 )
@@ -65,11 +64,13 @@ async def test_password_login_connects_and_keeps_only_the_session() -> None:
     assert (await flow.poll(1)).state == LoginState.NONE        # the login is over
 
 
-async def test_the_proxy_is_required_unless_the_server_has_one() -> None:
+async def test_without_a_proxy_she_logs_in_from_the_server_or_through_its_default() -> None:
     flow, factory = logins()
-    result = await flow.start(1, IgLoginRequest(proxy="", username="a", password="b"))
-    assert (result.state, result.message) == (LoginState.ERROR, PROXY_HINT)
-    assert factory.made == []
+    result = await flow.start(1, IgLoginRequest(proxy="", username="a", password="b",
+                                                lang="ru"))
+    assert result.state == LoginState.CONNECTED
+    assert factory.last.proxy == ""                     # the server's own IP
+    assert result.credentials is not None and result.credentials["proxy"] == ""
     flow, factory = logins(default_proxy=PROXY)
     result = await flow.start(1, IgLoginRequest(proxy="", username="a", password="b"))
     assert result.state == LoginState.CONNECTED and factory.last.proxy == PROXY

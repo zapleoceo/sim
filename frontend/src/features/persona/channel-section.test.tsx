@@ -167,14 +167,15 @@ describe('ChannelSection: the «Подключить» menu', () => {
 });
 
 describe('ChannelSection: Instagram', () => {
-  it('validates the form: the proxy is required', async () => {
+  it('validates the form: the proxy is optional, but a typed one must be a proxy', async () => {
     const log = fakeApi({ 'GET /api/personas/2/channels': { items: [], kinds: ALL_KINDS } });
     await render();
     await pick('Instagram');
     await userEvent.type(screen.getByLabelText('Логин Instagram'), 'olya.ig');
     await userEvent.type(screen.getByLabelText('Пароль'), 'secret');
+    await userEvent.type(screen.getByLabelText('Прокси (необязательно)'), 'ftp://host');
     await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
-    expect(await screen.findByText(/Укажите прокси/)).toBeInTheDocument();
+    expect(await screen.findByText(/Прокси вида socks5/)).toBeInTheDocument();
     expect(log.filter((r) => r.method === 'POST')).toHaveLength(0);
   });
 
@@ -188,7 +189,7 @@ describe('ChannelSection: Instagram', () => {
     await pick('Instagram');
     await userEvent.type(screen.getByLabelText('Логин Instagram'), '@olya.ig');
     await userEvent.type(screen.getByLabelText('Пароль'), 'secret');
-    await userEvent.type(screen.getByLabelText('Прокси'), 'socks5://u:p@1.2.3.4:1080');
+    await userEvent.type(screen.getByLabelText('Прокси (необязательно)'), 'socks5://u:p@1.2.3.4:1080');
     await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
     await userEvent.type(await screen.findByLabelText('Код из приложения-аутентификатора'), '123 456');
     await userEvent.click(screen.getByRole('button', { name: 'Подтвердить' }));
@@ -215,7 +216,7 @@ describe('ChannelSection: Instagram', () => {
     await pick('Instagram');
     await userEvent.click(screen.getByRole('button', { name: 'Вход по sessionid' }));
     await userEvent.type(screen.getByLabelText('sessionid'), '123456%3Aabc%3A1');
-    await userEvent.type(screen.getByLabelText('Прокси'), 'socks5://u:p@1.2.3.4:1080');
+    await userEvent.type(screen.getByLabelText('Прокси (необязательно)'), 'socks5://u:p@1.2.3.4:1080');
     await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
     expect(await screen.findByText('Подтвердите вход в приложении Instagram')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Я подтвердил' })).toBeInTheDocument();
@@ -281,7 +282,9 @@ describe('channel logic', () => {
 
   it('checks the Instagram form and sends only the chosen way in', () => {
     const proxy = 'socks5://u:p@1.2.3.4:1080';
-    expect(instagramRequest({ ...EMPTY_INSTAGRAM_FORM, username: 'olya', password: 'p' }).errors).toEqual(['Укажите прокси']);
+    // No proxy: the login goes from the server's IP (the owner, 2026-11-28).
+    expect(instagramRequest({ ...EMPTY_INSTAGRAM_FORM, username: 'olya', password: 'p' }))
+      .toEqual({ errors: [], body: { proxy: '', username: 'olya', password: 'p' } });
     expect(instagramRequest({ ...EMPTY_INSTAGRAM_FORM, proxy, username: 'bad name!', password: '' }).errors).toHaveLength(2);
     expect(instagramRequest({ ...EMPTY_INSTAGRAM_FORM, proxy, method: 'sessionid', sessionid: '42%3Aabc', username: 'x' }).body)
       .toEqual({ proxy, sessionid: '42%3Aabc' });

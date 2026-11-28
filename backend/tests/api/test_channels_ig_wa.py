@@ -81,11 +81,21 @@ async def test_instagram_2fa_code_step(api: ApiClient, world: World, db: AsyncSe
 async def test_instagram_form_errors(api: ApiClient, world: World, db: AsyncSession) -> None:
     persona = await new_persona(db)
     path = f"/api/personas/{persona.id}/channels/instagram/login"
-    no_proxy = await post(api, path, {**IG, "proxy": ""})
-    assert no_proxy["login"]["state"] == "error" and "Прокси" in no_proxy["login"]["message"]
-    assert no_proxy["channel"]["status"] == "new"
     unknown = await api.post(path, json={**IG, "cookie": "x"})
     assert unknown.status_code == 400
+
+
+async def test_instagram_login_without_a_proxy_goes_from_the_server(
+        api: ApiClient, world: World, db: AsyncSession, deps: FakeDeps,
+        ig_factory: FakeIgFactory) -> None:
+    persona = await new_persona(db)
+    body = await post(api, f"/api/personas/{persona.id}/channels/instagram/login",
+                      {**IG, "proxy": ""})
+    assert body["login"]["state"] == "connected"
+    assert body["channel"]["status"] == "connected" and ig_factory.last.proxy == ""
+    row = await db.get(Channel, body["channel"]["id"])
+    assert row is not None and row.credentials_enc
+    assert decrypt_json(row.credentials_enc, deps.settings.secret_key)["proxy"] == ""
 
 
 async def test_one_instagram_account_for_one_persona(api: ApiClient, world: World,

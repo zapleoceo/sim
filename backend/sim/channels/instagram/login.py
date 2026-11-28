@@ -9,6 +9,11 @@ Three ways in:
   with 2FA, where the private-API login stops at Instagram's Bloks screens;
 - a pasted instagrapi settings JSON (a session made elsewhere).
 
+The proxy is optional (the owner, 2026-11-28: «сделай прокси опциональный, и попробуем без
+прокси» — the server is in Germany, where she lives). Without one (and without
+SIM_IG_DEFAULT_PROXY) the login and all later work go from the server's own IP, with no device
+geo set; a proxy, once used, stays the account's for good.
+
 A challenge asks for its code from INSIDE instagrapi (`challenge_code_handler`), so the login
 runs in a thread whose handler waits for the code the owner types (`CodeBridge`); a 2FA code
 logs in again on the same client with `verification_code`. Every step answers within
@@ -47,7 +52,6 @@ CODE_WAIT_S = 540.0                         # the challenge handler waits this l
 DEVICE_BACKOFF_S = (8.0, 15.0, 25.0, 40.0, 60.0)
 MAX_CODE_TRIES = 5
 
-PROXY_HINT = "Прокси обязателен: Instagram банит вход с серверного IP"
 EXPIRED = "Вход не начат или устарел. Нажмите «Подключить» ещё раз."
 TEXTS = {
     "totp": "Введите код из приложения-аутентификатора (Google Authenticator и т. п.).",
@@ -67,8 +71,8 @@ ERRORS = {
     "PleaseWaitFewMinutes": "Instagram просит подождать несколько минут",
     "RateLimitError": "Instagram просит подождать несколько минут",
     "ProxyAddressIsBlocked": "Instagram заблокировал этот прокси — нужен другой",
-    "ClientConnectionError": "Не удалось подключиться к Instagram через прокси",
-    "ClientRequestTimeout": "Instagram не ответил вовремя (проверьте прокси)",
+    "ClientConnectionError": "Не удалось подключиться к Instagram (сеть или прокси)",
+    "ClientRequestTimeout": "Instagram не ответил вовремя (сеть или прокси)",
     "CodeRequired": "Код не введён вовремя. Начните вход заново",
     "SessionInvalid": "Сессия недействительна: войдите в Instagram в браузере заново",
     "BadSession": "Сессия недействительна: войдите в Instagram в браузере заново",
@@ -179,8 +183,9 @@ class InstagramLogins:
         await self.cancel(channel_id)
         await self.sweep()
         proxy = request.proxy.strip() or self.default_proxy
-        if not proxy:
-            return LoginResult(LoginState.ERROR, PROXY_HINT)
+        if not proxy:                       # the owner's choice: straight from the server's IP
+            log.info("instagram login channel=%s: no proxy, from the server's own IP",
+                     channel_id)
         request = replace(request, proxy=proxy)
         settings: dict[str, Any] | None = None
         if request.settings_json.strip():
@@ -295,7 +300,7 @@ class InstagramLogins:
         asked.cancel()
         log.warning("instagram login channel=%s: no answer from Instagram", channel_id)
         await self.cancel(channel_id)
-        return LoginResult(LoginState.ERROR, "Instagram не ответил вовремя (проверьте прокси)")
+        return LoginResult(LoginState.ERROR, ERRORS["ClientRequestTimeout"])
 
     async def _outcome(self, channel_id: int, login: _Pending,
                        task: asyncio.Task[Any]) -> LoginResult:
