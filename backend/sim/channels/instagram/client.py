@@ -37,6 +37,10 @@ MANUAL_MARKERS = ("manual verification required", "complete verification in the 
 SOFT_BLOCK_MARKERS = ("feedback_required", "please wait", "too many requests", "rate limit")
 
 
+class CodeRequired(Exception):
+    """Instagram asked for a code nobody typed in time (a server never waits on input())."""
+
+
 class IgClient(Protocol):
     """What SIM uses of instagrapi's `Client` (tests pass a fake)."""
 
