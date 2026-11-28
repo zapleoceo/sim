@@ -42,6 +42,15 @@ async def test_audio_to_pcm16k() -> None:
     assert len(pcm) == pytest.approx(0.5 * 16_000 * 2, rel=0.05)
 
 
+async def test_a_voice_note_becomes_m4a_for_instagram() -> None:
+    media = FfmpegMediaTools()
+    ogg, _ = await media.wav_to_ogg_opus(wav_bytes(0.5))
+    m4a = await media.to_m4a(ogg, "audio/ogg")
+    assert m4a[4:8] == b"ftyp"                          # an MP4 box
+    probe = await media.probe(m4a, "audio/mp4")
+    assert probe.duration_s == pytest.approx(0.5, abs=0.15)
+
+
 async def test_probe_image_dimensions() -> None:
     probe = await FfmpegMediaTools().probe(png_bytes(64, 32), "image/png")
     assert (probe.mime, probe.width, probe.height, probe.duration_s) == (

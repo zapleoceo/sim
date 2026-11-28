@@ -15,6 +15,7 @@ from sim.adapters.ambience import voice_note_args
 from sim.adapters.media_tools import (
     CALL_RECORDING_ARGS,
     DOCUMENT_CHAR_LIMIT,
+    M4A_ARGS,
     OGG_OPUS_ARGS,
     PCM16K_ARGS,
     TRUNCATED_MARK,
@@ -24,6 +25,8 @@ from sim.adapters.media_tools import (
     decode_text,
     document_kind,
     extract_document_text,
+    first_frame_png,
+    is_animated_webp,
     probe_from,
     run_process,
     sniff_mime,
@@ -344,6 +347,52 @@ async def test_large_image_is_converted() -> None:
     assert command[0] == "ffmpeg"
     assert command[-1].endswith("out.jpg")
     assert any("min(2048,iw)" in arg for arg in command)
+
+
+def animated_webp(frames: int = 3) -> bytes:
+    from PIL import Image
+
+    images = [Image.new("RGB", (8, 8), (40 * i, 0, 0)) for i in range(frames)]
+    out = io.BytesIO()
+    images[0].save(out, format="WEBP", save_all=True, append_images=images[1:], duration=100,
+                   loop=0)
+    return out.getvalue()
+
+
+def still_webp() -> bytes:
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(out, format="WEBP")
+    return out.getvalue()
+
+
+def test_an_animated_webp_is_told_from_a_still_one() -> None:
+    assert is_animated_webp(animated_webp())
+    assert not is_animated_webp(still_webp())
+    assert not is_animated_webp(png_bytes(4, 2)) and not is_animated_webp(b"")
+    frame = first_frame_png(animated_webp())
+    assert frame.startswith(b"\x89PNG")
+    with pytest.raises(PortError, match="not readable"):
+        first_frame_png(b"RIFF\x00\x00\x00\x00WEBPVP8X junk")
+
+
+async def test_an_animated_sticker_is_read_by_its_first_frame() -> None:
+    # ffmpeg 7 can not decode animated WebP (prod, 2026-11-28): it gets a PNG of frame one.
+    runner = FakeRunner(probe={"streams": [{"codec_type": "video", "width": 8, "height": 8}]})
+    data, mime = await tools(runner).image_for_model(animated_webp(), "image/webp")
+    assert (data[:4], mime) == (b"\x89PNG", "image/png")
+    assert [call[0] for call in runner.calls] == ["ffprobe"]
+
+
+async def test_audio_becomes_m4a_for_instagram() -> None:
+    runner = FakeRunner(output=b"....ftypM4A ")
+    assert await tools(runner).to_m4a(b"OggS voice", "audio/ogg") == b"....ftypM4A "
+    command = runner.calls[0]
+    assert command[-len(M4A_ARGS) - 1:-1] == list(M4A_ARGS)
+    assert command[-1].endswith("out.m4a")
+    with pytest.raises(PortError, match="empty"):
+        await tools(runner).to_m4a(b"", "audio/ogg")
 
 
 async def test_heic_is_converted_without_probe() -> None:

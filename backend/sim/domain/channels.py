@@ -46,11 +46,12 @@ SPECS: Mapping[ChannelKind, ChannelSpec] = {
         kind=ChannelKind.TELEGRAM_USER, label="Telegram", url_name="telegram",
         sends=_EVERYTHING, typing=True, read_receipts=True, calls=True,
         receive=ReceiveMode.PUSH, queue=TELEGRAM_QUEUE, namespace="telegram"),
-    # The private API sends text and photos; voice notes, round videos and the typing status
-    # are not in it (docs/channels.md, «Instagram»).
+    # The private API (instagrapi 3.2) sends text, photos, videos and voice notes; round videos,
+    # files, stickers and the typing status are not in Instagram (docs/channels.md).
     ChannelKind.INSTAGRAM: ChannelSpec(
         kind=ChannelKind.INSTAGRAM, label="Instagram", url_name="instagram",
-        sends=frozenset({MessageKind.TEXT, MessageKind.PHOTO}), typing=False,
+        sends=frozenset({MessageKind.TEXT, MessageKind.PHOTO, MessageKind.VIDEO,
+                         MessageKind.VOICE}), typing=False,
         read_receipts=True, calls=False, receive=ReceiveMode.POLL, queue=CHANNELS_QUEUE,
         namespace="channels"),
     # Everything: a voice note is a real PTT bubble, a round video WhatsApp's video message

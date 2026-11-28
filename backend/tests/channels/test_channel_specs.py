@@ -71,11 +71,12 @@ def test_every_kind_has_one_spec() -> None:
     assert (instagram.queue, instagram.receive) == (CHANNELS_QUEUE, ReceiveMode.POLL)
     assert (whatsapp.queue, whatsapp.receive) == (CHANNELS_QUEUE, ReceiveMode.WEBHOOK)
     # Calls: Telegram only; round videos: Telegram and WhatsApp (its video message, PTV);
-    # Instagram's private API has no voice or typing.
+    # Instagram Direct: text, photo, video, voice (instagrapi 3.2), no typing.
     assert [s.calls for s in (telegram, instagram, whatsapp)] == [True, False, False]
     assert [s.can_send(MessageKind.VIDEO_NOTE) for s in (telegram, instagram, whatsapp)] == [
         True, False, True]
-    assert instagram.sends == {MessageKind.TEXT, MessageKind.PHOTO} and not instagram.typing
+    assert instagram.sends == {MessageKind.TEXT, MessageKind.PHOTO, MessageKind.VIDEO,
+                               MessageKind.VOICE} and not instagram.typing
     assert whatsapp.can_send(MessageKind.VOICE) and whatsapp.can_send(MessageKind.FILE)
     assert kind_by_url_name("telegram") == ChannelKind.TELEGRAM_USER
     assert kind_by_url_name("whatsapp") == ChannelKind.WHATSAPP
@@ -153,7 +154,7 @@ def persona(**overrides: Any) -> Persona:
 
 @pytest.mark.parametrize(("kind", "expected"), [
     (ChannelKind.TELEGRAM_USER, (True, True, True, True)),
-    (ChannelKind.INSTAGRAM, (False, True, False, False)),
+    (ChannelKind.INSTAGRAM, (True, True, True, False)),     # no round videos in Direct
     (ChannelKind.WHATSAPP, (True, True, True, True)),
 ])
 def test_capabilities_follow_the_messenger(kind: ChannelKind,
@@ -189,7 +190,7 @@ def test_the_writing_style_has_a_block_per_messenger() -> None:
     whatsapp = style_block(DEFAULT_MODE, channel=ChannelKind.WHATSAPP)
     assert instagram.startswith(STYLE_HEADING) and instagram.startswith(telegram)
     assert "директ Instagram" in instagram and "сторис" in instagram
-    assert "Голосовых и кружков в директе нет" in instagram
+    assert "кружков в директе нет" in instagram
     assert "голосовые — норма" in whatsapp and "записывает аудио" in whatsapp
     assert "Кружок (круглое видеосообщение) в WhatsApp тоже есть" in whatsapp
     # «Без отказов» stays the last line, after the messenger's manners.

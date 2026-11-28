@@ -16,6 +16,7 @@ from sim.clock import FixedClock
 from sim.domain.enums import ChannelKind, ChannelStatus
 from sim.ports import OutboundMessage, Peer, PortError
 from tests.channels.ig_fixtures import INBOX, NOW_US, PENDING
+from tests.fakes.ai import FakeMediaTools
 from tests.fakes.channels import (
     ChallengeRequired,
     FakeIgClient,
@@ -83,15 +84,42 @@ async def test_send_text_and_photo_through_the_thread() -> None:
     assert await accounts.get(7) is await accounts.get(7)   # the same client goes on
 
 
+async def test_voice_goes_as_m4a_and_video_as_mp4() -> None:
+    accounts, _, factory, _ = runtime()
+    tools = FakeMediaTools()
+    messenger = InstagramMessenger(accounts, tools)
+    voice = OutboundMessage(peer=PEER, kind="voice", text="(что сказала)", data=b"OGG",
+                            mime="audio/ogg")
+    assert await messenger.send(7, voice) == "101"
+    video = OutboundMessage(peer=PEER, kind="video", text="смотри", data=b"MP4",
+                            mime="video/mp4")
+    assert await messenger.send(7, video) == "102"
+    client = factory.last
+    assert tools.calls == [("to_m4a", "audio/ogg")]       # her OGG/Opus -> AAC .m4a
+    assert client.suffixes == [".m4a", ".mp4"]
+    # A voice note has no caption; a video's caption follows as a text.
+    assert client.sent == [("bytes", b"M4A:OGG", [340282366841710300949128]),
+                           ("bytes", b"MP4", [340282366841710300949128]),
+                           ("str", "смотри", [340282366841710300949128])]
+
+
 async def test_what_the_private_api_can_not_send_is_refused_for_good() -> None:
-    accounts, _, _, _ = runtime()
-    messenger = InstagramMessenger(accounts)
-    with pytest.raises(PortError) as refused:
-        await messenger.send(7, OutboundMessage(peer=PEER, kind="voice", data=b"OGG"))
-    assert not refused.value.retryable
+    accounts, _, factory, _ = runtime()
+    messenger = InstagramMessenger(accounts, FakeMediaTools())
+    for kind in ("video_note", "file", "sticker"):
+        with pytest.raises(PortError) as refused:
+            await messenger.send(7, OutboundMessage(peer=PEER, kind=kind, data=b"X"))
+        assert not refused.value.retryable
+    with pytest.raises(PortError, match="mp4"):
+        await messenger.send(7, OutboundMessage(peer=PEER, kind="video", data=b"WEBM",
+                                                mime="video/webm"))
+    with pytest.raises(PortError, match="no media tools"):
+        await InstagramMessenger(accounts).send(7, OutboundMessage(
+            peer=PEER, kind="voice", data=b"OGG", mime="audio/ogg"))
     with pytest.raises(PortError, match="no Instagram thread"):
         await messenger.send(7, OutboundMessage(peer=Peer(external_id="1"), kind="text",
                                                 text="x"))
+    assert factory.made == []                   # refused before the account was even touched
 
 
 async def test_send_caps_wait_for_a_free_slot() -> None:

@@ -1,12 +1,18 @@
 """Evolution API v2 payloads -> SIM. Pure, no I/O.
 
 - Text is read from every bubble a person reads: `conversation`, `extendedTextMessage.text`
-  (replies, links), media captions, button / list replies.
+  (replies, links), media captions, button / list replies; a bubble without text gets a line:
+  a reaction is its emoji (on the message it reacts to), a location «📍 геопозиция» + a map
+  link, a contact card «👤 контакт: имя». A reaction taken back (empty emoji) is skipped.
+- What a message answers: `contextInfo.stanzaId` of ANY part (a quoted photo or voice note
+  too, not only a text).
 - Envelopes are peeled first: disappearing (`ephemeralMessage`), view-once
   (`viewOnceMessage`, `viewOnceMessageV2`), a document with a caption.
-- Media: image -> photo, sticker -> sticker, video -> video, audio -> voice (a PTT note) or
-  audio, document -> file; the bytes come in the event (`webhook.base64`), else the attachment
-  is empty and the Inbox still knows something arrived.
+- Media: image -> photo, sticker (static or animated WebP) -> sticker, round video message
+  (`ptvMessage`, кружок) -> video_note, video -> video, audio -> voice (a PTT note) or audio,
+  document -> file; the bytes come in the event (`webhook.base64`), else the attachment is
+  empty and the Inbox still knows something arrived. Until 2026-11-28 `ptvMessage`, reactions,
+  locations and contacts were not read: such a message was dropped as empty.
 - Addresses: `<digits>@s.whatsapp.net` is the phone itself; `@lid` is WhatsApp's privacy id
   with no phone in it — the phone rides in `remoteJidAlt` when WhatsApp gives it. The client's
   address is the phone jid when known, else the jid as it came. Groups (`@g.us`), broadcasts
@@ -39,11 +45,13 @@ TEXT_KEYS: tuple[tuple[str, str], ...] = (
 MEDIA_KINDS: tuple[tuple[str, str, str], ...] = (
     ("imageMessage", "photo", "image/jpeg"),
     ("stickerMessage", "sticker", "image/webp"),
+    ("ptvMessage", "video_note", "video/mp4"),      # the round «video message» (кружок)
     ("videoMessage", "video", "video/mp4"),
     ("audioMessage", "voice", "audio/ogg"),
     ("documentMessage", "file", "application/octet-stream"),
 )
 PHONE_DOMAIN = "s.whatsapp.net"
+MAPS = "https://maps.google.com/?q={lat},{lng}"
 
 
 @dataclass(frozen=True)
@@ -75,7 +83,47 @@ def text_of(message: Any) -> str:
             return value
         if sub and isinstance(value, dict) and isinstance(value.get(sub), str):
             return value[sub]
+    return card_text(body)
+
+
+def card_text(body: dict[str, Any]) -> str:
+    """A line for a bubble without text of its own: a reaction (its emoji), a location, a
+    contact card. "" for anything else."""
+    reaction = body.get("reactionMessage")
+    if isinstance(reaction, dict):
+        return str(reaction.get("text") or "")      # "" = the reaction was taken back
+    for key in ("locationMessage", "liveLocationMessage"):
+        place = body.get(key)
+        if isinstance(place, dict):
+            lat, lng = place.get("degreesLatitude"), place.get("degreesLongitude")
+            name = " · ".join(str(place[k]).strip() for k in ("name", "address")
+                              if str(place.get(k) or "").strip())
+            link = MAPS.format(lat=lat, lng=lng) if lat is not None and lng is not None else ""
+            return " ".join(part for part in ("📍 геопозиция", name, link) if part)
+    contact = body.get("contactMessage")
+    if isinstance(contact, dict):
+        return f"👤 контакт: {contact.get('displayName') or ''}".strip()
+    contacts = body.get("contactsArrayMessage")
+    if isinstance(contacts, dict):
+        names = [str(c.get("displayName") or "") for c in contacts.get("contacts") or []
+                 if isinstance(c, dict)]
+        return f"👤 контакты: {', '.join(n for n in names if n)}".strip()
     return ""
+
+
+def reply_to_of(message: Any) -> str | None:
+    """The message this one answers: `contextInfo.stanzaId` of any part (a text, a photo, a
+    voice note can all quote), or the message a reaction is on."""
+    body = unwrap(message)
+    reaction = body.get("reactionMessage")
+    if isinstance(reaction, dict):
+        target = (reaction.get("key") or {}).get("id")
+        return str(target) if target else None
+    for part in body.values():
+        context = part.get("contextInfo") if isinstance(part, dict) else None
+        if isinstance(context, dict) and context.get("stanzaId"):
+            return str(context["stanzaId"])
+    return None
 
 
 def media_of(message: Any) -> tuple[str, dict[str, Any], str] | None:
@@ -155,15 +203,12 @@ def inbound_of(channel_id: int, record: Any) -> InboundMessage | None:
             duration_s=float(seconds) if isinstance(seconds, int | float) else None,
             width=info.get("width") if isinstance(info.get("width"), int) else None,
             height=info.get("height") if isinstance(info.get("height"), int) else None)
-    context = (unwrap(message).get("extendedTextMessage") or {}).get("contextInfo") or {}
     peer = Peer(external_id=jid, name=str(record.get("pushName") or ""),
                 phone=phone_of(jid) or phone_of(str(key.get("remoteJid") or "")),
                 thread_id=jid)
     return InboundMessage(channel_id=channel_id, peer=peer, external_id=message_id, text=text,
                           sent_at=sent_at(record.get("messageTimestamp")),
-                          attachment=attachment,
-                          reply_to_external_id=str(context["stanzaId"])
-                          if context.get("stanzaId") else None)
+                          attachment=attachment, reply_to_external_id=reply_to_of(message))
 
 
 def records_of(data: Any) -> list[dict[str, Any]]:
