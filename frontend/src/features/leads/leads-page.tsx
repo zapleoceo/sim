@@ -20,6 +20,7 @@ import type { LeadsSearch } from '@/router';
 import { leadsApi, type LeadFilters } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
 import { MatchesPanel } from './client-matches';
+import { SelectionBar, selectColumn, useLeadSelection } from './lead-selection';
 import { STAGES, isStage, stageInfo } from './passport-logic';
 
 const route = getRouteApi('/_app/leads');
@@ -109,7 +110,8 @@ export const LEAD_COLUMNS: ColumnDef<Lead, unknown>[] = [
 
 /**
  * «Лиды»: every client of every persona, filters by persona and stage, search; a click opens the
- * card. Above the table — «Возможно, один человек» (pairs to merge, docs/leads.md). The filters live in the address (`/leads?q=анна&persona=2&stage=hot`): «назад» from a card
+ * card. Above the table — «Возможно, один человек» (pairs to merge, docs/leads.md); two ticked
+ * leads can be merged by hand (the older stays). The filters live in the address (`/leads?q=анна&persona=2&stage=hot`): «назад» from a card
  * and a shared link keep them; «Персонажи» links here with `?persona=`.
  */
 export function LeadsPage() {
@@ -126,6 +128,8 @@ export function LeadsPage() {
   });
   const rows = useMemo(() => leads.data?.items ?? [], [leads.data]);
   const filtered = Boolean(q || personaId || stage);
+  const { chosen, toggle, clear } = useLeadSelection(rows);
+  const columns = useMemo(() => [selectColumn(chosen, toggle), ...LEAD_COLUMNS], [chosen, toggle]);
 
   return (
     <Page width="wide">
@@ -147,17 +151,18 @@ export function LeadsPage() {
           value={q}
           onChange={(text) => setFilters({ q: text || undefined })}
           label="Поиск лидов"
-          placeholder="Имя или username"
+          placeholder="Имя, username или телефон"
           className="w-full sm:w-72"
         />
       </PageHeader>
       <MatchesPanel />
+      <SelectionBar chosen={chosen} clear={clear} />
       {leads.isError ? (
         <ErrorState onRetry={() => void leads.refetch()} />
       ) : (
         <div className="rounded-xl border bg-card shadow-xs">
           <DataTable
-            columns={LEAD_COLUMNS}
+            columns={columns}
             data={rows}
             loading={leads.isPending}
             getRowId={(c) => String(c.id)}

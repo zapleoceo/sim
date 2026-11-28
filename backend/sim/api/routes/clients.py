@@ -55,7 +55,8 @@ def passport_changes(data: Any) -> dict[str, Any]:
 @get("/clients")
 async def list_clients(db: AsyncSession, q: str | None = None, persona_id: int | None = None,
                        stage: LeadStage | None = None) -> Json:
-    """Leads: newest contact first, with the persona, chats and messages counts."""
+    """Leads: newest contact first, with the persona, the messengers, chats and messages counts.
+    `q` finds a name, a username or a phone (sim.api.queries.search_clients)."""
     stmt = search_clients(select(Client), q)
     if persona_id is not None:
         stmt = stmt.where(Client.persona_id == persona_id)
@@ -74,6 +75,7 @@ async def list_clients(db: AsyncSession, q: str | None = None, persona_id: int |
     personas = await by_ids(db, Persona, (c.persona_id for c in clients))
     return {"items": [
         {**views.client_view(c), "persona": views.persona_brief(personas.get(c.persona_id)),
+         "messengers": views.messengers(c),
          "chats_count": chats.get(c.id, 0), "messages_count": messages.get(c.id, 0)}
         for c in clients]}
 

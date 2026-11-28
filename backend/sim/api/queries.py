@@ -4,6 +4,7 @@ timeline items joined with their message / media / call / generation, and the jo
 chats of one person in one stream (batched, no N+1)."""
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import datetime
@@ -48,13 +49,23 @@ async def persona_or_404(session: AsyncSession, persona_id: int) -> Persona:
     return persona
 
 
+PHONE_SEARCH_MIN = 5            # digits typed before the search looks at phones
+
+
 def search_clients(stmt: Select[Any], q: str | None) -> Select[Any]:
-    """Filter by a substring of the client's name or username (`@` ignored)."""
+    """Filter by a substring of the client's name or username (`@` ignored) or, when the search
+    has enough digits, of the phone with only its digits compared (`099 481-18` finds
+    `+380994811889`)."""
     needle = (q or "").strip().removeprefix("@")
     if not needle:
         return stmt
-    return stmt.where(or_(Client.name.icontains(needle, autoescape=True),
-                          Client.username.icontains(needle, autoescape=True)))
+    found = [Client.name.icontains(needle, autoescape=True),
+             Client.username.icontains(needle, autoescape=True)]
+    digits = "".join(ch for ch in needle if ch.isdigit())
+    if len(digits) >= PHONE_SEARCH_MIN and not re.search(r"[^\d\s()+\-]", needle):
+        phone_digits = func.regexp_replace(func.coalesce(Client.phone, ""), r"\D", "", "g")
+        found.append(phone_digits.contains(digits))
+    return stmt.where(or_(*found))
 
 
 async def by_ids[M: Base](session: AsyncSession, model: type[M],

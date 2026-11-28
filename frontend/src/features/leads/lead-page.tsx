@@ -23,6 +23,7 @@ import { leadsApi, useUpdateClient } from './api';
 import { ClientAiSwitch } from './client-ai-switch';
 import { ClientFeed } from './client-feed';
 import { ClientMatches, MessengerIcons } from './client-matches';
+import { MergeWithButton } from './merge-with';
 import { DaysTab } from './days-tab';
 import { PassportEditor } from './passport-editor';
 
@@ -100,7 +101,10 @@ function LeadCard({ client }: { client: ClientDetail }) {
             ].filter(Boolean).join(' · ') || 'нет данных'}
           </p>
         </div>
-        <ClientAiSwitch clientId={client.id} enabled={client.ai_enabled} name={name} withLabel />
+        <div className="flex flex-wrap items-center gap-3">
+          <MergeWithButton client={client} />
+          <ClientAiSwitch clientId={client.id} enabled={client.ai_enabled} name={name} withLabel />
+        </div>
       </header>
 
       <Tabs defaultValue="card">

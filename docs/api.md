@@ -232,7 +232,7 @@ Canon = {id, fact, status: "active"|"rejected", chat_id, event_id, created_at}
 
 | Метод | Путь | |
 |---|---|---|
-| GET | `/clients?q=&persona_id=&stage=` | → `{items: [Lead]}`: последний контакт сначала, до 1000; `stage` — стадия паспорта (пустой паспорт = `new`); 400 — неизвестная стадия |
+| GET | `/clients?q=&persona_id=&stage=` | → `{items: [Lead]}`: последний контакт сначала, до 1000; `q` ищет в имени, username и, если в нём 5+ цифр (и только цифры, пробелы, `+-()`), в цифрах телефона (тот же поиск у `/chats`); `stage` — стадия паспорта (пустой паспорт = `new`); 400 — неизвестная стадия |
 | GET | `/clients/{id}` | → `ClientDetail` = `Client` + `persona: PersonaBrief` + `messengers: [kind]` (где у него аккаунты) + `chats: [ChatRow]` |
 | GET | `/clients/matches` | → `{items: [ClientMatch]}` — «Возможно, один человек» ([leads.md](leads.md) §6): пары клиентов с причинами, сначала пары с большим числом причин; пары с аккаунтами в одном мессенджере и отмеченные «Разные люди» не входят |
 | GET | `/clients/{id}/matches` | → `{items: [ClientMatch]}` — пары этого клиента; 404 — нет клиента |
@@ -244,7 +244,7 @@ Canon = {id, fact, status: "active"|"rejected", chat_id, event_id, created_at}
 ```ts
 Client = {id, persona_id, name, username, phone, timezone, notes, ai_enabled,
           passport: Passport, created_at, last_seen_at}
-Lead = Client & {persona: PersonaBrief | null, chats_count, messages_count}
+Lead = Client & {persona: PersonaBrief | null, messengers: [kind], chats_count, messages_count}
 ClientMatch = {clients: [MatchClient, MatchClient] /* меньший id первым */,
                reasons: [{kind: "phone"|"username"|"name"|"mention", text}]}
 MatchClient = {id, name, username, ai_enabled, phone, messengers: [kind], persona, last_seen_at}

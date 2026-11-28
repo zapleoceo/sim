@@ -78,7 +78,10 @@ async def test_suggests_one_person_by_phone_and_hides_a_distinct_pair(
     assert [c["id"] for c in pair["clients"]] == [world.client_id, twin.client_id]
     assert pair["clients"][1]["messengers"] == ["whatsapp"]
     assert pair["clients"][0]["persona"]["name"] == "Марина"
-    assert pair["reasons"] == [{"kind": "phone", "text": "один телефон …994811889"}]
+    # «Дима» and «Dmitry» are one first name: told alongside the phone, never alone.
+    assert pair["reasons"] == [
+        {"kind": "phone", "text": "один телефон …994811889"},
+        {"kind": "name", "text": "похожие имена: «Дима Петров» и «Zaporozhets Dmitry»"}]
     mine = (await api.get(f"/api/clients/{twin.client_id}/matches")).json()["items"]
     assert [[c["id"] for c in p["clients"]] for p in mine] == [[world.client_id, twin.client_id]]
 
@@ -100,7 +103,8 @@ async def test_a_mention_in_the_messages_is_a_reason(api: ApiClient, world: Worl
                                                      db: AsyncSession) -> None:
     await whatsapp_twin(db, world, phone="", text="это я, мой телеграм @dima_p")
     [pair] = (await api.get("/api/clients/matches")).json()["items"]
-    assert pair["reasons"] == [{"kind": "mention", "text": "в переписке назван @dima_p"}]
+    assert [r["kind"] for r in pair["reasons"]] == ["mention", "name"]
+    assert pair["reasons"][0]["text"] == "в переписке назван @dima_p"
 
 
 async def test_merge_moves_identities_chats_and_memory_and_combines_the_profile(
