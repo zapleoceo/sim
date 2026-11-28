@@ -314,8 +314,8 @@ class InstagramLogins:
         login.attempt_started = self.monotonic()
         return await self._wait(channel_id, login, self.answer_s)
 
-    async def _wait(self, channel_id: int, login: _Pending, timeout: float) -> LoginResult:
-        """Up to `timeout`: the attempt's end, a challenge code Instagram asks for, or «wait»
+    async def _wait(self, channel_id: int, login: _Pending, within_s: float) -> LoginResult:
+        """Up to `within_s`: the attempt's end, a challenge code Instagram asks for, or «wait»
         (the attempt goes on; the dashboard re-reads). Past `attempt_s` it is given up."""
         task = login.task
         if task is None:
@@ -323,7 +323,7 @@ class InstagramLogins:
         if login.asked is None or login.asked.done():
             login.asked = login.bridge.arm()
         asked = login.asked
-        done, _ = await asyncio.wait({task, asked}, timeout=timeout,
+        done, _ = await asyncio.wait({task, asked}, timeout=within_s,
                                      return_when=asyncio.FIRST_COMPLETED)
         if task in done:
             asked.cancel()
