@@ -154,7 +154,7 @@ def persona(**overrides: Any) -> Persona:
 
 @pytest.mark.parametrize(("kind", "expected"), [
     (ChannelKind.TELEGRAM_USER, (True, True, True, True)),
-    (ChannelKind.INSTAGRAM, (False, True, False, False)),
+    (ChannelKind.INSTAGRAM, (True, True, True, False)),     # no round videos in Direct
     (ChannelKind.WHATSAPP, (True, True, True, True)),
 ])
 def test_capabilities_follow_the_messenger(kind: ChannelKind,
